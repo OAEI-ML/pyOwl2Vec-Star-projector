@@ -1,0 +1,8 @@
+Prefix(:=<urn:oracle:lifecycle#>)
+Ontology(<urn:oracle:lifecycle-a>
+ Declaration(Class(:A)) Declaration(Class(:B))
+ Declaration(ObjectProperty(:shared)) Declaration(ObjectProperty(:child)) Declaration(ObjectProperty(:inverse))
+ SubObjectPropertyOf(:child :shared)
+ InverseObjectProperties(:shared :inverse)
+ SubClassOf(:A ObjectSomeValuesFrom(:shared :B))
+)

@@ -1,0 +1,1261 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "34196c2f534de999e7543262122d73b2580bfdf690788dade8cb4f757b8bf6bd",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "canonical_edges_sha256": "1e8637057e2d33bf24da0d9ffcb30aa00a696a2e0ac5874b5427ffb8f3db1bb5",
+          "distinct_edge_count": 6,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 5,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "http://www.w3.org/2002/07/owl#Thing",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "d131f18071d24867da08111d5e3a5bb38fdc71dd14567e1441ecda8038725930",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "f2e90d839ff6e12f824579b0262b86d3670bebc3e5995b0cbfe0e8d2a1ed650b",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 11,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "raw_order_sha256": "5c318be054ce522e0619c29dbadb16c27bc98e652ed77b574832e7e70d1fbb8a",
+          "reported_edge_count": 11
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 11",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "e7f06a847fca5d4ce036cfa60692e00eb0926e9369fda319130f17b088cc9331"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "7a80d71c0c170e44487a86236f034f9d30291288a740311281e57bbee48d55ef",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "canonical_edges_sha256": "1e8637057e2d33bf24da0d9ffcb30aa00a696a2e0ac5874b5427ffb8f3db1bb5",
+          "distinct_edge_count": 6,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 5,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "http://www.w3.org/2002/07/owl#Thing",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "d131f18071d24867da08111d5e3a5bb38fdc71dd14567e1441ecda8038725930",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "f2e90d839ff6e12f824579b0262b86d3670bebc3e5995b0cbfe0e8d2a1ed650b",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 11,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "raw_order_sha256": "1b68c915916ea0ca06d1a69c7bfe4489c66f505dff67b8a40b1b76bd91d9bd3d",
+          "reported_edge_count": 11
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 11",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "e7f06a847fca5d4ce036cfa60692e00eb0926e9369fda319130f17b088cc9331"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "575e004970e330d6ed0b104a45e099af1cfe088ad9a5d9c112c191d4ead9cb4a",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            }
+          ],
+          "canonical_edges_sha256": "e539baeb01748f9e5349e32d84e438b16395ecd1d7bc846912afbca1ba2e092a",
+          "distinct_edge_count": 1,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            }
+          ],
+          "edge_counter_sha256": "7d6dcdf90fc16b46eca95a6e4b93c2c588bc68a11725101fca040ae3f4b75f31",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "47a3159a90d7bc1e8ce8132a6582b57a90514273ca5d4862720636da28ed136f",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 1,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            }
+          ],
+          "raw_order_sha256": "e539baeb01748f9e5349e32d84e438b16395ecd1d7bc846912afbca1ba2e092a",
+          "reported_edge_count": 1
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 1",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "8761e139678712f791446f3abfcf55260ed1af2275a03aba9652b0fee0d888d8"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "ed09e12c81d75f88b309800dba2d102089510ee35a311704a4d723cd403e7f50",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            }
+          ],
+          "canonical_edges_sha256": "e539baeb01748f9e5349e32d84e438b16395ecd1d7bc846912afbca1ba2e092a",
+          "distinct_edge_count": 1,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            }
+          ],
+          "edge_counter_sha256": "7d6dcdf90fc16b46eca95a6e4b93c2c588bc68a11725101fca040ae3f4b75f31",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "47a3159a90d7bc1e8ce8132a6582b57a90514273ca5d4862720636da28ed136f",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 1,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            }
+          ],
+          "raw_order_sha256": "e539baeb01748f9e5349e32d84e438b16395ecd1d7bc846912afbca1ba2e092a",
+          "reported_edge_count": 1
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 1",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "8761e139678712f791446f3abfcf55260ed1af2275a03aba9652b0fee0d888d8"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "fc6c414d487f08681eb0738c0c7b9ddecd089b198f62181806762519c11669e1",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "canonical_edges_sha256": "f18a2f6438f3bde2968614e311d27a46c7b2b61c29602390cb9f3e37cb48c24e",
+          "distinct_edge_count": 7,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 5,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "http://www.w3.org/2002/07/owl#Thing",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "a954d8f5fb9f0b30fc59706c0598e379f8a2138b021253246d27b35e86dba38b",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "27da29de8db818aa5a1a3376a1b17216eff388f388933d2f8f90668f9406039f",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "raw_order_sha256": "5e8c261bdf7b0655d32b82186f3cac38a5ab96b64565ed05ff73bd537dec1658",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 12",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "57838b66d7e35cc9d5cd2d6e0c1c09985024d20ce5352d6fead689125b9ac250"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "280eac58f9553710c3b20b7445e27bd6a94da19e62efa94a1e0d924d6a1ae934",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "canonical_edges_sha256": "f18a2f6438f3bde2968614e311d27a46c7b2b61c29602390cb9f3e37cb48c24e",
+          "distinct_edge_count": 7,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 5,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#p",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "http://www.w3.org/2002/07/owl#Thing",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#C",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#D",
+                "relation": "urn:oracle:taxonomy#q",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "a954d8f5fb9f0b30fc59706c0598e379f8a2138b021253246d27b35e86dba38b",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "27da29de8db818aa5a1a3376a1b17216eff388f388933d2f8f90668f9406039f",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#D",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#p",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "http://www.w3.org/2002/07/owl#Thing",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#C",
+              "relation": "urn:oracle:taxonomy#q",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "raw_order_sha256": "99e12c6176ad71a9cdabed6dc5ee3a3baaf512bedce340592d1d9c992b18900d",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 12",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "57838b66d7e35cc9d5cd2d6e0c1c09985024d20ce5352d6fead689125b9ac250"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "7dad8d9f39b6b484a46500506dc52dd965c39dd7abd0a55a8de4658af65649f6",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "canonical_edges_sha256": "e02a4e02377cd95dbb69edcd4c264e258d0bf301233e61279a85e27633f5e066",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "b093a741366a36b39983f702c7443308e8e5505781e7f6e6a6d3d1303b65b470",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "ea0de9babfb269ad513f272623153bcbc240bf8d9682025cf8a5bd06d8cb468a",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "raw_order_sha256": "e02a4e02377cd95dbb69edcd4c264e258d0bf301233e61279a85e27633f5e066",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "ff8f4074ddf599517bc95216e0a96f6ed60fd99b50d4ef3339377552b1b368ad",
+      "invocation_history": [
+        "taxonomy-restrictions.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "canonical_edges_sha256": "e02a4e02377cd95dbb69edcd4c264e258d0bf301233e61279a85e27633f5e066",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+              "document": "taxonomy-restrictions.ofn",
+              "document_iri": "fixture:///taxonomy-restrictions.ofn",
+              "ontology_iri": "urn:oracle:taxonomy"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:taxonomy#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:taxonomy#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:taxonomy#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "b093a741366a36b39983f702c7443308e8e5505781e7f6e6a6d3d1303b65b470",
+          "input_name": "taxonomy-restrictions.ofn",
+          "metadata_sha256": "ea0de9babfb269ad513f272623153bcbc240bf8d9682025cf8a5bd06d8cb468a",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:taxonomy#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:taxonomy#A"
+            },
+            {
+              "destination": "urn:oracle:taxonomy#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:taxonomy#B"
+            }
+          ],
+          "raw_order_sha256": "e02a4e02377cd95dbb69edcd4c264e258d0bf301233e61279a85e27633f5e066",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "dfe97c31365b06b40e610a37d56d7c5f16c6a01789a7b7694f61da21b873d20f",
+    "documents": [
+      "taxonomy-restrictions.ofn"
+    ],
+    "id": "taxonomy-restrictions",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-001",
+      "RB-002",
+      "RB-003",
+      "RB-004",
+      "RB-005",
+      "RB-006",
+      "RB-007",
+      "RB-008",
+      "RB-009"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

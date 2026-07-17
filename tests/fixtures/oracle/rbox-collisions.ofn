@@ -1,0 +1,13 @@
+Prefix(:=<urn:oracle:rbox#>)
+Ontology(<urn:oracle:rbox>
+ Declaration(Class(:A)) Declaration(Class(:B))
+ Declaration(ObjectProperty(:p)) Declaration(ObjectProperty(:q))
+ Declaration(ObjectProperty(:r)) Declaration(ObjectProperty(:s)) Declaration(ObjectProperty(:t))
+ SubObjectPropertyOf(:p :r)
+ SubObjectPropertyOf(:q :r)
+ SubObjectPropertyOf(:p :q)
+ InverseObjectProperties(:r :s)
+ InverseObjectProperties(:r :t)
+ SubClassOf(:A ObjectSomeValuesFrom(:r :B))
+ SubClassOf(:A ObjectSomeValuesFrom(:q :B))
+)

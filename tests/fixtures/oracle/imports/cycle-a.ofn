@@ -1,0 +1,5 @@
+Prefix(:=<urn:oracle:cycle#>)
+Ontology(<urn:oracle:cycle-a>
+ Import(<urn:oracle:cycle-b>)
+ SubClassOf(:A :Top)
+)

@@ -5,7 +5,12 @@ include README.md
 include pyproject.toml
 recursive-include src *.py py.typed
 recursive-include specs *.md *.toml
-recursive-include tools *.py
+include specs/reference-rules.json
+include tools/audit_runtime.py
+include tools/check_baseline.py
 recursive-include reports *.md
+exclude tests/test_oracle_goldens.py
+prune tools/java-oracle
+prune tests/fixtures/oracle
+prune tests/goldens
 recursive-exclude * __pycache__ *.py[cod]
-

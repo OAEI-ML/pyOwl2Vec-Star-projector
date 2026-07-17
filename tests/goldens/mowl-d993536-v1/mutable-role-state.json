@@ -1,0 +1,1166 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "42ca313c4ed4c7f72f777dabb076bb45a215d8079a8b92bcd305d09902583d30",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "303bdc57bddd195e2bb5d63f546b86f37f660de4bdf9ce19355f58c5465e7669",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#A",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "da4132d1bd5aa4ccc31f70b622fdb9538e95ee7913e05fb687c5881d102c82f4",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "c9073a947b7e7c759ccf85d74fd017dc3573c94c87e0e494f6e4d1c9b658f3d5",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "raw_order_sha256": "98ebc66d9a15d042990e5931cc49ef1fef4d9e279c1adbefc0c7e19910d8efd1",
+          "reported_edge_count": 3
+        },
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "canonical_edges_sha256": "715edbc7afbcf6753885f9813df0fc4449be74c7496555e979ad32c277339dfb",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#X",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#Y"
+              }
+            }
+          ],
+          "edge_counter_sha256": "ecf5aab22c64cf36af3068e2e390246117aa8dbf1c13b44b2fe9bc6158ae630e",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "65d278993d58f6e8504f4f66e4be53793541b6bc8575cd9ad01b74e0597a54d8",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "raw_order_sha256": "8748bf20e0a75e1eeec84fd5be421993936a7b13afc7a7e00c85a0204424c6c1",
+          "reported_edge_count": 3
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "54e8ce92bccc3389da86158bd7235abbdad78e0ec0aca7086a67b962092822ed"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "8f4d517b3a6d8cfaefa50974022af8d9288c7d171ac380925c9d71d22f680c1b",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "303bdc57bddd195e2bb5d63f546b86f37f660de4bdf9ce19355f58c5465e7669",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#A",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "da4132d1bd5aa4ccc31f70b622fdb9538e95ee7913e05fb687c5881d102c82f4",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "c9073a947b7e7c759ccf85d74fd017dc3573c94c87e0e494f6e4d1c9b658f3d5",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "raw_order_sha256": "98ebc66d9a15d042990e5931cc49ef1fef4d9e279c1adbefc0c7e19910d8efd1",
+          "reported_edge_count": 3
+        },
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "canonical_edges_sha256": "715edbc7afbcf6753885f9813df0fc4449be74c7496555e979ad32c277339dfb",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#X",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#Y"
+              }
+            }
+          ],
+          "edge_counter_sha256": "ecf5aab22c64cf36af3068e2e390246117aa8dbf1c13b44b2fe9bc6158ae630e",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "65d278993d58f6e8504f4f66e4be53793541b6bc8575cd9ad01b74e0597a54d8",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "raw_order_sha256": "8748bf20e0a75e1eeec84fd5be421993936a7b13afc7a7e00c85a0204424c6c1",
+          "reported_edge_count": 3
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "54e8ce92bccc3389da86158bd7235abbdad78e0ec0aca7086a67b962092822ed"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "7ac071b1b4875509d1125662fed163acac22cd1d41843b4daabfa4afc5d5bc04",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "78594355a7b9f4491b0aec6a1116ae19952834aec96726391b0419d6c89747fe",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        },
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "208edf820257bc31b6e98886f3aeee3a6b828ddfa8e38da1747026d13db3e217",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "151bdb3aebed1bf9394353c15b3b5ffc858a28e119bd3420e1da3dd62907c59f"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "b51e1ee260f3ecfd01d9086ca8a5def6e6bca3f8929e5373f107d0ebab700962",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "78594355a7b9f4491b0aec6a1116ae19952834aec96726391b0419d6c89747fe",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        },
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "208edf820257bc31b6e98886f3aeee3a6b828ddfa8e38da1747026d13db3e217",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "151bdb3aebed1bf9394353c15b3b5ffc858a28e119bd3420e1da3dd62907c59f"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "4775008ab0f128385868ba0a69b23d3606f046543bac8f7f85c5e4e6964dbb31",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "303bdc57bddd195e2bb5d63f546b86f37f660de4bdf9ce19355f58c5465e7669",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#A",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "da4132d1bd5aa4ccc31f70b622fdb9538e95ee7913e05fb687c5881d102c82f4",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "c9073a947b7e7c759ccf85d74fd017dc3573c94c87e0e494f6e4d1c9b658f3d5",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "raw_order_sha256": "98ebc66d9a15d042990e5931cc49ef1fef4d9e279c1adbefc0c7e19910d8efd1",
+          "reported_edge_count": 3
+        },
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "canonical_edges_sha256": "715edbc7afbcf6753885f9813df0fc4449be74c7496555e979ad32c277339dfb",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#X",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#Y"
+              }
+            }
+          ],
+          "edge_counter_sha256": "ecf5aab22c64cf36af3068e2e390246117aa8dbf1c13b44b2fe9bc6158ae630e",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "65d278993d58f6e8504f4f66e4be53793541b6bc8575cd9ad01b74e0597a54d8",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "raw_order_sha256": "8748bf20e0a75e1eeec84fd5be421993936a7b13afc7a7e00c85a0204424c6c1",
+          "reported_edge_count": 3
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "54e8ce92bccc3389da86158bd7235abbdad78e0ec0aca7086a67b962092822ed"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "5307197910778c10144d877b424f771224bee55b41e175abafeb363d4c541f10",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "303bdc57bddd195e2bb5d63f546b86f37f660de4bdf9ce19355f58c5465e7669",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#B",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#A",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "da4132d1bd5aa4ccc31f70b622fdb9538e95ee7913e05fb687c5881d102c82f4",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "c9073a947b7e7c759ccf85d74fd017dc3573c94c87e0e494f6e4d1c9b658f3d5",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#B",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#A"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#A",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#B"
+            }
+          ],
+          "raw_order_sha256": "98ebc66d9a15d042990e5931cc49ef1fef4d9e279c1adbefc0c7e19910d8efd1",
+          "reported_edge_count": 3
+        },
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "canonical_edges_sha256": "715edbc7afbcf6753885f9813df0fc4449be74c7496555e979ad32c277339dfb",
+          "distinct_edge_count": 3,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#child",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#Y",
+                "relation": "urn:oracle:lifecycle#shared",
+                "source": "urn:oracle:lifecycle#X"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:lifecycle#X",
+                "relation": "urn:oracle:lifecycle#inverse",
+                "source": "urn:oracle:lifecycle#Y"
+              }
+            }
+          ],
+          "edge_counter_sha256": "ecf5aab22c64cf36af3068e2e390246117aa8dbf1c13b44b2fe9bc6158ae630e",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "65d278993d58f6e8504f4f66e4be53793541b6bc8575cd9ad01b74e0597a54d8",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 3,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#shared",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#Y",
+              "relation": "urn:oracle:lifecycle#child",
+              "source": "urn:oracle:lifecycle#X"
+            },
+            {
+              "destination": "urn:oracle:lifecycle#X",
+              "relation": "urn:oracle:lifecycle#inverse",
+              "source": "urn:oracle:lifecycle#Y"
+            }
+          ],
+          "raw_order_sha256": "8748bf20e0a75e1eeec84fd5be421993936a7b13afc7a7e00c85a0204424c6c1",
+          "reported_edge_count": 3
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 3",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "54e8ce92bccc3389da86158bd7235abbdad78e0ec0aca7086a67b962092822ed"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "d35eac9017a927a721cc0c85394611ae24dd008656ae1f9582011ec453bcc6cb",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "78594355a7b9f4491b0aec6a1116ae19952834aec96726391b0419d6c89747fe",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        },
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "208edf820257bc31b6e98886f3aeee3a6b828ddfa8e38da1747026d13db3e217",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "151bdb3aebed1bf9394353c15b3b5ffc858a28e119bd3420e1da3dd62907c59f"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "77d549a61e074568b4f455eb57d0f100368d638059daa767e5456f3e2b06776d",
+      "invocation_history": [
+        "lifecycle-a.ofn",
+        "lifecycle-b.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "805cf66e51dcd7121db3e1ec0a8c34a4297aa939d6ab8f752b845ecac0e73bc1",
+              "document": "lifecycle-a.ofn",
+              "document_iri": "fixture:///lifecycle-a.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-a"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-a.ofn",
+          "metadata_sha256": "78594355a7b9f4491b0aec6a1116ae19952834aec96726391b0419d6c89747fe",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        },
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "2b22c80c9c9d70811e7d906bcd66e0f25e3e849c027170a56224965db9a37d4e",
+              "document": "lifecycle-b.ofn",
+              "document_iri": "fixture:///lifecycle-b.ofn",
+              "ontology_iri": "urn:oracle:lifecycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "lifecycle-b.ofn",
+          "metadata_sha256": "208edf820257bc31b6e98886f3aeee3a6b828ddfa8e38da1747026d13db3e217",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "151bdb3aebed1bf9394353c15b3b5ffc858a28e119bd3420e1da3dd62907c59f"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "b5c4539f0843879d68b7c9af310d97fa813c2c65369b38e9b62e553f8db486ba",
+    "documents": [
+      "lifecycle-a.ofn",
+      "lifecycle-b.ofn"
+    ],
+    "id": "mutable-role-state",
+    "license": "CC0-1.0",
+    "lifecycle": "scala-instance-session",
+    "rules": [
+      "RB-046"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

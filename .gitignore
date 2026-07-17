@@ -74,6 +74,7 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+tools/java-oracle/.oracle-work/
 
 # Jupyter Notebook
 .ipynb_checkpoints

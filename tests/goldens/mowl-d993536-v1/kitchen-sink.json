@@ -1,0 +1,2037 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "680b392d9f3ea5020dea4a481b3e995ef16e944da98c2473751387eb65fb7f8e",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "c4a9b87329fa71c28edb51af3ecec36fb1515b9cb9497c325404214be951cca4",
+          "distinct_edge_count": 8,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 3,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "8265f59e946274c4e633d0916580c46dd9e7a8053ac243f76c21c22110f865e9",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "c504d9381d2888b1f59e2dc39ae04cb9bc9d8a51305c0bd45540c36ce91867a9",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 11,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "c5ed9dc80b86e45a7e9eca0250f76ce0ea0cd5052bfe07fb56fb0d92db714b3d",
+          "reported_edge_count": 11
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 2",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "f6742edc425a4e94ec2996721d8a6013ee3843790c36db7fa6568998733ae2f6"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "20dc4e8e7aa13d5c53ed80bbfbea851686fd20a19698fb8b7ccdb33e40f0cf36",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "c0f92669d59a29a88371c12aecb468d22c8d9cf2df123c453c424e33b8c7861b",
+          "distinct_edge_count": 9,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 3,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Kitchen label",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "42150b9b2f02a995acc2c1e30fc583dbea604b7f54109e8982b342fa92681706",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "f583140c62c7de444b62ee6308f77cf734267cc2a322bd2b4bf3b0f3c5428454",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "a45ce689e4d4b901348bfdd43ac8837f2ca244b9d64e897538be6518335ff629",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 2",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 1"
+        ],
+        "stdout_sha256": "8ac70c2bdf32b2f45c29836f5f07272c4eb8835fb788199216fec6f5c3946bab"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "14b4b2499cad7a401c67c242ab4a5ffd8d21e4cf9e53b0e0cd7351457876a204",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "94861edebadf893143a3969c4b69a316b7c9c0e5a0dbaa51bfd4768a2d60ebed",
+          "distinct_edge_count": 8,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "7e12999cd383c40d73a71a71c1eb95cb2e315dae57b2421e6fff58c9693a1fa0",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "51e438f8eb4a97452577cb166d775722b15d236d49caae7b52fa3deed541e643",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 8,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "f9b3f6f32e44023109b42b77803cfe3a6077a712299e1a697b4cb466e58a00c1",
+          "reported_edge_count": 8
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 1",
+          "\tEquivalence triples: 2",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "9a601c033e1a8cfedf23d0cde09d5f592652df5a752bcf0d693d85280e059094"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "58b0c397a904d64726a5f6804e681430694ccd6443517abd0df89088b88c2a3a",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "4bc2bede716997f3fb2074c613a685c8ee8abc7a2c2e0c8dfc75d1ba91029df4",
+          "distinct_edge_count": 9,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Kitchen label",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "275f25619a188351b4aa5cdd384132511db48cf5941aa2b3ccba7210b289e1fd",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "317901875e9cd6e794d2df6ad108abd12011299b22771a060aee3440b80573b6",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 9,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "929af2b2a4e106f1d96b5013c48ef2d66d57340777ff5c47b8c5cb035d24a198",
+          "reported_edge_count": 9
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 1",
+          "\tEquivalence triples: 2",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 1"
+        ],
+        "stdout_sha256": "6b791b5d4fe32e39c918631ce26a952f383b98ad364719f0845444d232507289"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "037248b8c6727bbf29e0994cf0366bdd5cfe225320034be2796dc813755e1b18",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "bb351213ee22555a96fbc81135217fb7a7ee3b1a073e6fd47a40459f072cbc74",
+          "distinct_edge_count": 11,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 3,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "a0e688148a971b23110e5fe6fefb11d0c4deded593c297e38719d8a77d5aabf7",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "26f633ade12bffc311c39bfe27543a9cdc7297a04a38ee03b461f124807a7aae",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 14,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "7e73d4bdcbd25ccbc8053dd847e9cde202ef40aeca6bc8b42a954da372dafd1d",
+          "reported_edge_count": 14
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 5",
+          "\tEquivalence triples: 4",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "33b790be8303b5c1b3339f209ed8d5b900c001458dbeb861c2c33b3e6b77a635"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "26988a394fed7eb1bc82f2ca69c246fc589e4b210474524162b634130624c476",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "ab008e95293b8b1620e6cc3398ec738ac3f6882685210caca86b73194af539cc",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 3,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Kitchen label",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "4a8e7e05d2630328ce21fd4ba61c0dbf3c62aaf495413f71a01ea4c92ce7f27a",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "c657d2a4aa1a6c6e7dd52616cab2403f1e8a4c26598566fd45299b4268ce12b6",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 15,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "f27174f62ff73da6ae232cc0c43fb5763c9510502a455552c430a543e4612e76",
+          "reported_edge_count": 15
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 5",
+          "\tEquivalence triples: 4",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 1"
+        ],
+        "stdout_sha256": "2cbe104159d24404f00c43ba1c0b40340b421e883ef774ea3c2589c564f13795"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "11fc21d0c6555d810b9e09c9fc11d3eee4299bc0eb50012555a68facddbbdef1",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "78dbd204fe06fe8894cfe20fcd6e1217449542cbfc115c957bcdff869ae2ff73",
+          "distinct_edge_count": 11,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "ffa8e07c77bf656fa799f6658050754ca39b12c3d85ce0f74ac63fe98c9b9f1f",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "6a98a57849847718736e4e9e47b8bbbd0bac6b26e327382dc8d82ab128922fac",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 11,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "4c79234fc95097a4547b32c6503717ab7381938044541283e3d9dfba12380ed5",
+          "reported_edge_count": 11
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 4",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "af9506459cf9c9abed6f4bc1260a9b04cdad934cbe866421843f79eb3cc155de"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "e18e9ab403939241593264285294bc3096fa57c0ce60a4b9548b2c499bf092ba",
+      "invocation_history": [
+        "kitchen-sink.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            }
+          ],
+          "canonical_edges_sha256": "ea51c3d3b124ea9f8b341d194fdeac22d05ff7e90045778faf165be0b23aa47b",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+              "document": "kitchen-sink.ofn",
+              "document_iri": "fixture:///kitchen-sink.ofn",
+              "ontology_iri": "urn:oracle:kitchen"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Kitchen label",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "urn:oracle:kitchen#q",
+                "source": "urn:oracle:kitchen#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#C",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "urn:oracle:kitchen#inv",
+                "source": "urn:oracle:kitchen#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#A",
+                "relation": "http://type",
+                "source": "urn:oracle:kitchen#i"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:kitchen#j",
+                "relation": "urn:oracle:kitchen#p",
+                "source": "urn:oracle:kitchen#i"
+              }
+            }
+          ],
+          "edge_counter_sha256": "a355896f22da6a8a1a9a1b6f4b53b804984694eba6b6a1e09b14251889112a20",
+          "input_name": "kitchen-sink.ofn",
+          "metadata_sha256": "494c2ee4ffe9b4a94f7ac7d2a2b85e613868961bbf3f447ad52f6d31270ed27d",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:kitchen#B"
+            },
+            {
+              "destination": "urn:oracle:kitchen#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "Kitchen label",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "http://type",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#j",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#i"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#p",
+              "source": "urn:oracle:kitchen#A"
+            },
+            {
+              "destination": "urn:oracle:kitchen#A",
+              "relation": "urn:oracle:kitchen#inv",
+              "source": "urn:oracle:kitchen#C"
+            },
+            {
+              "destination": "urn:oracle:kitchen#C",
+              "relation": "urn:oracle:kitchen#q",
+              "source": "urn:oracle:kitchen#A"
+            }
+          ],
+          "raw_order_sha256": "a033527d9903dfc6074624c68263f17ae6e89325b8b1c9f289bf033d2d4d2e69",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 4",
+          "\tClass assertion triples: 1",
+          "\tObject property assertion triples: 1",
+          "\tDomain and range triples: 3",
+          "\tAnnotation triples: 1"
+        ],
+        "stdout_sha256": "e4ed48d5d3373d20d63f393994ade996b0cd9436380929047bf3b1568a9aa9d6"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "92819a7578b03f8e9bdc37e754ef6debddcdcfe77387b1c6116ea25f1e7048c2",
+    "documents": [
+      "kitchen-sink.ofn"
+    ],
+    "id": "kitchen-sink",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-047"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

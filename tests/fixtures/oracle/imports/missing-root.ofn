@@ -1,0 +1,5 @@
+Prefix(:=<urn:oracle:missing#>)
+Ontology(<urn:oracle:missing-root>
+ Import(<urn:oracle:does-not-exist>)
+ SubClassOf(:Present :Top)
+)

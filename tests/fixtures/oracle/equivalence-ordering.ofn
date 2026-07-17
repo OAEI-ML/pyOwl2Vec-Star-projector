@@ -1,0 +1,11 @@
+Prefix(:=<urn:oracle:equivalence#>)
+Ontology(<urn:oracle:equivalence>
+ Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) Declaration(Class(:D))
+ Declaration(ObjectProperty(:p))
+ EquivalentClasses(:A :B)
+ EquivalentClasses(:A :B :C)
+ EquivalentClasses(:C ObjectIntersectionOf(:A :B))
+ EquivalentClasses(:D ObjectUnionOf(:A :B))
+ EquivalentClasses(:A ObjectSomeValuesFrom(:p :B))
+ EquivalentClasses(ObjectSomeValuesFrom(:p :C) :D)
+)

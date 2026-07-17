@@ -1,0 +1,3408 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "bb7d4f75573e0434746a5ea84c5b135b4a1ff101aef94c60b5c4b9a021e7be3b",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "de1960bd5eefad1fbaf453aab21605e6d54df84b9f8c9b1d274240968e430e26",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "7d075e1df7b5d3633f0132bb259fdaee2716634151a7d10de7445130f1cb3b18",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "4001a4e7e93ce44c7bf461b3b22bba58fa1ab1622d92d6a0e51f70bccb5c1e3a",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "a44fb0e08956f31fd7a112d78c02f2e8d67a3630bc757acc8ee138f31c860a17",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "5c66d5b3602c44ca82c0cbef36f74e038489982689795bc7380f43585406265b",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "79a5d9ded85b9e47023912452f53a67708bf95754a0badd5d382331bca940ccf",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "286314150019597ecea2f97fa8bb2d8ac751cb3ee996d59f6f6503aed25daec6",
+      "invocation_history": [
+        "domain-range.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            }
+          ],
+          "canonical_edges_sha256": "2b74e2f9b7ee4946011dc89aea07fb31ff6a9fb55553a5967d6ddf03a8c70a66",
+          "distinct_edge_count": 12,
+          "documents": [
+            {
+              "bytes_sha256": "50e88e28a33de677205d356d98a84bbb0581d58b3c2e9bddd083106e4589a826",
+              "document": "domain-range.ofn",
+              "document_iri": "fixture:///domain-range.ofn",
+              "ontology_iri": "urn:oracle:domain-range"
+            }
+          ],
+          "duplicate_edge_count": 15,
+          "edge_counter": [
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#child",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R1",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#R2",
+                "relation": "urn:oracle:domain-range#p",
+                "source": "urn:oracle:domain-range#D2"
+              }
+            },
+            {
+              "count": 4,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R1"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D1",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:domain-range#D2",
+                "relation": "urn:oracle:domain-range#inverse",
+                "source": "urn:oracle:domain-range#R2"
+              }
+            }
+          ],
+          "edge_counter_sha256": "bfb2d6c48993bca1173093d1eb8e55aab431dd96e882e610650645f6a84292bc",
+          "input_name": "domain-range.ofn",
+          "metadata_sha256": "e065361941641e09aa3982faa4719a9d6169a1a02f4bf4f343a8a22453f02488",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 27,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D2",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R1",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#p",
+              "source": "urn:oracle:domain-range#D1"
+            },
+            {
+              "destination": "urn:oracle:domain-range#D1",
+              "relation": "urn:oracle:domain-range#inverse",
+              "source": "urn:oracle:domain-range#R2"
+            },
+            {
+              "destination": "urn:oracle:domain-range#R2",
+              "relation": "urn:oracle:domain-range#child",
+              "source": "urn:oracle:domain-range#D1"
+            }
+          ],
+          "raw_order_sha256": "8227c0b43c5f4c194be08d376f118b8d074848e5ebb397ecc41e9701acbeef70",
+          "reported_edge_count": 27
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 27",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "ed05e8135fc58ecdf0aa1ca719ccecef4e39636c2e744d0d24f14e01e66ce2af"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "e8c35f395354c9954de688ef4e198853c6996edb7dd63aac247010cc191c5b91",
+    "documents": [
+      "domain-range.ofn"
+    ],
+    "id": "domain-range",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-020",
+      "RB-021",
+      "RB-022",
+      "RB-023"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

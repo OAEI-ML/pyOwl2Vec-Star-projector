@@ -1,0 +1,957 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "031c9d2d87c550b8defa00b458cbaf224b00d11b5f751d5cedca7fe01f73bbc2",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "bb1b0e39aad0d3fef54e485b8598960a2fe6ee0f0f8ab0bf02e214bc7d60c248",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "9a850091d6743b1564cf71d4cd80ac04b16c96cd27a78fd563fc7be383fdbbf0",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "f5c1c8dfaf474e0bdab868b6681ada9b2e1fa3578271a608c2403fabc5ed6cfc",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            }
+          ],
+          "raw_order_sha256": "4a0c6d371a745d5adbecb15426a3d96b6085240105ed674a0c927298eea41467",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "fd7da646a8c3179f4c96444909060dc28ad63e6aeb5f3c97c0f3421fa3b46dac",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "bb1b0e39aad0d3fef54e485b8598960a2fe6ee0f0f8ab0bf02e214bc7d60c248",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "9a850091d6743b1564cf71d4cd80ac04b16c96cd27a78fd563fc7be383fdbbf0",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "f5c1c8dfaf474e0bdab868b6681ada9b2e1fa3578271a608c2403fabc5ed6cfc",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            }
+          ],
+          "raw_order_sha256": "4a0c6d371a745d5adbecb15426a3d96b6085240105ed674a0c927298eea41467",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "33bf5b12e79bf85282eaf61c129f6a3f7455a29b0e71a8c5bee78bf58f50313d",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "bb1b0e39aad0d3fef54e485b8598960a2fe6ee0f0f8ab0bf02e214bc7d60c248",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "9a850091d6743b1564cf71d4cd80ac04b16c96cd27a78fd563fc7be383fdbbf0",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "f5c1c8dfaf474e0bdab868b6681ada9b2e1fa3578271a608c2403fabc5ed6cfc",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            }
+          ],
+          "raw_order_sha256": "4a0c6d371a745d5adbecb15426a3d96b6085240105ed674a0c927298eea41467",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "893e988a2ca725f1d9c0836dd8172ad8cbeee102a1bb760f08eae3193844b718",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            }
+          ],
+          "canonical_edges_sha256": "bb1b0e39aad0d3fef54e485b8598960a2fe6ee0f0f8ab0bf02e214bc7d60c248",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            }
+          ],
+          "edge_counter_sha256": "9a850091d6743b1564cf71d4cd80ac04b16c96cd27a78fd563fc7be383fdbbf0",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "f5c1c8dfaf474e0bdab868b6681ada9b2e1fa3578271a608c2403fabc5ed6cfc",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            }
+          ],
+          "raw_order_sha256": "4a0c6d371a745d5adbecb15426a3d96b6085240105ed674a0c927298eea41467",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "0d435a801803cb0449eb47aa8cf609a2a43d4bda295ce9a0177d1fe5cb5b46aa",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "canonical_edges_sha256": "3e33fe5b987395e1bea2111e4879c91920e12938b4fd34bbb151ed54172e32b3",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "f9344ce95dd4440d45bb69add264bd23ced906d366648ae4f4bc718f9ca00cbd",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "b8e038b615fc47eee0b2847659e4de834fff70057578fa8de3faee3ae4f886bf",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "raw_order_sha256": "f8921c1d4271dd3ef63899a32adcd883335cbfa08ee740202e74239c7fb986cc",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "d03c3e590d33d7cd58df3c5dab917ffb1a0e893c7fe74551599cb9aa8daed39c",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "canonical_edges_sha256": "3e33fe5b987395e1bea2111e4879c91920e12938b4fd34bbb151ed54172e32b3",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "f9344ce95dd4440d45bb69add264bd23ced906d366648ae4f4bc718f9ca00cbd",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "b8e038b615fc47eee0b2847659e4de834fff70057578fa8de3faee3ae4f886bf",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "raw_order_sha256": "f8921c1d4271dd3ef63899a32adcd883335cbfa08ee740202e74239c7fb986cc",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "df6b2cfacdb39fb3095f9e6151af73633c2da777b3a3e1cc6ae0c5a1fc55771b",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "canonical_edges_sha256": "3e33fe5b987395e1bea2111e4879c91920e12938b4fd34bbb151ed54172e32b3",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "f9344ce95dd4440d45bb69add264bd23ced906d366648ae4f4bc718f9ca00cbd",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "b8e038b615fc47eee0b2847659e4de834fff70057578fa8de3faee3ae4f886bf",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "raw_order_sha256": "f8921c1d4271dd3ef63899a32adcd883335cbfa08ee740202e74239c7fb986cc",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "1a9902e5c2cc03ec427072afc36091db8228782878c22763d95ba7e505567ee5",
+      "invocation_history": [
+        "imports/cycle-a.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "canonical_edges_sha256": "3e33fe5b987395e1bea2111e4879c91920e12938b4fd34bbb151ed54172e32b3",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "adc9953e609050ff80c80428f54a155a9bb73a0398c30a4ecbed0edea61c872e",
+              "document": "imports/cycle-a.ofn",
+              "document_iri": "fixture:///imports/cycle-a.ofn",
+              "ontology_iri": "urn:oracle:cycle-a"
+            },
+            {
+              "bytes_sha256": "30651209a2a931a89ed62e26d51dbffea508ba46b4d3b1c8727d632de88dc8b1",
+              "document": "imports/cycle-b.ofn",
+              "document_iri": "fixture:///imports/cycle-b.ofn",
+              "ontology_iri": "urn:oracle:cycle-b"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:cycle#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:cycle#B",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:cycle#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "f9344ce95dd4440d45bb69add264bd23ced906d366648ae4f4bc718f9ca00cbd",
+          "input_name": "cycle-a.ofn",
+          "metadata_sha256": "b8e038b615fc47eee0b2847659e4de834fff70057578fa8de3faee3ae4f886bf",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#B"
+            },
+            {
+              "destination": "urn:oracle:cycle#B",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            },
+            {
+              "destination": "urn:oracle:cycle#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:cycle#A"
+            },
+            {
+              "destination": "urn:oracle:cycle#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:cycle#Top"
+            }
+          ],
+          "raw_order_sha256": "f8921c1d4271dd3ef63899a32adcd883335cbfa08ee740202e74239c7fb986cc",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "eb3399edd0dd01b77bcee13465a62e40c5c66d837768b5a7b3ac03975c7780de",
+    "documents": [
+      "imports/cycle-a.ofn"
+    ],
+    "id": "imports-cycle",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-044"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

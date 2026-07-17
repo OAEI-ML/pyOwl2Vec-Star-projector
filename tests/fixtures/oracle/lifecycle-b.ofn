@@ -1,0 +1,6 @@
+Prefix(:=<urn:oracle:lifecycle#>)
+Ontology(<urn:oracle:lifecycle-b>
+ Declaration(Class(:X)) Declaration(Class(:Y))
+ Declaration(ObjectProperty(:shared))
+ SubClassOf(:X ObjectSomeValuesFrom(:shared :Y))
+)

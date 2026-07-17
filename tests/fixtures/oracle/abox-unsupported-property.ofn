@@ -1,0 +1,6 @@
+Prefix(:=<urn:oracle:abox-unsupported#>)
+Ontology(<urn:oracle:abox-unsupported>
+ Declaration(ObjectProperty(:p))
+ Declaration(NamedIndividual(:i)) Declaration(NamedIndividual(:j))
+ ObjectPropertyAssertion(ObjectInverseOf(:p) :i :j)
+)

@@ -1,0 +1,557 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "11e1bb9a2771d7fa8700014026efbb605690fee3066fe46f8f1b8d8abd21b969",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "6d7ecc05a4599aee90ca827af5a9c4c53182c8a1f987fa2ee594f1d9a1838503",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "f452c6d341d90c28ccdfbbbdf7a8c277f20ce363b745c6c981811393816c55d3",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "695ba30176fd1a781d5872ba7e44f3c71176350def6c153794b426a14edfcc75",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "7ba55a55c0533e244357b8fac7d00d79d2e30c3d1a161449977261accd848fcf",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "947ecc2be1db8199fbe6a8a34b5406d3ea8174453e4c66647656099fd809506e",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "c4361a831900c4a22380f0f93a622dcea6cb2064b03448f24bf510da252618ee",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "2d757033a3462f9ecff88b519915fafa52edcf7803d84093526e1b8b152073d5",
+      "invocation_history": [
+        "imports/missing-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "error": {
+            "message": "Could not find an appropriate factory to load ontology from ontology document: <urn:oracle:does-not-exist>",
+            "type": "org.semanticweb.owlapi.model.OWLOntologyFactoryNotFoundException"
+          },
+          "input_name": "missing-root.ofn",
+          "metadata_sha256": "6d235b00dc054c2ad0f670e85dfa3c809e181af4bb0e80efafa92bd8e3563ba9",
+          "missing_imports": [],
+          "outcome": "error",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [
+          "[main] INFO uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl - Malformed URL: unknown protocol: urn",
+          "java.net.MalformedURLException: unknown protocol: urn",
+          "\tat java.base/java.net.URL.<init>(URL.java:652)",
+          "\tat java.base/java.net.URL.fromURI(URL.java:719)",
+          "\tat java.base/java.net.URI.toURL(URI.java:1116)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.canLoad(OWLOntologyFactoryImpl.java:157)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1297)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1143)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadImports(OWLOntologyManagerImpl.java:1873)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.makeLoadImportRequest(OWLOntologyManagerImpl.java:1911)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.Ontology(OWLFunctionalSyntaxParser.java:176)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxParser.parse(OWLFunctionalSyntaxParser.java:121)",
+          "\tat org.semanticweb.owlapi.functional.parser.OWLFunctionalSyntaxOWLParser.parse(OWLFunctionalSyntaxOWLParser.java:101)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyFactoryImpl.loadOWLOntology(OWLOntologyFactoryImpl.java:220)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.actualParse(OWLOntologyManagerImpl.java:1303)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntology(OWLOntologyManagerImpl.java:1243)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1194)",
+          "\tat uk.ac.manchester.cs.owl.owlapi.OWLOntologyManagerImpl.loadOntologyFromOntologyDocument(OWLOntologyManagerImpl.java:1206)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:93)",
+          "\tat org.oaei_ml.oracle.OracleRunner$$anonfun$main$1.apply(OracleRunner.scala:82)",
+          "\tat scala.collection.immutable.List.foreach(List.scala:392)",
+          "\tat org.oaei_ml.oracle.OracleRunner$.main(OracleRunner.scala:82)",
+          "\tat org.oaei_ml.oracle.OracleRunner.main(OracleRunner.scala)"
+        ],
+        "stderr_sha256": "3b702049355333443eb984ca0f448630c8ce66e07285bf17b2d891a882ce5f9b",
+        "stdout": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "3052175c1ea4a732933201295d30dc0973e2cd43383f20af70cb55a59c19cba3",
+    "documents": [
+      "imports/missing-root.ofn"
+    ],
+    "id": "imports-missing",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-045"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

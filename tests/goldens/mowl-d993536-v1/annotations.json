@@ -1,0 +1,3650 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "d1d4e0bc4aa5873a151d5551fb526cde242881cd0eed219d546651adc034fb89",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "2cdc61915b2deb78af5e9b0f21941bd266d9bbd54f0107f623b1af6669f0f55c",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "bdff9349f0dc205a5e0bdf9c49b58f3bf66a8b0a6d63065379ea2006e2294203"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "70762bf6d454ab4732b887ed1f0d7ad105d43090effec0991f9de6fa1077a7e1",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "canonical_edges_sha256": "eda3a1511e6aab0b8887a3707b937015a64b50e790d3af964883cbec559064de",
+          "distinct_edge_count": 44,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn label",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn synonyms",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "fma",
+                "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "full syn",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "nci synonym",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "syn",
+                "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition one",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative label",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition two",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "elucidation",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "editor note",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "example",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "obo synonym",
+                "relation": "http://purl.obolibrary.org/obo/synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc description",
+                "relation": "http://purl.org/dc/elements/1.1/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc title",
+                "relation": "http://purl.org/dc/elements/1.1/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct description",
+                "relation": "http://purl.org/dc/terms/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct title",
+                "relation": "http://purl.org/dc/terms/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "cseo",
+                "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative",
+                "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact upper",
+                "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "xref",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact lower",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "namespace",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "related",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alias",
+                "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "preferred",
+                "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common",
+                "relation": "https://cfpub.epa.gov/ecotox#commonName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Latinus",
+                "relation": "https://cfpub.epa.gov/ecotox#latinName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common name",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "equivalent",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "genbank",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "scientific",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "taxonomy synonym",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "bonjour",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact comment IRI",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "2026-07-16\"^^xsd:dat",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "42\"^^xsd:intege",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact label IRI",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "plain string",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "true\"^^xsd:boolea",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:value",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            }
+          ],
+          "edge_counter_sha256": "2a74a88b5c9d4ea4b8c0641d2e0e77fc85b95c775aa1d84bb9ba5543ec88791a",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "1ed8772e127cd391547844dabbd6ebd2967399236e8fd2e6f987517d076d72f2",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 44,
+          "raw_edges": [
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "raw_order_sha256": "1f406c410454765df68e22d853efa37813b04f74715ef9619c67fecd84240dd4",
+          "reported_edge_count": 44
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#boolean)",
+          "(Warning: datatype not detected: ,xsd:date)",
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#integer)",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 44"
+        ],
+        "stdout_sha256": "a0986bac5a610a6dc699aa0d1f6bcfeae8d5ba0e58729d0cc68ef456c2758227"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "2dc7261047423504d42faf6be5d0c19633b8d9af22a7bd4d5ed75166e55afd93",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "2cdc61915b2deb78af5e9b0f21941bd266d9bbd54f0107f623b1af6669f0f55c",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "bdff9349f0dc205a5e0bdf9c49b58f3bf66a8b0a6d63065379ea2006e2294203"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "bbd9ba21e84b827934211f16fbf3ae04a18f929f42267f3a2fbdccec83dfbe2d",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "canonical_edges_sha256": "eda3a1511e6aab0b8887a3707b937015a64b50e790d3af964883cbec559064de",
+          "distinct_edge_count": 44,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn label",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn synonyms",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "fma",
+                "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "full syn",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "nci synonym",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "syn",
+                "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition one",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative label",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition two",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "elucidation",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "editor note",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "example",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "obo synonym",
+                "relation": "http://purl.obolibrary.org/obo/synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc description",
+                "relation": "http://purl.org/dc/elements/1.1/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc title",
+                "relation": "http://purl.org/dc/elements/1.1/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct description",
+                "relation": "http://purl.org/dc/terms/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct title",
+                "relation": "http://purl.org/dc/terms/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "cseo",
+                "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative",
+                "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact upper",
+                "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "xref",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact lower",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "namespace",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "related",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alias",
+                "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "preferred",
+                "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common",
+                "relation": "https://cfpub.epa.gov/ecotox#commonName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Latinus",
+                "relation": "https://cfpub.epa.gov/ecotox#latinName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common name",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "equivalent",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "genbank",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "scientific",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "taxonomy synonym",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "bonjour",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact comment IRI",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "2026-07-16\"^^xsd:dat",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "42\"^^xsd:intege",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact label IRI",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "plain string",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "true\"^^xsd:boolea",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:value",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            }
+          ],
+          "edge_counter_sha256": "2a74a88b5c9d4ea4b8c0641d2e0e77fc85b95c775aa1d84bb9ba5543ec88791a",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "1ed8772e127cd391547844dabbd6ebd2967399236e8fd2e6f987517d076d72f2",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 44,
+          "raw_edges": [
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "raw_order_sha256": "1f406c410454765df68e22d853efa37813b04f74715ef9619c67fecd84240dd4",
+          "reported_edge_count": 44
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#boolean)",
+          "(Warning: datatype not detected: ,xsd:date)",
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#integer)",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 44"
+        ],
+        "stdout_sha256": "a0986bac5a610a6dc699aa0d1f6bcfeae8d5ba0e58729d0cc68ef456c2758227"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "138a26a002e6c540ff02ea79bcab2281eeae8be56f45e4be1f289adf8682c36f",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "2cdc61915b2deb78af5e9b0f21941bd266d9bbd54f0107f623b1af6669f0f55c",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "bdff9349f0dc205a5e0bdf9c49b58f3bf66a8b0a6d63065379ea2006e2294203"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "51716308873531bb56527ff96f3bec7fa6ba817087487803f4d60a7932f3f73b",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "canonical_edges_sha256": "eda3a1511e6aab0b8887a3707b937015a64b50e790d3af964883cbec559064de",
+          "distinct_edge_count": 44,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn label",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn synonyms",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "fma",
+                "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "full syn",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "nci synonym",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "syn",
+                "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition one",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative label",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition two",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "elucidation",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "editor note",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "example",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "obo synonym",
+                "relation": "http://purl.obolibrary.org/obo/synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc description",
+                "relation": "http://purl.org/dc/elements/1.1/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc title",
+                "relation": "http://purl.org/dc/elements/1.1/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct description",
+                "relation": "http://purl.org/dc/terms/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct title",
+                "relation": "http://purl.org/dc/terms/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "cseo",
+                "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative",
+                "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact upper",
+                "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "xref",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact lower",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "namespace",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "related",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alias",
+                "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "preferred",
+                "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common",
+                "relation": "https://cfpub.epa.gov/ecotox#commonName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Latinus",
+                "relation": "https://cfpub.epa.gov/ecotox#latinName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common name",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "equivalent",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "genbank",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "scientific",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "taxonomy synonym",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "bonjour",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact comment IRI",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "2026-07-16\"^^xsd:dat",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "42\"^^xsd:intege",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact label IRI",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "plain string",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "true\"^^xsd:boolea",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:value",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            }
+          ],
+          "edge_counter_sha256": "2a74a88b5c9d4ea4b8c0641d2e0e77fc85b95c775aa1d84bb9ba5543ec88791a",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "1ed8772e127cd391547844dabbd6ebd2967399236e8fd2e6f987517d076d72f2",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 44,
+          "raw_edges": [
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "raw_order_sha256": "1f406c410454765df68e22d853efa37813b04f74715ef9619c67fecd84240dd4",
+          "reported_edge_count": 44
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#boolean)",
+          "(Warning: datatype not detected: ,xsd:date)",
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#integer)",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 44"
+        ],
+        "stdout_sha256": "a0986bac5a610a6dc699aa0d1f6bcfeae8d5ba0e58729d0cc68ef456c2758227"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "7fc1f0a6f4b47233e30464c6902ff003c94f8e489e27b3560f6375069465eba6",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [],
+          "canonical_edges_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "distinct_edge_count": 0,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [],
+          "edge_counter_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "2cdc61915b2deb78af5e9b0f21941bd266d9bbd54f0107f623b1af6669f0f55c",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 0,
+          "raw_edges": [],
+          "raw_order_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "reported_edge_count": 0
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "bdff9349f0dc205a5e0bdf9c49b58f3bf66a8b0a6d63065379ea2006e2294203"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "d64cdd11b972aa942a9647bca094c1b365003f0d881370f502ffc8a1149389b2",
+      "invocation_history": [
+        "annotations.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "canonical_edges_sha256": "eda3a1511e6aab0b8887a3707b937015a64b50e790d3af964883cbec559064de",
+          "distinct_edge_count": 44,
+          "documents": [
+            {
+              "bytes_sha256": "74b628abf1ea2bdd5db0c6831198d729641a9d346a85db3e311bf9541c0f9322",
+              "document": "annotations.ofn",
+              "document_iri": "fixture:///annotations.ofn",
+              "ontology_iri": "urn:oracle:annotations"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn label",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "birn synonyms",
+                "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "fma",
+                "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "full syn",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "nci synonym",
+                "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "syn",
+                "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition one",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative label",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition two",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "elucidation",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "editor note",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "example",
+                "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "obo synonym",
+                "relation": "http://purl.obolibrary.org/obo/synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc description",
+                "relation": "http://purl.org/dc/elements/1.1/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dc title",
+                "relation": "http://purl.org/dc/elements/1.1/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct description",
+                "relation": "http://purl.org/dc/terms/description",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "dct title",
+                "relation": "http://purl.org/dc/terms/title",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "cseo",
+                "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alternative",
+                "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact upper",
+                "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "xref",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "definition",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "exact lower",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "namespace",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "related",
+                "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "alias",
+                "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "preferred",
+                "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common",
+                "relation": "https://cfpub.epa.gov/ecotox#commonName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "Latinus",
+                "relation": "https://cfpub.epa.gov/ecotox#latinName",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "common name",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "equivalent",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "genbank",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "scientific",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "taxonomy synonym",
+                "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "bonjour",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact comment IRI",
+                "relation": "rdfs:comment",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "2026-07-16\"^^xsd:dat",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "42\"^^xsd:intege",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "compact label IRI",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "plain string",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "true\"^^xsd:boolea",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:value",
+                "relation": "rdfs:label",
+                "source": "urn:oracle:annotations#A"
+              }
+            }
+          ],
+          "edge_counter_sha256": "2a74a88b5c9d4ea4b8c0641d2e0e77fc85b95c775aa1d84bb9ba5543ec88791a",
+          "input_name": "annotations.ofn",
+          "metadata_sha256": "1ed8772e127cd391547844dabbd6ebd2967399236e8fd2e6f987517d076d72f2",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 44,
+          "raw_edges": [
+            {
+              "destination": "xref",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common",
+              "relation": "https://cfpub.epa.gov/ecotox#commonName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "full syn",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "fma",
+              "relation": "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative",
+              "relation": "http://www.ebi.ac.uk/efo/alternative_term",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "example",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000602",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "genbank",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "plain string",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "cseo",
+              "relation": "http://scai.fraunhofer.de/CSEO#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "editor note",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000601",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "elucidation",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000600",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "true\"^^xsd:boolea",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "equivalent",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "nci synonym",
+              "relation": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alternative label",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000118",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "alias",
+              "relation": "http://www.w3.org/2004/02/skos/core#altLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "urn:oracle:value",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000115",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "bonjour",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact lower",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "obo synonym",
+              "relation": "http://purl.obolibrary.org/obo/synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "namespace",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "scientific",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "related",
+              "relation": "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "common name",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "2026-07-16\"^^xsd:dat",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "taxonomy synonym",
+              "relation": "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition one",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000111",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc description",
+              "relation": "http://purl.org/dc/elements/1.1/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn synonyms",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "syn",
+              "relation": "http://purl.bioontology.org/ontology/SYN#synonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact comment IRI",
+              "relation": "rdfs:comment",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct description",
+              "relation": "http://purl.org/dc/terms/description",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "exact upper",
+              "relation": "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "preferred",
+              "relation": "http://www.w3.org/2004/02/skos/core#prefLabel",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "42\"^^xsd:intege",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "definition two",
+              "relation": "http://purl.obolibrary.org/obo/IAO_0000589",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "Latinus",
+              "relation": "https://cfpub.epa.gov/ecotox#latinName",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "birn label",
+              "relation": "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dct title",
+              "relation": "http://purl.org/dc/terms/title",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "compact label IRI",
+              "relation": "rdfs:label",
+              "source": "urn:oracle:annotations#A"
+            },
+            {
+              "destination": "dc title",
+              "relation": "http://purl.org/dc/elements/1.1/title",
+              "source": "urn:oracle:annotations#A"
+            }
+          ],
+          "raw_order_sha256": "1f406c410454765df68e22d853efa37813b04f74715ef9619c67fecd84240dd4",
+          "reported_edge_count": 44
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#boolean)",
+          "(Warning: datatype not detected: ,xsd:date)",
+          "(Warning: datatype not detected: ,http://www.w3.org/2001/XMLSchema#integer)",
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 44"
+        ],
+        "stdout_sha256": "a0986bac5a610a6dc699aa0d1f6bcfeae8d5ba0e58729d0cc68ef456c2758227"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "33f41074001a359bba69009936189ecc0b2b65e72012bd3a2442041bca537030",
+    "documents": [
+      "annotations.ofn"
+    ],
+    "id": "annotations",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-029",
+      "RB-030",
+      "RB-031",
+      "RB-032",
+      "RB-033",
+      "RB-034"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

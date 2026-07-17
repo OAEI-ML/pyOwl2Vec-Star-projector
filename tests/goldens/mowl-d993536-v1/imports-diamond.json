@@ -1,0 +1,1485 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "359a9e1476641e2a111ee6bdb60dc762f80f1e700a49f718c980c5e06ed973bd",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "canonical_edges_sha256": "91e5790f04f4e07ed58b4b781989d0638ede00c6a95d125b8f92836c8faa25d0",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "31266250893bd5306f3ab1a034a5e38ee3ea98029fb8db87cfa34a79340ed209",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "59a40391820a8971f3ad7c1c4f9fe0d72ca8b6f8206b7042e047957e96477afd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "raw_order_sha256": "0b149eac0d64286868b4c36ed9e983259f490dd17f756c0e3f605ab7fbb007bd",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "ffb25e3f64b01156deb48f5f0186f0ca9436176ee679cc4be80d2ba1f9decf24",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "canonical_edges_sha256": "91e5790f04f4e07ed58b4b781989d0638ede00c6a95d125b8f92836c8faa25d0",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "31266250893bd5306f3ab1a034a5e38ee3ea98029fb8db87cfa34a79340ed209",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "59a40391820a8971f3ad7c1c4f9fe0d72ca8b6f8206b7042e047957e96477afd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "raw_order_sha256": "0b149eac0d64286868b4c36ed9e983259f490dd17f756c0e3f605ab7fbb007bd",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "de4a18b8d56a31ef23e664b1846aaad8b56f3064bf735501f9c5658ef0a7ef66",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "canonical_edges_sha256": "91e5790f04f4e07ed58b4b781989d0638ede00c6a95d125b8f92836c8faa25d0",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "31266250893bd5306f3ab1a034a5e38ee3ea98029fb8db87cfa34a79340ed209",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "59a40391820a8971f3ad7c1c4f9fe0d72ca8b6f8206b7042e047957e96477afd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "raw_order_sha256": "0b149eac0d64286868b4c36ed9e983259f490dd17f756c0e3f605ab7fbb007bd",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "eed6790eca3dae9cb2b014b6bfc7da556b681b84c8368f241d309cb398a7b85b",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "canonical_edges_sha256": "91e5790f04f4e07ed58b4b781989d0638ede00c6a95d125b8f92836c8faa25d0",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "31266250893bd5306f3ab1a034a5e38ee3ea98029fb8db87cfa34a79340ed209",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "59a40391820a8971f3ad7c1c4f9fe0d72ca8b6f8206b7042e047957e96477afd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            }
+          ],
+          "raw_order_sha256": "0b149eac0d64286868b4c36ed9e983259f490dd17f756c0e3f605ab7fbb007bd",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "4dc03e46d5b489193afb7881d05b0e56fe5f96ebd48b1d68c3bc14435cde7bb6",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "canonical_edges_sha256": "84cd8146d948a936b03044142ddccc0d2c6df912bb8142ede0cdabb1ca473d80",
+          "distinct_edge_count": 8,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Common",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Left",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Right",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "663c0ee164ce12a21a1bdc8a71540831b880537bda462222714a6664d6d0ef47",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "49e6b78e28a321f78d8f5030d0243e87dea80725161537708d906b1d1d92e035",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 8,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "raw_order_sha256": "96c8d0c459db21c836d6e92e373d7b28a4accad01b53a1efe24e74cb6d5ac282",
+          "reported_edge_count": 8
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 8",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "6c5ab4c9e45f4ed7ea1f574d1ccc27aca6161076ca65980a4dec6576e7821fa9"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "ed7b54b6d81daa1fba8c274ef665db84d2af0db88e01306609ceddb7b56a6747",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "canonical_edges_sha256": "84cd8146d948a936b03044142ddccc0d2c6df912bb8142ede0cdabb1ca473d80",
+          "distinct_edge_count": 8,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Common",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Left",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Right",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "663c0ee164ce12a21a1bdc8a71540831b880537bda462222714a6664d6d0ef47",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "49e6b78e28a321f78d8f5030d0243e87dea80725161537708d906b1d1d92e035",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 8,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "raw_order_sha256": "96c8d0c459db21c836d6e92e373d7b28a4accad01b53a1efe24e74cb6d5ac282",
+          "reported_edge_count": 8
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 8",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "6c5ab4c9e45f4ed7ea1f574d1ccc27aca6161076ca65980a4dec6576e7821fa9"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "e3522db9028915871fc849b1af3ee0e0a8f34627ed585784e92923b4a98ca233",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "canonical_edges_sha256": "84cd8146d948a936b03044142ddccc0d2c6df912bb8142ede0cdabb1ca473d80",
+          "distinct_edge_count": 8,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Common",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Left",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Right",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "663c0ee164ce12a21a1bdc8a71540831b880537bda462222714a6664d6d0ef47",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "49e6b78e28a321f78d8f5030d0243e87dea80725161537708d906b1d1d92e035",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 8,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "raw_order_sha256": "96c8d0c459db21c836d6e92e373d7b28a4accad01b53a1efe24e74cb6d5ac282",
+          "reported_edge_count": 8
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 8",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "6c5ab4c9e45f4ed7ea1f574d1ccc27aca6161076ca65980a4dec6576e7821fa9"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "7437de0b652170ee915449a97f0b9b1b99f48fac8007538c0083059d05674571",
+      "invocation_history": [
+        "imports/diamond-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "canonical_edges_sha256": "84cd8146d948a936b03044142ddccc0d2c6df912bb8142ede0cdabb1ca473d80",
+          "distinct_edge_count": 8,
+          "documents": [
+            {
+              "bytes_sha256": "0e62f93dd4e2555d3fcb07fa8391f2189bf0aecb9a92479932d7152ce05fe038",
+              "document": "imports/diamond-common.ofn",
+              "document_iri": "fixture:///imports/diamond-common.ofn",
+              "ontology_iri": "urn:oracle:diamond-common"
+            },
+            {
+              "bytes_sha256": "579cd23ec952305e257b72ee13162e0ce484a6876b65a4bee460fdfdc6e1c818",
+              "document": "imports/diamond-left.ofn",
+              "document_iri": "fixture:///imports/diamond-left.ofn",
+              "ontology_iri": "urn:oracle:diamond-left"
+            },
+            {
+              "bytes_sha256": "9a9402cc13f403c4e5cce7b38db4999deb70236480d5a7135c5a0841b24508cf",
+              "document": "imports/diamond-right.ofn",
+              "document_iri": "fixture:///imports/diamond-right.ofn",
+              "ontology_iri": "urn:oracle:diamond-right"
+            },
+            {
+              "bytes_sha256": "5d50a08a730c17389e060a7fc10381ed9515f4e0e0a962965532f2038e843816",
+              "document": "imports/diamond-root.ofn",
+              "document_iri": "fixture:///imports/diamond-root.ofn",
+              "ontology_iri": "urn:oracle:diamond-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Common"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Left"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Right"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Top",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:diamond#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Common",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Left",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Right",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:diamond#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:diamond#Top"
+              }
+            }
+          ],
+          "edge_counter_sha256": "663c0ee164ce12a21a1bdc8a71540831b880537bda462222714a6664d6d0ef47",
+          "input_name": "diamond-root.ofn",
+          "metadata_sha256": "49e6b78e28a321f78d8f5030d0243e87dea80725161537708d906b1d1d92e035",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 8,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Left"
+            },
+            {
+              "destination": "urn:oracle:diamond#Left",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Right"
+            },
+            {
+              "destination": "urn:oracle:diamond#Right",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Common"
+            },
+            {
+              "destination": "urn:oracle:diamond#Common",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            },
+            {
+              "destination": "urn:oracle:diamond#Top",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:diamond#Root"
+            },
+            {
+              "destination": "urn:oracle:diamond#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:diamond#Top"
+            }
+          ],
+          "raw_order_sha256": "96c8d0c459db21c836d6e92e373d7b28a4accad01b53a1efe24e74cb6d5ac282",
+          "reported_edge_count": 8
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 8",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "6c5ab4c9e45f4ed7ea1f574d1ccc27aca6161076ca65980a4dec6576e7821fa9"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "37cfd336865bad0ea2bfe918bc3de642bcb5f212546738d88158f4e6d4c6f6dc",
+    "documents": [
+      "imports/diamond-root.ofn"
+    ],
+    "id": "imports-diamond",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-043"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

@@ -1,0 +1,7 @@
+Prefix(:=<urn:oracle:imports-one#>)
+Prefix(rdfs:=<http://www.w3.org/2000/01/rdf-schema#>)
+Ontology(<urn:oracle:imports-one-leaf>
+ Declaration(Class(:Leaf))
+ SubClassOf(:Leaf :LeafTop)
+ AnnotationAssertion(rdfs:label :Leaf "Imported leaf label")
+)

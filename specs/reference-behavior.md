@@ -15,6 +15,11 @@ The normative compatibility target is the Scala source at mOWL commit
 The source and golden oracle take precedence over the broader mOWL documentation table when
 they differ. The original OWL2Vec* paper remains design context, not an executable oracle.
 
+Normative observations are indexed as `RB-001` through `RB-047` in
+[`reference-rules.json`](reference-rules.json). That machine-readable catalogue maps every
+claim to at least one isolated fixture. Fixture IDs are also embedded in each golden so a rule
+cannot become an untraceable prose assertion.
+
 ## 2. General traversal
 
 The upstream abstract projector traverses the imports closure (`Imports.fromBoolean(true)`) for
@@ -115,11 +120,13 @@ rules expand through this map. Direct object-property assertions do not.
 
 ### Domain and range
 
-Only named object properties with named domain/range classes participate. For each property,
-the projector emits a cross-product of all matching named domains and ranges, then applies
-inverse/subrole expansion. Domain/range axioms are collected once during RBox traversal and a
-second time during the general all-axiom traversal; this can duplicate multiplicities. Preserve
-those counts when `duplicates="preserve"`.
+Only named object properties with named domain/range classes participate. For each property, the
+projector emits a cross-product of all matching named domains and ranges, then applies
+inverse/subrole expansion. The source has collection branches in both its RBox loop and general
+all-axiom loop, but OWLAPI 4.5.22 does not return domain/range axioms from `getRBoxAxioms`; the
+pinned combination therefore makes one effective collection pass. Distinct annotated
+domain/range axioms with the same structural tuple still produce equal edges through the
+cross-product, and those counts are preserved when `duplicates="preserve"` (RB-020–RB-023).
 
 Property chains, symmetric-property semantics, and other RBox shapes are ignored.
 
@@ -129,10 +136,12 @@ A class assertion emits `(individual, http://type, class)` only when both the in
 class expression are named. Anonymous individuals and complex class expressions are ignored.
 
 A named object-property assertion emits its direct triple. Historical inverse/subrole expansion
-for assertions is commented out and must remain absent. The source uses unchecked casts/string
-conversion for inverse-property and anonymous-individual shapes. They are outside the supported
-profile surface until WP-P1 records whether the pinned oracle emits or fails; the implementation
-must then match that typed golden outcome rather than silently inventing an edge.
+for assertions is commented out and must remain absent. An anonymous subject is converted through
+OWLAPI's `toStringID` and therefore emits a direct triple whose source is the generated blank-node
+identifier. An inverse-property assertion reaches the unchecked property cast and raises
+`java.lang.ClassCastException`. These WP-P1 outcomes are pinned by `abox` and
+`abox-unsupported-property`; implementations must not silently replace them with a different edge
+or ignore policy (RB-026–RB-028).
 
 Data-property assertions are not emitted, even with literals enabled.
 
@@ -141,6 +150,11 @@ Data-property assertions are not emitted, even with literals enabled.
 Despite its name, `include_literals=True` enables selected annotations on classes and may emit an
 IRI-valued annotation. It does not visit ontology, individual, object-property, or data-property
 annotations, and it does not enable data-property assertions.
+
+The class-signature loop includes the imports closure, but `EntitySearcher.getAnnotations` is
+called against the root ontology rather than each declaring ontology. Consequently, an annotation
+assertion present only in an imported document is not emitted, even though its class participates
+in closure traversal. `imports-one-level` pins this source/OWLAPI interaction (RB-029).
 
 The **annotation property**, not datatype, is allowlisted. The exact upstream membership set is:
 

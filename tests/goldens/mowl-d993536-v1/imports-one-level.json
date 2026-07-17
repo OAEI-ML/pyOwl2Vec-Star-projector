@@ -1,0 +1,957 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "d8eb3d758dddc9fd4387c60870ae2c8a87d8290d16ba90275a71488b54a51347",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            }
+          ],
+          "canonical_edges_sha256": "f7a248a06b52b164ad311f4513b1453ecfd1eea675b78d71e9fa90ea4687dcc5",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "b626502f320c81f4e4f509cfa60fe56a881ca7e2906e9a83877e5ee24a7816ff",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "7fb69b6c969f8333eabf8473c8c1e105708f92090f6898ee326a8fa2f11e2c82",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            }
+          ],
+          "raw_order_sha256": "8a1f4e1a1027511d75303154a2e1d6e8b17231024725ea1e1457ae0b0d65e98b",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "8bad73c692a63de15b3e6d852ea48295253f892138db96e124b83708f4e1a23d",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            }
+          ],
+          "canonical_edges_sha256": "f7a248a06b52b164ad311f4513b1453ecfd1eea675b78d71e9fa90ea4687dcc5",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "b626502f320c81f4e4f509cfa60fe56a881ca7e2906e9a83877e5ee24a7816ff",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "7fb69b6c969f8333eabf8473c8c1e105708f92090f6898ee326a8fa2f11e2c82",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            }
+          ],
+          "raw_order_sha256": "8a1f4e1a1027511d75303154a2e1d6e8b17231024725ea1e1457ae0b0d65e98b",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "2412acb9fe322da1768e75aa9ac385ae752181282af7ccd8e148dc1d99c26356",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            }
+          ],
+          "canonical_edges_sha256": "f7a248a06b52b164ad311f4513b1453ecfd1eea675b78d71e9fa90ea4687dcc5",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "b626502f320c81f4e4f509cfa60fe56a881ca7e2906e9a83877e5ee24a7816ff",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "7fb69b6c969f8333eabf8473c8c1e105708f92090f6898ee326a8fa2f11e2c82",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            }
+          ],
+          "raw_order_sha256": "8a1f4e1a1027511d75303154a2e1d6e8b17231024725ea1e1457ae0b0d65e98b",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "a14aba45de841e42524b87e31a8b31c6726baf5fc055684a6746bcf26bd131a6",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            }
+          ],
+          "canonical_edges_sha256": "f7a248a06b52b164ad311f4513b1453ecfd1eea675b78d71e9fa90ea4687dcc5",
+          "distinct_edge_count": 2,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            }
+          ],
+          "edge_counter_sha256": "b626502f320c81f4e4f509cfa60fe56a881ca7e2906e9a83877e5ee24a7816ff",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "7fb69b6c969f8333eabf8473c8c1e105708f92090f6898ee326a8fa2f11e2c82",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 2,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            }
+          ],
+          "raw_order_sha256": "8a1f4e1a1027511d75303154a2e1d6e8b17231024725ea1e1457ae0b0d65e98b",
+          "reported_edge_count": 2
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 2",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "180c4472a4540492aa7e6ff1a71b75ad1eee6ae16af907af0722e042c225585e"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "cb95fa1f57bbcf1d95dccf9b7950026efa136bad87af7a9246c789f42d614c7f",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            }
+          ],
+          "canonical_edges_sha256": "7e5d6eb9e59fd37f71ccb9019c40e1a440d718626deb3b19a77dfbda288c2e9e",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Leaf",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#LeafTop"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#RootTop"
+              }
+            }
+          ],
+          "edge_counter_sha256": "62d8ba1e293dc08643e7d9bd1f2e5c1e22c91bf8629fe5a958bd94899aa119e4",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "ed66ec2c7cd12b69f9d8a09f37c95576fb96783bd8f33fa58c37eeb05cf92d5e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            }
+          ],
+          "raw_order_sha256": "d0d317ecfe69515a94355be875ed48c59cbb85a3d0f95daf2f13978bf960c660",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "3ca75d67e05153c807cb09d29e38cd730146632e17f15b94218847d71d757e7a",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            }
+          ],
+          "canonical_edges_sha256": "7e5d6eb9e59fd37f71ccb9019c40e1a440d718626deb3b19a77dfbda288c2e9e",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Leaf",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#LeafTop"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#RootTop"
+              }
+            }
+          ],
+          "edge_counter_sha256": "62d8ba1e293dc08643e7d9bd1f2e5c1e22c91bf8629fe5a958bd94899aa119e4",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "ed66ec2c7cd12b69f9d8a09f37c95576fb96783bd8f33fa58c37eeb05cf92d5e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            }
+          ],
+          "raw_order_sha256": "d0d317ecfe69515a94355be875ed48c59cbb85a3d0f95daf2f13978bf960c660",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "3d97bd3d4fb0c5cfc654230fc976143474330136da8cfbaa952610a91496d013",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            }
+          ],
+          "canonical_edges_sha256": "7e5d6eb9e59fd37f71ccb9019c40e1a440d718626deb3b19a77dfbda288c2e9e",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Leaf",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#LeafTop"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#RootTop"
+              }
+            }
+          ],
+          "edge_counter_sha256": "62d8ba1e293dc08643e7d9bd1f2e5c1e22c91bf8629fe5a958bd94899aa119e4",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "ed66ec2c7cd12b69f9d8a09f37c95576fb96783bd8f33fa58c37eeb05cf92d5e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            }
+          ],
+          "raw_order_sha256": "d0d317ecfe69515a94355be875ed48c59cbb85a3d0f95daf2f13978bf960c660",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "4d56785b8f664f2d4febbd16d500e2eb05ade7207207dec7982a017078aa0634",
+      "invocation_history": [
+        "imports/one-root.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            }
+          ],
+          "canonical_edges_sha256": "7e5d6eb9e59fd37f71ccb9019c40e1a440d718626deb3b19a77dfbda288c2e9e",
+          "distinct_edge_count": 4,
+          "documents": [
+            {
+              "bytes_sha256": "4c847ffb463fc9091495e2f8f04596c17abaa3e817d5c61957829957bda06f71",
+              "document": "imports/one-leaf.ofn",
+              "document_iri": "fixture:///imports/one-leaf.ofn",
+              "ontology_iri": "urn:oracle:imports-one-leaf"
+            },
+            {
+              "bytes_sha256": "2ec545e97f098e7e683687da25f379bbd5e0bcaf68b398f7013d1fc42f3f2dde",
+              "document": "imports/one-root.ofn",
+              "document_iri": "fixture:///imports/one-root.ofn",
+              "ontology_iri": "urn:oracle:imports-one-root"
+            }
+          ],
+          "duplicate_edge_count": 0,
+          "edge_counter": [
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#LeafTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Leaf"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Leaf",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#LeafTop"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#RootTop",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:imports-one#Root"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:imports-one#Root",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:imports-one#RootTop"
+              }
+            }
+          ],
+          "edge_counter_sha256": "62d8ba1e293dc08643e7d9bd1f2e5c1e22c91bf8629fe5a958bd94899aa119e4",
+          "input_name": "one-root.ofn",
+          "metadata_sha256": "ed66ec2c7cd12b69f9d8a09f37c95576fb96783bd8f33fa58c37eeb05cf92d5e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 4,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:imports-one#RootTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Root"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Root",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#RootTop"
+            },
+            {
+              "destination": "urn:oracle:imports-one#LeafTop",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:imports-one#Leaf"
+            },
+            {
+              "destination": "urn:oracle:imports-one#Leaf",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:imports-one#LeafTop"
+            }
+          ],
+          "raw_order_sha256": "d0d317ecfe69515a94355be875ed48c59cbb85a3d0f95daf2f13978bf960c660",
+          "reported_edge_count": 4
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 4",
+          "\tEquivalence triples: 0",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "46d199b6eca46f4e8244e527a0800b9f7bb15e16419afc9779b4c2a4461a4ab5"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "1c6a920b41f507c18d17052d142eaf7dae4c93d31b52ae335c7128cf0a10b6a4",
+    "documents": [
+      "imports/one-root.ofn"
+    ],
+    "id": "imports-one-level",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-042"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

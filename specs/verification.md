@@ -27,10 +27,17 @@ historical booleans and writes raw triples, preserving list order and multiplici
 - raw edge count and edge-counter SHA-256; and
 - stderr/stdout captured as non-contract diagnostics.
 
-The oracle directory is excluded from release wheels and sdists. Its generated golden JSONL and
+The oracle directory is excluded from release wheels and sdists. Its generated golden JSON and
 metadata are committed. Regeneration requires an explicit maintainer command, yields a clean
 working-tree diff, and never runs in ordinary pull requests. A scheduled/manual job runs the
 oracle and fails if freshly generated counters differ from committed goldens.
+
+The implemented oracle uses deterministic JSON documents rather than separate JSONL streams so
+the raw list, counter, canonical derivative, metadata, and diagnostics for each eight-flag matrix
+remain one review unit. `tools/java-oracle/regenerate.py` is the one-command entry point. It
+verifies the four staged mOWL Git blobs, every Maven runtime JAR, and the JDK SPDX SBOM before
+executing the projector. The committed dependency lock and environment digest are the locked
+environment equivalent of a container digest; no unbuilt OCI image is presented as evidence.
 
 Oracle precedence is explicit:
 
@@ -70,16 +77,21 @@ Fixtures are small and redistributable. Together they exercise:
 | fillers | named, intersection, union, anonymous/unsupported |
 | equivalence | 2 and 3+ members; member permutations; named, restriction, intersection, union |
 | roles | one and sibling subroles, chained subroles, multiple inverses, order-sensitive collisions |
-| domain/range | zero/one/many each; cross-product; duplicate collection; anonymous classes |
+| domain/range | zero/one/many each; cross-product; effective-pass classification; annotated duplicates; anonymous classes |
 | assertions | named and anonymous individuals/classes/properties; object and data assertions |
 | annotations | every allowed datatype; language strings; unsupported datatype; non-class subjects |
 | flags | every combination of the three historical booleans |
-| multiplicity | equal triples from independent axioms/rules and domain/range double collection |
+| multiplicity | equal triples from independent axioms/rules and annotated domain/range axioms |
 | lifecycle | fresh call, repeated same ontology, two ontologies with conflicting role maps |
 | Unicode | non-ASCII IRIs/literals, combining forms, embedded control escapes |
 
 Every fixture inventory records which rule it isolates. At least one "kitchen sink" fixture
 guards rule interaction, but no behavior is proven only by that fixture.
+
+The checked-in inventory and `reference-rules.json` are machine-cross-validated in Java-free CI.
+Synthetic ontology inputs are CC0-1.0 and contain no third-party ontology content.
+The missing-import case records the strict oracle loader's typed pre-projection failure; import
+resolution policy remains a `pyowl-core` concern and is not silently redefined by the projector.
 
 All `2^3 = 8` combinations of `bidirectional_taxonomy`, `only_taxonomy`, and
 `include_literals` run against each applicable golden. Both duplicate policies and both

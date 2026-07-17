@@ -1,0 +1,11 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:oracle:unicode> a owl:Ontology .
+
+<urn:oracle:unicode#Café> a owl:Class ;
+    rdfs:subClassOf <urn:oracle:unicode#Café> ;
+    rdfs:label "雪\nline\tend" .
+
+<urn:oracle:unicode#Café> a owl:Class ;
+    rdfs:comment "café" .

@@ -14,9 +14,12 @@ Oracle source or binaries, when acquired explicitly by developers, remain in an
 ignored external cache and retain their upstream license and notices. They are
 excluded from wheels and source distributions.
 
+The synthetic ontology fixtures used to record oracle behavior were authored for
+this project and dedicated to the public domain under CC0-1.0. They contain no
+third-party ontology content and are excluded from release artifacts.
+
 ## OWL2Vec*
 
 The OWL2Vec* research and the existing `owl2vec-star` Python distribution are
 references for terminology and ecosystem comparison only. No code from that
 distribution is copied into this project.
-

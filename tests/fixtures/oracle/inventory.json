@@ -1,0 +1,108 @@
+{
+  "schema": "pyowl-projector.oracle-fixtures/1",
+  "license": "CC0-1.0",
+  "fixtures": [
+    {
+      "id": "taxonomy-restrictions",
+      "document": "taxonomy-restrictions.ofn",
+      "rules": ["RB-001", "RB-002", "RB-003", "RB-004", "RB-005", "RB-006", "RB-007", "RB-008", "RB-009"]
+    },
+    {
+      "id": "equivalence-ordering",
+      "document": "equivalence-ordering.ofn",
+      "rules": ["RB-010", "RB-011", "RB-012", "RB-013", "RB-014"]
+    },
+    {
+      "id": "rbox-collisions",
+      "document": "rbox-collisions.ofn",
+      "rules": ["RB-015", "RB-016", "RB-017", "RB-018", "RB-019"]
+    },
+    {
+      "id": "domain-range",
+      "document": "domain-range.ofn",
+      "rules": ["RB-020", "RB-021", "RB-022", "RB-023"]
+    },
+    {
+      "id": "abox",
+      "document": "abox.ofn",
+      "rules": ["RB-024", "RB-025", "RB-026", "RB-027"]
+    },
+    {
+      "id": "abox-unsupported-property",
+      "document": "abox-unsupported-property.ofn",
+      "rules": ["RB-028"]
+    },
+    {
+      "id": "annotations",
+      "document": "annotations.ofn",
+      "rules": ["RB-029", "RB-030", "RB-031", "RB-032", "RB-033", "RB-034"]
+    },
+    {
+      "id": "ignored-constructs",
+      "document": "ignored-constructs.ofn",
+      "rules": ["RB-035", "RB-036", "RB-037", "RB-038", "RB-039"]
+    },
+    {
+      "id": "unicode",
+      "document": "unicode.ttl",
+      "rules": ["RB-040", "RB-041"]
+    },
+    {
+      "id": "imports-one-level",
+      "document": "imports/one-root.ofn",
+      "rules": ["RB-042"]
+    },
+    {
+      "id": "imports-diamond",
+      "document": "imports/diamond-root.ofn",
+      "rules": ["RB-043"]
+    },
+    {
+      "id": "imports-cycle",
+      "document": "imports/cycle-a.ofn",
+      "rules": ["RB-044"]
+    },
+    {
+      "id": "imports-missing",
+      "document": "imports/missing-root.ofn",
+      "rules": ["RB-045"]
+    },
+    {
+      "id": "lifecycle-a",
+      "document": "lifecycle-a.ofn",
+      "rules": ["RB-046"]
+    },
+    {
+      "id": "lifecycle-b",
+      "document": "lifecycle-b.ofn",
+      "rules": ["RB-046"]
+    },
+    {
+      "id": "lifecycle-c",
+      "document": "lifecycle-c.ofn",
+      "rules": ["RB-046"]
+    },
+    {
+      "id": "kitchen-sink",
+      "document": "kitchen-sink.ofn",
+      "rules": ["RB-047"]
+    }
+  ],
+  "sessions": [
+    {
+      "id": "mutable-role-state",
+      "documents": ["lifecycle-a.ofn", "lifecycle-b.ofn"],
+      "rules": ["RB-046"]
+    },
+    {
+      "id": "repeated-same-ontology",
+      "documents": ["lifecycle-a.ofn", "lifecycle-a.ofn"],
+      "rules": ["RB-046"]
+    },
+    {
+      "id": "conflicting-role-state",
+      "documents": ["lifecycle-a.ofn", "lifecycle-c.ofn"],
+      "rules": ["RB-046"]
+    }
+  ]
+}

@@ -1,9 +1,10 @@
 # pyOwl2Vec-Star-projector
 
 `pyOwl2Vec-Star-projector` is a Java-free OWL2Vec* projection package under implementation for
-Python 3.10 and newer. WP-P0 now provides the installable typed foundation, immutable values,
-strict options, provenance, backend-selection seam, and audits. It does not yet contain a
-projection engine; WP-P1/P2 own the oracle and complete Python compiler.
+Python 3.10 and newer. WP-P0 provides the installable typed foundation, immutable values, strict
+options, provenance, backend-selection seam, and audits. WP-P1 provides the committed, pinned
+Scala parity corpus; it remains quarantined maintainer infrastructure. The package does not yet
+contain a projection engine—WP-P2 owns the complete Python compiler.
 
 The package will consume the same `pyowl_core.OntologyView` used by parsers, reasoners, and
 callers—normally a concrete `OntologySnapshot`, and optionally a persistent `OntologyOverlay` or
@@ -35,6 +36,6 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 Planned initial release: `0.1.0`.
 
-The `0.1.0a1` foundation API is implemented. Edge-producing APIs remain unavailable until their
-work packages and compatibility gates are complete; the package does not return placeholder
-edges.
+The `0.1.0a1` foundation API and Scala oracle/golden corpus are implemented. Edge-producing APIs
+remain unavailable until their work packages and compatibility gates are complete; the package
+does not return placeholder edges. Normal tests, installs, wheels, and sdists remain Java-free.

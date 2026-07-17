@@ -1,0 +1,4 @@
+Prefix(:=<urn:oracle:diamond#>)
+Ontology(<urn:oracle:diamond-common>
+ SubClassOf(:Common :Top)
+)

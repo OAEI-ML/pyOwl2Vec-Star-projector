@@ -1,0 +1,13 @@
+Prefix(:=<urn:oracle:abox#>)
+Prefix(xsd:=<http://www.w3.org/2001/XMLSchema#>)
+Ontology(<urn:oracle:abox>
+ Declaration(Class(:A)) Declaration(Class(:B))
+ Declaration(ObjectProperty(:p)) Declaration(DataProperty(:score))
+ Declaration(NamedIndividual(:i)) Declaration(NamedIndividual(:j))
+ ClassAssertion(:A :i)
+ ClassAssertion(ObjectIntersectionOf(:A :B) :j)
+ ClassAssertion(:A _:anon)
+ ObjectPropertyAssertion(:p :i :j)
+ ObjectPropertyAssertion(:p _:anon :i)
+ DataPropertyAssertion(:score :i "7"^^xsd:integer)
+)

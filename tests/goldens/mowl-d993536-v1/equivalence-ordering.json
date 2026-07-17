@@ -1,0 +1,1681 @@
+{
+  "cases": {
+    "b0-t0-l0": {
+      "case_metadata_sha256": "61ccf5ea67ba699f7f53a1a9e10bc6c959e9afa6f184d6811fd935485e0ff44f",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "c15ffcf644a7543c6e2aacfb2a4b7c498aa4b1a0c5047b88004159f0e13dc9be",
+          "distinct_edge_count": 5,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 1,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "3e853c9680f62f1a88f69060dc246f024caa58c462fb2bc05f89e3e7fcc78af3",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "91c6d1311c001d101cded33f71be36ae98283798f06cde56b019508baee8a8bd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 6,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            }
+          ],
+          "raw_order_sha256": "ba461ac5708187386da43890a1a6ea81e2d2cbdfcafae2e9b1994184f198d153",
+          "reported_edge_count": 6
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 6",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "5702b0fb421c270bd733a21479854c2ea1e420bc622acc0b4756e3204d855864"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t0-l1": {
+      "case_metadata_sha256": "e7743b4a49af1c789a73915da9ebef3675fa63ed0be09d43d032304bd8a214f2",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "c15ffcf644a7543c6e2aacfb2a4b7c498aa4b1a0c5047b88004159f0e13dc9be",
+          "distinct_edge_count": 5,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 1,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "3e853c9680f62f1a88f69060dc246f024caa58c462fb2bc05f89e3e7fcc78af3",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "91c6d1311c001d101cded33f71be36ae98283798f06cde56b019508baee8a8bd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 6,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            }
+          ],
+          "raw_order_sha256": "ba461ac5708187386da43890a1a6ea81e2d2cbdfcafae2e9b1994184f198d153",
+          "reported_edge_count": 6
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 6",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "5702b0fb421c270bd733a21479854c2ea1e420bc622acc0b4756e3204d855864"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b0-t1-l0": {
+      "case_metadata_sha256": "4ded545842ddafbaaf9ce8ed8f30ed0c9fbed2455423e32937bde2eaa8b865d4",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "c15ffcf644a7543c6e2aacfb2a4b7c498aa4b1a0c5047b88004159f0e13dc9be",
+          "distinct_edge_count": 5,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 1,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "3e853c9680f62f1a88f69060dc246f024caa58c462fb2bc05f89e3e7fcc78af3",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "91c6d1311c001d101cded33f71be36ae98283798f06cde56b019508baee8a8bd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 6,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            }
+          ],
+          "raw_order_sha256": "ba461ac5708187386da43890a1a6ea81e2d2cbdfcafae2e9b1994184f198d153",
+          "reported_edge_count": 6
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 6",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "5702b0fb421c270bd733a21479854c2ea1e420bc622acc0b4756e3204d855864"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b0-t1-l1": {
+      "case_metadata_sha256": "f8b84c284c512a1ac76e86fbb571498a87dd4d91f45d66e231529576a03f8c80",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "c15ffcf644a7543c6e2aacfb2a4b7c498aa4b1a0c5047b88004159f0e13dc9be",
+          "distinct_edge_count": 5,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 1,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "3e853c9680f62f1a88f69060dc246f024caa58c462fb2bc05f89e3e7fcc78af3",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "91c6d1311c001d101cded33f71be36ae98283798f06cde56b019508baee8a8bd",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 6,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            }
+          ],
+          "raw_order_sha256": "ba461ac5708187386da43890a1a6ea81e2d2cbdfcafae2e9b1994184f198d153",
+          "reported_edge_count": 6
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 6",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "5702b0fb421c270bd733a21479854c2ea1e420bc622acc0b4756e3204d855864"
+      },
+      "options": {
+        "bidirectional_taxonomy": false,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t0-l0": {
+      "case_metadata_sha256": "77c154eac8b931d4ef256dd68847f3f96581cd7a1a4c33d4e7e6c2fb15200110",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "53e27bf99e4efc1b5f7909bfc11670696f5ce958ae842e27c2f800d664a46faa",
+          "distinct_edge_count": 10,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 2,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "8c4891d8fed174c2c7dd1a893fbf4e251921d3da9fde657902a50f2512b95f00",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "e1f97b461fa9023a719e501b8e0ad4fa189f5e2f1568ef75f13f9bb7e8744f3e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            }
+          ],
+          "raw_order_sha256": "3ee61304e7fa90cf6f592de6f98d35ddec84b8494be6199271f815a382e85ca4",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 12",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "98c0d4027c3a04cf542b72694abf836d81f13f376f62225000296deb28081668"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t0-l1": {
+      "case_metadata_sha256": "44c460906977ce1b6fc589e7f6a08e226e8f70fcb5efd77fda4642982e6237d5",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "53e27bf99e4efc1b5f7909bfc11670696f5ce958ae842e27c2f800d664a46faa",
+          "distinct_edge_count": 10,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 2,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "8c4891d8fed174c2c7dd1a893fbf4e251921d3da9fde657902a50f2512b95f00",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "e1f97b461fa9023a719e501b8e0ad4fa189f5e2f1568ef75f13f9bb7e8744f3e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            }
+          ],
+          "raw_order_sha256": "3ee61304e7fa90cf6f592de6f98d35ddec84b8494be6199271f815a382e85ca4",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 12",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "98c0d4027c3a04cf542b72694abf836d81f13f376f62225000296deb28081668"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": false
+      }
+    },
+    "b1-t1-l0": {
+      "case_metadata_sha256": "2e7df719bb450e3f3394e0caea9ce2266ed5f114156f52d94afd96ce40a30c10",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "53e27bf99e4efc1b5f7909bfc11670696f5ce958ae842e27c2f800d664a46faa",
+          "distinct_edge_count": 10,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 2,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "8c4891d8fed174c2c7dd1a893fbf4e251921d3da9fde657902a50f2512b95f00",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "e1f97b461fa9023a719e501b8e0ad4fa189f5e2f1568ef75f13f9bb7e8744f3e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            }
+          ],
+          "raw_order_sha256": "3ee61304e7fa90cf6f592de6f98d35ddec84b8494be6199271f815a382e85ca4",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 12",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "98c0d4027c3a04cf542b72694abf836d81f13f376f62225000296deb28081668"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": false,
+        "only_taxonomy": true
+      }
+    },
+    "b1-t1-l1": {
+      "case_metadata_sha256": "1681c5c449a9816e1d29b74c1c8f539e156bcbf228744e5d29592643cd05262a",
+      "invocation_history": [
+        "equivalence-ordering.ofn"
+      ],
+      "invocations": [
+        {
+          "canonical_edges": [
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            }
+          ],
+          "canonical_edges_sha256": "53e27bf99e4efc1b5f7909bfc11670696f5ce958ae842e27c2f800d664a46faa",
+          "distinct_edge_count": 10,
+          "documents": [
+            {
+              "bytes_sha256": "102357115a6362ccf3bef1e28368d20f42b915886aef765cf05f59a74148c562",
+              "document": "equivalence-ordering.ofn",
+              "document_iri": "fixture:///equivalence-ordering.ofn",
+              "ontology_iri": "urn:oracle:equivalence"
+            }
+          ],
+          "duplicate_edge_count": 2,
+          "edge_counter": [
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#A"
+              }
+            },
+            {
+              "count": 2,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#C",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#D",
+                "relation": "http://superclassof",
+                "source": "urn:oracle:equivalence#B"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#C"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#A",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            },
+            {
+              "count": 1,
+              "edge": {
+                "destination": "urn:oracle:equivalence#B",
+                "relation": "http://subclassof",
+                "source": "urn:oracle:equivalence#D"
+              }
+            }
+          ],
+          "edge_counter_sha256": "8c4891d8fed174c2c7dd1a893fbf4e251921d3da9fde657902a50f2512b95f00",
+          "input_name": "equivalence-ordering.ofn",
+          "metadata_sha256": "e1f97b461fa9023a719e501b8e0ad4fa189f5e2f1568ef75f13f9bb7e8744f3e",
+          "missing_imports": [],
+          "outcome": "success",
+          "raw_edge_count": 12,
+          "raw_edges": [
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#D"
+            },
+            {
+              "destination": "urn:oracle:equivalence#D",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            },
+            {
+              "destination": "urn:oracle:equivalence#A",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#A"
+            },
+            {
+              "destination": "urn:oracle:equivalence#B",
+              "relation": "http://subclassof",
+              "source": "urn:oracle:equivalence#C"
+            },
+            {
+              "destination": "urn:oracle:equivalence#C",
+              "relation": "http://superclassof",
+              "source": "urn:oracle:equivalence#B"
+            }
+          ],
+          "raw_order_sha256": "3ee61304e7fa90cf6f592de6f98d35ddec84b8494be6199271f815a382e85ca4",
+          "reported_edge_count": 12
+        }
+      ],
+      "non_contract_diagnostics": {
+        "contract": "non-contract",
+        "stderr": [],
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout": [
+          "OWL2VecStar projection done!",
+          "\tSubclassOf triples: 0",
+          "\tEquivalence triples: 12",
+          "\tClass assertion triples: 0",
+          "\tObject property assertion triples: 0",
+          "\tDomain and range triples: 0",
+          "\tAnnotation triples: 0"
+        ],
+        "stdout_sha256": "98c0d4027c3a04cf542b72694abf836d81f13f376f62225000296deb28081668"
+      },
+      "options": {
+        "bidirectional_taxonomy": true,
+        "include_literals": true,
+        "only_taxonomy": true
+      }
+    }
+  },
+  "fixture": {
+    "bytes_manifest_sha256": "246a26b982718973aeab8ca5fbd2309ae9bb7543aa2dad4f3ba7674c793fc398",
+    "documents": [
+      "equivalence-ordering.ofn"
+    ],
+    "id": "equivalence-ordering",
+    "license": "CC0-1.0",
+    "lifecycle": "fresh-instance",
+    "rules": [
+      "RB-010",
+      "RB-011",
+      "RB-012",
+      "RB-013",
+      "RB-014"
+    ]
+  },
+  "profile": "mowl-d993536-v1",
+  "reference": {
+    "commit": "d9935369144f9a618ece38b7b2a8f4293afe8c26",
+    "dependency_set_sha256": "cb09ad291eb54aa1533207487932dc0eb8a4ce3d4a1ff7172c04ae659a7ddd36",
+    "elk": "0.4.3",
+    "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+    "hermit": "1.3.8.413",
+    "java": "11.0.31",
+    "jdk_sbom_sha256": "425fbc327144e7435ae339931fb7854693dca55f0110d33a531dcc501b3eccd3",
+    "owlapi": "4.5.22",
+    "projector_git_blob": "a7f7584bbe687ae341cf0547bc0492ada87cf4b8",
+    "repository": "https://github.com/bio-ontology-research-group/mowl",
+    "scala": "2.11.12",
+    "source_sha256": {
+      "gateway/src/main/scala/org/mowl/Projectors/AbstractProjector.scala": "e6e7963f161409f354f85ee5d559cbc28c819bd3b1d1f61efc4519c7c6502489",
+      "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala": "15707e192a8b053916f8293cfe2505d7619be9edb6d84f79c67c5e5c2aa23c83",
+      "gateway/src/main/scala/org/mowl/Types.scala": "8a590124d208e52a3d6042d3023dd49a8281ac21f167ae7af8d3ae05f85e2d9e",
+      "gateway/src/main/scala/org/mowl/Utils.scala": "f3d1aa535c7dca53015bcfa601181fe59876db6eae40ecc9ddb969a881b7ab12"
+    }
+  },
+  "schema": "pyowl-projector.scala-golden/1"
+}

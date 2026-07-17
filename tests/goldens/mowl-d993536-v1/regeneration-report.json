@@ -1,0 +1,37 @@
+{
+  "comparison": "edge counters, canonical derivatives, and contract metadata",
+  "consecutive_runs": 2,
+  "environment_sha256": "0cdb6ef27b7356ffa3be896ec44f6648c4794dcc2da63418442b985a3109bb68",
+  "golden_stable_sha256": {
+    "abox-unsupported-property.json": "48eb43e451c196a29da8f7dfc01efc518ae02458420ec4adcdf88b6087ff392b",
+    "abox.json": "058b10906b523f1fb043262dc30e8d99899f453f3c5aecdee3b1616c074e9aa3",
+    "annotations.json": "4d2b6450db953572af6d22652e737e17914bc99a35bd3b7d8e21ef0776eb5bc0",
+    "conflicting-role-state.json": "e82d83d2c465d72a8a37a41c967ecfe3b591bf8e10a6f779c49a84b5c6defa82",
+    "domain-range.json": "7d3ab35cc7d3cde219698ea7c25445de707a168d56eb9a72d017767c00df26ee",
+    "equivalence-ordering.json": "01000f566abf5bbcdefce6025b0616466f2e48b6b5e005599ac86d5887e27418",
+    "ignored-constructs.json": "335bf796beb2223b96a2db8a39b1ed0c0f8f0f94745d6251e428822c9e6303fe",
+    "imports-cycle.json": "77ac9ee661646b7df15aeae871d414cc1329b39edb8d1a361f74c23f5974f2c6",
+    "imports-diamond.json": "b0cd5e950990c7f6a2ea3fde67f68dfa842e44f5e46d369895f3f37418f12625",
+    "imports-missing.json": "81c0b65f831acc329ee80f618bef743c96410e67e08ee40aaad86e301d47c5db",
+    "imports-one-level.json": "1d0183d1a7b673ced7bd4bb0657ff2ee58a2cfb6f00ebf290f6c90abd2d58abe",
+    "kitchen-sink.json": "db4e5d5951395f75e8c4be52c3b7056c413de063621d6463d3a5dc0e45ef5225",
+    "lifecycle-a.json": "d73388078f5079e07606d59f20cb96a63d671c1321cb1170c410d7160eba1d28",
+    "lifecycle-b.json": "b69fd36c337bf42679291c2133b2ddb8dc06f50814e31d446a22510f3e2754b9",
+    "lifecycle-c.json": "cbd344ba185cc43ff3050c0ad73fb31500719371856b4a0b764fafd2916d2a3d",
+    "mutable-role-state.json": "be5868c8c9d723556ac80def7667b9dbbdba54cd2fe6e6281d2af7761b40db70",
+    "rbox-collisions.json": "ea1d54ce095037e22effb1a850e3b4a60d4cf1ebd0dbada34fbd58e39d6631e6",
+    "repeated-same-ontology.json": "51a42b7d70289395fe7d9af434f6583ef8e477a685c0da5b85bccb4f527ba3ab",
+    "taxonomy-restrictions.json": "2248513449aa136bc5bba1d7cb7652e008159340e7f0b839542934259b68389c",
+    "unicode.json": "7cddd3f488d8d06152495e830af5369b78248c6d6302cef438ae03fcb80186b8"
+  },
+  "incidental_raw_order_differences": {
+    "taxonomy-restrictions.json": [
+      "b0-t0-l0/invocation-0",
+      "b0-t0-l1/invocation-0",
+      "b1-t0-l0/invocation-0",
+      "b1-t0-l1/invocation-0"
+    ]
+  },
+  "schema": "pyowl-projector.oracle-regeneration/1",
+  "stable": true
+}

@@ -13,6 +13,7 @@ These documents define the initial `pyowl2vec-star-projector` `0.1.x` line. The 
 | [`verification.md`](verification.md) | Java oracle, goldens, differential tests, fixtures, and gates |
 | [`performance-packaging.md`](performance-packaging.md) | Native/fallback policy, streaming, benchmarks, wheels, and sdist |
 | [`baseline.toml`](baseline.toml) | Machine-readable upstream pin and toolchain facts |
+| [`reference-rules.json`](reference-rules.json) | Fixture-backed catalogue of pinned observations |
 
 The work-package directory breaks implementation into reviewable, versioned units. It does not
 weaken the contracts above.
@@ -54,3 +55,6 @@ pyELK, or pyHermiT. This keeps every package independently installable and preve
 | [P4](workpackages/WP-4-streaming.md) | bounded-memory deterministic output | P2 |
 | [P5](workpackages/WP-5-packaging-release.md) | wheels, sdist, CI, and release | P2–P4 |
 | [P6](workpackages/WP-6-integrations.md) | consumer conformance for Exact-OM | P5 |
+
+P0 and P1 are implemented. P2 is the next edge-producing work package; the presence of Scala
+goldens does not expose a projection API or add Java to the install/runtime dependency graph.

@@ -1,0 +1,6 @@
+Prefix(:=<urn:oracle:imports-one#>)
+Ontology(<urn:oracle:imports-one-root>
+ Import(<urn:oracle:imports-one-leaf>)
+ Declaration(Class(:Root))
+ SubClassOf(:Root :RootTop)
+)

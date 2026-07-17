@@ -1,0 +1,5 @@
+Prefix(:=<urn:oracle:diamond#>)
+Ontology(<urn:oracle:diamond-root>
+ Import(<urn:oracle:diamond-left>) Import(<urn:oracle:diamond-right>)
+ SubClassOf(:Root :Top)
+)
