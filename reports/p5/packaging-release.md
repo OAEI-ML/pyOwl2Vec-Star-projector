@@ -5,15 +5,22 @@ Date: 2026-07-17. Candidate: `0.1.0rc1`. Host: Darwin 25.5.0 x86_64.
 ## Outcome
 
 The locally provable P5 implementation is complete. The project now builds a compiler-free
-universal wheel and default sdist, and an explicitly requested isolated native wheel. Both
-fallback artifacts are byte-for-byte reproducible when `SOURCE_DATE_EPOCH` is set. The release
-gate reports `local_passed: true` and `release_passed: false`: no package was uploaded, signed, or
-presented as final.
+universal wheel and default sdist, and an explicitly requested native wheel through its
+conditional isolated-build hook. Both fallback artifacts are byte-for-byte reproducible when
+`SOURCE_DATE_EPOCH` is set. The release gate reports `local_passed: true` and
+`release_passed: false`: no package was uploaded, signed, or presented as final.
 
-The final `0.1.0` is intentionally blocked. Authenticated distribution-name ownership,
-private-index artifact selection, hosted CPython/platform wheels, signed OIDC provenance, current
+The final `0.1.0` is intentionally blocked. A compatible ordinary-index `pyowl-core` release,
+authenticated distribution-name ownership, private-index artifact selection, hosted
+CPython/platform wheels, clean subinterpreter validation, signed OIDC provenance, current
 network-backed vulnerability feeds, and unavailable release corpora cannot be established in
 this workspace. Their required evidence is machine-readable in `release/external-gates.json`.
+
+All source-checkout workflow lanes are pinned to the full pyOWLCore commit recorded in
+`release/core-compatibility.json`; package metadata remains the normal
+`pyowl-core>=0.1,<0.2` range. The core's reviewed canonical-identity correction changes only the
+structural fingerprints recorded in conformance evidence. Logical/signature fingerprints and
+every projected edge digest remain unchanged.
 
 ## Artifact design
 
@@ -29,35 +36,46 @@ The in-tree PEP 517 adapter removes Rust tooling from fallback build requirement
 sdist gzip/tar timestamps, ownership, modes, and PAX timing headers under `SOURCE_DATE_EPOCH`.
 The normal setup path no longer sends an unregistered `rust_extensions` keyword to setuptools.
 
-Final local fallback artifacts, built twice with setuptools 83.0.0 and wheel 0.46.3:
+Final local fallback artifacts, built twice from projector commit
+`1976fc7a91ad32ecd13e220621ea38ea69e6ddee` with `SOURCE_DATE_EPOCH=1784325832`,
+setuptools 83.0.0, and wheel 0.46.3:
+
+The restricted host could not fetch a new isolated artifact-construction environment, so these
+two builds used the prepared environment containing those exact pins. The independent fresh
+sdist installation below did use PEP 517 isolation with only the local wheelhouse and no index.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `pyowl2vec_star_projector-0.1.0rc1-py3-none-any.whl` | 49,333 | `5227797598f6fbd63164854de435debb369ff70cf6820cacd80050cfac4c984a` |
-| `pyowl2vec_star_projector-0.1.0rc1.tar.gz` | 111,316 | `eb9d15345cd4c2678b1afb92b2af31182e8e1c16423adf33c59c790d04513f16` |
+| `pyowl2vec_star_projector-0.1.0rc1-py3-none-any.whl` | 60,312 | `bc8decec1e073aa3462cd4c99348bd14518794a5580ead56e2c49fe5c41817aa` |
+| `pyowl2vec_star_projector-0.1.0rc1.tar.gz` | 136,239 | `309be2b37619f4d04f6f581efbe31e5c791d59b673696507fbd20e887bbedb3e` |
 
 `tools/compare_artifacts.py` reported byte-for-byte identity for both independent builds.
-`tools/audit_release.py`, the SHA-256 create/verify round trip, and Twine 6.2.0 passed both. The
-sdist contains the conditional backend, lockfile, source, release instructions, SBOMs, and notices;
-it prunes tests, golden/oracle inputs, the Java oracle, native targets, and this machine-specific
-P5 evidence directory.
+`tools/audit_release.py` and Twine 6.2.0 passed both fallback artifacts. The
+complete/unique/path-safe SHA-256 manifest create/verify round trip passed the combined universal
+wheel, native wheel, and sdist set. Archive audit rejects duplicate normalized members instead of
+allowing last-member-wins interpretation. The sdist contains the conditional backend, lockfile,
+source, release instructions, SBOMs, and notices; it prunes tests, golden/oracle inputs, the Java
+oracle, native targets, and this machine-specific P5 evidence directory.
 
-The isolated native build automatically requested `setuptools-rust==1.13.0` and produced
-`pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl` (258,102 bytes,
-SHA-256 `0f642c23b4a83f174b28a295d34ff0ed0ecfdd74cdd09c4f141bb3d0db660d34`). Artifact audit and
+The conditional backend reports `setuptools-rust==1.13.0` only when native compilation is
+explicitly requested. The final local native artifact was built in the exact pinned maintainer
+environment with Cargo offline because the restricted host could not fetch a fresh isolated
+environment. It produced
+`pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl` (269,083 bytes,
+SHA-256 `13c6afc44999154b5f9a7c8fdb92a63e26443689acc61d9bafbebdcdc0b64e4d`). Artifact audit and
 Twine passed. `otool -L` found only the extension install name, `/usr/lib/libiconv.2.dylib`, and
 `/usr/lib/libSystem.B.dylib`; no JVM/JNI library appeared.
 
 ## Clean installation and selection evidence
 
-Fresh CPython 3.10.11 and 3.12.3 environments installed the final sdist with `PIP_NO_INDEX=1`, a
-local wheelhouse containing only setuptools/wheel/packaging, and a `PATH` containing only the
-environment's executables. Cargo, rustc, Java, javac, ROBOT, and forbidden Java-facing Python
-modules were therefore unavailable. Both installations imported, projected an empty conforming
-shared view through explicit Python, exercised the once-only automatic-fallback warning, preserved
-view identity, and passed uninstall-oriented metadata checks. The universal wheel passed the same
-smoke. The native wheel imported and executed explicit native projection on both interpreters
-without build tools visible.
+Fresh CPython 3.10.11 and 3.12.3 environments installed the final sdist with `PIP_NO_INDEX=1`, PEP
+517 build isolation, a local wheelhouse containing only setuptools/wheel, and a `PATH` containing
+only the environment's executables. Cargo, rustc, Java, javac, ROBOT, and forbidden Java-facing
+Python modules were therefore unavailable. Both installations imported, projected an empty
+conforming shared view through explicit Python, exercised the once-only automatic-fallback
+warning, preserved view identity, and passed uninstall-oriented metadata checks. The universal
+wheel passed the same smoke. The native wheel imported and executed explicit native projection
+on both interpreters without build tools visible.
 
 This proves no-index installation, not kernel-level network isolation: the local Docker daemon was
 unavailable. `.github/workflows/packaging.yml` defines the stronger `docker --network none` sdist
@@ -93,10 +111,11 @@ bundles the required LLVM exception and Unicode-3.0 terms in `native/THIRD_PARTY
 
 ## Validation
 
-- CPython 3.10.11: 114 tests and 6 unittest subtests passed.
-- CPython 3.12.3: 114 tests and 6 unittest subtests passed.
+- CPython 3.10.11: 141 tests passed against pyOWLCore
+  `6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e`.
+- CPython 3.12.3: 141 tests passed against the same pinned core.
 - Ruff check and format check passed for source, tests, tools, backend, and setup.
-- Strict mypy passed 14 source files against the local `pyowl-core` source.
+- Strict mypy passed 15 source files against the exact pinned `pyowl-core` source.
 - `audit_runtime.py`, baseline validation, supply-chain freshness, release artifact audit,
   reproducibility, hashes, Twine, and the local release gate passed.
 - Cargo format and Clippy with warnings denied passed; four Rust tests passed.

@@ -6,38 +6,41 @@
     "os": "Darwin 25.5.0",
     "architecture": "x86_64"
   },
+  "source": {
+    "projector_commit": "1976fc7a91ad32ecd13e220621ea38ea69e6ddee",
+    "source_date_epoch": 1784325832,
+    "pyowl_core_commit": "6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e"
+  },
   "tests": [
     {
       "python": "3.10.11",
-      "tests_passed": 114,
-      "unittest_subtests_passed": 6
+      "tests_passed": 141
     },
     {
       "python": "3.12.3",
-      "tests_passed": 114,
-      "unittest_subtests_passed": 6
+      "tests_passed": 141
     }
   ],
   "fallback_artifacts": [
     {
       "filename": "pyowl2vec_star_projector-0.1.0rc1-py3-none-any.whl",
-      "bytes": 49333,
-      "sha256": "5227797598f6fbd63164854de435debb369ff70cf6820cacd80050cfac4c984a",
+      "bytes": 60312,
+      "sha256": "bc8decec1e073aa3462cd4c99348bd14518794a5580ead56e2c49fe5c41817aa",
       "reproducible": true,
       "audit": "passed"
     },
     {
       "filename": "pyowl2vec_star_projector-0.1.0rc1.tar.gz",
-      "bytes": 111316,
-      "sha256": "eb9d15345cd4c2678b1afb92b2af31182e8e1c16423adf33c59c790d04513f16",
+      "bytes": 136239,
+      "sha256": "309be2b37619f4d04f6f581efbe31e5c791d59b673696507fbd20e887bbedb3e",
       "reproducible": true,
       "audit": "passed"
     }
   ],
   "native_artifact": {
     "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
-    "bytes": 258102,
-    "sha256": "0f642c23b4a83f174b28a295d34ff0ed0ecfdd74cdd09c4f141bb3d0db660d34",
+    "bytes": 269083,
+    "sha256": "13c6afc44999154b5f9a7c8fdb92a63e26443689acc61d9bafbebdcdc0b64e4d",
     "isolated_conditional_build_requirement": "setuptools-rust==1.13.0",
     "audit": "passed",
     "tested_python": ["3.10.11", "3.12.3"],
@@ -46,6 +49,29 @@
       "/usr/lib/libiconv.2.dylib",
       "/usr/lib/libSystem.B.dylib"
     ]
+  },
+  "artifact_construction": {
+    "fallback_build_requirements": ["setuptools==83.0.0", "wheel==0.46.3"],
+    "native_build_requirement": "setuptools-rust==1.13.0",
+    "local_build_isolation": false,
+    "local_build_isolation_reason": "The restricted host could not fetch a fresh isolated environment; final artifacts used the exact pinned maintainer environment. Fresh sdist installation still used PEP 517 build isolation with PIP_NO_INDEX=1 and only the pinned local wheelhouse.",
+    "cargo_offline": true
+  },
+  "offline_core_artifact": {
+    "filename": "pyowl_core-0.1.0.dev0-py3-none-any.whl",
+    "bytes": 262630,
+    "sha256": "9f08ffa927f3094479d303f64c692da454b8e5800ffebbe34cc3edd8ab235e4a",
+    "source_commit": "6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e",
+    "publication_claimed": false
+  },
+  "hash_manifest": {
+    "artifact_records": 3,
+    "bytes": 358,
+    "sha256": "69d7be1a0898d3242e673183381cd0303412fb87d70b874c45c39edc76decfca",
+    "complete": true,
+    "unique": true,
+    "path_safe": true,
+    "verified": true
   },
   "offline_smoke": {
     "python": ["3.10.11", "3.12.3"],
@@ -64,7 +90,7 @@
   "quality": {
     "ruff": "passed",
     "ruff_format": "passed",
-    "mypy_source_files": 14,
+    "mypy_source_files": 15,
     "cargo_fmt": "passed",
     "cargo_clippy_deny_warnings": "passed",
     "cargo_tests_passed": 4,
@@ -74,9 +100,11 @@
     "external_gate_exit": 2
   },
   "external_blockers": [
+    "pyowl-core-release",
     "distribution-name-ownership",
     "private-index-selection",
     "hosted-platform-matrix",
+    "subinterpreter-runtime-matrix",
     "signed-provenance",
     "release-corpora",
     "hosted-vulnerability-audits"
