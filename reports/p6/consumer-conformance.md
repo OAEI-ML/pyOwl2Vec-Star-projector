@@ -26,13 +26,13 @@ and structural fingerprint
 The original P6 capture used pyOWLCore
 `de9b8f9717cd31050bc0123cc2ba62ff0e63aa3d` and recorded structural fingerprint
 `c892d33f03273022cae0018e13a7afebb32d95005eb332a4b645a8c1859166fd`. The P5 release baseline
-uses `d546da77f4402ac4cda08a480c8798c37601b16c`, which contains the reviewed canonical-identity
+uses `465c5def210d2b811715b68b4d14a18f4e49c765`, which contains the reviewed canonical-identity
 correction `884b6a96024d701d3669936f9c2ac169d7adff39`: acquisition bytes and parser provenance no
 longer contribute to canonical ontology identity. It also contains behavior-preserving strict
-mypy and duplicate-RDF-operand parser corrections. Only the structural fingerprint changed from
-the original P6 capture. The logical fingerprint, signature fingerprint, ordered edge lists,
-multiplicities, and all three edge digests remain identical. `release/core-compatibility.json`
-records the transition and the source commit used by CI.
+mypy and duplicate-operand corrections for RDF and Functional Syntax. Only the structural
+fingerprint changed from the original P6 capture. The logical fingerprint, signature fingerprint,
+ordered edge lists, multiplicities, and all three edge digests remain identical.
+`release/core-compatibility.json` records the transition and the source commit used by CI.
 
 | Case | Edges | Canonical edge-record SHA-256 |
 |---|---:|---|
