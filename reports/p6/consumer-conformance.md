@@ -59,9 +59,14 @@ WP-B compressed captures match byte order and content exactly:
 | `mini_src` | 42 | 76 | 28 | 0 |
 | `mini_tgt` | 42 | 76 | 28 | 0 |
 
-Every observed digest equals its baseline digest; no baseline was changed and the difference
-classification is `none`. Exact machine-readable fingerprints and digests are in
-`evidence/exact-baselines.json`.
+Every observed digest equals its baseline digest; no compressed projection baseline was changed
+and the difference classification is `none`. Exact machine-readable fingerprints and digests are
+in `evidence/exact-baselines.json`.
+
+Re-execution against the final pinned core refreshed only the two Exact fixture structural
+fingerprints because acquisition provenance is no longer canonical identity input. Their
+logical/signature fingerprints, axiom/signature counts, ordered edge lists, multiplicities, and
+all six projection digests are unchanged.
 
 ## Dependency and performance evidence
 
