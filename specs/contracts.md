@@ -6,6 +6,7 @@ The package exports immutable constants with these initial values:
 
 ```python
 PROJECTOR_API_VERSION = 1
+BATCH_SINK_PROTOCOL_VERSION = 1
 EDGE_ARTIFACT_SCHEMA = "pyowl-projector.edge-list/1"
 COMPILER_CACHE_SCHEMA = "pyowl-projector.compiler-cache/1"
 REFERENCE_PROFILE = "mowl-d993536-v1"
@@ -46,6 +47,14 @@ class ProjectionOptions:
     compatibility_state: CompatibilityState = "isolated"
     backend: Backend = "auto"
 
+class StreamingLimits:
+    merge_fan_in: int = 32
+    max_open_files: int = 64
+    max_total_edges: int | None = None
+    max_spill_bytes: int | None = None
+    max_temporary_bytes: int | None = None
+    cancellation_check_interval: int = 4_096
+
 class Projector:
     def project(
         self,
@@ -61,6 +70,8 @@ class Projector:
         options: ProjectionOptions | None = None,
         buffer_edges: int = 250_000,
         temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> Iterator[Edge]: ...
 
 def project_source(
@@ -133,6 +144,11 @@ The library supports three equivalent consumers:
 2. iterator consumption; and
 3. a sink callback/writer that receives edge batches without constructing a list.
 
+The version-1 object sink declares `protocol_version = BATCH_SINK_PROTOCOL_VERSION` and implements
+`write_batch(tuple[Edge, ...])`. It may implement `finish(ProjectionReport)`. Calls are
+synchronous: returning from `write_batch` is the backpressure acknowledgement. A plain callable
+with the same batch argument remains supported.
+
 The version-1 portable artifact is UTF-8 JSON Lines with a mandatory first metadata record and
 then edge records. Writers use `\n` on every platform and escape JSON canonically.
 
@@ -142,9 +158,20 @@ then edge records. Writers use `\n` on every platform and escape JSON canonicall
 ```
 
 The metadata includes the core structural/logical/signature fingerprints, import-resolution
-manifest digest, package and backend versions, all effective options, edge count, duplicate
-count, warning summary, and artifact SHA-256. It MUST NOT include nondeterministic timestamps in
-the hashed canonical payload. An optional envelope may record creation time outside that payload.
+manifest digest, package and backend semantic API versions, all semantic options, edge count,
+duplicate count, warning summary, and artifact SHA-256. The execution-only `backend` selector is
+excluded so equivalent Python/native execution has identical portable bytes; selected/requested
+backend remains in `ProjectionReport`. It MUST NOT include nondeterministic timestamps in the
+hashed canonical payload. An optional envelope may record creation time outside that payload.
+
+`artifact_sha256` hashes canonical metadata JSON with `artifact_sha256` omitted, its newline, and
+the exact edge records. `canonical_edges_sha256` hashes the edge records alone. This explicit
+self-excluding preimage is verifiable and avoids a recursively self-hashed metadata field.
+
+`Projector.write_artifact(view, destination, ...)` accepts a path or caller-owned binary writer
+and returns counts, both digests, bytes written, metadata, and the projection report. Path output
+is atomically replaced only after success. `Projector.canonical_digest(view, ...)` forces
+canonical order and hashes edge records during the same ontology traversal.
 
 `duplicates="preserve"` artifacts retain repeated records. Consumers must not infer set
 semantics from JSONL.

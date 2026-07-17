@@ -10,7 +10,7 @@ recursive-include specs *.md *.toml
 include specs/reference-rules.json
 include tools/audit_runtime.py
 include tools/check_baseline.py
-recursive-include reports *.md
+recursive-include reports *.md *.json
 recursive-include benchmarks *.py
 exclude tests/test_oracle_goldens.py
 exclude tests/test_native_backend.py

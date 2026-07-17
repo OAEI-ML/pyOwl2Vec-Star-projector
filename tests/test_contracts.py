@@ -5,6 +5,7 @@ import unittest
 from dataclasses import FrozenInstanceError
 
 from pyowl2vec_star_projector import (
+    BATCH_SINK_PROTOCOL_VERSION,
     COMPILER_CACHE_SCHEMA,
     EDGE_ARTIFACT_SCHEMA,
     PROJECTOR_API_VERSION,
@@ -31,6 +32,9 @@ class EdgeTests(unittest.TestCase):
             edge.source = "changed"  # type: ignore[misc]
         with self.assertRaises(TypeError):
             Edge("s", "r", 4)  # type: ignore[arg-type]
+
+    def test_batch_sink_protocol_version_is_frozen(self) -> None:
+        self.assertEqual(BATCH_SINK_PROTOCOL_VERSION, 1)
 
 
 class OptionTests(unittest.TestCase):

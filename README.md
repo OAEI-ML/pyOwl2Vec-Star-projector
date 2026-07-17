@@ -40,12 +40,12 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 Planned initial release: `0.1.0`.
 
-`0.1.0b1` implements WP-P3. All 184 pinned Scala invocations match in canonical edge bytes,
+`0.1.0b1` implements WP-P4. All 184 pinned Scala invocations match in canonical edge bytes,
 including the expected typed inverse-property assertion failure and the loader-owned missing-
 import outcome. The native edge-policy engine consumes bounded owned batches, stores no Python or
-OWL objects, releases the GIL for canonical sorting, and drains output in bounded batches. Normal
-tests, installs, wheels, and sdists remain Java-free. Bounded external canonical sorting remains
-the isolated P4 work package; P3 does not implement spill files or durable caches.
+OWL objects, and P4 now applies global policy through bounded private runs rather than a complete
+in-memory edge vector. Normal tests, installs, wheels, and sdists remain Java-free. P5 remains the
+isolated distribution/release work package.
 
 ## Usage
 
@@ -65,6 +65,48 @@ assert projector.last_view is ontology_view
 For low-latency consumption, set `order="encounter"` and use `iter_edges`; for bounded delivery,
 use `project_to_sink` with a batch callback. `project_taxonomy` is the separate asserted named-
 class taxonomy API and does not inherit the historical `only_taxonomy` defect.
+
+Canonical iteration uses checksummed external runs. Tune bounded resources explicitly when an
+application has tighter limits:
+
+```python
+from pyowl2vec_star_projector import ProjectionOptions, Projector, StreamingLimits
+
+edges = projector.iter_edges(
+    ontology_view,
+    options=ProjectionOptions(backend="python", order="canonical"),
+    buffer_edges=100_000,
+    temp_directory="/private/projector-tmp",
+    streaming_limits=StreamingLimits(
+        merge_fan_in=32,
+        max_open_files=64,
+        max_total_edges=20_000_000,
+        max_temporary_bytes=8 * 1024**3,
+        max_spill_bytes=32 * 1024**3,
+    ),
+)
+for edge in edges:
+    consume(edge)
+```
+
+The iterator owns a random mode-`0700` workspace and mode-`0600` files. Exhausting, closing,
+cancelling, failing, or normally shutting down removes them. Encounter mode is backpressured and
+uses at most `buffer_edges` in-memory distinct keys before moving exact duplicate accounting to a
+private bounded-cache disk index.
+
+Write a portable JSONL artifact or calculate its canonical edge-record digest without building a
+list or parsing again:
+
+```python
+result = projector.write_artifact(ontology_view, "edges.jsonl", buffer_edges=100_000)
+digest = projector.canonical_digest(ontology_view, buffer_edges=100_000)
+assert result.canonical_edges_sha256 == digest.sha256
+```
+
+Object sinks declare `protocol_version = 1` and implement `write_batch(tuple[Edge, ...])`; an
+optional `finish(report)` receives the completed report. Existing callable batch sinks remain
+supported. See the [P4 report](reports/p4/streaming.md) for artifact hashing, exact cleanup tests,
+the million-axiom memory gate, and honest corpus availability notes.
 
 Standalone inputs use the core facade exactly once:
 
@@ -96,3 +138,4 @@ The Rust boundary owns only strings for edge batches. It never borrows, mutates,
 `pyowl_core` view. Closing a projection iterator cancels and clears its processor; native panics
 are contained and resource failures become stable projector exceptions. See the
 [P3 report](reports/p3/native-backend.md) for parity, performance, memory, and binary evidence.
+The [P4 report](reports/p4/streaming.md) covers bounded external sorting and artifacts.

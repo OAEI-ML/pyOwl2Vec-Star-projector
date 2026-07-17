@@ -1,0 +1,48 @@
+{
+  "canonical_edges_sha256": "ae4dbdd49287b51150b98c490559fd6e1a4886b8a246dd4f6249f026463e049d",
+  "configuration": {
+    "backend": "python",
+    "buffer_edges": 100000,
+    "duplicates": "preserve",
+    "max_open_files": 64,
+    "merge_fan_in": 32,
+    "order": "canonical",
+    "repetitions": 1,
+    "warmups": 0
+  },
+  "corpus_id": "synthetic-million-subclass",
+  "edge_count": 1000000,
+  "environment": {
+    "core_version": "0.1.0.dev0",
+    "cpu_affinity": null,
+    "implementation": "CPython",
+    "logical_cpus": 12,
+    "machine": "x86_64",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "projector_version": "0.1.0b1",
+    "python": "3.12.3"
+  },
+  "load_seconds_excluded": 0.000017137965187430382,
+  "median_seconds": 85.01896129903616,
+  "peak_rss_delta_upper_bound_bytes": 65261568,
+  "process_peak_rss_bytes": 94236672,
+  "samples_seconds": [
+    85.01896129903616
+  ],
+  "schema": "pyowl-projector.streaming-benchmark/1",
+  "snapshot_peak_rss_bytes": 28975104,
+  "source": {
+    "axioms": 1000000,
+    "generator": "named-subclass-chain-v1",
+    "kind": "synthetic-axioms"
+  },
+  "spill_samples": [
+    {
+      "merge_passes": 0,
+      "peak_live_bytes": 73000630,
+      "runs_created": 10,
+      "total_spill_bytes": 73000630
+    }
+  ],
+  "time_to_first_edge_seconds": 88.65912147896597
+}

@@ -9,14 +9,24 @@ import threading
 from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from os import PathLike
-from typing import Any
+from typing import Any, BinaryIO
 
+from ._version import BATCH_SINK_PROTOCOL_VERSION
+from .artifact import (
+    CanonicalEdgeDigest,
+    EdgeArtifactResult,
+)
+from .artifact import (
+    canonical_edge_digest as _canonical_edge_digest,
+)
+from .artifact import (
+    write_edge_artifact as _write_edge_artifact,
+)
 from .backend import BackendSelection, select_backend, warn_if_auto_fallback
 from .compiler import (
     RoleState,
     iter_asserted_taxonomy,
-    iter_projected_edges,
-    prepare_compilation,
+    prepare_streaming_compilation,
     validate_view,
 )
 from .errors import (
@@ -26,11 +36,11 @@ from .errors import (
 )
 from .model import Edge
 from .native import (
-    iter_native_compilation,
-    iter_native_policy,
+    iter_native_passthrough,
     native_implementation_version,
 )
 from .options import Backend, DuplicatePolicy, EdgeOrder, ProjectionOptions
+from .protocols import EdgeBatchSinkV1
 from .provenance import (
     CoreProvenance,
     ProjectionCounts,
@@ -39,8 +49,14 @@ from .provenance import (
     ProjectionResult,
     SourceKind,
 )
+from .streaming import (
+    CancellationTokenLike,
+    SpillMetrics,
+    StreamingLimits,
+    iter_edge_policy,
+)
 
-EdgeBatchSink = Callable[[tuple[Edge, ...]], object]
+EdgeBatchSink = Callable[[tuple[Edge, ...]], object] | EdgeBatchSinkV1
 
 
 class Projector:
@@ -52,6 +68,7 @@ class Projector:
         self._metadata_lock = threading.Lock()
         self._last_view: object | None = None
         self._last_report: ProjectionReport | None = None
+        self._last_spill_metrics = SpillMetrics(0, 0, 0, 0)
         self._scala_invocation_count = 0
         self._scala_call_history_digest = ""
 
@@ -65,6 +82,12 @@ class Projector:
     def last_report(self) -> ProjectionReport | None:
         with self._metadata_lock:
             return self._last_report
+
+    @property
+    def last_spill_metrics(self) -> SpillMetrics:
+        """Path-free spill accounting for the most recently active iterator."""
+        with self._metadata_lock:
+            return self._last_spill_metrics
 
     def project(
         self,
@@ -94,14 +117,10 @@ class Projector:
         options: ProjectionOptions | None = None,
         buffer_edges: int = 250_000,
         temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
     ) -> Iterator[Edge]:
-        """Return a deterministic iterator.
-
-        Encounter/preserve mode streams immediately after the lightweight plan
-        scan. Canonical ordering is deterministic in memory in P2; bounded
-        external runs are the isolated P4 implementation step.
-        """
-        del temp_directory
+        """Return a backpressured iterator with bounded canonical spill."""
         _positive_int("buffer_edges", buffer_edges)
         effective = options or ProjectionOptions()
         return self._iter_view(
@@ -109,6 +128,10 @@ class Projector:
             effective,
             source_kind="direct",
             native_batch_edges=buffer_edges,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=_streaming_limits(streaming_limits),
+            cancellation_token=cancellation_token,
         )
 
     def project_to_sink(
@@ -120,28 +143,81 @@ class Projector:
         batch_size: int = 65_536,
         buffer_edges: int = 250_000,
         temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
     ) -> ProjectionReport:
         """Push bounded immutable batches and return the completed report."""
-        if not callable(sink):
-            raise TypeError("sink must be callable")
+        write_batch, finish = _sink_operations(sink)
         _positive_int("batch_size", batch_size)
         batch: list[Edge] = []
-        for edge in self.iter_edges(
+        iterator = self.iter_edges(
             view,
             options=options,
             buffer_edges=buffer_edges,
             temp_directory=temp_directory,
-        ):
-            batch.append(edge)
-            if len(batch) == batch_size:
-                sink(tuple(batch))
-                batch.clear()
-        if batch:
-            sink(tuple(batch))
+            streaming_limits=streaming_limits,
+            cancellation_token=cancellation_token,
+        )
+        try:
+            for edge in iterator:
+                batch.append(edge)
+                if len(batch) == batch_size:
+                    write_batch(tuple(batch))
+                    batch.clear()
+            if batch:
+                write_batch(tuple(batch))
+        finally:
+            _close_iterator(iterator)
         report = self.last_report
         if report is None:  # pragma: no cover - guarded by complete consumption
             raise RuntimeError("projection completed without a report")
+        if finish is not None:
+            finish(report)
         return report
+
+    def write_artifact(
+        self,
+        view: object,
+        destination: PathLike[str] | BinaryIO,
+        *,
+        options: ProjectionOptions | None = None,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> EdgeArtifactResult:
+        """Write a portable version-1 JSONL artifact without an edge list."""
+        return _write_edge_artifact(
+            self,
+            view,
+            destination,
+            options=options,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=streaming_limits,
+            cancellation_token=cancellation_token,
+        )
+
+    def canonical_digest(
+        self,
+        view: object,
+        *,
+        options: ProjectionOptions | None = None,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> CanonicalEdgeDigest:
+        """Hash canonical JSON edge records in one ontology traversal."""
+        return _canonical_edge_digest(
+            self,
+            view,
+            options=options,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=streaming_limits,
+            cancellation_token=cancellation_token,
+        )
 
     def project_taxonomy(
         self,
@@ -151,6 +227,10 @@ class Projector:
         duplicates: DuplicatePolicy = "preserve",
         order: EdgeOrder = "canonical",
         backend: Backend = "auto",
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
     ) -> list[Edge]:
         return list(
             self.iter_taxonomy_edges(
@@ -159,6 +239,10 @@ class Projector:
                 duplicates=duplicates,
                 order=order,
                 backend=backend,
+                buffer_edges=buffer_edges,
+                temp_directory=temp_directory,
+                streaming_limits=streaming_limits,
+                cancellation_token=cancellation_token,
             )
         )
 
@@ -170,7 +254,12 @@ class Projector:
         duplicates: DuplicatePolicy = "preserve",
         order: EdgeOrder = "canonical",
         backend: Backend = "auto",
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
     ) -> Iterator[Edge]:
+        _positive_int("buffer_edges", buffer_edges)
         if type(bidirectional) is not bool:
             raise InvalidProjectionOptionsError("bidirectional must be bool")
         if duplicates not in ("preserve", "unique"):
@@ -186,17 +275,21 @@ class Projector:
         raw = iter_asserted_taxonomy(
             checked,
             bidirectional=bidirectional,
-            duplicates="preserve" if selection.selected == "native" else duplicates,
-            order="encounter" if selection.selected == "native" else order,
+            duplicates="preserve",
+            order="encounter",
         )
         if selection.selected == "native":
-            return iter_native_policy(
-                raw,
-                duplicates=duplicates,
-                order=order,
-                batch_edges=250_000,
-            )
-        return raw
+            raw = iter_native_passthrough(raw, batch_edges=buffer_edges)
+        return iter_edge_policy(
+            raw,
+            duplicates=duplicates,
+            order=order,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            limits=_streaming_limits(streaming_limits),
+            cancellation_token=cancellation_token,
+            metrics_sink=self._remember_spill_metrics,
+        )
 
     def _iter_view(
         self,
@@ -205,6 +298,10 @@ class Projector:
         *,
         source_kind: SourceKind,
         native_batch_edges: int = 250_000,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
     ) -> Iterator[Edge]:
         def generate() -> Iterator[Edge]:
             acquired = False
@@ -224,7 +321,9 @@ class Projector:
                     if options.compatibility_state == "scala-instance"
                     else RoleState.empty()
                 )
-                compilation = prepare_compilation(view, options, role_state)
+                compilation = prepare_streaming_compilation(view, options, role_state)
+                if options.compatibility_state == "scala-instance":
+                    compilation.prepare_role_state()
                 with self._metadata_lock:
                     self._last_view = compilation.view
                     self._last_report = None
@@ -234,10 +333,22 @@ class Projector:
                     else:
                         invocation = 1
                 output_count = 0
-                compiled_edges = (
-                    iter_native_compilation(compilation, batch_edges=native_batch_edges)
-                    if selection.selected == "native"
-                    else iter_projected_edges(compilation)
+                raw_edges: Iterator[Edge] = compilation.iter_raw_edges()
+                if selection.selected == "native":
+                    raw_edges = iter_native_passthrough(
+                        raw_edges,
+                        batch_edges=native_batch_edges,
+                    )
+                compiled_edges = iter_edge_policy(
+                    raw_edges,
+                    duplicates=options.duplicates,
+                    order=options.order,
+                    buffer_edges=buffer_edges,
+                    temp_directory=temp_directory,
+                    limits=_streaming_limits(streaming_limits),
+                    statistics=compilation.statistics,
+                    cancellation_token=cancellation_token,
+                    metrics_sink=self._remember_spill_metrics,
                 )
                 for edge in compiled_edges:
                     output_count += 1
@@ -263,6 +374,10 @@ class Projector:
                     self._scala_lock.release()
 
         return generate()
+
+    def _remember_spill_metrics(self, metrics: SpillMetrics) -> None:
+        with self._metadata_lock:
+            self._last_spill_metrics = metrics
 
     def _report(
         self,
@@ -364,8 +479,9 @@ def iter_source_edges(
     resolver: object | None = None,
     buffer_edges: int = 250_000,
     temp_directory: PathLike[str] | None = None,
+    streaming_limits: StreamingLimits | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> Iterator[Edge]:
-    del temp_directory
     _positive_int("buffer_edges", buffer_edges)
     projector = Projector()
     view, source_kind = _coerce_once(source, load_options=load_options, resolver=resolver)
@@ -374,6 +490,32 @@ def iter_source_edges(
         options or ProjectionOptions(),
         source_kind=source_kind,
         native_batch_edges=buffer_edges,
+        buffer_edges=buffer_edges,
+        temp_directory=temp_directory,
+        streaming_limits=_streaming_limits(streaming_limits),
+        cancellation_token=cancellation_token,
+    )
+
+
+def write_edge_artifact(
+    view: object,
+    destination: PathLike[str] | BinaryIO,
+    *,
+    options: ProjectionOptions | None = None,
+    buffer_edges: int = 250_000,
+    temp_directory: PathLike[str] | None = None,
+    streaming_limits: StreamingLimits | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
+) -> EdgeArtifactResult:
+    """Convenience artifact writer for an existing shared view."""
+    return Projector().write_artifact(
+        view,
+        destination,
+        options=options,
+        buffer_edges=buffer_edges,
+        temp_directory=temp_directory,
+        streaming_limits=streaming_limits,
+        cancellation_token=cancellation_token,
     )
 
 
@@ -403,6 +545,10 @@ def project_taxonomy(
     backend: Backend = "auto",
     load_options: object | None = None,
     resolver: object | None = None,
+    buffer_edges: int = 250_000,
+    temp_directory: PathLike[str] | None = None,
+    streaming_limits: StreamingLimits | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> list[Edge]:
     view, _ = _coerce_once(source, load_options=load_options, resolver=resolver)
     return Projector().project_taxonomy(
@@ -411,6 +557,10 @@ def project_taxonomy(
         duplicates=duplicates,
         order=order,
         backend=backend,
+        buffer_edges=buffer_edges,
+        temp_directory=temp_directory,
+        streaming_limits=streaming_limits,
+        cancellation_token=cancellation_token,
     )
 
 
@@ -423,6 +573,10 @@ def iter_taxonomy_edges(
     backend: Backend = "auto",
     load_options: object | None = None,
     resolver: object | None = None,
+    buffer_edges: int = 250_000,
+    temp_directory: PathLike[str] | None = None,
+    streaming_limits: StreamingLimits | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> Iterator[Edge]:
     view, _ = _coerce_once(source, load_options=load_options, resolver=resolver)
     return Projector().iter_taxonomy_edges(
@@ -431,6 +585,10 @@ def iter_taxonomy_edges(
         duplicates=duplicates,
         order=order,
         backend=backend,
+        buffer_edges=buffer_edges,
+        temp_directory=temp_directory,
+        streaming_limits=streaming_limits,
+        cancellation_token=cancellation_token,
     )
 
 
@@ -462,6 +620,46 @@ def _coerce_once(
 def _positive_int(name: str, value: object) -> None:
     if type(value) is not int or value < 1:
         raise InvalidProjectionOptionsError(f"{name} must be a positive int")
+
+
+def _streaming_limits(value: StreamingLimits | None) -> StreamingLimits:
+    if value is None:
+        return StreamingLimits()
+    if not isinstance(value, StreamingLimits):
+        raise InvalidProjectionOptionsError("streaming_limits must be StreamingLimits or None")
+    return value
+
+
+def _sink_operations(
+    sink: EdgeBatchSink,
+) -> tuple[
+    Callable[[tuple[Edge, ...]], object],
+    Callable[[ProjectionReport], object] | None,
+]:
+    if callable(sink):
+        return sink, None
+    writer = getattr(sink, "write_batch", None)
+    if not callable(writer):
+        raise TypeError("sink must be callable or expose write_batch()")
+    version = getattr(sink, "protocol_version", None)
+    if type(version) is not int or version != BATCH_SINK_PROTOCOL_VERSION:
+        raise InvalidProjectionOptionsError(
+            "batch sink protocol version is incompatible",
+            details={
+                "expected_protocol_version": BATCH_SINK_PROTOCOL_VERSION,
+                "actual_protocol_version": version if type(version) is int else -1,
+            },
+        )
+    finish = getattr(sink, "finish", None)
+    if finish is not None and not callable(finish):
+        raise TypeError("sink.finish must be callable when present")
+    return writer, finish
+
+
+def _close_iterator(iterator: object) -> None:
+    close = getattr(iterator, "close", None)
+    if callable(close):
+        close()
 
 
 def _fingerprint(view: object, name: str) -> str:
@@ -520,4 +718,5 @@ __all__ = [
     "iter_taxonomy_edges",
     "project_source",
     "project_taxonomy",
+    "write_edge_artifact",
 ]

@@ -46,6 +46,12 @@ and available estimates without deleting caller-owned files.
 boundary. Batch size cannot alter edges. Backpressure is natural: no more than the documented
 buffer is produced ahead of the consumer.
 
+Exact duplicate counts and `duplicates="unique"` require membership state. Encounter mode keeps
+at most `buffer_edges` distinct keys in memory and, only after that bound, moves membership to a
+private disk index with a fixed cache. This is not a global ordering pass: already-accepted edges
+continue to yield synchronously. The index follows the same permissions, limits, and cleanup
+contract as sorted runs.
+
 ## 4. Memory gates
 
 Benchmarks separate snapshot RSS from incremental projector RSS. Release gates are:

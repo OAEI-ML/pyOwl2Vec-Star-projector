@@ -1,6 +1,7 @@
 """Java-free OWL2Vec* projection over shared pyowl-core ontology views."""
 
 from ._version import (
+    BATCH_SINK_PROTOCOL_VERSION,
     COMPILER_CACHE_SCHEMA,
     EDGE_ARTIFACT_SCHEMA,
     PROJECTOR_API_VERSION,
@@ -14,7 +15,9 @@ from .api import (
     iter_taxonomy_edges,
     project_source,
     project_taxonomy,
+    write_edge_artifact,
 )
+from .artifact import CanonicalEdgeDigest, EdgeArtifactResult
 from .backend import (
     BackendSelection,
     NativeBackendStatus,
@@ -35,6 +38,7 @@ from .errors import (
 )
 from .model import Edge
 from .options import ProjectionOptions
+from .protocols import EdgeBatchSinkV1
 from .provenance import (
     CoreProvenance,
     ProjectionCounts,
@@ -42,17 +46,22 @@ from .provenance import (
     ProjectionReport,
     ProjectionResult,
 )
+from .streaming import SpillMetrics, StreamingLimits
 
 __all__ = [
+    "BATCH_SINK_PROTOCOL_VERSION",
     "COMPILER_CACHE_SCHEMA",
     "EDGE_ARTIFACT_SCHEMA",
     "PROJECTOR_API_VERSION",
     "REFERENCE_PROFILE",
     "BackendSelection",
+    "CanonicalEdgeDigest",
     "CoreProvenance",
     "DiagnosticSeverity",
     "Edge",
+    "EdgeArtifactResult",
     "EdgeBatchSink",
+    "EdgeBatchSinkV1",
     "InvalidProjectionOptionsError",
     "NativeBackendFallbackWarning",
     "NativeBackendStatus",
@@ -68,6 +77,8 @@ __all__ = [
     "ProjectionWarning",
     "Projector",
     "SnapshotCompatibilityError",
+    "SpillMetrics",
+    "StreamingLimits",
     "UnsupportedAxiomShapeError",
     "UnsupportedProfileError",
     "__version__",
@@ -77,4 +88,5 @@ __all__ = [
     "project_source",
     "project_taxonomy",
     "select_backend",
+    "write_edge_artifact",
 ]

@@ -72,6 +72,53 @@ def iter_native_compilation(
     )
 
 
+def iter_native_passthrough(
+    edges: Iterable[Edge],
+    *,
+    batch_edges: int,
+) -> Iterator[Edge]:
+    """Transfer raw edges through native code without global native storage.
+
+    P4 owns ordering and duplicate policy so every native processor is limited
+    to one bounded batch.  A one-edge first batch preserves low time-to-first-
+    edge; later batches use the configured transfer size.
+    """
+    source = iter(edges)
+    try:
+        try:
+            first = next(source)
+        except StopIteration:
+            return
+        yield from iter_native_policy(
+            (first,),
+            duplicates="preserve",
+            order="encounter",
+            batch_edges=1,
+        )
+        batch: list[Edge] = []
+        for edge in source:
+            batch.append(edge)
+            if len(batch) == batch_edges:
+                yield from iter_native_policy(
+                    batch,
+                    duplicates="preserve",
+                    order="encounter",
+                    batch_edges=batch_edges,
+                )
+                batch = []
+        if batch:
+            yield from iter_native_policy(
+                batch,
+                duplicates="preserve",
+                order="encounter",
+                batch_edges=batch_edges,
+            )
+    finally:
+        close = getattr(source, "close", None)
+        if callable(close):
+            close()
+
+
 def iter_native_policy(
     edges: Iterable[Edge],
     *,
@@ -159,6 +206,7 @@ def _copy_statistics(
 __all__ = [
     "NATIVE_API_VERSION",
     "iter_native_compilation",
+    "iter_native_passthrough",
     "iter_native_policy",
     "load_native_module",
     "native_implementation_version",

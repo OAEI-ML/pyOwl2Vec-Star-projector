@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any, Protocol, runtime_checkable
 
+from .model import Edge
+
 
 @runtime_checkable
 class OntologyViewLike(Protocol):
@@ -34,4 +36,13 @@ class OntologyViewLike(Protocol):
     ) -> tuple[object, ...]: ...
 
 
-__all__ = ["OntologyViewLike"]
+@runtime_checkable
+class EdgeBatchSinkV1(Protocol):
+    """Version-1 synchronous, naturally backpressured batch consumer."""
+
+    protocol_version: int
+
+    def write_batch(self, batch: tuple[Edge, ...]) -> object: ...
+
+
+__all__ = ["EdgeBatchSinkV1", "OntologyViewLike"]

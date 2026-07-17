@@ -1,6 +1,6 @@
 # WP-P4 — Deterministic bounded-memory streaming
 
-**Target:** `0.1.0b1`. **Depends on:** P2; native integration follows P3. **Status:** planned.
+**Target:** `0.1.0b1`. **Depends on:** P2; native integration follows P3. **Status:** implemented.
 
 ## Deliverables
 

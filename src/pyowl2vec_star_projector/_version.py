@@ -3,6 +3,7 @@
 __version__ = "0.1.0b1"
 
 PROJECTOR_API_VERSION = 1
+BATCH_SINK_PROTOCOL_VERSION = 1
 EDGE_ARTIFACT_SCHEMA = "pyowl-projector.edge-list/1"
 COMPILER_CACHE_SCHEMA = "pyowl-projector.compiler-cache/1"
 REFERENCE_PROFILE = "mowl-d993536-v1"

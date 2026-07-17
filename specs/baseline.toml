@@ -26,6 +26,7 @@ output_semantics = "bag"
 comparison = "edge-counter"
 canonical_order = "utf8(source,relation,destination)"
 projector_api_version = 1
+batch_sink_protocol_version = 1
 edge_artifact_schema = "pyowl-projector.edge-list/1"
 compiler_cache_schema = "pyowl-projector.compiler-cache/1"
 

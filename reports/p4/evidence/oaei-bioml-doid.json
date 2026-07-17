@@ -1,0 +1,57 @@
+{
+  "artifact": {
+    "artifact_sha256": "6311c17a1598f2d387c36ddc92722e39e2a109d219a208e8755175b689fbe671",
+    "bytes": 1348756,
+    "canonical_edges_sha256": "0440e1c8a27f67692350837bca320d31a6e17ad9142aaad7bca502b903089bf5",
+    "seconds": 1.0203217300004326
+  },
+  "canonical_edges_sha256": "0440e1c8a27f67692350837bca320d31a6e17ad9142aaad7bca502b903089bf5",
+  "configuration": {
+    "backend": "python",
+    "buffer_edges": 100000,
+    "duplicates": "preserve",
+    "max_open_files": 64,
+    "merge_fan_in": 32,
+    "order": "canonical",
+    "repetitions": 1,
+    "warmups": 0
+  },
+  "corpus_id": "oaei-bioml-doid",
+  "edge_count": 9388,
+  "environment": {
+    "core_version": "0.1.0.dev0",
+    "cpu_affinity": null,
+    "implementation": "CPython",
+    "logical_cpus": 12,
+    "machine": "x86_64",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "projector_version": "0.1.0b1",
+    "python": "3.12.3"
+  },
+  "load_seconds_excluded": 25.66485812800238,
+  "median_seconds": 0.9611264420091175,
+  "peak_rss_delta_upper_bound_bytes": 0,
+  "process_peak_rss_bytes": 182521856,
+  "samples_seconds": [
+    0.9611264420091175
+  ],
+  "schema": "pyowl-projector.streaming-benchmark/1",
+  "snapshot_peak_rss_bytes": 182521856,
+  "source": {
+    "axioms": 55687,
+    "document_fingerprint": "dba81ae191733905b32bdf92e0c40de44ab81a246086db1d28e6db97f4bea1e7",
+    "file_name": "target.owl",
+    "kind": "ontology",
+    "source_bytes": 6687536,
+    "source_sha256": "76f41cce3616ad1a9ba6353f469e96bde7addba5d43e541651a3ab703f9ba2bc"
+  },
+  "spill_samples": [
+    {
+      "merge_passes": 0,
+      "peak_live_bytes": 1037503,
+      "runs_created": 1,
+      "total_spill_bytes": 1037503
+    }
+  ],
+  "time_to_first_edge_seconds": 0.8236728020128794
+}

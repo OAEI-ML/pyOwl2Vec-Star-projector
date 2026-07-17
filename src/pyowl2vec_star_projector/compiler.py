@@ -320,9 +320,15 @@ class Compilation:
     blank_ids: dict[AnonymousIndividual, str]
     statistics: CompileStatistics
     diagnostic_bag: _DiagnosticBag
+    lazy: bool = False
+    roles_prepared: bool = True
+    closure_metadata_scanned: bool = True
 
     def iter_raw_edges(self) -> Iterator[Edge]:
         """Yield deterministic encounter-order edges category by category."""
+        if self.lazy:
+            yield from self._iter_lazy_raw_edges()
+            return
         for subclass_axiom in self.subclasses:
             yield from self._subclass_edges(subclass_axiom)
         for equivalent_axiom in self.equivalents:
@@ -361,6 +367,69 @@ class Compilation:
                 self._individual_id(object_axiom.target),
             )
         yield from self._domain_range_edges()
+
+    def _iter_lazy_raw_edges(self) -> Iterator[Edge]:
+        """Traverse canonical core categories only as consumers reach them."""
+        for axiom in _iter_axioms(self.view, root=False, axiom_type=SubClassOf):
+            if isinstance(axiom, SubClassOf):
+                yield from self._subclass_edges(axiom)
+        for axiom in _iter_axioms(self.view, root=False, axiom_type=EquivalentClasses):
+            if isinstance(axiom, EquivalentClasses):
+                yield from self._equivalent_edges(axiom)
+        if self.options.include_literals:
+            self.class_iris = frozenset(_class_signature(self.view))
+            for axiom in _iter_axioms(self.view, root=True, axiom_type=AnnotationAssertion):
+                if isinstance(axiom, AnnotationAssertion):
+                    edge = self._annotation_edge(axiom)
+                    if edge is not None:
+                        yield edge
+        for axiom in _iter_axioms(self.view, root=False, axiom_type=ClassAssertion):
+            if not isinstance(axiom, ClassAssertion):
+                continue
+            if isinstance(axiom.individual, NamedIndividual) and isinstance(
+                axiom.class_expression, OWLClass
+            ):
+                yield Edge(
+                    axiom.individual.iri.value,
+                    RDF_TYPE,
+                    axiom.class_expression.iri.value,
+                )
+            else:
+                self._ignore(axiom)
+        for axiom in _iter_axioms(self.view, root=False, axiom_type=ObjectPropertyAssertion):
+            if not isinstance(axiom, ObjectPropertyAssertion):
+                continue
+            if isinstance(axiom.property, ObjectInverseOf):
+                raise UnsupportedAxiomShapeError(
+                    "the pinned mOWL profile fails on inverse object-property assertions",
+                    details={
+                        "constructor": type(axiom.property).__name__,
+                        "reference_error": "java.lang.ClassCastException",
+                    },
+                )
+            if not isinstance(axiom.property, ObjectProperty):
+                self._ignore(axiom)
+                continue
+            yield Edge(
+                self._individual_id(axiom.source),
+                axiom.property.iri.value,
+                self._individual_id(axiom.target),
+            )
+        self.domains = [
+            axiom
+            for axiom in _iter_axioms(self.view, root=False, axiom_type=ObjectPropertyDomain)
+            if isinstance(axiom, ObjectPropertyDomain)
+        ]
+        self.ranges = [
+            axiom
+            for axiom in _iter_axioms(self.view, root=False, axiom_type=ObjectPropertyRange)
+            if isinstance(axiom, ObjectPropertyRange)
+        ]
+        yield from self._domain_range_edges()
+        # These scans are semantically observable through state and diagnostics,
+        # but can follow all edges in isolated low-latency operation.
+        self._ensure_roles()
+        self._scan_closure_metadata()
 
     def _subclass_edges(self, axiom: SubClassOf) -> Iterator[Edge]:
         sub = axiom.sub_class
@@ -403,6 +472,7 @@ class Compilation:
         relation = _named_property(expression.property)
         if relation is None:
             return ()
+        self._ensure_roles()
         return tuple(self._role_edges(subject, relation, expression.filler.iri.value))
 
     def _role_edges(self, source: str, relation: str, destination: str) -> Iterator[Edge]:
@@ -486,9 +556,12 @@ class Compilation:
     def _individual_id(self, value: NamedIndividual | AnonymousIndividual) -> str:
         if isinstance(value, NamedIndividual):
             return value.iri.value
+        if self.lazy and not self.closure_metadata_scanned:
+            self._scan_closure_metadata()
         return self.blank_ids.get(value, _core_blank_id(value))
 
     def _domain_range_edges(self) -> Iterator[Edge]:
+        self._ensure_roles()
         domains: dict[str, list[str]] = {}
         ranges: dict[str, list[str]] = {}
         for domain_axiom in self.domains:
@@ -514,6 +587,57 @@ class Compilation:
             for domain in domains[property_iri]:
                 for range_iri in ranges[property_iri]:
                     yield from self._role_edges(domain, property_iri, range_iri)
+
+    def _ensure_roles(self) -> None:
+        if self.roles_prepared:
+            return
+        rbox: list[SubObjectPropertyOf | InverseObjectProperties] = []
+        for axiom_type in (SubObjectPropertyOf, InverseObjectProperties):
+            for axiom in _iter_axioms(self.view, root=False, axiom_type=axiom_type):
+                if isinstance(axiom, (SubObjectPropertyOf, InverseObjectProperties)):
+                    rbox.append(axiom)
+        _update_role_state(rbox, self.role_state, self.statistics)
+        self.roles_prepared = True
+
+    def prepare_role_state(self) -> None:
+        """Eagerly apply role-map lifecycle for stateful compatibility calls."""
+        self._ensure_roles()
+
+    def _scan_closure_metadata(self) -> None:
+        if self.closure_metadata_scanned:
+            return
+        anonymous: set[AnonymousIndividual] = set()
+        selected = (
+            SubClassOf,
+            EquivalentClasses,
+            ClassAssertion,
+            ObjectPropertyAssertion,
+            ObjectPropertyDomain,
+            ObjectPropertyRange,
+            SubObjectPropertyOf,
+            InverseObjectProperties,
+        )
+        for axiom in _iter_axioms(self.view, root=False):
+            anonymous.update(_anonymous_values(axiom))
+            if isinstance(axiom, (Declaration, AnnotationAssertion, *selected)):
+                continue
+            if isinstance(axiom, AxiomNode):
+                self.statistics.skipped_axioms += 1
+                self.diagnostic_bag.add(
+                    "MOWL_SKIPPED_AXIOM",
+                    "axiom category is not visited by the pinned profile",
+                    constructor=type(axiom).__name__,
+                )
+            else:
+                raise SnapshotCompatibilityError(
+                    "iter_axioms() yielded a non-core structural axiom",
+                    details={"constructor": type(axiom).__name__},
+                )
+        ordered = sorted(anonymous, key=canonical_bytes)
+        self.blank_ids = {
+            item: f"_:genid{2_147_483_648 + index}" for index, item in enumerate(ordered)
+        }
+        self.closure_metadata_scanned = True
 
     def _ignore(self, value: object) -> None:
         self.statistics.ignored_shapes += 1
@@ -619,23 +743,7 @@ def prepare_compilation(
                 details={"constructor": type(axiom).__name__},
             )
 
-    for axiom in _hashset_order(rbox):
-        if isinstance(axiom, SubObjectPropertyOf):
-            sub = _named_property(axiom.sub_property)
-            sup = _named_property(axiom.super_property)
-            if sub is None or sup is None:
-                statistics.ignored_shapes += 1
-                continue
-            # Historical bug: prior children are read under `sub`, not `sup`.
-            role_state.subroles[sup] = (sub, *role_state.subroles.get(sub, ()))
-        else:
-            first = _named_property(axiom.first)
-            second = _named_property(axiom.second)
-            if first is None or second is None:
-                statistics.ignored_shapes += 1
-                continue
-            role_state.inverse_roles[first] = second
-            role_state.inverse_roles[second] = first
+    _update_role_state(rbox, role_state, statistics)
 
     annotations = [
         axiom
@@ -666,6 +774,58 @@ def prepare_compilation(
         statistics=statistics,
         diagnostic_bag=diagnostic_bag,
     )
+
+
+def prepare_streaming_compilation(
+    view: object,
+    options: ProjectionOptions,
+    role_state: RoleState,
+) -> Compilation:
+    """Create a traversal-lazy isolated compilation over the exact core view."""
+    checked = validate_view(view)
+    return Compilation(
+        view=checked,
+        options=options,
+        role_state=role_state,
+        subclasses=[],
+        equivalents=[],
+        annotations=[],
+        class_assertions=[],
+        object_assertions=[],
+        domains=[],
+        ranges=[],
+        class_iris=frozenset(),
+        blank_ids={},
+        statistics=CompileStatistics(),
+        diagnostic_bag=_DiagnosticBag(),
+        lazy=True,
+        roles_prepared=False,
+        closure_metadata_scanned=False,
+    )
+
+
+def _update_role_state(
+    rbox: Iterable[SubObjectPropertyOf | InverseObjectProperties],
+    role_state: RoleState,
+    statistics: CompileStatistics,
+) -> None:
+    for axiom in _hashset_order(rbox):
+        if isinstance(axiom, SubObjectPropertyOf):
+            sub = _named_property(axiom.sub_property)
+            sup = _named_property(axiom.super_property)
+            if sub is None or sup is None:
+                statistics.ignored_shapes += 1
+                continue
+            # Historical bug: prior children are read under `sub`, not `sup`.
+            role_state.subroles[sup] = (sub, *role_state.subroles.get(sub, ()))
+        else:
+            first = _named_property(axiom.first)
+            second = _named_property(axiom.second)
+            if first is None or second is None:
+                statistics.ignored_shapes += 1
+                continue
+            role_state.inverse_roles[first] = second
+            role_state.inverse_roles[second] = first
 
 
 def iter_projected_edges(compilation: Compilation) -> Iterator[Edge]:
@@ -705,17 +865,33 @@ def iter_asserted_taxonomy(
 ) -> Iterator[Edge]:
     """Compile only named asserted SubClassOf axioms."""
     checked = validate_view(view)
-    axioms = sorted(
-        (
-            axiom
-            for axiom in _iter_axioms(checked, root=False, axiom_type=SubClassOf)
-            if isinstance(axiom, SubClassOf)
-        ),
-        key=_canonical_key,
-    )
+    axioms = _iter_axioms(checked, root=False, axiom_type=SubClassOf)
+    if duplicates == "preserve" and order == "encounter":
+        for axiom in axioms:
+            if (
+                isinstance(axiom, SubClassOf)
+                and isinstance(axiom.sub_class, OWLClass)
+                and isinstance(axiom.super_class, OWLClass)
+            ):
+                yield Edge(
+                    axiom.sub_class.iri.value,
+                    SUBCLASS_OF,
+                    axiom.super_class.iri.value,
+                )
+                if bidirectional:
+                    yield Edge(
+                        axiom.super_class.iri.value,
+                        SUPERCLASS_OF,
+                        axiom.sub_class.iri.value,
+                    )
+        return
     edges: list[Edge] = []
     for axiom in axioms:
-        if isinstance(axiom.sub_class, OWLClass) and isinstance(axiom.super_class, OWLClass):
+        if (
+            isinstance(axiom, SubClassOf)
+            and isinstance(axiom.sub_class, OWLClass)
+            and isinstance(axiom.super_class, OWLClass)
+        ):
             edges.append(Edge(axiom.sub_class.iri.value, SUBCLASS_OF, axiom.super_class.iri.value))
             if bidirectional:
                 edges.append(
@@ -837,6 +1013,7 @@ __all__ = [
     "iter_asserted_taxonomy",
     "iter_projected_edges",
     "prepare_compilation",
+    "prepare_streaming_compilation",
     "structural_field_identities",
     "validate_view",
 ]
