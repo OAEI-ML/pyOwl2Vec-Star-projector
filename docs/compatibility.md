@@ -17,7 +17,7 @@ external gates are distinguished in `reports/p5/packaging-release.md`.
 | Core model | `pyowl-core>=0.1,<0.2` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
 
 Source-checkout CI is pinned to pyOWLCore
-`465c5def210d2b811715b68b4d14a18f4e49c765`. This is reproducibility evidence for the candidate,
+`6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e`. This is reproducibility evidence for the candidate,
 not a Git dependency: installed metadata intentionally retains `pyowl-core>=0.1,<0.2`. The
 reviewed structural-fingerprint transition from the pre-correction core is recorded in
 `release/core-compatibility.json`; logical/signature fingerprints and projector edge bytes did

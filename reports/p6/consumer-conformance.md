@@ -26,7 +26,7 @@ and structural fingerprint
 The original P6 capture used pyOWLCore
 `de9b8f9717cd31050bc0123cc2ba62ff0e63aa3d` and recorded structural fingerprint
 `c892d33f03273022cae0018e13a7afebb32d95005eb332a4b645a8c1859166fd`. The P5 release baseline
-uses `465c5def210d2b811715b68b4d14a18f4e49c765`, which contains the reviewed canonical-identity
+uses `6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e`, which contains the reviewed canonical-identity
 correction `884b6a96024d701d3669936f9c2ac169d7adff39`: acquisition bytes and parser provenance no
 longer contribute to canonical ontology identity. It also contains behavior-preserving strict
 mypy and duplicate-operand corrections for RDF and Functional Syntax. Only the structural

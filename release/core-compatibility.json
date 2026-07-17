@@ -3,7 +3,7 @@
   "dependency_constraint": "pyowl-core>=0.1,<0.2",
   "tested_source": {
     "repository": "https://github.com/OAEI-ML/pyOWLCore",
-    "commit": "465c5def210d2b811715b68b4d14a18f4e49c765",
+    "commit": "6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e",
     "version": "0.1.0.dev0"
   },
   "previous_source": {
@@ -21,9 +21,9 @@
     "summary": "Strict mypy compatibility was restored without changing the ontology model or public fingerprints."
   },
   "parser_contract": {
-    "commit": "465c5def210d2b811715b68b4d14a18f4e49c765",
+    "commit": "6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e",
     "classification": "behavior-preserving-parser-correction",
-    "summary": "Duplicate RDF and Functional operands are canonicalized without changing valid-input projector fingerprints or edge bytes."
+    "summary": "Duplicate RDF and Functional operands are canonicalized while mixed DisjointClasses duplicates preserve their bottom consequence, without changing valid-input projector fingerprints or edge bytes."
   },
   "consumer_fixture": {
     "sha256": "84e1b6cf5088cbb7ea4276f26b5b461a4cfe74aed257abbab20ba78c1136ef0d",
