@@ -1,0 +1,42 @@
+{
+  "schema": "pyowl-projector.external-release-gates/1",
+  "candidate": "0.1.0rc1",
+  "gates": [
+    {
+      "id": "distribution-name-ownership",
+      "status": "blocked",
+      "reason": "An authenticated PyPI/TestPyPI organization owner must prove control of the normalized name pyowl2vec-star-projector immediately before publication.",
+      "required_evidence": "Authenticated project-owner or reservation record plus recovery-owner review; an anonymous index search is insufficient."
+    },
+    {
+      "id": "private-index-selection",
+      "status": "blocked",
+      "reason": "No authenticated private package index is available in this workspace.",
+      "required_evidence": "Upload the same-version universal wheel, sdist, and representative native wheels to a disposable private index; record pip selection on supported and unsupported targets."
+    },
+    {
+      "id": "hosted-platform-matrix",
+      "status": "blocked",
+      "reason": "This macOS workspace cannot execute Linux x86_64/aarch64, macOS arm64, and Windows x86_64 clean VMs for CPython 3.10-3.13.",
+      "required_evidence": "Successful packaging and installed-smoke workflow run for every claimed target, including native binary audits."
+    },
+    {
+      "id": "signed-provenance",
+      "status": "blocked",
+      "reason": "The workspace has no release identity, signing key, or authenticated GitHub attestation context.",
+      "required_evidence": "OIDC build-provenance attestations and signed SHA256SUMS from the approved release identity."
+    },
+    {
+      "id": "release-corpora",
+      "status": "blocked",
+      "reason": "GO bytes and a licensed SNOMED-scale corpus are absent; the local NCIT file cannot yet be loaded by the pinned core parser.",
+      "required_evidence": "Pinned lawful acquisition manifests and complete GO, NCIT, and licensed-or-equivalent corpus reports meeting P4/P5 memory, determinism, and throughput gates."
+    },
+    {
+      "id": "hosted-vulnerability-audits",
+      "status": "blocked",
+      "reason": "Current vulnerability databases and platform binary audit services are network-backed and not present in the restricted workspace.",
+      "required_evidence": "Successful pip-audit and cargo-audit runs against current advisory databases plus auditwheel, delocate, or delvewheel output for each native wheel."
+    }
+  ]
+}

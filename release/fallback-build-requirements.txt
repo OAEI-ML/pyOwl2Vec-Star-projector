@@ -1,0 +1,7 @@
+# Reproducible fallback artifact construction. No Rust-facing package belongs here.
+build==1.5.0
+packaging==26.2
+pyproject-hooks==1.2.0
+tomli==2.4.1 ; python_version < "3.11"
+setuptools==83.0.0
+wheel==0.46.3

@@ -1,0 +1,90 @@
+name: Fallback packaging
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYOWL2VEC_BUILD_NATIVE: "0"
+
+jobs:
+  fallback-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: OAEI-ML/pyOWLCore
+          path: .deps/pyowl-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - run: python -m pip install -r release/fallback-build-requirements.txt
+      - run: python tools/generate_supply_chain.py --check
+      - run: python -m build --sdist --wheel --outdir dist-a
+      - run: python -m build --sdist --wheel --outdir dist-b
+      - run: python tools/compare_artifacts.py dist-a dist-b
+      - run: python tools/audit_release.py dist-a --report release-audit.json
+      - run: python tools/hash_artifacts.py dist-a --output dist-a/SHA256SUMS
+      - run: python tools/hash_artifacts.py dist-a --verify dist-a/SHA256SUMS
+      - run: python tools/release_gate.py --artifacts dist-a --report release-gate.json
+      - run: python -m build .deps/pyowl-core --wheel --outdir wheelhouse
+      - run: python -m pip download --dest wheelhouse setuptools==83.0.0 wheel==0.46.3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fallback-bundle
+          path: |
+            dist-a/*
+            wheelhouse/*
+            release-audit.json
+            release-gate.json
+          if-no-files-found: error
+
+  offline-smoke:
+    name: Offline ${{ matrix.artifact }} / Python ${{ matrix.python-version }}
+    needs: fallback-artifacts
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        artifact: [wheel, sdist]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fallback-bundle
+          path: fallback-bundle
+      - name: Network-disabled compiler-free install
+        env:
+          PYTHON_IMAGE: python:${{ matrix.python-version }}-slim
+          ARTIFACT_KIND: ${{ matrix.artifact }}
+        run: |
+          docker pull "$PYTHON_IMAGE"
+          docker run --rm --network none \
+            -e ARTIFACT_KIND="$ARTIFACT_KIND" \
+            -e PIP_NO_INDEX=1 \
+            -v "$PWD:/source:ro" \
+            -v "$PWD/fallback-bundle/dist-a:/dist:ro" \
+            -v "$PWD/fallback-bundle/wheelhouse:/wheelhouse:ro" \
+            "$PYTHON_IMAGE" sh -eu -c '
+              python -m venv /venv
+              /venv/bin/python -m pip install --no-index --no-deps /wheelhouse/pyowl_core*.whl
+              if [ "$ARTIFACT_KIND" = wheel ]; then
+                /venv/bin/python -m pip install --no-index --no-deps /dist/*-py3-none-any.whl
+              else
+                /venv/bin/python -m pip install --no-index --no-deps --find-links=/wheelhouse /dist/*.tar.gz
+              fi
+              PATH=/venv/bin /venv/bin/python /source/tools/installed_smoke.py --require-tools-absent
+              /venv/bin/python -m pip uninstall -y pyowl2vec-star-projector
+              /venv/bin/python -c "import importlib.util; assert importlib.util.find_spec('"'"'pyowl2vec_star_projector'"'"') is None"
+            '

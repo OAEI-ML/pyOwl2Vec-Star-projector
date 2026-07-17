@@ -1,0 +1,85 @@
+{
+  "schema": "pyowl-projector.p5-local-evidence/1",
+  "date": "2026-07-17",
+  "candidate": "0.1.0rc1",
+  "host": {
+    "os": "Darwin 25.5.0",
+    "architecture": "x86_64"
+  },
+  "tests": [
+    {
+      "python": "3.10.11",
+      "tests_passed": 114,
+      "unittest_subtests_passed": 6
+    },
+    {
+      "python": "3.12.3",
+      "tests_passed": 114,
+      "unittest_subtests_passed": 6
+    }
+  ],
+  "fallback_artifacts": [
+    {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-py3-none-any.whl",
+      "bytes": 49333,
+      "sha256": "5227797598f6fbd63164854de435debb369ff70cf6820cacd80050cfac4c984a",
+      "reproducible": true,
+      "audit": "passed"
+    },
+    {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1.tar.gz",
+      "bytes": 111316,
+      "sha256": "eb9d15345cd4c2678b1afb92b2af31182e8e1c16423adf33c59c790d04513f16",
+      "reproducible": true,
+      "audit": "passed"
+    }
+  ],
+  "native_artifact": {
+    "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+    "bytes": 258102,
+    "sha256": "0f642c23b4a83f174b28a295d34ff0ed0ecfdd74cdd09c4f141bb3d0db660d34",
+    "isolated_conditional_build_requirement": "setuptools-rust==1.13.0",
+    "audit": "passed",
+    "tested_python": ["3.10.11", "3.12.3"],
+    "linked_libraries": [
+      "@rpath/_native.abi3.so",
+      "/usr/lib/libiconv.2.dylib",
+      "/usr/lib/libSystem.B.dylib"
+    ]
+  },
+  "offline_smoke": {
+    "python": ["3.10.11", "3.12.3"],
+    "artifacts": ["universal-wheel", "sdist", "native-wheel"],
+    "pip_no_index": true,
+    "forbidden_tools_visible": [],
+    "forbidden_modules_importable": [],
+    "kernel_network_disabled": false,
+    "docker_blocker": "local daemon unavailable; hosted workflow definition not executed"
+  },
+  "local_selection": {
+    "supported_macos": "cp310-abi3",
+    "simulated_windows_arm64": "py3-none-any",
+    "private_index_proven": false
+  },
+  "quality": {
+    "ruff": "passed",
+    "ruff_format": "passed",
+    "mypy_source_files": 14,
+    "cargo_fmt": "passed",
+    "cargo_clippy_deny_warnings": "passed",
+    "cargo_tests_passed": 4,
+    "twine": "passed",
+    "release_local_passed": true,
+    "release_passed": false,
+    "external_gate_exit": 2
+  },
+  "external_blockers": [
+    "distribution-name-ownership",
+    "private-index-selection",
+    "hosted-platform-matrix",
+    "signed-provenance",
+    "release-corpora",
+    "hosted-vulnerability-audits"
+  ],
+  "publication_performed": false
+}

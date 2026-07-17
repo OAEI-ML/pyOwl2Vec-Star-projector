@@ -1,4 +1,4 @@
-name: CI
+name: Java-free CI
 
 on:
   push:
@@ -7,31 +7,74 @@ on:
 permissions:
   contents: read
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYOWL2VEC_BUILD_NATIVE: "0"
+
 jobs:
-  pure-python:
+  python:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: OAEI-ML/pyOWLCore
+          path: .deps/pyowl-core
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e . --no-deps
-      - run: python -m unittest discover -s tests -v
+          cache: pip
+      - run: python -m pip install pytest==8.4.2 tomli==2.4.1
+      - run: python -m pip install --no-deps -e .deps/pyowl-core
+      - run: python -m pip install --no-deps -e .
+      - run: python -m pytest -q
       - run: python tools/audit_runtime.py
       - run: python tools/check_baseline.py
+      - run: python tools/generate_supply_chain.py --check
+
+  installed-smoke:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: OAEI-ML/pyOWLCore
+          path: .deps/pyowl-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --no-deps .deps/pyowl-core
+      - run: python -m pip install --no-deps .
+      - run: python tools/installed_smoke.py
+      - run: python -m pip uninstall -y pyowl2vec-star-projector
 
   quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: OAEI-ML/pyOWLCore
+          path: .deps/pyowl-core
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install ruff mypy
-      - run: ruff check src tests tools
-      - run: ruff format --check src tests tools
-      - run: mypy src
-
+          cache: pip
+      - run: python -m pip install mypy==1.18.2 ruff==0.14.10
+      - run: python -m ruff check src tests tools _build_backend.py setup.py
+      - run: python -m ruff format --check src tests tools _build_backend.py setup.py
+      - run: python -m mypy src
+        env:
+          MYPYPATH: .deps/pyowl-core/src

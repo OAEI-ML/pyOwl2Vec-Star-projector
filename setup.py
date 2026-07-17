@@ -38,5 +38,8 @@ if mode == "1" and manifest.is_file():
 elif mode == "1":
     raise RuntimeError("native build requested but native/Cargo.toml is missing")
 
-wheel_options = {"bdist_wheel": {"py_limited_api": "cp310"}} if mode == "1" else {}
-setup(rust_extensions=rust_extensions, options=wheel_options, zip_safe=False)
+setup_kwargs: dict[str, object] = {"zip_safe": False}
+if rust_extensions:
+    setup_kwargs["rust_extensions"] = rust_extensions
+    setup_kwargs["options"] = {"bdist_wheel": {"py_limited_api": "cp310"}}
+setup(**setup_kwargs)

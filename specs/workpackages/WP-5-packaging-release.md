@@ -1,6 +1,7 @@
 # WP-P5 — Packaging, compatibility matrix, and 0.1 release
 
-**Target:** `0.1.0`. **Depends on:** P2–P4. **Status:** planned.
+**Target:** `0.1.0`. **Depends on:** P2–P4. **Status:** implemented as `0.1.0rc1`;
+final release externally blocked.
 
 ## Deliverables
 
@@ -21,3 +22,17 @@ All gates in `../verification.md` pass. A user on a supported platform always ge
 pure-Python projector; missing native acceleration never becomes an install failure. Project
 metadata claims only tested interpreters/platforms. The uploaded distribution name is owned and
 cannot be confused with the unrelated `owl2vec-star` package.
+
+## Implementation state
+
+The compiler-free sdist/universal-wheel path, conditional isolated native build, CI matrices,
+offline smokes, artifact/hash/reproducibility tooling, SBOMs, license inventory, compatibility
+tables, changelog, and migration/release instructions are implemented. Local same-version
+`--find-links` selection chooses the native wheel on a supported target and the universal wheel
+for a simulated unsupported target.
+
+This work package does **not** claim the final acceptance paragraph yet. Authenticated package-name
+ownership, a disposable private-index proof, hosted platform runs, signed attestations, current
+advisory feeds, and unavailable release corpora are explicit blockers in
+`../../release/external-gates.json`. The candidate remains `0.1.0rc1` and no publication workflow
+or credential is present.

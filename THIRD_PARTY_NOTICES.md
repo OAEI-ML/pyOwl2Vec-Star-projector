@@ -29,4 +29,5 @@ distribution is copied into this project.
 Native wheels are built from the lockfile-pinned PyO3 ecosystem and common Rust support crates.
 These are build/link dependencies only and are not imported by the pure-Python fallback. The
 complete version and SPDX-expression inventory is maintained in
-`native/THIRD_PARTY_LICENSES.md`. No crate introduces Java, JNI, JVM, ROBOT, OWLAPI, or mOWL.
+`native/THIRD_PARTY_LICENSES.md`; deterministic CycloneDX and machine-readable license records
+are under `release/`. No crate introduces Java, JNI, JVM, ROBOT, OWLAPI, or mOWL.

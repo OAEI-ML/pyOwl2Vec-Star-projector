@@ -1,4 +1,4 @@
-name: Native backend
+name: Native backend and wheels
 
 on:
   pull_request:
@@ -6,21 +6,123 @@ on:
     branches: [main]
   schedule:
     - cron: "17 3 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
 
 jobs:
   rust-gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.83.0"
           components: rustfmt, clippy
       - run: cargo fmt --manifest-path native/Cargo.toml -- --check
       - run: cargo clippy --manifest-path native/Cargo.toml --locked --all-targets --no-default-features -- -D warnings
       - run: cargo test --manifest-path native/Cargo.toml --locked --no-default-features
+
+  native-wheel:
+    name: Native wheel / ${{ matrix.artifact }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x86_64
+            cibw-arch: x86_64
+          - os: ubuntu-24.04-arm
+            artifact: linux-aarch64
+            cibw-arch: aarch64
+          - os: macos-13
+            artifact: macos-x86_64
+            cibw-arch: x86_64
+          - os: macos-14
+            artifact: macos-arm64
+            cibw-arch: arm64
+          - os: windows-latest
+            artifact: windows-x86_64
+            cibw-arch: AMD64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: OAEI-ML/pyOWLCore
+          path: .deps/pyowl-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.83.0"
+      - uses: pypa/cibuildwheel@v3.1.4
+        env:
+          CIBW_ARCHS: ${{ matrix.cibw-arch }}
+          CIBW_BUILD: cp310-*
+          CIBW_SKIP: "*-musllinux* *-win32"
+          CIBW_ENVIRONMENT: PYOWL2VEC_BUILD_NATIVE=1
+          CIBW_BEFORE_TEST: pip install --no-deps {project}/.deps/pyowl-core
+          CIBW_TEST_COMMAND: python {project}/tools/installed_smoke.py --require-native
+      - if: runner.os == 'Linux'
+        run: python -m pip install auditwheel==6.4.2 && auditwheel show wheelhouse/*.whl
+      - if: runner.os == 'macOS'
+        run: python -m pip install delocate==0.13.0 && delocate-listdeps wheelhouse/*.whl
+      - if: runner.os == 'Windows'
+        run: python -m pip install delvewheel==1.11.2 && delvewheel show wheelhouse/*.whl
+      - run: python tools/audit_release.py wheelhouse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.artifact }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  native-smoke:
+    name: Native smoke / ${{ matrix.artifact }} / Python ${{ matrix.python-version }}
+    needs: native-wheel
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-14, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x86_64
+          - os: ubuntu-24.04-arm
+            artifact: linux-aarch64
+          - os: macos-13
+            artifact: macos-x86_64
+          - os: macos-14
+            artifact: macos-arm64
+          - os: windows-latest
+            artifact: windows-x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: OAEI-ML/pyOWLCore
+          path: .deps/pyowl-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.artifact }}
+          path: wheelhouse
+      - run: python -m pip install pytest==8.4.2
+      - run: python -m pip install --no-deps .deps/pyowl-core
+      - run: python -m pip install --no-index --no-deps --find-links=wheelhouse pyowl2vec-star-projector==0.1.0rc1
+      - run: python tools/installed_smoke.py --require-native
+      - run: python -m pytest -q tests/test_native_backend.py tests/test_backend.py
+        env:
+          PYOWL2VEC_REQUIRE_NATIVE_TESTS: "1"
 
   address-sanitizer:
     if: github.event_name == 'schedule'
@@ -30,9 +132,6 @@ jobs:
       RUSTDOCFLAGS: -Zsanitizer=address
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src

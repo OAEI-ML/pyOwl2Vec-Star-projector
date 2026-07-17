@@ -1,0 +1,4 @@
+# Additional packages used only for an explicit native artifact build.
+-r fallback-build-requirements.txt
+setuptools-rust==1.13.0
+semantic-version==2.10.0

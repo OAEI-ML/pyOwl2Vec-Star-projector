@@ -1,0 +1,46 @@
+name: Attested release candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+  PYOWL2VEC_BUILD_NATIVE: "0"
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    environment: release-candidate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - run: python -m pip install -r release/fallback-build-requirements.txt
+      - run: python tools/generate_supply_chain.py --check
+      - run: python -m build --sdist --wheel --outdir dist
+      - run: python tools/audit_release.py dist --report dist/release-audit.json
+      - run: python tools/hash_artifacts.py dist --output dist/SHA256SUMS
+      - run: python tools/release_gate.py --artifacts dist --report dist/release-gate.json
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: attested-release-candidate
+          path: |
+            dist/*
+            release/*.json
+            release/sbom/*.json
+          if-no-files-found: error
+
+# This workflow intentionally has no package-index upload step. Publication is a separate,
+# authenticated maintainer action after every external gate has passing evidence.

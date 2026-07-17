@@ -19,7 +19,7 @@ at commit `d9935369144f9a618ece38b7b2a8f4293afe8c26`. Java is permitted only in 
 development oracle that generates checked-in goldens. It is never an install, runtime, test, or
 release dependency.
 
-The Python backend is complete. `0.1.0b1` also contains an equivalent optional Rust/PyO3 edge
+The Python backend is complete. `0.1.0rc1` also contains an equivalent optional Rust/PyO3 edge
 engine:
 
 - `backend="python"` selects the complete, compiler-free fallback explicitly and quietly;
@@ -38,14 +38,21 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 ## Status
 
-Planned initial release: `0.1.0`.
+Unpublished release candidate: `0.1.0rc1`; planned final release: `0.1.0`.
 
-`0.1.0b1` implements WP-P4. All 184 pinned Scala invocations match in canonical edge bytes,
+All 184 pinned Scala invocations match in canonical edge bytes,
 including the expected typed inverse-property assertion failure and the loader-owned missing-
 import outcome. The native edge-policy engine consumes bounded owned batches, stores no Python or
 OWL objects, and P4 now applies global policy through bounded private runs rather than a complete
-in-memory edge vector. Normal tests, installs, wheels, and sdists remain Java-free. P5 remains the
-isolated distribution/release work package.
+in-memory edge vector. Normal tests, installs, wheels, and sdists remain Java-free.
+
+P5 supplies conditional compiler-free builds, platform workflow definitions, offline install
+smokes, reproducibility/hash tooling, SBOMs, license inventory, compatibility tables, and release
+instructions. Final publication is deliberately blocked until authenticated name ownership,
+private-index selection, hosted matrices, signed provenance, current advisory audits, and release
+corpora have evidence. See the [compatibility matrix](docs/compatibility.md), [migration
+notes](docs/migration.md), [release procedure](RELEASING.md), and machine-readable
+[external gates](release/external-gates.json).
 
 ## Usage
 
@@ -123,15 +130,14 @@ format detection, imports, resolvers, cancellation, and loader errors remain own
 ## Optional native build
 
 Every distribution contains the complete Python backend. The default build is always the
-compiler-free universal fallback. Build a platform wheel with the pinned Rust accelerator by
-installing the `native-build` extra into the build environment, setting
-`PYOWL2VEC_BUILD_NATIVE=1`, and disabling temporary PEP 517 isolation for that explicit build.
-The extension uses PyO3's `abi3-py310` API and the Python package still supports Python 3.10
-through 3.12.
+compiler-free universal fallback and requests no Rust build tooling. Build a platform wheel with
+the pinned Rust accelerator by setting `PYOWL2VEC_BUILD_NATIVE=1`; the conditional PEP 517 backend
+then installs `setuptools-rust==1.13.0` into the isolated build environment. Cargo and rustc must
+already exist for this explicit path. The extension uses PyO3's `abi3-py310` API; the release
+matrix covers CPython 3.10 through 3.13.
 
 ```bash
-python -m pip install '.[native-build]'
-PYOWL2VEC_BUILD_NATIVE=1 python -m build --no-isolation --wheel
+PYOWL2VEC_BUILD_NATIVE=1 python -m build --wheel
 ```
 
 The Rust boundary owns only strings for edge batches. It never borrows, mutates, or retains a
