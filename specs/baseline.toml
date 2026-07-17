@@ -1,0 +1,37 @@
+schema = "pyowl-projector.reference-baseline/1"
+profile = "mowl-d993536-v1"
+specified_on = "2026-07-16"
+
+[upstream]
+repository = "https://github.com/bio-ontology-research-group/mowl"
+commit = "d9935369144f9a618ece38b7b2a8f4293afe8c26"
+source_path = "gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala"
+source_blob = "a7f7584bbe687ae341cf0547bc0492ada87cf4b8"
+immutable_source_url = "https://github.com/bio-ontology-research-group/mowl/blob/d9935369144f9a618ece38b7b2a8f4293afe8c26/gateway/src/main/scala/org/mowl/Projectors/OWL2VecStarProjector.scala"
+documentation_url = "https://mowl.readthedocs.io/en/v1.0.1/api/mowl.projection.OWL2VecStarProjector.html"
+license = "BSD-3-Clause"
+license_url = "https://github.com/bio-ontology-research-group/mowl/blob/d9935369144f9a618ece38b7b2a8f4293afe8c26/LICENSE"
+copyright = "Copyright (c) 2022, Bio-Ontology Research Group"
+
+[toolchain]
+java = "11"
+scala = "2.11.12"
+owlapi = "4.5.22"
+elk = "0.4.3"
+hermit = "1.3.8.413"
+
+[compatibility]
+imports_closure = true
+output_semantics = "bag"
+comparison = "edge-counter"
+canonical_order = "utf8(source,relation,destination)"
+projector_api_version = 1
+edge_artifact_schema = "pyowl-projector.edge-list/1"
+compiler_cache_schema = "pyowl-projector.compiler-cache/1"
+
+[ecosystem_comparison]
+distribution = "owl2vec-star"
+observed_version = "0.2.0"
+normative = false
+copy_source = false
+note = "Existing Owlready-based project; legacy Python range. Audit API, licensing, and name-confusion only."

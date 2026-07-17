@@ -1,0 +1,7 @@
+pyOwl2Vec-Star-projector
+Copyright 2026 OAEI-ML contributors
+
+This product includes behavior specifications derived from observation of mOWL's
+OWL2VecStarProjector. No mOWL source is included in the runtime package. See
+THIRD_PARTY_NOTICES.md for reference provenance and license information.
+
