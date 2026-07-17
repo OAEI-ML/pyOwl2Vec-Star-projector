@@ -136,7 +136,7 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    assert compatibility["tested_source"]["commit"] == ("b1b34ee409125eb9d5a57477490f0985195b68b4")
+    assert compatibility["tested_source"]["commit"] == ("d546da77f4402ac4cda08a480c8798c37601b16c")
     assert (
         compatibility["previous_source"]["structural_fingerprint"]
         != (fixture["structural_fingerprint"])
