@@ -21,6 +21,12 @@
       "required_evidence": "Successful packaging and installed-smoke workflow run for every claimed target, including native binary audits."
     },
     {
+      "id": "subinterpreter-runtime-matrix",
+      "status": "blocked",
+      "reason": "PyO3 0.28 deliberately rejects extension loading in CPython subinterpreters, and this host's CPython 3.12 aborts while tearing down a subinterpreter after importing the standard-library hashlib extension.",
+      "required_evidence": "On an approved clean CPython build, prove full Python projection and teardown in a subinterpreter, prove auto fallback without importing _native, and prove explicit native selection raises NativeBackendUnavailableError; retain native as unsupported until its extension framework passes an equivalent import/parity test."
+    },
+    {
       "id": "signed-provenance",
       "status": "blocked",
       "reason": "The workspace has no release identity, signing key, or authenticated GitHub attestation context.",

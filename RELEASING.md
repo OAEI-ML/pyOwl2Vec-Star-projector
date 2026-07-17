@@ -63,6 +63,14 @@ Run Python/native ordered differential and artifact parity, then the platform au
 - macOS: `delocate-listdeps` on x86_64 and arm64 wheels;
 - Windows: `delvewheel show` on x86_64 wheels.
 
+Also prove the interpreter policy before accepting an abi3 artifact: in a CPython
+subinterpreter, `backend="auto"` must select the complete Python backend without attempting to
+import `_native`, while explicit `backend="native"` must raise
+`NativeBackendUnavailableError`. Run a complete Python projection only on a host whose own
+standard-library extension modules support subinterpreter teardown; record that clean installed
+smoke as external evidence. Repeat the policy test on a free-threaded build, where native remains
+unclaimed.
+
 Do not claim musllinux, PyPy, free-threaded CPython, or another target until it has its own tests
 and compatibility entry.
 

@@ -31,11 +31,20 @@ byte-compatible when the core fingerprints and normalized semantic options are t
 | Windows x86_64 | yes | `win_amd64` | Clean 3.10–3.13 smoke plus delvewheel. |
 | Other Python 3.10+ platform | yes when compatible | none | Pip must select the universal wheel without invoking a compiler. |
 | musllinux | yes when pure Python is usable | not claimed in `0.1.0rc1` | Add only after a dedicated build and binary audit. |
+| CPython subinterpreters | host-runtime dependent | deliberately unavailable | `auto` falls back before extension import; clean full-projection smoke is an external gate. |
 | PyPy/free-threaded CPython | unclaimed | unclaimed | Requires dedicated compatibility policy and tests. |
 
 Every platform wheel also contains the complete Python backend. The sdist defaults to the same
 fallback and neither probes nor invokes Cargo. `PYOWL2VEC_BUILD_NATIVE=1` is the only supported
 way to request a native source build.
+
+PyO3 0.28 does not support loading its extension modules in CPython subinterpreters. Native
+probing therefore rejects a subinterpreter (and a free-threaded build) before importing the
+extension: `backend="auto"` selects Python and explicit `backend="native"` raises the typed
+`NativeBackendUnavailableError`. A host may use the Python backend in a subinterpreter only when
+that CPython build, its standard-library extension modules, and `pyowl-core` pass the complete
+installed smoke. This workspace's Homebrew CPython 3.12 aborts even for a standalone `hashlib`
+import during subinterpreter teardown, so it cannot provide that release evidence.
 
 ## Backend behavior
 

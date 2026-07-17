@@ -126,7 +126,7 @@ class Projector:
         return self._iter_view(
             view,
             effective,
-            source_kind="direct",
+            source_kind=_view_source_kind(view),
             native_batch_edges=buffer_edges,
             buffer_edges=buffer_edges,
             temp_directory=temp_directory,
@@ -608,13 +608,11 @@ def _coerce_once(
             "installed pyowl-core does not yet expose coerce_snapshot; "
             "use Projector.project(existing_view) until core WP03 is active"
         )
-    source_kind: SourceKind = (
-        "provider" if callable(getattr(source, "owl_snapshot", None)) else "direct"
-    )
-    if getattr(source, "wire_verified", False) is True:
-        source_kind = "wire"
+    supplied_by_provider = callable(getattr(source, "owl_snapshot", None))
     view = coerce(source, options=load_options, resolver=resolver)
-    return validate_view(view), source_kind
+    checked = validate_view(view)
+    source_kind: SourceKind = "provider" if supplied_by_provider else _view_source_kind(checked)
+    return checked, source_kind
 
 
 def _positive_int(name: str, value: object) -> None:
@@ -678,26 +676,184 @@ def _fingerprint(view: object, name: str) -> str:
     return str(value) if value is not None else ""
 
 
-def _manifest_digest(view: object) -> str:
-    manifest = getattr(view, "import_manifest", None)
-    for name in ("digest", "fingerprint", "manifest_digest"):
-        value = getattr(manifest, name, None)
-        if value is not None:
-            if isinstance(value, bytes):
-                return value.hex()
-            fingerprint = getattr(value, "hex", None)
-            if isinstance(fingerprint, str):
-                return fingerprint
-            return str(value)
+def _view_source_kind(view: object) -> SourceKind:
+    if getattr(view, "wire_verified", False) is True:
+        return "wire"
+    capabilities = getattr(view, "capabilities", None)
+    features = getattr(capabilities, "features", ())
+    try:
+        if "wire-verified" in features:
+            return "wire"
+    except TypeError:
+        pass
+    return "direct"
+
+
+def _core_manifests(view: object) -> tuple[object, ...]:
+    """Collect public leaf import manifests without materializing a view."""
+    pending = [view]
+    observed_views: set[int] = set()
+    observed_manifests: set[int] = set()
+    manifests: list[object] = []
+    while pending:
+        current = pending.pop()
+        identity = id(current)
+        if identity in observed_views:
+            continue
+        observed_views.add(identity)
+        capabilities = getattr(current, "capabilities", None)
+        features = getattr(capabilities, "features", ())
+        try:
+            lazy_mapped = "mmap-snapshot" in features
+        except TypeError:
+            lazy_mapped = False
+        # The current core mapping exposes import_manifest by materializing the
+        # complete model. Wait for its public summary provenance instead.
+        manifest = None if lazy_mapped else getattr(current, "import_manifest", None)
+        if manifest is not None and id(manifest) not in observed_manifests:
+            observed_manifests.add(id(manifest))
+            manifests.append(manifest)
+        base = getattr(current, "base", None)
+        if base is not None:
+            pending.append(base)
+        members = getattr(current, "members", ())
+        if isinstance(members, tuple):
+            for member in reversed(members):
+                member_view = getattr(member, "view", None)
+                if member_view is not None:
+                    pending.append(member_view)
+    return tuple(manifests)
+
+
+def _manifest_payload(manifest: object) -> bytes | None:
+    canonical = getattr(manifest, "canonical_bytes", None)
+    if callable(canonical):
+        value = canonical()
+        if not isinstance(value, bytes):
+            raise SnapshotCompatibilityError("core import manifest bytes are not immutable bytes")
+        return value
+    return None
+
+
+def _manifest_provenance(view: object) -> tuple[str, tuple[str, ...]]:
     report = getattr(view, "report", None)
-    value = getattr(report, "import_manifest_digest", "")
-    return str(value) if value is not None else ""
+    reported_digest = getattr(report, "import_manifest_digest", "")
+    reported_identities = getattr(report, "closure_document_identities", ())
+    if isinstance(reported_digest, str) and reported_digest:
+        if not isinstance(reported_identities, (tuple, list)) or not all(
+            isinstance(item, str) and item for item in reported_identities
+        ):
+            raise SnapshotCompatibilityError(
+                "core closure document identities are not a string sequence"
+            )
+        return reported_digest, tuple(reported_identities)
+
+    manifests = _core_manifests(view)
+    payloads = tuple(
+        (manifest, payload)
+        for manifest in manifests
+        if (payload := _manifest_payload(manifest)) is not None
+    )
+    if not payloads:
+        return "", ()
+
+    ordered = tuple(
+        sorted(
+            (payload for _manifest, payload in payloads),
+            key=lambda value: hashlib.sha256(value).digest(),
+        )
+    )
+    if len(ordered) == 1:
+        digest = hashlib.sha256(ordered[0]).hexdigest()
+    else:
+        combined = hashlib.sha256(b"pyowl-projector:import-manifests:v1\0")
+        for payload in ordered:
+            combined.update(len(payload).to_bytes(8, "big"))
+            combined.update(payload)
+        digest = combined.hexdigest()
+
+    identities: list[str] = []
+    multiple = len(payloads) > 1
+    for manifest, payload in payloads:
+        prefix = hashlib.sha256(payload).hexdigest() + ":" if multiple else ""
+        records = getattr(manifest, "documents", ())
+        if not isinstance(records, tuple):
+            continue
+        for record in records:
+            key = getattr(record, "document_key", None)
+            if isinstance(key, str) and key:
+                identities.append(prefix + key)
+    return digest, tuple(sorted(set(identities)))
+
+
+def _identity_index_provenance(
+    view: object,
+    core: object,
+) -> tuple[str, tuple[str, ...], str] | None:
+    """Read the core's immutable whole-view summary without model materialization."""
+    capabilities = getattr(view, "capabilities", None)
+    features = getattr(capabilities, "features", ())
+    try:
+        advertised = "ontology-identity-index" in features
+    except TypeError:
+        advertised = False
+    if not advertised:
+        return None
+    index_type = getattr(core, "OntologyIdentityIndex", None)
+    index_factory = getattr(view, "view", None)
+    if not isinstance(index_type, type) or not callable(index_factory):
+        raise SnapshotCompatibilityError(
+            "core advertises ontology identity provenance without its public index"
+        )
+    identity = index_factory(index_type)
+    manifest_digest = getattr(identity, "import_manifest_digest", None)
+    diagnostics_digest = getattr(identity, "loader_diagnostics_digest", None)
+    document_keys = getattr(identity, "document_keys", None)
+    if not isinstance(manifest_digest, bytes) or len(manifest_digest) != 32:
+        raise SnapshotCompatibilityError("core import manifest digest is not bytes32")
+    if not isinstance(diagnostics_digest, bytes) or len(diagnostics_digest) != 32:
+        raise SnapshotCompatibilityError("core loader diagnostics digest is not bytes32")
+    if not isinstance(document_keys, tuple) or not all(
+        isinstance(item, str) and item for item in document_keys
+    ):
+        raise SnapshotCompatibilityError("core closure document keys are not immutable strings")
+    return manifest_digest.hex(), document_keys, diagnostics_digest.hex()
+
+
+def _loader_diagnostics_digest(view: object) -> str:
+    report = getattr(view, "report", None)
+    diagnostics = getattr(report, "diagnostics", None)
+    if diagnostics is None:
+        return ""
+    payload: list[object] = []
+    try:
+        values = tuple(diagnostics)
+    except TypeError as error:
+        raise SnapshotCompatibilityError("core loader diagnostics are not iterable") from error
+    for diagnostic in values:
+        serialize = getattr(diagnostic, "to_dict", None)
+        if not callable(serialize):
+            raise SnapshotCompatibilityError("core loader diagnostic is not serializable")
+        payload.append(serialize())
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _core_provenance(view: object) -> CoreProvenance:
     core = importlib.import_module("pyowl_core")
     capabilities = view.capabilities  # type: ignore[attr-defined]
     wire = getattr(capabilities, "wire_format", getattr(core, "WIRE_FORMAT_VERSION", (1, 0)))
+    identity = _identity_index_provenance(view, core)
+    if identity is None:
+        manifest_digest, document_identities = _manifest_provenance(view)
+        loader_diagnostics_digest = _loader_diagnostics_digest(view)
+    else:
+        manifest_digest, document_identities, loader_diagnostics_digest = identity
     return CoreProvenance(
         package_version=str(getattr(core, "__version__", "unknown")),
         api_version=tuple(getattr(core, "API_VERSION", (0, 0))),
@@ -707,7 +863,9 @@ def _core_provenance(view: object) -> CoreProvenance:
         structural_fingerprint=_fingerprint(view, "structural_fingerprint"),
         logical_fingerprint=_fingerprint(view, "logical_fingerprint"),
         signature_fingerprint=_fingerprint(view, "signature_fingerprint"),
-        import_manifest_digest=_manifest_digest(view),
+        import_manifest_digest=manifest_digest,
+        closure_document_identities=document_identities,
+        loader_diagnostics_digest=loader_diagnostics_digest,
     )
 
 

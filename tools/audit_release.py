@@ -30,16 +30,28 @@ else:
     )
 
 _NATIVE_SUFFIXES = (".dll", ".dylib", ".pyd", ".so")
-_JAVA_DEPENDENCIES = (
-    "deeponto",
-    "exact-om",
-    "jpype",
-    "mowl",
-    "oaei-bioml-eval",
-    "owlapi",
-    "pyelk",
-    "pyhermit",
-    "robot",
+_JAVA_DEPENDENCIES = frozenset(
+    {
+        "deeponto",
+        "exact-om",
+        "jpype",
+        "jpype1",
+        "mowl",
+        "oaei-bioml-eval",
+        "owlapi",
+        "pyelk",
+        "pyhermit",
+        "robot",
+    }
+)
+_REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+_FORBIDDEN_NATIVE_MARKERS = (
+    b"JNI_CreateJavaVM",
+    b"JNI_GetCreatedJavaVMs",
+    b"JNIEnv",
+    b"JavaVM",
+    b"libjvm",
+    b"jvm.dll",
 )
 
 
@@ -103,6 +115,7 @@ def _audit_wheel(
         if "root-is-purelib: false" not in wheel_text.lower():
             errors.append("platform wheel unexpectedly claims Root-Is-Purelib")
         kind = "native-wheel"
+        _audit_native_payloads(native_members, members, errors)
     _required_license_basenames(members, errors)
     return kind
 
@@ -144,10 +157,33 @@ def _audit_metadata(content: bytes, expected_version: str, errors: list[str]) ->
     base = [item for item in requirements if "extra ==" not in item]
     if len(base) != 1 or not re.match(r"^pyowl-core\s*<0\.2,>=0\.1$", base[0]):
         errors.append(f"unexpected base dependencies: {base!r}")
-    lowered = "\n".join(base).lower()
-    for dependency in _JAVA_DEPENDENCIES:
-        if dependency in lowered:
-            errors.append(f"Java-facing base dependency present: {dependency}")
+    for requirement in requirements:
+        match = _REQUIREMENT_NAME.match(requirement)
+        if match is None:
+            errors.append(f"invalid dependency requirement: {requirement!r}")
+            continue
+        dependency = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+        if dependency in _JAVA_DEPENDENCIES:
+            errors.append(f"Java-facing dependency or extra present: {dependency}")
+
+
+def _audit_native_payloads(
+    names: list[str],
+    members: dict[str, bytes],
+    errors: list[str],
+) -> None:
+    for name in names:
+        payload = members[name]
+        found = [marker for marker in _FORBIDDEN_NATIVE_MARKERS if marker in payload]
+        markers = [
+            marker.decode("ascii")
+            for marker in found
+            if not any(marker != other and marker in other for other in found)
+        ]
+        if markers:
+            errors.append(
+                f"native extension contains JVM/JNI marker(s) {', '.join(markers)}: {name}"
+            )
 
 
 def _required_license_basenames(members: dict[str, bytes], errors: list[str]) -> None:

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import unittest
 import warnings
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from pyowl2vec_star_projector import (
+    InvalidProjectionOptionsError,
     NativeBackendFallbackWarning,
     NativeBackendStatus,
     NativeBackendUnavailableError,
@@ -49,6 +52,49 @@ class BackendSelectionTests(unittest.TestCase):
     def test_explicit_native_fails_closed(self) -> None:
         with self.assertRaises(NativeBackendUnavailableError):
             select_backend("native", probe=lambda: NativeBackendStatus(False, reason="absent"))
+
+    def test_invalid_backend_is_rejected_before_a_probe(self) -> None:
+        with self.assertRaises(InvalidProjectionOptionsError):
+            select_backend("gpu")  # type: ignore[arg-type]
+
+    def test_native_import_and_metadata_failures_are_typed(self) -> None:
+        import pyowl2vec_star_projector.native as native
+
+        with patch.object(native.importlib, "import_module", side_effect=RuntimeError("broken")):
+            with self.assertRaises(NativeBackendUnavailableError) as raised:
+                native.load_native_module()
+        self.assertEqual(raised.exception.details["cause"], "RuntimeError")
+
+        malformed = SimpleNamespace(
+            NATIVE_API_VERSION="one",
+            EdgeBatchProcessor=lambda: None,
+        )
+        with patch.object(native.importlib, "import_module", return_value=malformed):
+            with self.assertRaises(NativeBackendUnavailableError) as raised:
+                native.load_native_module()
+        self.assertEqual(raised.exception.details["actual_native_api"], -1)
+
+    def test_native_runtime_policy_blocks_unsupported_interpreters_before_import(self) -> None:
+        import pyowl2vec_star_projector.backend as backend
+        import pyowl2vec_star_projector.native as native
+
+        reason = "PyO3 native extension does not support CPython subinterpreters"
+        with (
+            patch.object(backend, "native_runtime_policy_reason", return_value=reason),
+            patch.object(backend.importlib_util, "find_spec") as find_spec,
+        ):
+            status = backend.probe_native_backend()
+        self.assertFalse(status.available)
+        self.assertEqual(status.reason, reason)
+        find_spec.assert_not_called()
+
+        with (
+            patch.object(native, "native_runtime_policy_reason", return_value=reason),
+            patch.object(native.importlib, "import_module") as import_module,
+        ):
+            with self.assertRaisesRegex(NativeBackendUnavailableError, "subinterpreters"):
+                native.load_native_module()
+        import_module.assert_not_called()
 
     def test_auto_warning_is_deferred_and_once(self) -> None:
         with warnings.catch_warnings(record=True) as caught:

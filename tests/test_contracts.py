@@ -60,6 +60,10 @@ class OptionTests(unittest.TestCase):
             ProjectionOptions(order="hash")  # type: ignore[arg-type]
         with self.assertRaises(UnsupportedProfileError):
             ProjectionOptions(profile="latest")
+        with self.assertRaises(UnsupportedProfileError):
+            ProjectionOptions(profile=[])  # type: ignore[arg-type]
+        with self.assertRaises(InvalidProjectionOptionsError):
+            ProjectionOptions(backend=[])  # type: ignore[arg-type]
 
     def test_normalized_record(self) -> None:
         record = ProjectionOptions(duplicates="unique", backend="python").to_dict()

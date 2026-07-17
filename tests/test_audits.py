@@ -21,12 +21,15 @@ class RuntimeAuditTests(unittest.TestCase):
             (package / "bad.py").write_text("import jpype\n", encoding="utf-8")
             (package / "bad.jar").write_bytes(b"not a jar")
             (root / "pyproject.toml").write_text(
-                '[project]\ndependencies = ["jpype"]\n', encoding="utf-8"
+                '[project]\ndependencies = ["jpype"]\n'
+                '[project.optional-dependencies]\nreasoning = ["mowl"]\n',
+                encoding="utf-8",
             )
             errors = audit(root)
         self.assertTrue(any("forbidden imports" in error for error in errors))
         self.assertTrue(any("forbidden runtime artifact" in error for error in errors))
         self.assertTrue(any("forbidden base dependency" in error for error in errors))
+        self.assertTrue(any("forbidden optional extra" in error for error in errors))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import importlib
 from collections.abc import Iterable, Iterator
 from typing import Any, Protocol, cast
 
+from .backend import native_runtime_policy_reason
 from .compiler import Compilation, CompileStatistics
 from .errors import (
     NativeBackendUnavailableError,
@@ -33,29 +34,55 @@ class _Processor(Protocol):
 
 def load_native_module() -> Any:
     """Load and validate the private extension only at native dispatch."""
+    policy_reason = native_runtime_policy_reason()
+    if policy_reason is not None:
+        raise NativeBackendUnavailableError(policy_reason)
     try:
         module = importlib.import_module("pyowl2vec_star_projector._native")
-    except (ImportError, OSError) as error:
+    except MemoryError:
+        raise
+    except Exception as error:
         raise NativeBackendUnavailableError(
             "native projector extension could not be loaded",
             details={"cause": type(error).__name__},
         ) from error
-    actual = getattr(module, "NATIVE_API_VERSION", None)
-    if actual != NATIVE_API_VERSION:
+    try:
+        actual = getattr(module, "NATIVE_API_VERSION", None)
+        processor = getattr(module, "EdgeBatchProcessor", None)
+    except MemoryError:
+        raise
+    except Exception as error:
+        raise NativeBackendUnavailableError(
+            "native projector extension metadata could not be read",
+            details={"cause": type(error).__name__},
+        ) from error
+    if type(actual) is not int or actual != NATIVE_API_VERSION:
         raise NativeBackendUnavailableError(
             "native projector API is incompatible",
             details={
                 "expected_native_api": NATIVE_API_VERSION,
-                "actual_native_api": -1 if actual is None else int(actual),
+                "actual_native_api": actual if type(actual) is int else -1,
             },
         )
-    if not callable(getattr(module, "EdgeBatchProcessor", None)):
+    if not callable(processor):
         raise NativeBackendUnavailableError("native projector extension is incomplete")
     return module
 
 
 def native_implementation_version() -> str:
-    return str(getattr(load_native_module(), "__version__", "unknown"))
+    module = load_native_module()
+    try:
+        version = getattr(module, "__version__", None)
+    except MemoryError:
+        raise
+    except Exception as error:
+        raise NativeBackendUnavailableError(
+            "native projector version metadata could not be read",
+            details={"cause": type(error).__name__},
+        ) from error
+    if not isinstance(version, str) or not version:
+        raise NativeBackendUnavailableError("native projector version metadata is invalid")
+    return version
 
 
 def iter_native_compilation(

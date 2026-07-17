@@ -28,8 +28,8 @@ def _strict_bool(name: str, value: object) -> None:
         raise InvalidProjectionOptionsError(f"{name} must be bool, got {type(value).__name__}")
 
 
-def _choice(name: str, value: str, choices: tuple[str, ...]) -> None:
-    if value not in choices:
+def _choice(name: str, value: object, choices: tuple[str, ...]) -> None:
+    if not isinstance(value, str) or value not in choices:
         allowed = ", ".join(choices)
         raise InvalidProjectionOptionsError(f"{name} must be one of {allowed}; got {value!r}")
 
@@ -46,10 +46,12 @@ class ProjectionOptions:
     backend: Backend = "auto"
 
     def __post_init__(self) -> None:
-        if self.profile not in SUPPORTED_PROFILES:
+        if not isinstance(self.profile, str) or self.profile not in SUPPORTED_PROFILES:
             raise UnsupportedProfileError(
                 f"unsupported projection profile {self.profile!r}",
-                details={"profile": self.profile},
+                details={
+                    "profile": self.profile if isinstance(self.profile, str) else repr(self.profile)
+                },
             )
         _strict_bool("bidirectional_taxonomy", self.bidirectional_taxonomy)
         _strict_bool("only_taxonomy", self.only_taxonomy)

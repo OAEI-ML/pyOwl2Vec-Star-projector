@@ -671,14 +671,25 @@ def validate_view(view: object) -> OntologyViewLike:
         ) from error
     adapter = getattr(capabilities, "adapter_protocol", None)
     model = getattr(capabilities, "model_schema", None)
-    if adapter != 1 or model != 1:
+    wire = getattr(capabilities, "wire_format", None)
+    versions_are_typed = type(adapter) is int and type(model) is int
+    wire_is_typed = (
+        isinstance(wire, tuple)
+        and len(wire) == 2
+        and all(type(item) is int and item >= 0 for item in wire)
+    )
+    actual_wire_major = cast(tuple[int, int], wire)[0] if wire_is_typed else -1
+    wire_is_supported = actual_wire_major == 1
+    if not versions_are_typed or adapter != 1 or model != 1 or not wire_is_supported:
         raise SnapshotCompatibilityError(
-            "incompatible pyowl-core adapter/model schema",
+            "incompatible pyowl-core adapter/model/wire schema",
             details={
                 "expected_adapter_protocol": 1,
                 "expected_model_schema": 1,
-                "actual_adapter_protocol": -1 if adapter is None else int(adapter),
-                "actual_model_schema": -1 if model is None else int(model),
+                "expected_wire_major": 1,
+                "actual_adapter_protocol": adapter if type(adapter) is int else -1,
+                "actual_model_schema": model if type(model) is int else -1,
+                "actual_wire_major": actual_wire_major,
             },
         )
     return view  # type: ignore[return-value]

@@ -2,17 +2,31 @@
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
+import importlib.util as importlib_util
+import platform
+import sysconfig
 import threading
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, cast
 
-from .errors import NativeBackendFallbackWarning, NativeBackendUnavailableError
-from .options import Backend
+from .errors import (
+    InvalidProjectionOptionsError,
+    NativeBackendFallbackWarning,
+    NativeBackendUnavailableError,
+)
+from .options import BACKENDS, Backend
 
 SelectedBackend = Literal["native", "python"]
+
+
+class _Subinterpreters(Protocol):
+    def get_current(self) -> int: ...
+
+    def get_main(self) -> int: ...
+
 
 # P3 ships the exact native engine as opt-in until the documented multi-corpus
 # 2x end-to-end threshold is independently reproduced. Availability and auto
@@ -40,8 +54,11 @@ class BackendSelection:
 
 def probe_native_backend() -> NativeBackendStatus:
     """Inspect availability without importing or executing the extension."""
+    policy_reason = native_runtime_policy_reason()
+    if policy_reason is not None:
+        return NativeBackendStatus(False, reason=policy_reason, auto_preferred=False)
     try:
-        spec = importlib.util.find_spec("pyowl2vec_star_projector._native")
+        spec = importlib_util.find_spec("pyowl2vec_star_projector._native")
     except (ImportError, AttributeError, ValueError) as exc:
         return NativeBackendStatus(False, reason=f"probe failed: {exc}")
     if spec is None:
@@ -53,12 +70,36 @@ def probe_native_backend() -> NativeBackendStatus:
     )
 
 
+def native_runtime_policy_reason() -> str | None:
+    """Return why this interpreter must not import the PyO3 accelerator."""
+    if platform.python_implementation() != "CPython":
+        return "native extension is supported only on approved CPython builds"
+    if sysconfig.get_config_var("Py_GIL_DISABLED"):
+        return "native extension is not approved for free-threaded CPython"
+    try:
+        interpreters = cast(
+            _Subinterpreters,
+            importlib.import_module("_xxsubinterpreters"),
+        )
+        current = int(interpreters.get_current())
+        main = int(interpreters.get_main())
+    except (ImportError, AttributeError, RuntimeError, ValueError):
+        return None
+    if current != main:
+        return "PyO3 native extension does not support CPython subinterpreters"
+    return None
+
+
 def select_backend(
     requested: Backend,
     *,
     probe: Callable[[], NativeBackendStatus] | None = None,
 ) -> BackendSelection:
     """Select a whole-operation backend without warning or doing semantic work."""
+    if not isinstance(requested, str) or requested not in BACKENDS:
+        raise InvalidProjectionOptionsError(
+            f"backend must be one of auto, native, python; got {requested!r}"
+        )
     if requested == "python":
         return BackendSelection(requested, "python")
     status = (probe or probe_native_backend)()

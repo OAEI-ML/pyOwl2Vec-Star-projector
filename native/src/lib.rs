@@ -4,6 +4,8 @@
 //! this engine receives owned edge batches, applies exact multiplicity/order
 //! policy, and never stores a Python object or a borrowed ontology view.
 
+#![forbid(unsafe_code)]
+
 use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -325,7 +327,7 @@ impl Drop for EdgeBatchProcessor {
     }
 }
 
-#[pymodule]
+#[pymodule(gil_used = true)]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("NATIVE_API_VERSION", NATIVE_API_VERSION)?;

@@ -8,6 +8,7 @@ import os
 import stat
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -29,7 +30,7 @@ from pyowl2vec_star_projector import (
 from pyowl2vec_star_projector.artifact import json_record
 from pyowl2vec_star_projector.streaming import _SpillWorkspace, iter_edge_policy
 
-from .support.core_views import Capabilities, fixture_view
+from .support.core_views import Capabilities, ConformingView, fixture_view
 
 
 def _canonical_options(**changes: Any) -> ProjectionOptions:
@@ -88,6 +89,40 @@ def test_native_and_python_use_identical_external_bytes_when_native_available(
         outputs[backend] = destination.getvalue()
         assert list(tmp_path.iterdir()) == []
     assert outputs["python"] == outputs["native"]
+
+
+def test_artifact_bytes_exclude_backend_fallback_execution_state(tmp_path: Path) -> None:
+    view = fixture_view("domain-range")
+    outputs: dict[str, bytes] = {}
+    for backend in ("python", "auto"):
+        destination = io.BytesIO()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = Projector().write_artifact(
+                view,
+                destination,
+                options=ProjectionOptions(backend=backend),
+                buffer_edges=2,
+                temp_directory=tmp_path,
+            )
+        outputs[backend] = destination.getvalue()
+        metadata = json.loads(outputs[backend].splitlines()[0])
+        assert metadata["counts"]["warnings"] == 0
+        assert "NATIVE_BACKEND_FALLBACK" not in metadata["warning_summary"]
+        if backend == "auto":
+            assert result.report.provenance.counts.warnings == 1
+    assert outputs["auto"] == outputs["python"]
+
+    wire_view = ConformingView(view.documents, wire_verified=True)
+    wire_destination = io.BytesIO()
+    Projector().write_artifact(
+        wire_view,
+        wire_destination,
+        options=ProjectionOptions(backend="python"),
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    assert wire_destination.getvalue() == outputs["python"]
 
 
 def test_encounter_iterator_reaches_first_edge_without_full_traversal(tmp_path: Path) -> None:
@@ -463,6 +498,33 @@ def test_artifact_metadata_digest_and_path_are_portable_and_atomic(tmp_path: Pat
         Projector().write_artifact(
             fixture_view("domain-range"),
             FailingWriter(),  # type: ignore[arg-type]
+            options=_canonical_options(),
+            buffer_edges=2,
+            temp_directory=spill,
+        )
+    assert list(spill.iterdir()) == []
+
+    class ImpossibleProgressWriter:
+        def write(self, value: bytes) -> int:
+            return len(value) + 1
+
+    with pytest.raises(ProjectionResourceError, match="artifact I/O failed"):
+        Projector().write_artifact(
+            fixture_view("domain-range"),
+            ImpossibleProgressWriter(),  # type: ignore[arg-type]
+            options=_canonical_options(),
+            buffer_edges=2,
+            temp_directory=spill,
+        )
+
+    class NoProgressWriter:
+        def write(self, value: bytes) -> None:
+            del value
+
+    with pytest.raises(ProjectionResourceError, match="artifact I/O failed"):
+        Projector().write_artifact(
+            fixture_view("domain-range"),
+            NoProgressWriter(),  # type: ignore[arg-type]
             options=_canonical_options(),
             buffer_edges=2,
             temp_directory=spill,

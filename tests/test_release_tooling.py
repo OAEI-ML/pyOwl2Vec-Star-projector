@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import _build_backend
+from tools.audit_release import _audit_metadata, _audit_native_payloads
 from tools.generate_supply_chain import generate
 from tools.hash_artifacts import create_manifest, verify_manifest
 from tools.release_gate import local_checks
@@ -90,3 +91,30 @@ def test_sdist_header_normalization_is_byte_reproducible(tmp_path: Path) -> None
 def test_static_local_release_checks_pass() -> None:
     failures = [check for check in local_checks(ROOT, None) if not check["passed"]]
     assert failures == []
+
+
+def test_native_release_audit_rejects_jvm_symbols() -> None:
+    errors: list[str] = []
+    _audit_native_payloads(
+        ["package/_native.abi3.so"],
+        {"package/_native.abi3.so": b"binary\x00JNI_CreateJavaVM\x00"},
+        errors,
+    )
+    assert errors == [
+        "native extension contains JVM/JNI marker(s) JNI_CreateJavaVM: package/_native.abi3.so"
+    ]
+
+
+def test_release_metadata_audit_covers_optional_java_dependencies_by_exact_name() -> None:
+    metadata = b"""\
+Name: pyowl2vec-star-projector
+Version: 0.1.0rc1
+Requires-Python: >=3.10
+Requires-Dist: pyowl-core<0.2,>=0.1
+Requires-Dist: mOWL; extra == 'reasoning'
+Requires-Dist: robotframework; extra == 'testing'
+
+"""
+    errors: list[str] = []
+    _audit_metadata(metadata, "0.1.0rc1", errors)
+    assert errors == ["Java-facing dependency or extra present: mowl"]

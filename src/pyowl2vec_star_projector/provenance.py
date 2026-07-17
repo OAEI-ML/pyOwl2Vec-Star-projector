@@ -29,6 +29,8 @@ class CoreProvenance:
     logical_fingerprint: str
     signature_fingerprint: str
     import_manifest_digest: str
+    closure_document_identities: tuple[str, ...] = ()
+    loader_diagnostics_digest: str = ""
 
 
 @dataclass(frozen=True, slots=True)

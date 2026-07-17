@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ import pytest
 from pyowl2vec_star_projector import (
     CONSUMER_CONFORMANCE_SCHEMA,
     ConsumerConformanceError,
+    ProjectionOptions,
+    Projector,
     SnapshotProviderProbe,
     consumer_conformance_cases,
     consumer_conformance_fixture,
@@ -70,6 +73,10 @@ def test_python_consumer_conformance_preserves_one_shared_snapshot(case_id: str)
     assert record["source_accesses"] == 0
     assert record["snapshot_identity_preserved"] is True
     assert result.core_before == result.core_after
+    identity = snapshot.view(pyowl_core.OntologyIdentityIndex)
+    assert result.core_before.import_manifest_digest == identity.import_manifest_digest.hex()
+    assert result.core_before.closure_document_identities == identity.document_keys
+    assert result.core_before.loader_diagnostics_digest == identity.loader_diagnostics_digest.hex()
     assert result.axiom_count_before == result.axiom_count_after == 13
     assert result.signature_count_before == result.signature_count_after == 8
     assert result.preserved_identity_probes == ("consumer-lazy-view",)
@@ -79,6 +86,64 @@ def test_python_consumer_conformance_preserves_one_shared_snapshot(case_id: str)
         assert result.report is not None
         assert result.report.provenance.source_kind == "provider"
         assert result.report.provenance.selected_backend == "python"
+
+
+def test_identity_provenance_and_artifacts_match_direct_decoded_and_mmap_views(
+    tmp_path: Path,
+) -> None:
+    direct = _snapshot()
+    wire = pyowl_core.encode_snapshot(direct)
+    decoded = pyowl_core.decode_snapshot(wire)
+    path = tmp_path / "consumer.pyocore"
+    path.write_bytes(wire)
+    mapped = pyowl_core.open_snapshot(path, mmap=True, verify=True)
+    try:
+        views = (direct, decoded, mapped)
+        cores = []
+        artifacts = []
+        source_kinds = []
+        for view in views:
+            destination = io.BytesIO()
+            result = Projector().write_artifact(
+                view,
+                destination,
+                options=ProjectionOptions(backend="python"),
+                buffer_edges=2,
+                temp_directory=tmp_path,
+            )
+            cores.append(result.report.provenance.core)
+            source_kinds.append(result.report.provenance.source_kind)
+            artifacts.append(destination.getvalue())
+        assert cores[0] == cores[1] == cores[2]
+        assert cores[0].import_manifest_digest
+        assert cores[0].closure_document_identities
+        assert cores[0].loader_diagnostics_digest
+        assert source_kinds == ["direct", "wire", "wire"]
+        assert artifacts[0] == artifacts[1] == artifacts[2]
+    finally:
+        mapped.close()
+
+
+def test_identity_provenance_retains_overlay_and_namespaces_composite_members() -> None:
+    first = _snapshot()
+    second = _snapshot()
+    overlay = pyowl_core.apply_delta(first, pyowl_core.OntologyDelta())
+    composite = pyowl_core.compose_views(first, second, roles=("left", "right"))
+    options = ProjectionOptions(backend="python")
+
+    first_result = Projector().project_with_report(first, options=options)
+    overlay_result = Projector().project_with_report(overlay, options=options)
+    composite_result = Projector().project_with_report(composite, options=options)
+    assert overlay_result.report.provenance.core == first_result.report.provenance.core
+
+    composite_core = composite_result.report.provenance.core
+    assert (
+        composite_core.import_manifest_digest
+        != first_result.report.provenance.core.import_manifest_digest
+    )
+    assert len(composite_core.closure_document_identities) == 2
+    assert len(set(composite_core.closure_document_identities)) == 2
+    assert all(key.startswith("member:") for key in composite_core.closure_document_identities)
 
 
 @pytest.mark.skipif(

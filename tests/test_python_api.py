@@ -238,6 +238,7 @@ def test_cancellation_propagates_the_core_exception() -> None:
 class BadCapabilities:
     adapter_protocol: int = 2
     model_schema: int = 99
+    wire_format: tuple[int, int] = (1, 0)
 
 
 def test_malformed_and_incompatible_views_fail_before_compilation() -> None:
@@ -257,6 +258,30 @@ def test_malformed_and_incompatible_views_fail_before_compilation() -> None:
 
     with pytest.raises(SnapshotCompatibilityError, match="schema"):
         Projector().project(BadView(), options=ProjectionOptions(backend="python"))
+
+    class MalformedCapabilities:
+        adapter_protocol = True
+        model_schema = 1
+        wire_format = (1, "zero")
+
+    BadView.capabilities = MalformedCapabilities()  # type: ignore[assignment]
+    with pytest.raises(SnapshotCompatibilityError, match="schema"):
+        Projector().project(BadView(), options=ProjectionOptions(backend="python"))
+
+    MalformedCapabilities.adapter_protocol = 1
+    MalformedCapabilities.wire_format = (2, 0)
+    with pytest.raises(SnapshotCompatibilityError, match="wire"):
+        Projector().project(BadView(), options=ProjectionOptions(backend="python"))
+
+
+def test_wire_source_kind_and_taxonomy_backend_validation() -> None:
+    view = ConformingView(fixture_view("equivalence-ordering").documents, wire_verified=True)
+    projector = Projector()
+    projector.project(view, options=ProjectionOptions(backend="python"))
+    assert projector.last_report is not None
+    assert projector.last_report.provenance.source_kind == "wire"
+    with pytest.raises(InvalidProjectionOptionsError, match="backend"):
+        Projector().project_taxonomy(view, backend="gpu")  # type: ignore[arg-type]
 
 
 def test_determinism_is_independent_of_document_axiom_permutation() -> None:

@@ -353,14 +353,11 @@ def _artifact_metadata(
     semantic_options = {
         name: value for name, value in provenance.options.to_dict().items() if name != "backend"
     }
-    warnings = {
-        diagnostic.code: diagnostic.count
-        for diagnostic in report.diagnostics
-        if diagnostic.severity == "warning"
-    }
-    fallback_warnings = provenance.counts.warnings - sum(warnings.values())
-    if fallback_warnings > 0:
-        warnings["NATIVE_BACKEND_FALLBACK"] = fallback_warnings
+    warnings: dict[str, int] = {}
+    for diagnostic in report.diagnostics:
+        if diagnostic.severity == "warning":
+            warnings[diagnostic.code] = warnings.get(diagnostic.code, 0) + diagnostic.count
+    semantic_warning_count = sum(warnings.values())
     return {
         "schema": EDGE_ARTIFACT_SCHEMA,
         "profile": provenance.options.profile,
@@ -370,6 +367,8 @@ def _artifact_metadata(
             "logical_fingerprint": core.logical_fingerprint,
             "signature_fingerprint": core.signature_fingerprint,
             "import_manifest_digest": core.import_manifest_digest,
+            "closure_document_identities": list(core.closure_document_identities),
+            "loader_diagnostics_digest": core.loader_diagnostics_digest,
         },
         "provenance": {
             "projector_version": __version__,
@@ -384,7 +383,6 @@ def _artifact_metadata(
             "core_model_schema_version": core.model_schema_version,
             "core_wire_format_version": list(core.wire_format_version),
             "core_adapter_protocol_version": core.adapter_protocol_version,
-            "source_kind": provenance.source_kind,
             "diagnostics_digest": provenance.diagnostics_digest,
             "invocation_count": provenance.invocation_count,
             "call_history_digest": provenance.call_history_digest,
@@ -394,7 +392,7 @@ def _artifact_metadata(
             "duplicates": provenance.counts.duplicates,
             "skipped_axioms": provenance.counts.skipped_axioms,
             "ignored_shapes": provenance.counts.ignored_shapes,
-            "warnings": provenance.counts.warnings,
+            "warnings": semantic_warning_count,
         },
         "warning_summary": warnings,
         "canonical_edges_sha256": canonical_edges_sha256,
@@ -488,9 +486,11 @@ def _write_all(writer: BinaryIO, value: bytes) -> None:
     while offset < len(value):
         written = writer.write(value[offset:])
         if written is None:
-            return
+            raise OSError("binary writer returned no progress result")
         if type(written) is not int or written <= 0:
             raise OSError("binary writer made no progress")
+        if written > len(value) - offset:
+            raise OSError("binary writer reported impossible progress")
         offset += written
 
 

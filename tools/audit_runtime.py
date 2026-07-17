@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import sys
 from pathlib import Path
+from typing import Any
 
 FORBIDDEN_IMPORT_ROOTS = frozenset(
     {
@@ -22,6 +24,22 @@ FORBIDDEN_IMPORT_ROOTS = frozenset(
     }
 )
 FORBIDDEN_ARTIFACT_SUFFIXES = frozenset({".class", ".ear", ".jar", ".war"})
+FORBIDDEN_DEPENDENCIES = frozenset(
+    {
+        "deeponto",
+        "exact",
+        "exact-om",
+        "jpype",
+        "jpype1",
+        "mowl",
+        "oaei-bioml-eval",
+        "owlapi",
+        "pyelk",
+        "pyhermit",
+        "robot",
+    }
+)
+_REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 
 def imported_roots(path: Path) -> set[str]:
@@ -48,12 +66,40 @@ def audit(root: Path) -> list[str]:
                     f"forbidden imports in {path.relative_to(root)}: "
                     + ", ".join(sorted(forbidden))
                 )
-    metadata = (root / "pyproject.toml").read_text(encoding="utf-8").lower()
-    dependency_region = metadata.split("[project.optional-dependencies]", 1)[0]
-    for name in sorted(FORBIDDEN_IMPORT_ROOTS):
-        if f'"{name}' in dependency_region or f"'{name}" in dependency_region:
-            errors.append(f"forbidden base dependency: {name}")
+    for scope, requirement in _dependencies(root / "pyproject.toml"):
+        match = _REQUIREMENT_NAME.match(requirement)
+        if match is None:
+            errors.append(f"invalid {scope} dependency requirement: {requirement!r}")
+            continue
+        name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+        if name in FORBIDDEN_DEPENDENCIES:
+            errors.append(f"forbidden {scope} dependency: {name}")
     return errors
+
+
+def _dependencies(path: Path) -> list[tuple[str, str]]:
+    try:
+        import tomllib
+    except ImportError:  # pragma: no cover - Python 3.10
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    with path.open("rb") as stream:
+        document: dict[str, Any] = tomllib.load(stream)
+    project = document.get("project", {})
+    if not isinstance(project, dict):
+        return []
+    result: list[tuple[str, str]] = []
+    dependencies = project.get("dependencies", [])
+    if isinstance(dependencies, list):
+        result.extend(("base", item) for item in dependencies if isinstance(item, str))
+    optional = project.get("optional-dependencies", {})
+    if isinstance(optional, dict):
+        for extra, values in optional.items():
+            if isinstance(extra, str) and isinstance(values, list):
+                result.extend(
+                    (f"optional extra {extra!r}", item) for item in values if isinstance(item, str)
+                )
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -12,13 +12,26 @@ from packaging or performance changes because profile output is a data contract.
   provenance assertions, and path/stream/origin reparse sentinels.
 - Reproducible Exact-OM 2.0 WP-B baseline comparison, consumer-handoff benchmark, and dependency-
   DAG CI that rejects projector reverse dependencies and OAEI projector/Exact dependencies.
+- Public core closure-identity and loader-diagnostic provenance in reports and portable artifacts,
+  with zero-copy mapped-snapshot support through `OntologyIdentityIndex`.
+- Release audits for Java-facing optional dependencies and JVM/JNI markers embedded in native
+  extension payloads.
+
+### Fixed
+
+- Portable artifacts no longer vary with automatic-backend fallback state or direct/provider/
+  verified-wire execution provenance when their semantic inputs are identical.
+- Malformed option/capability and native ABI metadata failures now retain stable projector error
+  categories; caller-owned writers that report no progress fail instead of truncating silently.
+- Native probing rejects unsupported CPython subinterpreters and free-threaded builds before
+  importing the PyO3 extension, preserving the complete Python fallback policy.
 
 ### Compatibility
 
 - Both Exact mini-ontology captures match without edge, multiplicity, ordering, or digest changes
   under `duplicates="unique"`, canonical isolated projection, and dedicated taxonomy semantics.
-- No profile, default option, edge artifact, compiler-cache, sink protocol, or existing API
-  behavior changed. The conformance API and resources are additive.
+- No profile, default option, edge artifact schema, compiler-cache, sink protocol, or existing API
+  behavior changed. The conformance and provenance fields are additive.
 
 ## 0.1.0rc1 — 2026-07-17
 
