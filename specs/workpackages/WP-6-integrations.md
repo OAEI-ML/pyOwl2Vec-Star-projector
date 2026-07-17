@@ -1,6 +1,7 @@
 # WP-P6 — Consumer migration and conformance
 
-**Target:** projector `0.1.x`, Exact-OM `2.1.0`. **Depends on:** P5. **Status:** planned.
+**Target:** projector `0.1.x`, Exact-OM `2.1.0`. **Depends on:** P5. **Status:** projector-side
+kit implemented; Exact WP-M migration remains consumer-owned.
 
 ## Deliverables
 
@@ -22,3 +23,11 @@ One ontology load supplies Exact, projector, and optional reasoners without conv
 reparse. Exact's default outputs remain within its WP-M preservation gates. Both packages remain
 independently usable and uninstallable. Consumer-specific behavior does not enter the shared
 core model or the pinned projector profile.
+
+## Repository boundary
+
+This repository publishes the conformance resources, probes, Exact baseline comparator,
+dependency-DAG CI, and handoff benchmark. It does not import or patch Exact. Deleting Exact's
+local compiler and wiring its `OwlOntologySource`/reasoners is implemented and released from the
+Exact repository under `WP-M-shared-owl-stack.md`; the cross-repository acceptance remains open
+until that consumer commit runs this kit.

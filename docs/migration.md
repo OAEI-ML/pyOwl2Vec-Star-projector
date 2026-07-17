@@ -28,5 +28,15 @@ batch sink. Do not pass an original ontology path when a view exists: doing so w
 new load to core. Cross-process callers use the versioned core wire format, never pickle or a
 temporary OWL source file.
 
-Exact-OM integration and removal of its migrated projector implementation are WP-P6 work. This
-candidate does not modify Exact-OM or introduce a reverse dependency.
+The projector-side WP-P6 kit is available through `verify_consumer_conformance`,
+`SnapshotProviderProbe`, and the packaged cases returned by `consumer_conformance_cases()`.
+Run it before deleting an in-application projector. The probe fails if the integration accesses
+an original path/stream/origin, calls `owl_snapshot()` more than once, loses view identity,
+mutates fingerprints/counts, changes a registered lazy-view identity, or differs from the frozen
+edge/provenance contract.
+
+For Exact-OM, use `duplicates="unique"`, canonical order, isolated state, the
+`mowl-d993536-v1` profile, and the dedicated taxonomy API. The projector repository's comparator
+matches both committed Exact 2.0 WP-B mini-ontology captures exactly. Removing Exact's local
+compiler and parser records remains Exact WP-M work; this package neither imports nor modifies
+Exact and introduces no reverse dependency.

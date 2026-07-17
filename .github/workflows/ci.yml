@@ -68,13 +68,25 @@ jobs:
         with:
           repository: OAEI-ML/pyOWLCore
           path: .deps/pyowl-core
+      - uses: actions/checkout@v4
+        with:
+          repository: OAEI-ML/OAEI-Bio-ML-eval
+          path: .consumers/oaei-bioml-eval
+      - uses: actions/checkout@v4
+        with:
+          repository: liseda-lab/Exact-OM
+          path: .consumers/exact-om
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install mypy==1.18.2 ruff==0.14.10
+      - run: python -m pip install mypy==1.18.2 ruff==0.14.10 zstandard==0.23.0
       - run: python -m ruff check src tests tools _build_backend.py setup.py
       - run: python -m ruff format --check src tests tools _build_backend.py setup.py
       - run: python -m mypy src
         env:
           MYPYPATH: .deps/pyowl-core/src
+      - run: python tools/check_dependency_dag.py --oaei-root .consumers/oaei-bioml-eval
+      - run: python tools/compare_exact_baselines.py --exact-root .consumers/exact-om
+        env:
+          PYTHONPATH: src:.deps/pyowl-core/src

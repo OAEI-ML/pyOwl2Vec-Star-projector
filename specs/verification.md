@@ -139,6 +139,19 @@ Exact-OM integration proves:
 No projector dependency is added to OAEI-Bio-ML-eval; a dependency-cycle test enforces the DAG
 in the spec index.
 
+The projector publishes this gate as `pyowl-projector.consumer-conformance/1`. Its packaged CC0
+fixture has immutable bytes, fingerprints/counts, ordered edge goldens, and canonical digests for
+Exact-compatible OWL2Vec*, literal, and dedicated-taxonomy cases. `SnapshotProviderProbe` exposes
+only `owl_snapshot()` successfully and fails path/stream/origin access, so a passing consumer test
+proves one provider call and no source reparse. Optional identity callbacks assert that consumer-
+owned label/hierarchy/lazy views remain the same objects.
+
+`tools/compare_exact_baselines.py` performs the secondary executable comparison without importing
+Exact: it loads each committed fixture once through core and compares ordered unique output to
+Exact's compressed WP-B capture. Any difference is release-blocking and remains unclassified;
+the tool never rewrites a baseline. `tools/check_dependency_dag.py` inspects both dependency
+metadata and runtime imports, including OAEI's optional coherence dependencies.
+
 ## 8. Merge and release gates
 
 A release is blocked unless:

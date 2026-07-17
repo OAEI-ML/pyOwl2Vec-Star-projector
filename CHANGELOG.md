@@ -3,6 +3,23 @@
 All notable changes use Semantic Versioning. Compatibility-profile changes are listed separately
 from packaging or performance changes because profile output is a data contract.
 
+## Unreleased
+
+### Added
+
+- Versioned `pyowl-projector.consumer-conformance/1` kit with a packaged CC0 ontology,
+  Exact-compatible OWL2Vec*/literal/taxonomy goldens, snapshot/provider identity probes,
+  provenance assertions, and path/stream/origin reparse sentinels.
+- Reproducible Exact-OM 2.0 WP-B baseline comparison, consumer-handoff benchmark, and dependency-
+  DAG CI that rejects projector reverse dependencies and OAEI projector/Exact dependencies.
+
+### Compatibility
+
+- Both Exact mini-ontology captures match without edge, multiplicity, ordering, or digest changes
+  under `duplicates="unique"`, canonical isolated projection, and dedicated taxonomy semantics.
+- No profile, default option, edge artifact, compiler-cache, sink protocol, or existing API
+  behavior changed. The conformance API and resources are additive.
+
 ## 0.1.0rc1 — 2026-07-17
 
 ### Added

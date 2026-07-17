@@ -9,6 +9,7 @@ PROJECTOR_API_VERSION = 1
 BATCH_SINK_PROTOCOL_VERSION = 1
 EDGE_ARTIFACT_SCHEMA = "pyowl-projector.edge-list/1"
 COMPILER_CACHE_SCHEMA = "pyowl-projector.compiler-cache/1"
+CONSUMER_CONFORMANCE_SCHEMA = "pyowl-projector.consumer-conformance/1"
 REFERENCE_PROFILE = "mowl-d993536-v1"
 ```
 
@@ -194,7 +195,8 @@ Public failures derive from `ProjectionError` and include:
 - `InvalidProjectionOptionsError`;
 - `UnsupportedAxiomShapeError` only when a strict future profile requests rejection;
 - `NativeBackendUnavailableError`;
-- `SnapshotCompatibilityError`; and
+- `SnapshotCompatibilityError`;
+- `ConsumerConformanceError` for a failed versioned consumer handoff assertion; and
 - `ProjectionResourceError` for exhausted spill space or configured limits.
 
 Pinned mOWL shapes that it ignores are ignored and optionally counted; they are not errors.
@@ -227,3 +229,29 @@ matching machine-specific fields.
 The `0.1` package may add fields with defaults, but it may not silently change profile behavior,
 edge ordering, warning timing, or artifact bytes. A future default profile requires a documented
 minor release and an opt-in period; removing an old profile requires a major release.
+
+## 9. Consumer conformance
+
+The additive `pyowl-projector.consumer-conformance/1` kit ships one CC0 Functional Syntax
+fixture and deterministic Exact-compatible goldens for ordinary OWL2Vec*, literal-enabled
+OWL2Vec*, and dedicated asserted taxonomy. Fixture bytes, expected fingerprints/counts, ordered
+edge records, and canonical edge digests are package resources and MUST be present in wheels and
+sdists.
+
+`SnapshotProviderProbe` returns one caller-supplied view from `owl_snapshot()` and instruments
+provider calls. Any path protocol, stream read, path open, or origin access raises
+`ConsumerConformanceError`; this makes an attempted source reparse a typed test failure.
+`verify_consumer_conformance(view, ...)` calls core coercion once through that probe and succeeds
+only when:
+
+- the provider is called exactly once and no source access occurs;
+- the core and projector retain the exact supplied object identity;
+- core fingerprints, axiom/signature counts, and registered consumer lazy-view identities remain
+  unchanged;
+- ordered edges and canonical edge-record SHA-256 match the selected golden; and
+- OWL2Vec* provenance records provider source kind, the supplied core record, normalized
+  Exact-compatible options, and exact counts.
+
+The kit never imports Exact, OAEI, or reasoners and adds no consumer-specific projection option.
+It is testing/migration infrastructure over the ordinary public view/provider contracts, not a
+second ontology model or parser.

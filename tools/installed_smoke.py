@@ -12,10 +12,14 @@ from dataclasses import dataclass
 import pyowl_core
 
 from pyowl2vec_star_projector import (
+    CONSUMER_CONFORMANCE_SCHEMA,
     NativeBackendFallbackWarning,
     ProjectionOptions,
     Projector,
     __version__,
+    consumer_conformance_cases,
+    consumer_conformance_fixture,
+    consumer_conformance_fixture_metadata,
     probe_native_backend,
 )
 
@@ -74,6 +78,12 @@ def main() -> int:
     assert projector.last_view is view
     assert hasattr(pyowl_core, "__version__")
     assert __version__
+    fixture = consumer_conformance_fixture()
+    fixture_metadata = consumer_conformance_fixture_metadata()
+    assert len(fixture) > 100
+    assert fixture_metadata.resource == "consumer.ofn"
+    assert len(consumer_conformance_cases()) == 3
+    assert CONSUMER_CONFORMANCE_SCHEMA.endswith("/1")
     if args.require_native:
         status = probe_native_backend()
         if not status.available:

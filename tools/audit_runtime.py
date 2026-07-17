@@ -14,6 +14,7 @@ FORBIDDEN_IMPORT_ROOTS = frozenset(
         "exact",
         "jpype",
         "mowl",
+        "oaei_bioml_eval",
         "owlapi",
         "pyelk",
         "pyhermit",

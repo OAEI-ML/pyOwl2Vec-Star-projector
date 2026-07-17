@@ -54,7 +54,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-pyowl2vec_star_projector = ["py.typed"]
+pyowl2vec_star_projector = ["py.typed", "conformance_data/*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"

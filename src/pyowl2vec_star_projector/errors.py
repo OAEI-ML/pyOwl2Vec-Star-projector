@@ -45,6 +45,12 @@ class ProjectionResourceError(ProjectionError):
     code = "PROJECTION_RESOURCE"
 
 
+class ConsumerConformanceError(ProjectionError, AssertionError):
+    """A consumer violated the versioned identity or semantic handoff contract."""
+
+    code = "CONSUMER_CONFORMANCE"
+
+
 class ProjectionWarning(UserWarning):
     """Base warning category for non-fatal projector diagnostics."""
 

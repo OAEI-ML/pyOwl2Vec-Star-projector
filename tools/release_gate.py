@@ -11,11 +11,13 @@ from pathlib import Path
 if __package__:
     from .audit_release import audit_artifact
     from .audit_runtime import audit as audit_runtime
+    from .check_dependency_dag import check_dependency_dag
     from .generate_supply_chain import generate
     from .release_support import read_toml, release_artifacts
 else:
     from audit_release import audit_artifact
     from audit_runtime import audit as audit_runtime
+    from check_dependency_dag import check_dependency_dag
     from generate_supply_chain import generate
     from release_support import read_toml, release_artifacts
 
@@ -56,6 +58,7 @@ def local_checks(root: Path, artifact_directory: Path | None) -> list[dict[str, 
         "release/license-inventory.json",
         "release/sbom/native-build.cdx.json",
         "release/sbom/runtime.cdx.json",
+        "reports/p6/consumer-conformance.md",
     )
     missing_docs = [name for name in required_docs if not (root / name).is_file()]
     checks.append(
@@ -67,6 +70,14 @@ def local_checks(root: Path, artifact_directory: Path | None) -> list[dict[str, 
             "java-free-runtime-boundary",
             not runtime_errors,
             "; ".join(runtime_errors) if runtime_errors else "no forbidden imports or metadata",
+        )
+    )
+    dag_errors = check_dependency_dag(root)
+    checks.append(
+        _check(
+            "projector-dependency-dag",
+            not dag_errors,
+            "; ".join(dag_errors) if dag_errors else "no reverse consumer dependencies",
         )
     )
     generated = generate(root)

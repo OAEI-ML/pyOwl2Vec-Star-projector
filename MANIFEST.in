@@ -9,6 +9,7 @@ include CHANGELOG.md
 include RELEASING.md
 recursive-include native Cargo.toml Cargo.lock build.rs *.rs *.md
 recursive-include src *.py py.typed
+recursive-include src/pyowl2vec_star_projector/conformance_data *.json *.ofn LICENSE
 recursive-include specs *.md *.toml
 include specs/reference-rules.json
 recursive-include docs *.md

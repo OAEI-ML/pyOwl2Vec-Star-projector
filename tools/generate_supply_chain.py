@@ -223,7 +223,11 @@ def generate(root: Path) -> dict[Path, bytes]:
                 "shipped": "no",
             }
         ],
-        "fixture_content": {"license": "CC0-1.0", "shipped": "no"},
+        "fixture_content": {
+            "license": "CC0-1.0",
+            "shipped": "consumer-conformance-only",
+            "paths": ["pyowl2vec_star_projector/conformance_data/consumer.ofn"],
+        },
         "java_components": [],
     }
     output = root / "release"

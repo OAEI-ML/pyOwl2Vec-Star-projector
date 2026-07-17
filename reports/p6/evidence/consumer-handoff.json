@@ -1,0 +1,43 @@
+{
+  "schema": "pyowl-projector.consumer-handoff-evidence/1",
+  "date": "2026-07-17",
+  "host": "Darwin 25.5.0 x86_64",
+  "fixture_sha256": "84e1b6cf5088cbb7ea4276f26b5b461a4cfe74aed257abbab20ba78c1136ef0d",
+  "snapshot_structural_fingerprint": "c892d33f03273022cae0018e13a7afebb32d95005eb332a4b645a8c1859166fd",
+  "canonical_edges_sha256": "80866e23827159cd5312cb0e267c5e012371476561db0f394a3d97a11055f602",
+  "edge_count": 7,
+  "load_count": 1,
+  "provider_calls_per_projection": 1,
+  "source_accesses": 0,
+  "snapshot_identity_preserved": true,
+  "snapshot_unchanged": true,
+  "warmups": 3,
+  "repetitions": 25,
+  "measurements": [
+    {
+      "python": "3.10.11",
+      "backend": "python",
+      "direct_median_seconds": 0.002233350998722017,
+      "provider_median_seconds": 0.002171322994399816,
+      "provider_overhead_ratio": 0.972226486406438,
+      "process_max_rss_bytes": 28950528
+    },
+    {
+      "python": "3.12.3",
+      "backend": "python",
+      "direct_median_seconds": 0.0017066010041162372,
+      "provider_median_seconds": 0.0018277140334248543,
+      "provider_overhead_ratio": 1.070967396020803,
+      "process_max_rss_bytes": 31846400
+    },
+    {
+      "python": "3.12.3",
+      "backend": "native",
+      "direct_median_seconds": 0.001515677955467254,
+      "provider_median_seconds": 0.001605394994840026,
+      "provider_overhead_ratio": 1.0591926794535413,
+      "process_max_rss_bytes": 31330304
+    }
+  ],
+  "passed": true
+}

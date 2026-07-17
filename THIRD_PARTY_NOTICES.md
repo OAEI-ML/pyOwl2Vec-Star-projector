@@ -14,9 +14,11 @@ Oracle source or binaries, when acquired explicitly by developers, remain in an
 ignored external cache and retain their upstream license and notices. They are
 excluded from wheels and source distributions.
 
-The synthetic ontology fixtures used to record oracle behavior were authored for
-this project and dedicated to the public domain under CC0-1.0. They contain no
-third-party ontology content and are excluded from release artifacts.
+The synthetic ontology fixtures were authored for this project and dedicated to
+the public domain under CC0-1.0. They contain no third-party ontology content.
+Oracle fixtures remain excluded from release artifacts; the small consumer-
+conformance fixture and its CC0 notice are intentionally shipped with the public
+conformance kit.
 
 ## OWL2Vec*
 

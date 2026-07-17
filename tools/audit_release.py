@@ -32,8 +32,10 @@ else:
 _NATIVE_SUFFIXES = (".dll", ".dylib", ".pyd", ".so")
 _JAVA_DEPENDENCIES = (
     "deeponto",
+    "exact-om",
     "jpype",
     "mowl",
+    "oaei-bioml-eval",
     "owlapi",
     "pyelk",
     "pyhermit",
@@ -60,6 +62,8 @@ def audit_artifact(path: Path, *, expected_version: str) -> dict[str, object]:
     else:  # pragma: no cover - filtered by CLI
         kind = "unknown"
         errors.append("unsupported artifact suffix")
+
+    _required_conformance_kit(lowered, errors)
 
     return {
         "artifact": path.name,
@@ -151,6 +155,16 @@ def _required_license_basenames(members: dict[str, bytes], errors: list[str]) ->
     for required in ("license", "notice", "third_party_notices.md", "third_party_licenses.md"):
         if required not in basenames:
             errors.append(f"wheel missing license/provenance file: {required}")
+
+
+def _required_conformance_kit(members: dict[str, bytes], errors: list[str]) -> None:
+    for required in (
+        "conformance_data/consumer.ofn",
+        "conformance_data/goldens.json",
+        "conformance_data/license",
+    ):
+        if not any(name.endswith(required) for name in members):
+            errors.append(f"artifact missing consumer conformance resource: {required}")
 
 
 def _one(members: dict[str, bytes], suffix: str, errors: list[str]) -> str | None:

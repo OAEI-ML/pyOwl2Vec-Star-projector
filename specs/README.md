@@ -56,6 +56,8 @@ pyELK, or pyHermiT. This keeps every package independently installable and preve
 | [P5](workpackages/WP-5-packaging-release.md) | wheels, sdist, CI, and release | P2–P4 |
 | [P6](workpackages/WP-6-integrations.md) | consumer conformance for Exact-OM | P5 |
 
-P0, P1, and P2 are implemented. P2 exposes the complete pure-Python edge-producing API and
-matches the committed Scala goldens without adding Java to the install/runtime dependency graph.
-P3 and P4 remain independent native-acceleration and bounded-external-sorting work packages.
+P0 through P5 are implemented. The projector exposes the complete pure-Python compiler, optional
+native edge-policy acceleration, bounded external sorting, portable artifacts, and compiler-free
+fallback packaging without adding Java to the install/runtime dependency graph. P6's projector-
+owned conformance kit, Exact baseline comparator, handoff benchmark, and dependency-DAG checks are
+implemented; the Exact WP-M consumer migration remains in Exact's repository.

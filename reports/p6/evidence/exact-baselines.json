@@ -1,0 +1,126 @@
+{
+  "backend": "python",
+  "difference_classification": "none; every committed edge and ordering matches",
+  "exact_baseline": "2.0.0/WP-B",
+  "fixtures": [
+    {
+      "fixture_id": "mini_src",
+      "load_calls": 1,
+      "passed": true,
+      "projections": [
+        {
+          "expected_edges": 42,
+          "expected_sha256": "504d6ce48d4d98ec3ae4bef1d2ffce4cca803fad8c7090ebe2931579d54bb8a3",
+          "missing_count": 0,
+          "missing_sample": [],
+          "name": "owl2vecstar",
+          "observed_edges": 42,
+          "observed_sha256": "504d6ce48d4d98ec3ae4bef1d2ffce4cca803fad8c7090ebe2931579d54bb8a3",
+          "ordered_equal": true,
+          "unexpected_count": 0,
+          "unexpected_sample": []
+        },
+        {
+          "expected_edges": 76,
+          "expected_sha256": "d354a6c75db4a188742d5bae3df20ab68c6107ae1ca6d71cf92af1fc21ba928e",
+          "missing_count": 0,
+          "missing_sample": [],
+          "name": "owl2vecstar_literals",
+          "observed_edges": 76,
+          "observed_sha256": "d354a6c75db4a188742d5bae3df20ab68c6107ae1ca6d71cf92af1fc21ba928e",
+          "ordered_equal": true,
+          "unexpected_count": 0,
+          "unexpected_sample": []
+        },
+        {
+          "expected_edges": 28,
+          "expected_sha256": "b98792cc06e5bd6d7fe172a779a9e5b00c4b8c1735d9f34ed2f9285c3e154e98",
+          "missing_count": 0,
+          "missing_sample": [],
+          "name": "taxonomy",
+          "observed_edges": 28,
+          "observed_sha256": "b98792cc06e5bd6d7fe172a779a9e5b00c4b8c1735d9f34ed2f9285c3e154e98",
+          "ordered_equal": true,
+          "unexpected_count": 0,
+          "unexpected_sample": []
+        }
+      ],
+      "snapshot": {
+        "axiom_count": 134,
+        "identity_kind": "OntologySnapshot",
+        "logical_fingerprint": "f8ccec1456824a4bd6c96cf0a827e238e1db3ae9f858136ab44588636c786efb",
+        "signature_count": 48,
+        "signature_fingerprint": "abe99cb88792e990c2028abb3fe23526f31b1694362846e0d3f3de969d7a814a",
+        "structural_fingerprint": "05121ddb7959db977970437beb2ad0b7869e42d73c0c726efb80bfa37d9c01a7"
+      },
+      "snapshot_identity_preserved": true,
+      "snapshot_unchanged": true,
+      "source_bytes": 7584,
+      "source_sha256": "3df05eca2b7d8e7c1cd11f79769ff04562a25903b59b293d4d26209ea5271f10"
+    },
+    {
+      "fixture_id": "mini_tgt",
+      "load_calls": 1,
+      "passed": true,
+      "projections": [
+        {
+          "expected_edges": 42,
+          "expected_sha256": "6dacdc954e4bc32a2d325cd365b8b2f6333d6ca73d79182e536387cd4847be45",
+          "missing_count": 0,
+          "missing_sample": [],
+          "name": "owl2vecstar",
+          "observed_edges": 42,
+          "observed_sha256": "6dacdc954e4bc32a2d325cd365b8b2f6333d6ca73d79182e536387cd4847be45",
+          "ordered_equal": true,
+          "unexpected_count": 0,
+          "unexpected_sample": []
+        },
+        {
+          "expected_edges": 76,
+          "expected_sha256": "3a8db50c3ca0c4f52e2ffe1777571c6f94aae17eb0faaccbb473c6c35b738250",
+          "missing_count": 0,
+          "missing_sample": [],
+          "name": "owl2vecstar_literals",
+          "observed_edges": 76,
+          "observed_sha256": "3a8db50c3ca0c4f52e2ffe1777571c6f94aae17eb0faaccbb473c6c35b738250",
+          "ordered_equal": true,
+          "unexpected_count": 0,
+          "unexpected_sample": []
+        },
+        {
+          "expected_edges": 28,
+          "expected_sha256": "4e7f5360be58d3d741894cf6b008f9021f1013c7730a20e75d3266597b359508",
+          "missing_count": 0,
+          "missing_sample": [],
+          "name": "taxonomy",
+          "observed_edges": 28,
+          "observed_sha256": "4e7f5360be58d3d741894cf6b008f9021f1013c7730a20e75d3266597b359508",
+          "ordered_equal": true,
+          "unexpected_count": 0,
+          "unexpected_sample": []
+        }
+      ],
+      "snapshot": {
+        "axiom_count": 134,
+        "identity_kind": "OntologySnapshot",
+        "logical_fingerprint": "4a9b79161315e7907313076c21b2b9b2d978b0218968773647d00250fe165974",
+        "signature_count": 48,
+        "signature_fingerprint": "27eeb7f2614d78ca74b073b5da4120b08c527a714273b87e6072495f3bae9a4d",
+        "structural_fingerprint": "9d5c1f5a470bd8cfad99987ef20c8e8a178c78877cc8b53fa98c451a278586ff"
+      },
+      "snapshot_identity_preserved": true,
+      "snapshot_unchanged": true,
+      "source_bytes": 7587,
+      "source_sha256": "2801e80fa3478317756568353b1122dd867c3b208a5ec833c881bd076c968c29"
+    }
+  ],
+  "passed": true,
+  "profile": "mowl-d993536-v1",
+  "schema": "pyowl-projector.exact-baseline-comparison/1",
+  "semantic_options": {
+    "compatibility_state": "isolated",
+    "duplicates": "unique",
+    "order": "canonical",
+    "taxonomy": "dedicated-asserted-taxonomy"
+  }
+}

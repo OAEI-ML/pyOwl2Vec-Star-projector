@@ -13,6 +13,7 @@ external gates are distinguished in `reports/p5/packaging-release.md`.
 | Edge artifact | `pyowl-projector.edge-list/1` | Readers reject unsupported major schemas; backend selection is excluded from portable bytes. |
 | Batch sink | `BATCH_SINK_PROTOCOL_VERSION = 1` | Synchronous immutable tuple batches; returning is backpressure acknowledgement. |
 | Compiler cache | `pyowl-projector.compiler-cache/1` | Cache keys include core fingerprints/versions, profile, normalized options, schema, and package version. |
+| Consumer conformance | `pyowl-projector.consumer-conformance/1` | Packaged CC0 fixture/goldens; incompatible fixture or assertion changes require a new schema major. |
 | Core model | `pyowl-core>=0.1,<0.2` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
 
 `0.1.0b1` and `0.1.0rc1` use identical values in every row. Portable edge artifacts remain
@@ -54,3 +55,7 @@ All eight historical boolean combinations of `bidirectional_taxonomy`, `only_tax
 `include_literals`, both duplicate policies, both order policies, and both compatibility-state
 modes retain their P2–P4 behavior. `project_taxonomy` remains the separate, unambiguous asserted
 taxonomy API.
+
+The P6 Exact-compatible cases fix `duplicates="unique"`, canonical order, isolated state, and
+the named profile. They add no Exact-specific field to `ProjectionOptions`; Exact's ABox filtering
+and source-neutral edge facade remain consumer responsibilities.

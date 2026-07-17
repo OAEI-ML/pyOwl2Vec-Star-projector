@@ -1,0 +1,19 @@
+Prefix(:=<urn:pyowl-projector:consumer#>)
+Prefix(rdfs:=<http://www.w3.org/2000/01/rdf-schema#>)
+
+Ontology(<urn:pyowl-projector:consumer>
+  Declaration(Class(:Anatomy))
+  Declaration(Class(:Heart))
+  Declaration(Class(:Organ))
+  Declaration(ObjectProperty(:partOf))
+  Declaration(NamedIndividual(:sampleHeart))
+
+  SubClassOf(:Heart :Organ)
+  SubClassOf(:Heart ObjectSomeValuesFrom(:partOf :Anatomy))
+  EquivalentClasses(:Anatomy ObjectIntersectionOf(:Organ :Heart))
+  ObjectPropertyDomain(:partOf :Anatomy)
+  ObjectPropertyRange(:partOf :Organ)
+  ClassAssertion(:Heart :sampleHeart)
+  ObjectPropertyAssertion(:partOf :sampleHeart :Anatomy)
+  AnnotationAssertion(rdfs:label :Heart "heart"@en)
+)

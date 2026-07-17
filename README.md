@@ -54,6 +54,14 @@ corpora have evidence. See the [compatibility matrix](docs/compatibility.md), [m
 notes](docs/migration.md), [release procedure](RELEASING.md), and machine-readable
 [external gates](release/external-gates.json).
 
+P6 now ships a versioned consumer-conformance kit. Its CC0 fixture and three deterministic
+goldens exercise Exact-compatible OWL2Vec*, literal, and dedicated taxonomy settings. The probe
+accepts only a `SnapshotProvider` handoff: path, stream, or origin access raises a typed failure,
+while successful verification asserts one provider call, exact snapshot identity, unchanged
+fingerprints/counts, edge bytes, and provenance. The projector-side comparison against both
+Exact-OM 2.0 WP-B mini-ontology captures has zero differences. Exact's code migration remains in
+Exact's own WP-M and is not implemented through a reverse dependency here.
+
 ## Usage
 
 Project an existing shared view without parsing or copying it:
@@ -126,6 +134,32 @@ edges = project_source("ontology.ofn")
 `project_source` accepts the full `pyowl_core.OntologyInput` contract. Existing snapshots,
 overlays, composites, decoded wire views, and `SnapshotProvider` results retain concrete identity;
 format detection, imports, resolvers, cancellation, and loader errors remain owned by core.
+
+Consumer integrations can run the packaged handoff gate without Java or a native compiler:
+
+```python
+import pyowl_core
+from pyowl2vec_star_projector import (
+    consumer_conformance_fixture,
+    consumer_conformance_fixture_metadata,
+    verify_consumer_conformance,
+)
+
+fixture = consumer_conformance_fixture_metadata()
+snapshot = pyowl_core.load_snapshot(
+    consumer_conformance_fixture(),
+    document_iri=fixture.document_iri,
+    options=pyowl_core.LoadOptions(format=pyowl_core.DocumentFormat.FUNCTIONAL),
+)
+result = verify_consumer_conformance(snapshot, case_id="exact-owl2vec")
+assert result.provider_calls == 1
+assert result.source_accesses == 0
+assert result.core_before == result.core_after
+```
+
+Use `identity_probes={"labels": lambda: source.labels_view}` to assert that consumer-owned lazy views
+also retain object identity. The benchmark and Exact baseline comparator live under
+`benchmarks/benchmark_consumer_handoff.py` and `tools/compare_exact_baselines.py`.
 
 ## Optional native build
 
