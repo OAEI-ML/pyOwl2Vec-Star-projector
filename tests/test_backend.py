@@ -28,6 +28,24 @@ class BackendSelectionTests(unittest.TestCase):
         selected = select_backend("auto", probe=lambda: NativeBackendStatus(True, "test-native"))
         self.assertEqual(selected.selected, "native")
 
+    def test_auto_respects_experimental_opt_in_policy(self) -> None:
+        selected = select_backend(
+            "auto",
+            probe=lambda: NativeBackendStatus(
+                True,
+                "test-native",
+                reason="performance gate pending",
+                auto_preferred=False,
+            ),
+        )
+        self.assertEqual(selected.selected, "python")
+        self.assertEqual(selected.fallback_reason, "performance gate pending")
+        explicit = select_backend(
+            "native",
+            probe=lambda: NativeBackendStatus(True, auto_preferred=False),
+        )
+        self.assertEqual(explicit.selected, "native")
+
     def test_explicit_native_fails_closed(self) -> None:
         with self.assertRaises(NativeBackendUnavailableError):
             select_backend("native", probe=lambda: NativeBackendStatus(False, reason="absent"))

@@ -19,17 +19,18 @@ at commit `d9935369144f9a618ece38b7b2a8f4293afe8c26`. Java is permitted only in 
 development oracle that generates checked-in goldens. It is never an install, runtime, test, or
 release dependency.
 
-The Python backend is complete. A future work package may add an equivalent optimized Rust/PyO3
-backend:
+The Python backend is complete. `0.1.0b1` also contains an equivalent optional Rust/PyO3 edge
+engine:
 
 - `backend="python"` selects the complete, compiler-free fallback explicitly and quietly;
-- `backend="auto"` prefers a compatible native wheel and otherwise warns once before using
-  Python; and
-- `backend="native"` fails clearly while no native extension is installed.
+- `backend="auto"` uses the measured default backend and warns once when Python is selected; and
+- `backend="native"` selects the extension explicitly or fails clearly when it is unavailable.
 
-If automatic selection cannot load the native extension, the package uses Python and emits one
-actionable warning per process. Explicitly selecting Python is quiet; explicitly selecting native
-fails instead of silently changing backend.
+The P3 real-corpus measurements did not meet the required 2x end-to-end threshold, so this beta
+keeps native opt-in even when installed. This is a performance decision only: Python and native
+produce the same ordered edges, multiplicities, diagnostics, and typed semantic errors. Explicit
+Python is quiet; an unavailable explicit native request fails instead of silently changing
+backend.
 
 Start with the [specification index](specs/README.md). The normative API and behavior live in
 [`SPEC.md`](specs/SPEC.md), while the observed Scala quirks that must remain projector-local are
@@ -39,11 +40,12 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 Planned initial release: `0.1.0`.
 
-`0.1.0a2` implements WP-P2. All 184 pinned Scala invocations match in canonical edge bytes,
+`0.1.0b1` implements WP-P3. All 184 pinned Scala invocations match in canonical edge bytes,
 including the expected typed inverse-property assertion failure and the loader-owned missing-
-import outcome. Normal tests, installs, wheels, and sdists remain Java-free. Bounded external
-canonical sorting and a native backend remain isolated future work packages; encounter-order
-iteration already streams edge production after the identity-preserving plan scan.
+import outcome. The native edge-policy engine consumes bounded owned batches, stores no Python or
+OWL objects, releases the GIL for canonical sorting, and drains output in bounded batches. Normal
+tests, installs, wheels, and sdists remain Java-free. Bounded external canonical sorting remains
+the isolated P4 work package; P3 does not implement spill files or durable caches.
 
 ## Usage
 
@@ -75,3 +77,22 @@ edges = project_source("ontology.ofn")
 `project_source` accepts the full `pyowl_core.OntologyInput` contract. Existing snapshots,
 overlays, composites, decoded wire views, and `SnapshotProvider` results retain concrete identity;
 format detection, imports, resolvers, cancellation, and loader errors remain owned by core.
+
+## Optional native build
+
+Every distribution contains the complete Python backend. The default build is always the
+compiler-free universal fallback. Build a platform wheel with the pinned Rust accelerator by
+installing the `native-build` extra into the build environment, setting
+`PYOWL2VEC_BUILD_NATIVE=1`, and disabling temporary PEP 517 isolation for that explicit build.
+The extension uses PyO3's `abi3-py310` API and the Python package still supports Python 3.10
+through 3.12.
+
+```bash
+python -m pip install '.[native-build]'
+PYOWL2VEC_BUILD_NATIVE=1 python -m build --no-isolation --wheel
+```
+
+The Rust boundary owns only strings for edge batches. It never borrows, mutates, or retains a
+`pyowl_core` view. Closing a projection iterator cancels and clears its processor; native panics
+are contained and resource failures become stable projector exceptions. See the
+[P3 report](reports/p3/native-backend.md) for parity, performance, memory, and binary evidence.

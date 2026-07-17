@@ -14,12 +14,21 @@ from .options import Backend
 
 SelectedBackend = Literal["native", "python"]
 
+# P3 ships the exact native engine as opt-in until the documented multi-corpus
+# 2x end-to-end threshold is independently reproduced. Availability and auto
+# preference are deliberately separate facts.
+NATIVE_AUTO_PREFERRED = False
+NATIVE_EXPERIMENTAL_REASON = (
+    "native accelerator is installed but remains opt-in pending the P3 throughput gate"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class NativeBackendStatus:
     available: bool
     implementation_version: str | None = None
     reason: str | None = None
+    auto_preferred: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +46,11 @@ def probe_native_backend() -> NativeBackendStatus:
         return NativeBackendStatus(False, reason=f"probe failed: {exc}")
     if spec is None:
         return NativeBackendStatus(False, reason="native extension is not installed")
-    return NativeBackendStatus(True)
+    return NativeBackendStatus(
+        True,
+        reason=None if NATIVE_AUTO_PREFERRED else NATIVE_EXPERIMENTAL_REASON,
+        auto_preferred=NATIVE_AUTO_PREFERRED,
+    )
 
 
 def select_backend(
@@ -49,11 +62,15 @@ def select_backend(
     if requested == "python":
         return BackendSelection(requested, "python")
     status = (probe or probe_native_backend)()
-    if status.available:
+    if status.available and (requested == "native" or status.auto_preferred):
         return BackendSelection(requested, "native")
     if requested == "native":
         raise NativeBackendUnavailableError(status.reason or "native backend is unavailable")
-    return BackendSelection(requested, "python", status.reason)
+    return BackendSelection(
+        requested,
+        "python",
+        status.reason or NATIVE_EXPERIMENTAL_REASON,
+    )
 
 
 _warning_lock = threading.Lock()
@@ -77,7 +94,7 @@ def warn_if_auto_fallback(selection: BackendSelection) -> None:
         if _fallback_warning_emitted:
             return
         warnings.warn(
-            "native projector unavailable; using the complete Python backend "
+            "native projector not selected; using the complete Python backend "
             f"({selection.fallback_reason}). Select backend='python' to make this "
             "choice explicit and quiet.",
             NativeBackendFallbackWarning,

@@ -3,17 +3,22 @@ include NOTICE
 include THIRD_PARTY_NOTICES.md
 include README.md
 include pyproject.toml
+include setup.py
+recursive-include native Cargo.toml Cargo.lock build.rs *.rs *.md
 recursive-include src *.py py.typed
 recursive-include specs *.md *.toml
 include specs/reference-rules.json
 include tools/audit_runtime.py
 include tools/check_baseline.py
 recursive-include reports *.md
+recursive-include benchmarks *.py
 exclude tests/test_oracle_goldens.py
+exclude tests/test_native_backend.py
 exclude tests/test_python_api.py
 exclude tests/test_python_compiler_goldens.py
 prune tests/support
 prune tools/java-oracle
+prune native/target
 prune tests/fixtures/oracle
 prune tests/goldens
 recursive-exclude * __pycache__ *.py[cod]

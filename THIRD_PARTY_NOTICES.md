@@ -23,3 +23,10 @@ third-party ontology content and are excluded from release artifacts.
 The OWL2Vec* research and the existing `owl2vec-star` Python distribution are
 references for terminology and ecosystem comparison only. No code from that
 distribution is copied into this project.
+
+## Optional Rust build dependencies
+
+Native wheels are built from the lockfile-pinned PyO3 ecosystem and common Rust support crates.
+These are build/link dependencies only and are not imported by the pure-Python fallback. The
+complete version and SPDX-expression inventory is maintained in
+`native/THIRD_PARTY_LICENSES.md`. No crate introduces Java, JNI, JVM, ROBOT, OWLAPI, or mOWL.

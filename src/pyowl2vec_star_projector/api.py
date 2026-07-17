@@ -11,7 +11,7 @@ from dataclasses import asdict
 from os import PathLike
 from typing import Any
 
-from .backend import select_backend, warn_if_auto_fallback
+from .backend import BackendSelection, select_backend, warn_if_auto_fallback
 from .compiler import (
     RoleState,
     iter_asserted_taxonomy,
@@ -25,6 +25,11 @@ from .errors import (
     SnapshotCompatibilityError,
 )
 from .model import Edge
+from .native import (
+    iter_native_compilation,
+    iter_native_policy,
+    native_implementation_version,
+)
 from .options import Backend, DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .provenance import (
     CoreProvenance,
@@ -99,7 +104,12 @@ class Projector:
         del temp_directory
         _positive_int("buffer_edges", buffer_edges)
         effective = options or ProjectionOptions()
-        return self._iter_view(view, effective, source_kind="direct")
+        return self._iter_view(
+            view,
+            effective,
+            source_kind="direct",
+            native_batch_edges=buffer_edges,
+        )
 
     def project_to_sink(
         self,
@@ -168,20 +178,25 @@ class Projector:
         if order not in ("canonical", "encounter"):
             raise InvalidProjectionOptionsError("order must be 'canonical' or 'encounter'")
         selection = select_backend(backend)
+        selection, _ = _activate_selection(selection)
         warn_if_auto_fallback(selection)
-        if selection.selected != "python":
-            raise NativeBackendUnavailableError(
-                "native taxonomy dispatch is unavailable before projector WP-P3"
-            )
         checked = validate_view(view)
         with self._metadata_lock:
             self._last_view = checked
-        return iter_asserted_taxonomy(
+        raw = iter_asserted_taxonomy(
             checked,
             bidirectional=bidirectional,
-            duplicates=duplicates,
-            order=order,
+            duplicates="preserve" if selection.selected == "native" else duplicates,
+            order="encounter" if selection.selected == "native" else order,
         )
+        if selection.selected == "native":
+            return iter_native_policy(
+                raw,
+                duplicates=duplicates,
+                order=order,
+                batch_edges=250_000,
+            )
+        return raw
 
     def _iter_view(
         self,
@@ -189,6 +204,7 @@ class Projector:
         options: ProjectionOptions,
         *,
         source_kind: SourceKind,
+        native_batch_edges: int = 250_000,
     ) -> Iterator[Edge]:
         def generate() -> Iterator[Edge]:
             acquired = False
@@ -201,11 +217,8 @@ class Projector:
                     )
             try:
                 selection = select_backend(options.backend)
+                selection, native_version = _activate_selection(selection)
                 warn_if_auto_fallback(selection)
-                if selection.selected != "python":
-                    raise NativeBackendUnavailableError(
-                        "native compiler dispatch is unavailable before projector WP-P3"
-                    )
                 role_state = (
                     self._scala_state
                     if options.compatibility_state == "scala-instance"
@@ -221,7 +234,12 @@ class Projector:
                     else:
                         invocation = 1
                 output_count = 0
-                for edge in iter_projected_edges(compilation):
+                compiled_edges = (
+                    iter_native_compilation(compilation, batch_edges=native_batch_edges)
+                    if selection.selected == "native"
+                    else iter_projected_edges(compilation)
+                )
+                for edge in compiled_edges:
                     output_count += 1
                     yield edge
                 report = self._report(
@@ -235,6 +253,8 @@ class Projector:
                     compilation.diagnostics,
                     selection.fallback_reason,
                     invocation,
+                    selection.selected,
+                    native_version,
                 )
                 with self._metadata_lock:
                     self._last_report = report
@@ -256,6 +276,8 @@ class Projector:
         diagnostics: tuple[Any, ...],
         fallback_reason: str | None,
         invocation: int,
+        selected_backend: str,
+        native_version: str | None,
     ) -> ProjectionReport:
         diagnostic_payload = [asdict(item) for item in diagnostics]
         diagnostic_bytes = json.dumps(
@@ -280,7 +302,11 @@ class Projector:
         history_item = json.dumps(
             {
                 "fingerprint": _fingerprint(view, "structural_fingerprint"),
-                "options": options.to_dict(),
+                # Backend identity is recorded separately and must not change
+                # the semantic call-history digest used for parity checks.
+                "options": {
+                    name: value for name, value in options.to_dict().items() if name != "backend"
+                },
                 "invocation": invocation,
             },
             sort_keys=True,
@@ -297,13 +323,14 @@ class Projector:
                 self._scala_call_history_digest = history_digest
         provenance = ProjectionProvenance(
             options=options,
-            selected_backend="python",
+            selected_backend=selected_backend,  # type: ignore[arg-type]
             source_kind=source_kind,
             core=_core_provenance(view),
             counts=counts,
             diagnostics_digest=diagnostics_digest,
             invocation_count=invocation,
             call_history_digest=history_digest,
+            native_implementation_version=native_version,
         )
         return ProjectionReport(provenance, diagnostics)
 
@@ -319,7 +346,14 @@ def project_source(
     projector = Projector()
     view, source_kind = _coerce_once(source, load_options=load_options, resolver=resolver)
     effective = options or ProjectionOptions()
-    return list(projector._iter_view(view, effective, source_kind=source_kind))
+    return list(
+        projector._iter_view(
+            view,
+            effective,
+            source_kind=source_kind,
+            native_batch_edges=250_000,
+        )
+    )
 
 
 def iter_source_edges(
@@ -335,7 +369,29 @@ def iter_source_edges(
     _positive_int("buffer_edges", buffer_edges)
     projector = Projector()
     view, source_kind = _coerce_once(source, load_options=load_options, resolver=resolver)
-    return projector._iter_view(view, options or ProjectionOptions(), source_kind=source_kind)
+    return projector._iter_view(
+        view,
+        options or ProjectionOptions(),
+        source_kind=source_kind,
+        native_batch_edges=buffer_edges,
+    )
+
+
+def _activate_selection(selection: BackendSelection) -> tuple[BackendSelection, str | None]:
+    """Load only at dispatch and preserve auto fallback if a wheel is broken."""
+    if selection.selected == "python":
+        return selection, None
+    try:
+        return selection, native_implementation_version()
+    except NativeBackendUnavailableError as error:
+        if selection.requested == "native":
+            raise
+        fallback = BackendSelection(
+            requested="auto",
+            selected="python",
+            fallback_reason=f"native load failed: {error}",
+        )
+        return fallback, None
 
 
 def project_taxonomy(

@@ -1,0 +1,29 @@
+[package]
+name = "pyowl2vec-star-projector-native"
+version = "0.1.0-beta.1"
+edition = "2021"
+rust-version = "1.83"
+license = "Apache-2.0"
+repository = "https://github.com/OAEI-ML/pyOwl2Vec-Star-projector"
+description = "Optional edge-policy accelerator for pyOwl2Vec-Star-projector"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[features]
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+pyo3 = { version = "=0.28.3", features = ["abi3-py310"] }
+
+[build-dependencies]
+pyo3-build-config = { version = "=0.28.3" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "unwind"
+strip = "symbols"

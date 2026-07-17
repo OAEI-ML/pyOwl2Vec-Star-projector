@@ -1,19 +1,24 @@
 [build-system]
-requires = ["setuptools>=67.6.1", "wheel>=0.40"]
+requires = ["setuptools>=77", "wheel>=0.40"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyowl2vec-star-projector"
-version = "0.1.0a2"
+version = "0.1.0b1"
 description = "Java-free OWL2Vec* projection over shared pyowl-core ontology views"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = [
+  "LICENSE",
+  "NOTICE",
+  "THIRD_PARTY_NOTICES.md",
+  "native/THIRD_PARTY_LICENSES.md",
+]
 authors = [{ name = "OAEI-ML contributors" }]
 keywords = ["OWL", "ontology", "OWL2Vec", "projection", "semantic-web"]
 classifiers = [
   "Development Status :: 3 - Alpha",
-  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -33,6 +38,7 @@ dev = [
   "tomli>=2; python_version < '3.11'",
   "twine>=5",
 ]
+native-build = ["setuptools-rust>=1.13,<2"]
 
 [project.urls]
 Documentation = "https://github.com/OAEI-ML/pyOwl2Vec-Star-projector#readme"
