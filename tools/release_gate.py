@@ -26,6 +26,60 @@ def _check(name: str, passed: bool, detail: str) -> dict[str, object]:
     return {"name": name, "passed": passed, "detail": detail}
 
 
+def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, str]:
+    try:
+        document = json.loads(
+            (root / "release/core-compatibility.json").read_text(encoding="utf-8")
+        )
+        commit = str(document["tested_source"]["commit"])
+        constraint = str(document["dependency_constraint"])
+        fixture = document["consumer_fixture"]
+        golden = json.loads(
+            (root / "src/pyowl2vec_star_projector/conformance_data/goldens.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        dependencies = metadata["project"]["dependencies"]
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        return False, f"invalid core compatibility evidence: {type(error).__name__}"
+    if document.get("schema") != "pyowl-projector.core-compatibility/1":
+        return False, "unsupported core compatibility evidence schema"
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        return False, "tested core source commit is not a full Git object ID"
+    if constraint not in dependencies:
+        return False, f"project metadata does not retain {constraint}"
+    expected_fields = (
+        "sha256",
+        "structural_fingerprint",
+        "logical_fingerprint",
+        "signature_fingerprint",
+    )
+    if any(fixture.get(name) != golden["fixture"].get(name) for name in expected_fields):
+        return False, "consumer fixture fingerprints differ from core compatibility evidence"
+    expected_edges = {case["case_id"]: case["canonical_edges_sha256"] for case in golden["cases"]}
+    if fixture.get("edge_digests") != expected_edges:
+        return False, "consumer edge digests differ from core compatibility evidence"
+    workflow_paths = (
+        root / ".github/workflows/ci.yml",
+        root / ".github/workflows/native.yml",
+        root / ".github/workflows/packaging.yml",
+    )
+    checkout = re.compile(
+        r"repository:\s*OAEI-ML/pyOWLCore\s*\n"
+        r"\s*ref:\s*([0-9a-f]{40})\s*\n"
+        r"\s*path:\s*\.deps/pyowl-core"
+    )
+    references: list[str] = []
+    occurrences = 0
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        occurrences += text.count("repository: OAEI-ML/pyOWLCore")
+        references.extend(checkout.findall(text))
+    if not references or len(references) != occurrences or set(references) != {commit}:
+        return False, "one or more pyOWLCore source-checkout lanes are unpinned or mismatched"
+    return True, f"{len(references)} source-checkout lane(s) pinned to {commit}"
+
+
 def local_checks(root: Path, artifact_directory: Path | None) -> list[dict[str, object]]:
     metadata = read_toml(root / "pyproject.toml")
     version = str(metadata["project"]["version"])
@@ -55,6 +109,7 @@ def local_checks(root: Path, artifact_directory: Path | None) -> list[dict[str, 
         "release/fallback-build-requirements.txt",
         "release/native-build-requirements.txt",
         "release/external-gates.json",
+        "release/core-compatibility.json",
         "release/license-inventory.json",
         "release/sbom/native-build.cdx.json",
         "release/sbom/runtime.cdx.json",
@@ -64,6 +119,8 @@ def local_checks(root: Path, artifact_directory: Path | None) -> list[dict[str, 
     checks.append(
         _check("release-documentation", not missing_docs, f"missing: {missing_docs or 'none'}")
     )
+    core_compatible, core_detail = _core_compatibility(root, metadata)
+    checks.append(_check("core-compatibility-pin", core_compatible, core_detail))
     runtime_errors = audit_runtime(root)
     checks.append(
         _check(

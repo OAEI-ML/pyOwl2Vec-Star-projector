@@ -32,7 +32,7 @@ tables, changelog, and migration/release instructions are implemented. Local sam
 for a simulated unsupported target.
 
 This work package does **not** claim the final acceptance paragraph yet. Authenticated package-name
-ownership, a disposable private-index proof, hosted platform runs, signed attestations, current
-advisory feeds, and unavailable release corpora are explicit blockers in
-`../../release/external-gates.json`. The candidate remains `0.1.0rc1` and no publication workflow
-or credential is present.
+ownership, a compatible ordinary-index `pyowl-core` release, a disposable private-index proof,
+hosted platform runs, signed attestations, current advisory feeds, and unavailable release corpora
+are explicit blockers in `../../release/external-gates.json`. The candidate remains `0.1.0rc1` and
+no publication workflow or credential is present.

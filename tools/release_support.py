@@ -44,12 +44,16 @@ def release_artifacts(directory: Path) -> list[Path]:
 
 def archive_members(path: Path) -> Iterator[tuple[str, bytes]]:
     """Yield safe normalized archive member names and bytes."""
+    seen: set[str] = set()
     if path.suffix == ".whl":
         with zipfile.ZipFile(path) as archive:
             for info in sorted(archive.infolist(), key=lambda item: item.filename):
                 if info.is_dir():
                     continue
                 name = _safe_member(info.filename)
+                if name in seen:
+                    raise ValueError(f"duplicate archive member: {name!r}")
+                seen.add(name)
                 yield name, archive.read(info)
         return
     if path.name.endswith(".tar.gz"):
@@ -58,6 +62,9 @@ def archive_members(path: Path) -> Iterator[tuple[str, bytes]]:
                 if not info.isfile():
                     continue
                 name = _safe_member(info.name)
+                if name in seen:
+                    raise ValueError(f"duplicate archive member: {name!r}")
+                seen.add(name)
                 stream = archive.extractfile(info)
                 if stream is None:  # pragma: no cover - guarded by isfile
                     raise ValueError(f"cannot read archive member {info.name!r}")

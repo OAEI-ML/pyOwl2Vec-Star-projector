@@ -3,6 +3,12 @@
   "candidate": "0.1.0rc1",
   "gates": [
     {
+      "id": "pyowl-core-release",
+      "status": "blocked",
+      "reason": "The approved compatibility source is still versioned 0.1.0.dev0 and no controlled pyowl-core 0.1 release artifact is available to an ordinary package-index install.",
+      "required_evidence": "Publish an audited pyowl-core>=0.1,<0.2 artifact containing the approved compatibility commit, then repeat clean online and offline dependency resolution against that exact release."
+    },
+    {
       "id": "distribution-name-ownership",
       "status": "blocked",
       "reason": "An authenticated PyPI/TestPyPI organization owner must prove control of the normalized name pyowl2vec-star-projector immediately before publication.",

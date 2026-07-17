@@ -16,9 +16,16 @@ from packaging or performance changes because profile output is a data contract.
   with zero-copy mapped-snapshot support through `OntologyIdentityIndex`.
 - Release audits for Java-facing optional dependencies and JVM/JNI markers embedded in native
   extension payloads.
+- Release compatibility evidence that pins every pyOWLCore source-checkout lane while retaining a
+  normal index-resolvable runtime dependency, plus complete/path-safe hash-manifest and
+  duplicate-archive-member validation.
 
 ### Fixed
 
+- Source-checkout test, native-wheel, and offline-packaging lanes now pin their approved
+  pyOWLCore compatibility commit instead of following a mutable default branch. Consumer
+  fixture evidence reflects core's reviewed acquisition-provenance-independent structural
+  fingerprint without changing logical/signature fingerprints or projector edges.
 - Portable artifacts no longer vary with automatic-backend fallback state or direct/provider/
   verified-wire execution provenance when their semantic inputs are identical.
 - Malformed option/capability and native ABI metadata failures now retain stable projector error
@@ -62,9 +69,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Release blockers
 
-- Final `0.1.0` publication remains blocked by authenticated distribution-name ownership,
-  private-index artifact selection, the hosted platform matrix, signed provenance, current
-  vulnerability feeds, and unavailable release corpora. See `release/external-gates.json`.
+- Final `0.1.0` publication remains blocked by a compatible ordinary-index pyOWLCore release,
+  authenticated distribution-name ownership, private-index artifact selection, the hosted
+  platform matrix, signed provenance, current vulnerability feeds, and unavailable release
+  corpora. See `release/external-gates.json`.
 
 ## 0.1.0b1 — 2026-07-17
 

@@ -1,0 +1,35 @@
+{
+  "schema": "pyowl-projector.core-compatibility/1",
+  "dependency_constraint": "pyowl-core>=0.1,<0.2",
+  "tested_source": {
+    "repository": "https://github.com/OAEI-ML/pyOWLCore",
+    "commit": "b1b34ee409125eb9d5a57477490f0985195b68b4",
+    "version": "0.1.0.dev0"
+  },
+  "previous_source": {
+    "commit": "de9b8f9717cd31050bc0123cc2ba62ff0e63aa3d",
+    "structural_fingerprint": "c892d33f03273022cae0018e13a7afebb32d95005eb332a4b645a8c1859166fd"
+  },
+  "correction": {
+    "commit": "884b6a96024d701d3669936f9c2ac169d7adff39",
+    "classification": "canonical-identity-correction",
+    "summary": "Acquisition bytes and parser provenance are excluded from canonical ontology identity."
+  },
+  "validation_fix": {
+    "commit": "b1b34ee409125eb9d5a57477490f0985195b68b4",
+    "classification": "behavior-preserving-type-correction",
+    "summary": "Strict mypy compatibility was restored without changing the ontology model or public fingerprints."
+  },
+  "consumer_fixture": {
+    "sha256": "84e1b6cf5088cbb7ea4276f26b5b461a4cfe74aed257abbab20ba78c1136ef0d",
+    "structural_fingerprint": "443361ca770168b6676a729820f98da38bfdebc8b073ecac90cba07f882130e8",
+    "logical_fingerprint": "dfda0e29d2072f91dd1c36e0f0916938a0f01a38921b11d29abf4b88acd7f2f6",
+    "signature_fingerprint": "e7635e71e34d667cdd2a5965a33028f8b54dbead943eaed5ec7d1dfcbe1ea16a",
+    "edge_digests": {
+      "exact-owl2vec": "80866e23827159cd5312cb0e267c5e012371476561db0f394a3d97a11055f602",
+      "exact-owl2vec-literals": "ed09a9e55221a6ef533c2f61a05628741946b6fdf61a0c1b45ed051d7660ed76",
+      "exact-taxonomy": "8a1e0c6b8aead777c4992648f9f075d3e9269ae2c7fbfea739770050566bddd5"
+    }
+  },
+  "semantic_change": false
+}

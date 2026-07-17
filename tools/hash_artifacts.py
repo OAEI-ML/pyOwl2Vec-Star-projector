@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import re
 import sys
 from pathlib import Path
 
@@ -12,6 +13,8 @@ if __package__:
     from .release_support import release_artifacts, sha256_file
 else:
     from release_support import release_artifacts, sha256_file
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def create_manifest(directory: Path) -> str:
@@ -23,19 +26,32 @@ def create_manifest(directory: Path) -> str:
 
 def verify_manifest(directory: Path, manifest: Path) -> list[str]:
     errors: list[str] = []
+    artifacts = {path.name: path for path in release_artifacts(directory)}
+    seen: set[str] = set()
     for number, line in enumerate(manifest.read_text(encoding="utf-8").splitlines(), 1):
         try:
             expected, name = line.split("  ", 1)
         except ValueError:
             errors.append(f"line {number}: malformed hash record")
             continue
-        path = directory / name
-        if not path.is_file():
-            errors.append(f"line {number}: missing {name}")
+        if _SHA256.fullmatch(expected) is None:
+            errors.append(f"line {number}: invalid SHA-256 digest")
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            errors.append(f"line {number}: unsafe artifact name {name!r}")
+            continue
+        if name in seen:
+            errors.append(f"line {number}: duplicate artifact record for {name}")
+            continue
+        seen.add(name)
+        path = artifacts.get(name)
+        if path is None:
+            errors.append(f"line {number}: unexpected release artifact {name}")
             continue
         actual = sha256_file(path)
-        if not hmac.compare_digest(expected, actual):
+        if _SHA256.fullmatch(expected) is not None and not hmac.compare_digest(expected, actual):
             errors.append(f"line {number}: hash mismatch for {name}")
+    for name in sorted(artifacts.keys() - seen):
+        errors.append(f"manifest missing release artifact {name}")
     return errors
 
 

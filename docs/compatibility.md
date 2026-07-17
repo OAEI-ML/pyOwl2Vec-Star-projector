@@ -16,6 +16,13 @@ external gates are distinguished in `reports/p5/packaging-release.md`.
 | Consumer conformance | `pyowl-projector.consumer-conformance/1` | Packaged CC0 fixture/goldens; incompatible fixture or assertion changes require a new schema major. |
 | Core model | `pyowl-core>=0.1,<0.2` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
 
+Source-checkout CI is pinned to pyOWLCore
+`b1b34ee409125eb9d5a57477490f0985195b68b4`. This is reproducibility evidence for the candidate,
+not a Git dependency: installed metadata intentionally retains `pyowl-core>=0.1,<0.2`. The
+reviewed structural-fingerprint transition from the pre-correction core is recorded in
+`release/core-compatibility.json`; logical/signature fingerprints and projector edge bytes did
+not change.
+
 `0.1.0b1` and `0.1.0rc1` use identical values in every row. Portable edge artifacts remain
 byte-compatible when the core fingerprints and normalized semantic options are the same.
 

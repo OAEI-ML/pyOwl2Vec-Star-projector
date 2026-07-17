@@ -4,12 +4,14 @@ import hashlib
 import io
 import json
 import tarfile
+import warnings
+import zipfile
 from pathlib import Path
 
 import pytest
 
 import _build_backend
-from tools.audit_release import _audit_metadata, _audit_native_payloads
+from tools.audit_release import _audit_metadata, _audit_native_payloads, audit_artifact
 from tools.generate_supply_chain import generate
 from tools.hash_artifacts import create_manifest, verify_manifest
 from tools.release_gate import local_checks
@@ -43,6 +45,7 @@ def test_external_release_gates_are_never_silently_presented_as_passed() -> None
     document = json.loads((ROOT / "release/external-gates.json").read_text(encoding="utf-8"))
     gates = document["gates"]
     assert {gate["id"] for gate in gates} >= {
+        "pyowl-core-release",
         "distribution-name-ownership",
         "hosted-platform-matrix",
         "private-index-selection",
@@ -63,6 +66,41 @@ def test_hash_manifest_detects_tampering(tmp_path: Path) -> None:
     artifact.write_bytes(b"second")
     assert verify_manifest(tmp_path, manifest) == [
         "line 1: hash mismatch for example-1-py3-none-any.whl"
+    ]
+
+
+def test_hash_manifest_is_complete_unique_and_path_safe(tmp_path: Path) -> None:
+    first = tmp_path / "first-1-py3-none-any.whl"
+    second = tmp_path / "second-1.tar.gz"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    digest = hashlib.sha256(first.read_bytes()).hexdigest()
+    manifest = tmp_path / "SHA256SUMS"
+    manifest.write_text(
+        f"{digest}  first-1-py3-none-any.whl\n"
+        f"{digest}  first-1-py3-none-any.whl\n"
+        f"{'0' * 64}  ../outside.whl\n",
+        encoding="utf-8",
+    )
+    assert verify_manifest(tmp_path, manifest) == [
+        "line 2: duplicate artifact record for first-1-py3-none-any.whl",
+        "line 3: unsafe artifact name '../outside.whl'",
+        "manifest missing release artifact second-1.tar.gz",
+    ]
+
+
+def test_release_audit_rejects_duplicate_normalized_archive_members(tmp_path: Path) -> None:
+    artifact = tmp_path / "example-0.1-py3-none-any.whl"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with zipfile.ZipFile(artifact, "w") as archive:
+            archive.writestr("example/module.py", "first")
+            archive.writestr("example/module.py", "second")
+    report = audit_artifact(artifact, expected_version="0.1")
+    assert report["passed"] is False
+    assert report["kind"] == "invalid-wheel"
+    assert report["errors"] == [
+        "archive could not be read safely: duplicate archive member: 'example/module.py'"
     ]
 
 
@@ -91,6 +129,29 @@ def test_sdist_header_normalization_is_byte_reproducible(tmp_path: Path) -> None
 def test_static_local_release_checks_pass() -> None:
     failures = [check for check in local_checks(ROOT, None) if not check["passed"]]
     assert failures == []
+
+
+def test_core_compatibility_transition_preserves_semantic_digests() -> None:
+    compatibility = json.loads(
+        (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
+    )
+    fixture = compatibility["consumer_fixture"]
+    assert compatibility["tested_source"]["commit"] == ("b1b34ee409125eb9d5a57477490f0985195b68b4")
+    assert (
+        compatibility["previous_source"]["structural_fingerprint"]
+        != (fixture["structural_fingerprint"])
+    )
+    assert compatibility["semantic_change"] is False
+    goldens = json.loads(
+        (ROOT / "src/pyowl2vec_star_projector/conformance_data/goldens.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert fixture["logical_fingerprint"] == goldens["fixture"]["logical_fingerprint"]
+    assert fixture["signature_fingerprint"] == goldens["fixture"]["signature_fingerprint"]
+    assert fixture["edge_digests"] == {
+        case["case_id"]: case["canonical_edges_sha256"] for case in goldens["cases"]
+    }
 
 
 def test_native_release_audit_rejects_jvm_symbols() -> None:

@@ -10,6 +10,10 @@ gate in `release/external-gates.json` to be replaced by reviewable passing evide
 - Install the exact compiler-free artifact environment from
   `release/fallback-build-requirements.txt`.
 - Confirm `pyowl-core>=0.1,<0.2` is published and its selected release has passed its own gates.
+- Confirm the selected core release contains the source baseline in
+  `release/core-compatibility.json`. Source-checkout CI must use that exact commit; the package
+  metadata remains a normal `>=0.1,<0.2` dependency and must never become a Git runtime
+  dependency.
 - Run `python tools/generate_supply_chain.py --check` and review both CycloneDX SBOMs and the
   machine-readable license inventory.
 - Run the full Python 3.10–3.13, Rust, golden, scale, and corpus jobs. Ordinary jobs remain

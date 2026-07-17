@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import tarfile
+import zipfile
 from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path
@@ -57,7 +59,19 @@ _FORBIDDEN_NATIVE_MARKERS = (
 
 def audit_artifact(path: Path, *, expected_version: str) -> dict[str, object]:
     errors: list[str] = []
-    members = dict(archive_members(path))
+    try:
+        members = dict(archive_members(path))
+    except (OSError, ValueError, tarfile.TarError, zipfile.BadZipFile) as error:
+        kind = "invalid-wheel" if path.suffix == ".whl" else "invalid-sdist"
+        return {
+            "artifact": path.name,
+            "kind": kind,
+            "sha256": sha256_file(path),
+            "bytes": path.stat().st_size,
+            "members": 0,
+            "errors": [f"archive could not be read safely: {error}"],
+            "passed": False,
+        }
     lowered = {name.lower(): content for name, content in members.items()}
     names = tuple(lowered)
     for name in names:

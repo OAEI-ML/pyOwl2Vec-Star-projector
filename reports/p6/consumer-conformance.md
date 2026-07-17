@@ -21,7 +21,18 @@ The packaged `consumer.ofn` is SHA-256
 `84e1b6cf5088cbb7ea4276f26b5b461a4cfe74aed257abbab20ba78c1136ef0d` and is dedicated
 under CC0-1.0. Loaded from its documented bytes/IRI it has 13 axioms, eight signature entities,
 and structural fingerprint
-`c892d33f03273022cae0018e13a7afebb32d95005eb332a4b645a8c1859166fd`.
+`443361ca770168b6676a729820f98da38bfdebc8b073ecac90cba07f882130e8`.
+
+The original P6 capture used pyOWLCore
+`de9b8f9717cd31050bc0123cc2ba62ff0e63aa3d` and recorded structural fingerprint
+`c892d33f03273022cae0018e13a7afebb32d95005eb332a4b645a8c1859166fd`. The P5 release baseline
+uses `b1b34ee409125eb9d5a57477490f0985195b68b4`, which contains the reviewed canonical-identity
+correction `884b6a96024d701d3669936f9c2ac169d7adff39`: acquisition bytes and parser provenance no
+longer contribute to canonical ontology identity. It also contains a behavior-preserving strict
+mypy correction. Only the structural fingerprint changed from the original P6 capture. The
+logical fingerprint, signature fingerprint, ordered edge lists, multiplicities, and all three
+edge digests remain identical. `release/core-compatibility.json` records the transition and the
+source commit used by CI.
 
 | Case | Edges | Canonical edge-record SHA-256 |
 |---|---:|---|
@@ -59,11 +70,12 @@ optional dependencies. It rejects projector dependencies/imports of Exact, OAEI,
 pyHermiT, and rejects OAEI dependencies/imports of Exact or the projector. CI checks the current
 OAEI repository; the release gate checks the projector boundary independently.
 
-The load-excluded handoff benchmark ran 25 samples after three warm-ups. Provider projection
-added 0–7.1% at these sub-2.3 ms fixture scales, called the provider exactly once per projection,
-never accessed a source, and produced the same digest for Python 3.10, Python 3.12, and the native
-backend. Full summary values are in `evidence/consumer-handoff.json`; raw samples are emitted by
-`benchmarks/benchmark_consumer_handoff.py` for reproducible host-specific collection.
+The refreshed load-excluded handoff benchmark ran 25 samples after three warm-ups. Provider
+projection added 4.4–12.4% at these sub-2.4 ms fixture scales, called the provider exactly once
+per projection, never accessed a source, and produced the same digest for Python 3.10, Python
+3.12, and the native backend. Full summary values are in `evidence/consumer-handoff.json`; raw
+samples are emitted by `benchmarks/benchmark_consumer_handoff.py` for reproducible host-specific
+collection.
 
 ## Verification commands
 
