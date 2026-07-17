@@ -1,0 +1,467 @@
+"""Public view-first and standalone projection APIs."""
+
+from __future__ import annotations
+
+import hashlib
+import importlib
+import json
+import threading
+from collections.abc import Callable, Iterator
+from dataclasses import asdict
+from os import PathLike
+from typing import Any
+
+from .backend import select_backend, warn_if_auto_fallback
+from .compiler import (
+    RoleState,
+    iter_asserted_taxonomy,
+    iter_projected_edges,
+    prepare_compilation,
+    validate_view,
+)
+from .errors import (
+    InvalidProjectionOptionsError,
+    NativeBackendUnavailableError,
+    SnapshotCompatibilityError,
+)
+from .model import Edge
+from .options import Backend, DuplicatePolicy, EdgeOrder, ProjectionOptions
+from .provenance import (
+    CoreProvenance,
+    ProjectionCounts,
+    ProjectionProvenance,
+    ProjectionReport,
+    ProjectionResult,
+    SourceKind,
+)
+
+EdgeBatchSink = Callable[[tuple[Edge, ...]], object]
+
+
+class Projector:
+    """Compile shared core views without reparsing or ontology materialization."""
+
+    def __init__(self) -> None:
+        self._scala_state = RoleState.empty()
+        self._scala_lock = threading.Lock()
+        self._metadata_lock = threading.Lock()
+        self._last_view: object | None = None
+        self._last_report: ProjectionReport | None = None
+        self._scala_invocation_count = 0
+        self._scala_call_history_digest = ""
+
+    @property
+    def last_view(self) -> object | None:
+        """Identity-preserving diagnostic hook for integration tests."""
+        with self._metadata_lock:
+            return self._last_view
+
+    @property
+    def last_report(self) -> ProjectionReport | None:
+        with self._metadata_lock:
+            return self._last_report
+
+    def project(
+        self,
+        view: object,
+        *,
+        options: ProjectionOptions | None = None,
+    ) -> list[Edge]:
+        """Materialize a projection of an existing ``OntologyView``."""
+        return list(self.iter_edges(view, options=options))
+
+    def project_with_report(
+        self,
+        view: object,
+        *,
+        options: ProjectionOptions | None = None,
+    ) -> ProjectionResult:
+        edges = self.project(view, options=options)
+        report = self.last_report
+        if report is None:  # pragma: no cover - guarded by complete consumption
+            raise RuntimeError("projection completed without a report")
+        return ProjectionResult(tuple(edges), report)
+
+    def iter_edges(
+        self,
+        view: object,
+        *,
+        options: ProjectionOptions | None = None,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+    ) -> Iterator[Edge]:
+        """Return a deterministic iterator.
+
+        Encounter/preserve mode streams immediately after the lightweight plan
+        scan. Canonical ordering is deterministic in memory in P2; bounded
+        external runs are the isolated P4 implementation step.
+        """
+        del temp_directory
+        _positive_int("buffer_edges", buffer_edges)
+        effective = options or ProjectionOptions()
+        return self._iter_view(view, effective, source_kind="direct")
+
+    def project_to_sink(
+        self,
+        view: object,
+        sink: EdgeBatchSink,
+        *,
+        options: ProjectionOptions | None = None,
+        batch_size: int = 65_536,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+    ) -> ProjectionReport:
+        """Push bounded immutable batches and return the completed report."""
+        if not callable(sink):
+            raise TypeError("sink must be callable")
+        _positive_int("batch_size", batch_size)
+        batch: list[Edge] = []
+        for edge in self.iter_edges(
+            view,
+            options=options,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+        ):
+            batch.append(edge)
+            if len(batch) == batch_size:
+                sink(tuple(batch))
+                batch.clear()
+        if batch:
+            sink(tuple(batch))
+        report = self.last_report
+        if report is None:  # pragma: no cover - guarded by complete consumption
+            raise RuntimeError("projection completed without a report")
+        return report
+
+    def project_taxonomy(
+        self,
+        view: object,
+        *,
+        bidirectional: bool = False,
+        duplicates: DuplicatePolicy = "preserve",
+        order: EdgeOrder = "canonical",
+        backend: Backend = "auto",
+    ) -> list[Edge]:
+        return list(
+            self.iter_taxonomy_edges(
+                view,
+                bidirectional=bidirectional,
+                duplicates=duplicates,
+                order=order,
+                backend=backend,
+            )
+        )
+
+    def iter_taxonomy_edges(
+        self,
+        view: object,
+        *,
+        bidirectional: bool = False,
+        duplicates: DuplicatePolicy = "preserve",
+        order: EdgeOrder = "canonical",
+        backend: Backend = "auto",
+    ) -> Iterator[Edge]:
+        if type(bidirectional) is not bool:
+            raise InvalidProjectionOptionsError("bidirectional must be bool")
+        if duplicates not in ("preserve", "unique"):
+            raise InvalidProjectionOptionsError("duplicates must be 'preserve' or 'unique'")
+        if order not in ("canonical", "encounter"):
+            raise InvalidProjectionOptionsError("order must be 'canonical' or 'encounter'")
+        selection = select_backend(backend)
+        warn_if_auto_fallback(selection)
+        if selection.selected != "python":
+            raise NativeBackendUnavailableError(
+                "native taxonomy dispatch is unavailable before projector WP-P3"
+            )
+        checked = validate_view(view)
+        with self._metadata_lock:
+            self._last_view = checked
+        return iter_asserted_taxonomy(
+            checked,
+            bidirectional=bidirectional,
+            duplicates=duplicates,
+            order=order,
+        )
+
+    def _iter_view(
+        self,
+        view: object,
+        options: ProjectionOptions,
+        *,
+        source_kind: SourceKind,
+    ) -> Iterator[Edge]:
+        def generate() -> Iterator[Edge]:
+            acquired = False
+            if options.compatibility_state == "scala-instance":
+                acquired = self._scala_lock.acquire(blocking=False)
+                if not acquired:
+                    raise InvalidProjectionOptionsError(
+                        "compatibility_state='scala-instance' is non-concurrent",
+                        details={"compatibility_state": "scala-instance"},
+                    )
+            try:
+                selection = select_backend(options.backend)
+                warn_if_auto_fallback(selection)
+                if selection.selected != "python":
+                    raise NativeBackendUnavailableError(
+                        "native compiler dispatch is unavailable before projector WP-P3"
+                    )
+                role_state = (
+                    self._scala_state
+                    if options.compatibility_state == "scala-instance"
+                    else RoleState.empty()
+                )
+                compilation = prepare_compilation(view, options, role_state)
+                with self._metadata_lock:
+                    self._last_view = compilation.view
+                    self._last_report = None
+                    if options.compatibility_state == "scala-instance":
+                        self._scala_invocation_count += 1
+                        invocation = self._scala_invocation_count
+                    else:
+                        invocation = 1
+                output_count = 0
+                for edge in iter_projected_edges(compilation):
+                    output_count += 1
+                    yield edge
+                report = self._report(
+                    compilation.view,
+                    options,
+                    source_kind,
+                    output_count,
+                    compilation.statistics.duplicate_edges,
+                    compilation.statistics.skipped_axioms,
+                    compilation.statistics.ignored_shapes,
+                    compilation.diagnostics,
+                    selection.fallback_reason,
+                    invocation,
+                )
+                with self._metadata_lock:
+                    self._last_report = report
+            finally:
+                if acquired:
+                    self._scala_lock.release()
+
+        return generate()
+
+    def _report(
+        self,
+        view: object,
+        options: ProjectionOptions,
+        source_kind: SourceKind,
+        edge_count: int,
+        duplicate_count: int,
+        skipped_axioms: int,
+        ignored_shapes: int,
+        diagnostics: tuple[Any, ...],
+        fallback_reason: str | None,
+        invocation: int,
+    ) -> ProjectionReport:
+        diagnostic_payload = [asdict(item) for item in diagnostics]
+        diagnostic_bytes = json.dumps(
+            diagnostic_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        diagnostics_digest = hashlib.sha256(diagnostic_bytes).hexdigest()
+        warning_count = sum(
+            item.count for item in diagnostics if getattr(item, "severity", None) == "warning"
+        )
+        if fallback_reason is not None:
+            warning_count += 1
+        counts = ProjectionCounts(
+            edges=edge_count,
+            duplicates=duplicate_count,
+            skipped_axioms=skipped_axioms,
+            ignored_shapes=ignored_shapes,
+            warnings=warning_count,
+        )
+        history_item = json.dumps(
+            {
+                "fingerprint": _fingerprint(view, "structural_fingerprint"),
+                "options": options.to_dict(),
+                "invocation": invocation,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        with self._metadata_lock:
+            prior = (
+                self._scala_call_history_digest.encode("ascii")
+                if options.compatibility_state == "scala-instance"
+                else b""
+            )
+            history_digest = hashlib.sha256(prior + b"\0" + history_item).hexdigest()
+            if options.compatibility_state == "scala-instance":
+                self._scala_call_history_digest = history_digest
+        provenance = ProjectionProvenance(
+            options=options,
+            selected_backend="python",
+            source_kind=source_kind,
+            core=_core_provenance(view),
+            counts=counts,
+            diagnostics_digest=diagnostics_digest,
+            invocation_count=invocation,
+            call_history_digest=history_digest,
+        )
+        return ProjectionReport(provenance, diagnostics)
+
+
+def project_source(
+    source: object,
+    *,
+    options: ProjectionOptions | None = None,
+    load_options: object | None = None,
+    resolver: object | None = None,
+) -> list[Edge]:
+    """Coerce any core ``OntologyInput`` exactly once, then project by identity."""
+    projector = Projector()
+    view, source_kind = _coerce_once(source, load_options=load_options, resolver=resolver)
+    effective = options or ProjectionOptions()
+    return list(projector._iter_view(view, effective, source_kind=source_kind))
+
+
+def iter_source_edges(
+    source: object,
+    *,
+    options: ProjectionOptions | None = None,
+    load_options: object | None = None,
+    resolver: object | None = None,
+    buffer_edges: int = 250_000,
+    temp_directory: PathLike[str] | None = None,
+) -> Iterator[Edge]:
+    del temp_directory
+    _positive_int("buffer_edges", buffer_edges)
+    projector = Projector()
+    view, source_kind = _coerce_once(source, load_options=load_options, resolver=resolver)
+    return projector._iter_view(view, options or ProjectionOptions(), source_kind=source_kind)
+
+
+def project_taxonomy(
+    source: object,
+    *,
+    bidirectional: bool = False,
+    duplicates: DuplicatePolicy = "preserve",
+    order: EdgeOrder = "canonical",
+    backend: Backend = "auto",
+    load_options: object | None = None,
+    resolver: object | None = None,
+) -> list[Edge]:
+    view, _ = _coerce_once(source, load_options=load_options, resolver=resolver)
+    return Projector().project_taxonomy(
+        view,
+        bidirectional=bidirectional,
+        duplicates=duplicates,
+        order=order,
+        backend=backend,
+    )
+
+
+def iter_taxonomy_edges(
+    source: object,
+    *,
+    bidirectional: bool = False,
+    duplicates: DuplicatePolicy = "preserve",
+    order: EdgeOrder = "canonical",
+    backend: Backend = "auto",
+    load_options: object | None = None,
+    resolver: object | None = None,
+) -> Iterator[Edge]:
+    view, _ = _coerce_once(source, load_options=load_options, resolver=resolver)
+    return Projector().iter_taxonomy_edges(
+        view,
+        bidirectional=bidirectional,
+        duplicates=duplicates,
+        order=order,
+        backend=backend,
+    )
+
+
+def _coerce_once(
+    source: object,
+    *,
+    load_options: object | None,
+    resolver: object | None,
+) -> tuple[object, SourceKind]:
+    try:
+        core = importlib.import_module("pyowl_core")
+    except ImportError as error:  # pragma: no cover - declared dependency
+        raise SnapshotCompatibilityError("pyowl-core is not installed") from error
+    coerce = getattr(core, "coerce_snapshot", None)
+    if not callable(coerce):
+        raise SnapshotCompatibilityError(
+            "installed pyowl-core does not yet expose coerce_snapshot; "
+            "use Projector.project(existing_view) until core WP03 is active"
+        )
+    source_kind: SourceKind = (
+        "provider" if callable(getattr(source, "owl_snapshot", None)) else "direct"
+    )
+    if getattr(source, "wire_verified", False) is True:
+        source_kind = "wire"
+    view = coerce(source, options=load_options, resolver=resolver)
+    return validate_view(view), source_kind
+
+
+def _positive_int(name: str, value: object) -> None:
+    if type(value) is not int or value < 1:
+        raise InvalidProjectionOptionsError(f"{name} must be a positive int")
+
+
+def _fingerprint(view: object, name: str) -> str:
+    value = getattr(view, name, "")
+    if isinstance(value, bytes):
+        return value.hex()
+    if isinstance(value, str):
+        return value
+    hex_value = getattr(value, "hex", None)
+    if isinstance(hex_value, str):
+        return hex_value
+    if callable(hex_value):
+        result = hex_value()
+        if isinstance(result, str):
+            return result
+    return str(value) if value is not None else ""
+
+
+def _manifest_digest(view: object) -> str:
+    manifest = getattr(view, "import_manifest", None)
+    for name in ("digest", "fingerprint", "manifest_digest"):
+        value = getattr(manifest, name, None)
+        if value is not None:
+            if isinstance(value, bytes):
+                return value.hex()
+            fingerprint = getattr(value, "hex", None)
+            if isinstance(fingerprint, str):
+                return fingerprint
+            return str(value)
+    report = getattr(view, "report", None)
+    value = getattr(report, "import_manifest_digest", "")
+    return str(value) if value is not None else ""
+
+
+def _core_provenance(view: object) -> CoreProvenance:
+    core = importlib.import_module("pyowl_core")
+    capabilities = view.capabilities  # type: ignore[attr-defined]
+    wire = getattr(capabilities, "wire_format", getattr(core, "WIRE_FORMAT_VERSION", (1, 0)))
+    return CoreProvenance(
+        package_version=str(getattr(core, "__version__", "unknown")),
+        api_version=tuple(getattr(core, "API_VERSION", (0, 0))),
+        model_schema_version=int(capabilities.model_schema),
+        wire_format_version=tuple(wire),
+        adapter_protocol_version=int(capabilities.adapter_protocol),
+        structural_fingerprint=_fingerprint(view, "structural_fingerprint"),
+        logical_fingerprint=_fingerprint(view, "logical_fingerprint"),
+        signature_fingerprint=_fingerprint(view, "signature_fingerprint"),
+        import_manifest_digest=_manifest_digest(view),
+    )
+
+
+__all__ = [
+    "EdgeBatchSink",
+    "Projector",
+    "iter_source_edges",
+    "iter_taxonomy_edges",
+    "project_source",
+    "project_taxonomy",
+]

@@ -1,6 +1,6 @@
 """Package and compatibility version constants."""
 
-__version__ = "0.1.0a1"
+__version__ = "0.1.0a2"
 
 PROJECTOR_API_VERSION = 1
 EDGE_ARTIFACT_SCHEMA = "pyowl-projector.edge-list/1"

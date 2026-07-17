@@ -1,9 +1,4 @@
-"""Java-free OWL2Vec* projection contracts.
-
-WP-P0 freezes public values and configuration only. Projection algorithms are
-implemented by later work packages; this module deliberately exposes no fake
-``project`` function.
-"""
+"""Java-free OWL2Vec* projection over shared pyowl-core ontology views."""
 
 from ._version import (
     COMPILER_CACHE_SCHEMA,
@@ -12,12 +7,21 @@ from ._version import (
     REFERENCE_PROFILE,
     __version__,
 )
+from .api import (
+    EdgeBatchSink,
+    Projector,
+    iter_source_edges,
+    iter_taxonomy_edges,
+    project_source,
+    project_taxonomy,
+)
 from .backend import (
     BackendSelection,
     NativeBackendStatus,
     probe_native_backend,
     select_backend,
 )
+from .diagnostics import DiagnosticSeverity, ProjectionDiagnostic
 from .errors import (
     InvalidProjectionOptionsError,
     NativeBackendFallbackWarning,
@@ -31,7 +35,13 @@ from .errors import (
 )
 from .model import Edge
 from .options import ProjectionOptions
-from .provenance import CoreProvenance, ProjectionCounts, ProjectionProvenance
+from .provenance import (
+    CoreProvenance,
+    ProjectionCounts,
+    ProjectionProvenance,
+    ProjectionReport,
+    ProjectionResult,
+)
 
 __all__ = [
     "COMPILER_CACHE_SCHEMA",
@@ -40,21 +50,31 @@ __all__ = [
     "REFERENCE_PROFILE",
     "BackendSelection",
     "CoreProvenance",
+    "DiagnosticSeverity",
     "Edge",
+    "EdgeBatchSink",
     "InvalidProjectionOptionsError",
     "NativeBackendFallbackWarning",
     "NativeBackendStatus",
     "NativeBackendUnavailableError",
     "ProjectionCounts",
+    "ProjectionDiagnostic",
     "ProjectionError",
     "ProjectionOptions",
     "ProjectionProvenance",
+    "ProjectionReport",
     "ProjectionResourceError",
+    "ProjectionResult",
     "ProjectionWarning",
+    "Projector",
     "SnapshotCompatibilityError",
     "UnsupportedAxiomShapeError",
     "UnsupportedProfileError",
     "__version__",
+    "iter_source_edges",
+    "iter_taxonomy_edges",
     "probe_native_backend",
+    "project_source",
+    "project_taxonomy",
     "select_backend",
 ]

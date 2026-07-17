@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyowl2vec-star-projector"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Java-free OWL2Vec* projection over shared pyowl-core ontology views"
 readme = "README.md"
 requires-python = ">=3.10"

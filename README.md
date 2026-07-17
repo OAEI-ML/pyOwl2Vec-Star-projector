@@ -1,10 +1,10 @@
 # pyOwl2Vec-Star-projector
 
-`pyOwl2Vec-Star-projector` is a Java-free OWL2Vec* projection package under implementation for
-Python 3.10 and newer. WP-P0 provides the installable typed foundation, immutable values, strict
-options, provenance, backend-selection seam, and audits. WP-P1 provides the committed, pinned
-Scala parity corpus; it remains quarantined maintainer infrastructure. The package does not yet
-contain a projection engine—WP-P2 owns the complete Python compiler.
+`pyOwl2Vec-Star-projector` is a Java-free OWL2Vec* projection package for Python 3.10 and newer.
+Its complete pure-Python compiler implements the pinned mOWL compatibility profile, including
+historical bag multiplicity, role-map defects, lifecycle replay, annotation rendering, and
+deterministic output. The Scala oracle is quarantined maintainer infrastructure and is never an
+install, runtime, test, or release dependency.
 
 The package will consume the same `pyowl_core.OntologyView` used by parsers, reasoners, and
 callers—normally a concrete `OntologySnapshot`, and optionally a persistent `OntologyOverlay` or
@@ -19,10 +19,13 @@ at commit `d9935369144f9a618ece38b7b2a8f4293afe8c26`. Java is permitted only in 
 development oracle that generates checked-in goldens. It is never an install, runtime, test, or
 release dependency.
 
-Two equivalent implementations are planned:
+The Python backend is complete. A future work package may add an equivalent optimized Rust/PyO3
+backend:
 
-- an optimized Rust/PyO3 backend selected by default when a compatible wheel is present; and
-- a complete pure-Python backend installed from every wheel and sdist.
+- `backend="python"` selects the complete, compiler-free fallback explicitly and quietly;
+- `backend="auto"` prefers a compatible native wheel and otherwise warns once before using
+  Python; and
+- `backend="native"` fails clearly while no native extension is installed.
 
 If automatic selection cannot load the native extension, the package uses Python and emits one
 actionable warning per process. Explicitly selecting Python is quiet; explicitly selecting native
@@ -36,6 +39,39 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 Planned initial release: `0.1.0`.
 
-The `0.1.0a1` foundation API and Scala oracle/golden corpus are implemented. Edge-producing APIs
-remain unavailable until their work packages and compatibility gates are complete; the package
-does not return placeholder edges. Normal tests, installs, wheels, and sdists remain Java-free.
+`0.1.0a2` implements WP-P2. All 184 pinned Scala invocations match in canonical edge bytes,
+including the expected typed inverse-property assertion failure and the loader-owned missing-
+import outcome. Normal tests, installs, wheels, and sdists remain Java-free. Bounded external
+canonical sorting and a native backend remain isolated future work packages; encounter-order
+iteration already streams edge production after the identity-preserving plan scan.
+
+## Usage
+
+Project an existing shared view without parsing or copying it:
+
+```python
+from pyowl2vec_star_projector import ProjectionOptions, Projector
+
+projector = Projector()
+edges = projector.project(
+    ontology_view,
+    options=ProjectionOptions(backend="python", include_literals=True),
+)
+assert projector.last_view is ontology_view
+```
+
+For low-latency consumption, set `order="encounter"` and use `iter_edges`; for bounded delivery,
+use `project_to_sink` with a batch callback. `project_taxonomy` is the separate asserted named-
+class taxonomy API and does not inherit the historical `only_taxonomy` defect.
+
+Standalone inputs use the core facade exactly once:
+
+```python
+from pyowl2vec_star_projector import project_source
+
+edges = project_source("ontology.ofn")
+```
+
+`project_source` accepts the full `pyowl_core.OntologyInput` contract. Existing snapshots,
+overlays, composites, decoded wire views, and `SnapshotProvider` results retain concrete identity;
+format detection, imports, resolvers, cancellation, and loader errors remain owned by core.

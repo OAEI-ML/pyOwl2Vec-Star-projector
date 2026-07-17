@@ -11,6 +11,8 @@ from ._version import (
     PROJECTOR_API_VERSION,
     __version__,
 )
+from .diagnostics import ProjectionDiagnostic
+from .model import Edge
 from .options import ProjectionOptions
 
 SourceKind = Literal["direct", "provider", "wire"]
@@ -55,6 +57,13 @@ class ProjectionProvenance:
     edge_artifact_schema: str = EDGE_ARTIFACT_SCHEMA
     compiler_cache_schema: str = COMPILER_CACHE_SCHEMA
     native_implementation_version: str | None = None
+    diagnostics_digest: str = ""
+    invocation_count: int = 1
+    call_history_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if type(self.invocation_count) is not int or self.invocation_count < 1:
+            raise ValueError("invocation_count must be a positive int")
 
     def to_dict(self) -> dict[str, object]:
         """Return a deterministic JSON-compatible record without machine paths."""
@@ -70,4 +79,29 @@ class ProjectionProvenance:
             "source_kind": self.source_kind,
             "core": asdict(self.core),
             "counts": asdict(self.counts),
+            "diagnostics_digest": self.diagnostics_digest,
+            "invocation_count": self.invocation_count,
+            "call_history_digest": self.call_history_digest,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionReport:
+    """Complete report for one successful projection."""
+
+    provenance: ProjectionProvenance
+    diagnostics: tuple[ProjectionDiagnostic, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "provenance": self.provenance.to_dict(),
+            "diagnostics": [asdict(item) for item in self.diagnostics],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionResult:
+    """Materialized edges paired with their report."""
+
+    edges: tuple[Edge, ...]
+    report: ProjectionReport

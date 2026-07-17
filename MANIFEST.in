@@ -10,6 +10,9 @@ include tools/audit_runtime.py
 include tools/check_baseline.py
 recursive-include reports *.md
 exclude tests/test_oracle_goldens.py
+exclude tests/test_python_api.py
+exclude tests/test_python_compiler_goldens.py
+prune tests/support
 prune tools/java-oracle
 prune tests/fixtures/oracle
 prune tests/goldens
