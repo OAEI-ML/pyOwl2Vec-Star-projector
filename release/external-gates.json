@@ -41,8 +41,16 @@
     {
       "id": "release-corpora",
       "status": "blocked",
-      "reason": "GO bytes and a licensed SNOMED-scale corpus are absent; the local NCIT file cannot yet be loaded by the pinned core parser.",
-      "required_evidence": "Pinned lawful acquisition manifests and complete GO, NCIT, and licensed-or-equivalent corpus reports meeting P4/P5 memory, determinism, and throughput gates."
+      "reason": "The committed P4 checkpoint proves that the pinned local NCIT source loads and projects successfully. GO bytes and a licensed SNOMED-scale corpus are absent, and no approved hosted/reference-machine corpus run is available in this workspace.",
+      "required_evidence": "Provide pinned lawful acquisition manifests for GO and a licensed-or-equivalent SNOMED-scale corpus, then complete robust hosted/reference-machine P4/P5 reports for GO, NCIT, and the licensed-scale corpus meeting the memory, determinism, and throughput gates. The committed NCIT checkpoint is valid local evidence, not a release median.",
+      "completed_local_evidence": {
+        "report": "reports/p4/streaming.md",
+        "corpus": "OAEI Bio-ML NCIT source",
+        "source_sha256": "379a37f47c0c8e7c30397769358cca955140d16b2797a1cc75da4b1fc2b354eb",
+        "axioms": 243099,
+        "edges": 42103,
+        "canonical_edge_record_sha256": "b0c1186bd4004bc2a288593c1b5783d568e44f58723fedd7ba6d9c1eb6a20914"
+      }
     },
     {
       "id": "hosted-vulnerability-audits",

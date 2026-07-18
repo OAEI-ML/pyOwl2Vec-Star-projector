@@ -1,6 +1,6 @@
 # P6 projector-side consumer conformance
 
-Date: 2026-07-17. Projector candidate: `0.1.0rc1` plus additive P6 changes.
+Date: 2026-07-18. Projector candidate: `0.1.0rc1` plus additive P6 changes.
 
 ## Outcome
 
@@ -10,10 +10,12 @@ canonical Exact-compatible goldens, provider/no-reparse instrumentation, identit
 count checks, provenance assertions, and pure/native parity checks. No Java component, parser,
 Exact module, OAEI module, or reasoner enters the package.
 
-The cross-repository P6 acceptance is intentionally not mislabeled as complete: Exact's deletion
-of its local compiler and migration of `OwlOntologySource` and optional reasoners belong to
-Exact's `WP-M-shared-owl-stack.md`. This repository supplies the executable gate and confirms the
-current baselines, but does not patch or import Exact.
+Exact's consumer implementation has advanced beyond the original P6 checkpoint. Exact `dev`
+contains WP-M M0 through M4: frozen baselines, single-snapshot source ownership, delegation to
+the shared projector, shared structural views, and asserted/optional reasoner adapters. Its local
+OWL2Vec* compiler rules have been removed in favor of a narrow shared-projector adapter. The
+cross-repository M5 release acceptance remains open; this repository supplies the executable gate
+and confirms the frozen baselines, but does not patch or import Exact.
 
 ## Frozen consumer kit
 
@@ -67,6 +69,21 @@ Re-execution against the final pinned core refreshed only the two Exact fixture 
 fingerprints because acquisition provenance is no longer canonical identity input. Their
 logical/signature fingerprints, axiom/signature counts, ordered edge lists, multiplicities, and
 all six projection digests are unchanged.
+
+## Exact WP-M integration state
+
+A read-only review of Exact-OM `dev` at
+`08b859d40bb5c98e3dbdd46109bc4f2d5c0ffd3c` confirms that its M0–M4 implementation is present.
+The milestone history records the frozen migration baseline (`4a3cbc5`), snapshot-owning
+source adapter (`b70cd16`), shared projection (`87134b9`), shared structural views (`50719f8`),
+and reasoner adapters (`c8d7de3`). Exact's projection module is now an adapter over this package,
+and its source/projector/reasoner paths share the core snapshot instead of reparsing a path.
+
+This closes the previously open consumer-implementation wording in the projector report; it does
+not close Exact's M5. Exact still owns its scale/performance and semantic-parity decisions, final
+dependency releases and hosted matrices, cleanup audit, documentation/release review, and the
+`2.1.0` version decision. Projector P6 therefore remains complete on this repository's side while
+cross-repository release acceptance remains open and is not represented as a published result.
 
 ## Dependency and performance evidence
 

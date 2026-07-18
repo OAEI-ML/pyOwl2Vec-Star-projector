@@ -22,6 +22,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Fixed
 
+- Release evidence no longer reports the successfully projected NCIT checkpoint as a parser
+  blocker; the remaining corpus blockers are the unavailable GO/licensed-scale inputs and
+  hosted/reference-machine release evidence.
 - Source-checkout test, native-wheel, and offline-packaging lanes now pin their approved
   pyOWLCore compatibility commit instead of following a mutable default branch. Consumer
   fixture evidence reflects core's reviewed acquisition-provenance-independent structural
@@ -37,6 +40,8 @@ from packaging or performance changes because profile output is a data contract.
 
 - Both Exact mini-ontology captures match without edge, multiplicity, ordering, or digest changes
   under `duplicates="unique"`, canonical isolated projection, and dedicated taxonomy semantics.
+- Exact's consumer-side WP-M M0–M4 migration has landed independently; M5 and cross-repository
+  release acceptance remain open and do not alter the projector dependency graph.
 - No profile, default option, edge artifact schema, compiler-cache, sink protocol, or existing API
   behavior changed. The conformance and provenance fields are additive.
 

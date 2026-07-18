@@ -37,6 +37,8 @@ edge/provenance contract.
 
 For Exact-OM, use `duplicates="unique"`, canonical order, isolated state, the
 `mowl-d993536-v1` profile, and the dedicated taxonomy API. The projector repository's comparator
-matches both committed Exact 2.0 WP-B mini-ontology captures exactly. Removing Exact's local
-compiler and parser records remains Exact WP-M work; this package neither imports nor modifies
-Exact and introduces no reverse dependency.
+matches both committed Exact 2.0 WP-B mini-ontology captures exactly. Exact's WP-M M0–M4
+implementation now owns one shared core snapshot, delegates to this projector, uses shared
+structural views, and exposes asserted/optional reasoner adapters. Exact's M5 scale/parity,
+dependency-release, hosted-matrix, cleanup, documentation, and version gates remain consumer-
+owned; this package neither imports nor modifies Exact and introduces no reverse dependency.

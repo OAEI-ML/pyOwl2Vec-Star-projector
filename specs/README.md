@@ -60,4 +60,5 @@ P0 through P5 are implemented. The projector exposes the complete pure-Python co
 native edge-policy acceleration, bounded external sorting, portable artifacts, and compiler-free
 fallback packaging without adding Java to the install/runtime dependency graph. P6's projector-
 owned conformance kit, Exact baseline comparator, handoff benchmark, and dependency-DAG checks are
-implemented; the Exact WP-M consumer migration remains in Exact's repository.
+implemented. Exact's consumer-side WP-M M0–M4 migration has landed in its own repository; M5 and
+cross-repository release acceptance remain open there.

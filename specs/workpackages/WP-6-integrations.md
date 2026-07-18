@@ -1,7 +1,7 @@
 # WP-P6 — Consumer migration and conformance
 
 **Target:** projector `0.1.x`, Exact-OM `2.1.0`. **Depends on:** P5. **Status:** projector-side
-kit implemented; Exact WP-M migration remains consumer-owned.
+kit implemented; Exact WP-M M0–M4 landed; cross-repository M5/release acceptance remains open.
 
 ## Deliverables
 
@@ -28,6 +28,7 @@ core model or the pinned projector profile.
 
 This repository publishes the conformance resources, probes, Exact baseline comparator,
 dependency-DAG CI, and handoff benchmark. It does not import or patch Exact. Deleting Exact's
-local compiler and wiring its `OwlOntologySource`/reasoners is implemented and released from the
-Exact repository under `WP-M-shared-owl-stack.md`; the cross-repository acceptance remains open
-until that consumer commit runs this kit.
+local compiler rules and wiring its `OwlOntologySource`/reasoners landed in Exact's M0–M4
+implementation under `WP-M-shared-owl-stack.md`. Cross-repository acceptance remains open until
+Exact completes M5's scale/parity, dependency-release, hosted-matrix, cleanup, documentation, and
+version gates; this projector repository cannot waive or manufacture that consumer evidence.

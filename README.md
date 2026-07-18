@@ -59,8 +59,9 @@ goldens exercise Exact-compatible OWL2Vec*, literal, and dedicated taxonomy sett
 accepts only a `SnapshotProvider` handoff: path, stream, or origin access raises a typed failure,
 while successful verification asserts one provider call, exact snapshot identity, unchanged
 fingerprints/counts, edge bytes, and provenance. The projector-side comparison against both
-Exact-OM 2.0 WP-B mini-ontology captures has zero differences. Exact's code migration remains in
-Exact's own WP-M and is not implemented through a reverse dependency here.
+Exact-OM 2.0 WP-B mini-ontology captures has zero differences. Exact's consumer-side WP-M M0–M4
+migration has now landed in its own repository without a reverse dependency; its M5 scale,
+release-evidence, cleanup, documentation, and `2.1.0` gates remain open.
 
 ## Usage
 

@@ -52,6 +52,18 @@ def test_external_release_gates_are_never_silently_presented_as_passed() -> None
         "signed-provenance",
     }
     assert all(gate["status"] == "blocked" for gate in gates)
+    corpora = next(gate for gate in gates if gate["id"] == "release-corpora")
+    assert "cannot yet be loaded" not in corpora["reason"]
+    assert corpora["completed_local_evidence"] == {
+        "report": "reports/p4/streaming.md",
+        "corpus": "OAEI Bio-ML NCIT source",
+        "source_sha256": "379a37f47c0c8e7c30397769358cca955140d16b2797a1cc75da4b1fc2b354eb",
+        "axioms": 243099,
+        "edges": 42103,
+        "canonical_edge_record_sha256": (
+            "b0c1186bd4004bc2a288593c1b5783d568e44f58723fedd7ba6d9c1eb6a20914"
+        ),
+    }
     workflow = (ROOT / ".github/workflows/release-candidate.yml").read_text(encoding="utf-8")
     assert "pypi" not in workflow.lower()
     assert "twine upload" not in workflow.lower()
