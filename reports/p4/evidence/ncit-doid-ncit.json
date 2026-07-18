@@ -1,0 +1,57 @@
+{
+  "artifact": {
+    "artifact_sha256": "2c8dc2d2c5e2c6b6980fec31412d580373b00f1a6e6332aa851d8fcdf32f2dc0",
+    "bytes": 8091307,
+    "canonical_edges_sha256": "b0c1186bd4004bc2a288593c1b5783d568e44f58723fedd7ba6d9c1eb6a20914",
+    "seconds": 6.984136690036394
+  },
+  "canonical_edges_sha256": "b0c1186bd4004bc2a288593c1b5783d568e44f58723fedd7ba6d9c1eb6a20914",
+  "configuration": {
+    "backend": "python",
+    "buffer_edges": 100000,
+    "duplicates": "preserve",
+    "max_open_files": 64,
+    "merge_fan_in": 32,
+    "order": "canonical",
+    "repetitions": 1,
+    "warmups": 0
+  },
+  "corpus_id": "ncit-doid-ncit",
+  "edge_count": 42103,
+  "environment": {
+    "core_version": "0.1.0.dev0",
+    "cpu_affinity": null,
+    "implementation": "CPython",
+    "logical_cpus": 12,
+    "machine": "x86_64",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "projector_version": "0.1.0rc1",
+    "python": "3.12.3"
+  },
+  "load_seconds_excluded": 275.51032649201807,
+  "median_seconds": 6.77555833599763,
+  "peak_rss_delta_upper_bound_bytes": 0,
+  "process_peak_rss_bytes": 1662648320,
+  "samples_seconds": [
+    6.77555833599763
+  ],
+  "schema": "pyowl-projector.streaming-benchmark/1",
+  "snapshot_peak_rss_bytes": 1662648320,
+  "source": {
+    "axioms": 243099,
+    "document_fingerprint": "258175c5bc8c1ecc55509265d35e97f27050f64d6dae4df7a14b55f0db629b18",
+    "file_name": "source.owl",
+    "kind": "ontology",
+    "source_bytes": 57163710,
+    "source_sha256": "379a37f47c0c8e7c30397769358cca955140d16b2797a1cc75da4b1fc2b354eb"
+  },
+  "spill_samples": [
+    {
+      "merge_passes": 0,
+      "peak_live_bytes": 6700413,
+      "runs_created": 1,
+      "total_spill_bytes": 6700413
+    }
+  ],
+  "time_to_first_edge_seconds": 6.43461334699532
+}

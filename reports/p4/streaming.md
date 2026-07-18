@@ -100,6 +100,7 @@ instantaneous allocation claim.
 |---|---:|---:|---:|---:|---:|---:|
 | lazy named-subclass chain | 1,000,000 | 1,000,000 | 100,000 | 85.019 s | 73,000,630 B | 65,261,568 B |
 | OAEI Bio-ML DOID target | 55,687 | 9,388 | 100,000 | 0.961 s | 1,037,503 B | 0 B above snapshot peak |
+| OAEI Bio-ML NCIT source | 243,099 | 42,103 | 100,000 | 6.776 s | 6,700,413 B | 0 B above snapshot peak |
 
 The million-axiom process peaked at 94,236,672 bytes, far below the 1.5 GiB gate. It used ten
 runs, no intermediate merge pass at fan-in 32, and produced digest
@@ -113,23 +114,33 @@ Its edge artifact was 1,348,756 bytes and took 1.020 s to write. Repeated P3 and
 9,388; P4's JSONL edge digest is
 `0440e1c8a27f67692350837bca320d31a6e17ad9142aaad7bca502b903089bf5`.
 
+The previously blocked 57,163,710-byte NCIT source now loads with pyOWLCore
+`fca6a5f346711843eb7f4f830bf88b4154cabd92`, whose RDF mapper accepts explicit list structural
+markers without weakening the ambiguous-list checks. The exact source SHA-256 remains
+`379a37f47c0c8e7c30397769358cca955140d16b2797a1cc75da4b1fc2b354eb`. It parsed to 243,099
+axioms with document fingerprint
+`258175c5bc8c1ecc55509265d35e97f27050f64d6dae4df7a14b55f0db629b18`, emitted 42,103 edges,
+and produced canonical edge-record digest
+`b0c1186bd4004bc2a288593c1b5783d568e44f58723fedd7ba6d9c1eb6a20914`. The load took
+275.510 s and established the 1,662,648,320-byte process high-water mark before projection;
+projection added no observable high-water RSS and used one 6,700,413-byte spill run. This is a
+single local checkpoint sample, not a robust release median or a replacement for the separately
+gated hosted/reference-machine run.
+
 ## Corpus availability and non-results
 
 No performance number is invented for an input that P4 cannot project:
 
-- The available 57,163,710-byte NCIT source, SHA-256
-  `379a37f47c0c8e7c30397769358cca955140d16b2797a1cc75da4b1fc2b354eb`, remains blocked before
-  projection by the core RDF mapper's ambiguous blank-node individual/list rejection. P3 records
-  the typed `RDF_MAPPING_UNSUPPORTED` outcome. P4 does not weaken core loading or add a parser.
 - No pinned GO file is present in the workspace. The opt-in corpus job must supply and hash-pin a
   redistributable GO release before claiming that result.
 - No licensed SNOMED-scale ontology is present, and this repository must not acquire or publish
   one without an operator's license. The same benchmark accepts a caller path and records only
   its base name, byte hash, document fingerprint, counters, and measurements.
 
-These three real-corpus entries are release-candidate evidence gates, not waived correctness or
-memory failures. The implementation, failure behavior, and reproducible harness are complete;
-the unavailable/licence-gated bytes remain external inputs.
+The two unavailable real-corpus entries remain release-candidate evidence gates, not waived
+correctness or memory failures. The NCIT parser blocker is closed by the cited core change; the
+implementation, failure behavior, and reproducible harness are complete, while unavailable or
+licence-gated bytes remain external inputs.
 
 ## Reproduction
 
