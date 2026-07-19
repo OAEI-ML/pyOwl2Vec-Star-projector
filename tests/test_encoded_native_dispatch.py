@@ -243,7 +243,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                 view,
                 options=ProjectionOptions(backend="native"),
             )
-            with self.assertRaisesRegex(SnapshotCompatibilityError, "public view type"):
+            with self.assertRaisesRegex(SnapshotCompatibilityError, "OntologyView.view"):
                 next(iterator)
         self.assertEqual(view.iterated_identities, [])
 
