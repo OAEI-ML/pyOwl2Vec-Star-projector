@@ -162,7 +162,6 @@ def _validate_encoded_view(
     model_schema = getattr(encoded, "model_schema", None)
     owner = getattr(encoded, "owner", None)
     descriptor = getattr(encoded, "descriptor", None)
-    descriptor_digest = getattr(encoded, "descriptor_digest", None)
     buffers = getattr(encoded, "buffers", None)
     fingerprint = getattr(encoded, "structural_fingerprint", None)
 
@@ -190,6 +189,11 @@ def _validate_encoded_view(
             "core encoded view descriptor must be nonempty immutable bytes"
         )
     authoritative_descriptor_digest = hashlib.sha256(descriptor).digest()
+    descriptor_digest = getattr(
+        encoded,
+        "descriptor_digest",
+        authoritative_descriptor_digest,
+    )
     if (
         type(descriptor_digest) is not bytes
         or descriptor_digest != authoritative_descriptor_digest

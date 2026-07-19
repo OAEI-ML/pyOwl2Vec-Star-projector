@@ -5,6 +5,7 @@ import hashlib
 import unittest
 import weakref
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 from pyowl2vec_star_projector import ProjectionOptions, Projector
@@ -142,6 +143,25 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                 core_module=_core(),
             )
 
+    def test_descriptor_digest_is_derived_from_the_minimal_public_surface(self) -> None:
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        encoded = _EncodedStructuralView(view, writable=False)
+        del encoded.descriptor_digest
+        view.view = lambda _view_type, **_options: encoded  # type: ignore[method-assign]
+
+        decision = select_ingestion(
+            view,
+            selected_backend="native",
+            native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+            core_module=_core(),
+        )
+
+        assert decision.lease is not None
+        self.assertEqual(
+            decision.lease.descriptor_sha256,
+            hashlib.sha256(encoded.descriptor).hexdigest(),
+        )
+
     def test_encoded_lease_keeps_the_exact_owner_alive(self) -> None:
         view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
         reference = weakref.ref(view)
@@ -170,7 +190,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
 
     def test_projector_fails_before_scalar_traversal_on_broken_advertisement(self) -> None:
         view = fixture_view("equivalence-ordering")
-        view.capabilities = SimpleNamespace(
+        cast(Any, view).capabilities = SimpleNamespace(
             adapter_protocol=1,
             model_schema=1,
             wire_format=(1, 1),
