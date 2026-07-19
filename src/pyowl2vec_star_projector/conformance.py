@@ -23,7 +23,7 @@ from .artifact import edge_json_record
 from .errors import ConsumerConformanceError
 from .model import Edge
 from .options import BACKENDS, Backend, ProjectionOptions
-from .provenance import CoreProvenance, ProjectionReport
+from .provenance import CoreProvenance, IngestionPath, ProjectionReport
 
 ConsumerOperation = Literal["owl2vec-star", "asserted-taxonomy"]
 IdentityProbe = Callable[[], object]
@@ -264,6 +264,7 @@ def verify_consumer_conformance(
     case_id: str = "exact-owl2vec",
     backend: Backend = "python",
     identity_probes: Mapping[str, IdentityProbe] | None = None,
+    required_ingestion_path: IngestionPath | None = None,
 ) -> ConsumerConformanceResult:
     """Verify one shared view against a packaged Exact-compatible golden.
 
@@ -277,6 +278,19 @@ def verify_consumer_conformance(
             details={"backend": str(backend)},
         )
     case = consumer_conformance_case(case_id)
+    if required_ingestion_path not in (
+        None,
+        "scalar-python",
+        "scalar-native",
+        "encoded-native",
+    ):
+        raise ConsumerConformanceError(
+            f"unsupported required ingestion path {required_ingestion_path!r}"
+        )
+    if required_ingestion_path is not None and case.operation != "owl2vec-star":
+        raise ConsumerConformanceError(
+            "an ingestion-path assertion requires the OWL2Vec* operation"
+        )
     fixture = consumer_conformance_fixture_metadata()
     probes = _normalize_identity_probes(identity_probes)
     state_before = _capture_view_state(view)
@@ -359,6 +373,14 @@ def verify_consumer_conformance(
                 failures.append("provenance core record differs from the supplied view")
             if provenance.options != case.projection_options(backend):
                 failures.append("provenance options differ from the Exact-compatible case")
+            if (
+                required_ingestion_path is not None
+                and provenance.ingestion.path != required_ingestion_path
+            ):
+                failures.append(
+                    "ingestion path was "
+                    f"{provenance.ingestion.path!r}, expected {required_ingestion_path!r}"
+                )
             counts = provenance.counts
             if counts.edges != len(case.edges):
                 failures.append("provenance edge count differs from the golden")

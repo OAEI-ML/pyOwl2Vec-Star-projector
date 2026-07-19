@@ -173,6 +173,25 @@ def test_provider_probe_turns_path_or_stream_fallback_into_typed_failure() -> No
     assert probe.source_accesses == 2
 
 
+def test_conformance_can_require_an_exact_ingestion_path() -> None:
+    snapshot = _snapshot()
+    result = verify_consumer_conformance(
+        snapshot,
+        case_id="exact-owl2vec",
+        backend="python",
+        required_ingestion_path="scalar-python",
+    )
+    assert result.report is not None
+    assert result.report.provenance.ingestion.path == "scalar-python"
+    with pytest.raises(ConsumerConformanceError, match="ingestion path"):
+        verify_consumer_conformance(
+            snapshot,
+            case_id="exact-owl2vec",
+            backend="python",
+            required_ingestion_path="encoded-native",
+        )
+
+
 def test_wrong_fixture_and_changed_consumer_identity_fail_explicitly() -> None:
     wrong = pyowl_core.load_snapshot(
         b"Ontology(<urn:wrong> Declaration(Class(<urn:wrong#A>)))",

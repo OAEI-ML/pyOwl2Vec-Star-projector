@@ -96,6 +96,19 @@ class BackendSelectionTests(unittest.TestCase):
                 native.load_native_module()
         import_module.assert_not_called()
 
+    def test_native_runtime_feature_metadata_is_validated(self) -> None:
+        import pyowl2vec_star_projector.native as native
+
+        malformed = SimpleNamespace(
+            NATIVE_API_VERSION=1,
+            EdgeBatchProcessor=lambda: None,
+            __version__="test",
+            FEATURES=("bounded-batches", 7),
+        )
+        with patch.object(native.importlib, "import_module", return_value=malformed):
+            with self.assertRaisesRegex(NativeBackendUnavailableError, "feature metadata"):
+                native.native_runtime_metadata()
+
     def test_auto_warning_is_deferred_and_once(self) -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")

@@ -5,6 +5,7 @@ from ._version import (
     COMPILER_CACHE_SCHEMA,
     CONSUMER_CONFORMANCE_SCHEMA,
     EDGE_ARTIFACT_SCHEMA,
+    INGESTION_PROVENANCE_SCHEMA,
     PROJECTOR_API_VERSION,
     REFERENCE_PROFILE,
     __version__,
@@ -39,6 +40,7 @@ from .conformance import (
     verify_consumer_conformance,
 )
 from .diagnostics import DiagnosticSeverity, ProjectionDiagnostic
+from .encoded import ENCODED_SCHEMA_NAME, ENCODED_SCHEMA_VERSION
 from .errors import (
     ConsumerConformanceError,
     InvalidProjectionOptionsError,
@@ -56,6 +58,8 @@ from .options import ProjectionOptions
 from .protocols import EdgeBatchSinkV1
 from .provenance import (
     CoreProvenance,
+    IngestionPath,
+    IngestionProvenance,
     ProjectionCounts,
     ProjectionProvenance,
     ProjectionReport,
@@ -68,6 +72,9 @@ __all__ = [
     "COMPILER_CACHE_SCHEMA",
     "CONSUMER_CONFORMANCE_SCHEMA",
     "EDGE_ARTIFACT_SCHEMA",
+    "ENCODED_SCHEMA_NAME",
+    "ENCODED_SCHEMA_VERSION",
+    "INGESTION_PROVENANCE_SCHEMA",
     "PROJECTOR_API_VERSION",
     "REFERENCE_PROFILE",
     "BackendSelection",
@@ -83,6 +90,8 @@ __all__ = [
     "EdgeBatchSink",
     "EdgeBatchSinkV1",
     "IdentityProbe",
+    "IngestionPath",
+    "IngestionProvenance",
     "InvalidProjectionOptionsError",
     "NativeBackendFallbackWarning",
     "NativeBackendStatus",

@@ -184,6 +184,7 @@ def test_report_groups_diagnostics_without_stdout(capsys: pytest.CaptureFixture[
     assert warnings and warnings[0].count == 3
     assert result.report.provenance.counts.warnings == 3
     assert result.report.provenance.selected_backend == "python"
+    assert result.report.provenance.ingestion.path == "scalar-python"
     assert len(result.report.provenance.diagnostics_digest) == 64
 
 

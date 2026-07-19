@@ -29,6 +29,7 @@ from .compiler import (
     prepare_streaming_compilation,
     validate_view,
 )
+from .encoded import EncodedNegotiation, select_ingestion
 from .errors import (
     InvalidProjectionOptionsError,
     NativeBackendUnavailableError,
@@ -37,12 +38,13 @@ from .errors import (
 from .model import Edge
 from .native import (
     iter_native_passthrough,
-    native_implementation_version,
+    native_runtime_metadata,
 )
 from .options import Backend, DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .protocols import EdgeBatchSinkV1
 from .provenance import (
     CoreProvenance,
+    IngestionProvenance,
     ProjectionCounts,
     ProjectionProvenance,
     ProjectionReport,
@@ -267,9 +269,16 @@ class Projector:
         if order not in ("canonical", "encounter"):
             raise InvalidProjectionOptionsError("order must be 'canonical' or 'encounter'")
         selection = select_backend(backend)
-        selection, _ = _activate_selection(selection)
+        selection, _native_version, native_features = _activate_selection(selection)
         warn_if_auto_fallback(selection)
         checked = validate_view(view)
+        ingestion = select_ingestion(
+            checked,
+            selected_backend=selection.selected,
+            native_features=native_features,
+            backend_fallback_reason=selection.fallback_reason,
+        )
+        _require_available_ingestion_compiler(ingestion)
         with self._metadata_lock:
             self._last_view = checked
         raw = iter_asserted_taxonomy(
@@ -314,14 +323,22 @@ class Projector:
                     )
             try:
                 selection = select_backend(options.backend)
-                selection, native_version = _activate_selection(selection)
+                selection, native_version, native_features = _activate_selection(selection)
                 warn_if_auto_fallback(selection)
+                checked = validate_view(view)
+                ingestion = select_ingestion(
+                    checked,
+                    selected_backend=selection.selected,
+                    native_features=native_features,
+                    backend_fallback_reason=selection.fallback_reason,
+                )
+                _require_available_ingestion_compiler(ingestion)
                 role_state = (
                     self._scala_state
                     if options.compatibility_state == "scala-instance"
                     else RoleState.empty()
                 )
-                compilation = prepare_streaming_compilation(view, options, role_state)
+                compilation = prepare_streaming_compilation(checked, options, role_state)
                 if options.compatibility_state == "scala-instance":
                     compilation.prepare_role_state()
                 with self._metadata_lock:
@@ -366,6 +383,7 @@ class Projector:
                     invocation,
                     selection.selected,
                     native_version,
+                    ingestion,
                 )
                 with self._metadata_lock:
                     self._last_report = report
@@ -393,6 +411,7 @@ class Projector:
         invocation: int,
         selected_backend: str,
         native_version: str | None,
+        ingestion: EncodedNegotiation,
     ) -> ProjectionReport:
         diagnostic_payload = [asdict(item) for item in diagnostics]
         diagnostic_bytes = json.dumps(
@@ -446,6 +465,7 @@ class Projector:
             invocation_count=invocation,
             call_history_digest=history_digest,
             native_implementation_version=native_version,
+            ingestion=_ingestion_provenance(ingestion),
         )
         return ProjectionReport(provenance, diagnostics)
 
@@ -519,12 +539,15 @@ def write_edge_artifact(
     )
 
 
-def _activate_selection(selection: BackendSelection) -> tuple[BackendSelection, str | None]:
+def _activate_selection(
+    selection: BackendSelection,
+) -> tuple[BackendSelection, str | None, frozenset[str]]:
     """Load only at dispatch and preserve auto fallback if a wheel is broken."""
     if selection.selected == "python":
-        return selection, None
+        return selection, None, frozenset()
     try:
-        return selection, native_implementation_version()
+        version, features = native_runtime_metadata()
+        return selection, version, features
     except NativeBackendUnavailableError as error:
         if selection.requested == "native":
             raise
@@ -533,7 +556,32 @@ def _activate_selection(selection: BackendSelection) -> tuple[BackendSelection, 
             selected="python",
             fallback_reason=f"native load failed: {error}",
         )
-        return fallback, None
+        return fallback, None, frozenset()
+
+
+def _require_available_ingestion_compiler(ingestion: EncodedNegotiation) -> None:
+    """Fail before scalar traversal if an extension claims the unfinished P7 ABI."""
+    if ingestion.path != "encoded-native":
+        return
+    lease = ingestion.lease
+    raise NativeBackendUnavailableError(
+        "encoded structural view is compatible but the P7 compiler ABI is not frozen",
+        details={
+            "schema_name": "" if lease is None else lease.schema_name,
+            "schema_version": -1 if lease is None else lease.schema_version,
+        },
+    )
+
+
+def _ingestion_provenance(ingestion: EncodedNegotiation) -> IngestionProvenance:
+    lease = ingestion.lease
+    return IngestionProvenance(
+        path=ingestion.path,
+        reason=ingestion.reason,
+        encoded_schema_name=None if lease is None else lease.schema_name,
+        encoded_schema_version=None if lease is None else lease.schema_version,
+        encoded_descriptor_sha256=None if lease is None else lease.descriptor_sha256,
+    )
 
 
 def project_taxonomy(

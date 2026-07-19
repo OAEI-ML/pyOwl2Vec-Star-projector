@@ -70,19 +70,30 @@ def load_native_module() -> Any:
 
 
 def native_implementation_version() -> str:
+    version, _features = native_runtime_metadata()
+    return version
+
+
+def native_runtime_metadata() -> tuple[str, frozenset[str]]:
+    """Return validated execution metadata from one extension import."""
     module = load_native_module()
     try:
         version = getattr(module, "__version__", None)
+        raw_features = getattr(module, "FEATURES", ())
     except MemoryError:
         raise
     except Exception as error:
         raise NativeBackendUnavailableError(
-            "native projector version metadata could not be read",
+            "native projector runtime metadata could not be read",
             details={"cause": type(error).__name__},
         ) from error
     if not isinstance(version, str) or not version:
         raise NativeBackendUnavailableError("native projector version metadata is invalid")
-    return version
+    if not isinstance(raw_features, (tuple, list, frozenset)) or not all(
+        isinstance(item, str) and item for item in raw_features
+    ):
+        raise NativeBackendUnavailableError("native projector feature metadata is invalid")
+    return version, frozenset(raw_features)
 
 
 def iter_native_compilation(
@@ -237,4 +248,5 @@ __all__ = [
     "iter_native_policy",
     "load_native_module",
     "native_implementation_version",
+    "native_runtime_metadata",
 ]

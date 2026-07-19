@@ -62,6 +62,7 @@ def _semantic_report(report: dict[str, object]) -> dict[str, object]:
     provenance = normalized["provenance"]
     provenance.pop("selected_backend")
     provenance.pop("native_implementation_version")
+    provenance.pop("ingestion")
     provenance["options"].pop("backend")
     return normalized
 
@@ -102,6 +103,7 @@ def test_native_matches_python_for_every_fixture_policy(entry: dict[str, Any]) -
                 assert _semantic_report(python_report) == _semantic_report(native_report)
                 assert native_report["provenance"]["selected_backend"] == "native"
                 assert native_report["provenance"]["native_implementation_version"]
+                assert native_report["provenance"]["ingestion"]["path"] == "scalar-native"
 
 
 @pytest.mark.parametrize("session", INVENTORY["sessions"], ids=lambda entry: entry["id"])

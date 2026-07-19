@@ -3,15 +3,18 @@ from __future__ import annotations
 import json
 import unittest
 from dataclasses import FrozenInstanceError
+from typing import cast
 
 from pyowl2vec_star_projector import (
     BATCH_SINK_PROTOCOL_VERSION,
     COMPILER_CACHE_SCHEMA,
     EDGE_ARTIFACT_SCHEMA,
+    INGESTION_PROVENANCE_SCHEMA,
     PROJECTOR_API_VERSION,
     REFERENCE_PROFILE,
     CoreProvenance,
     Edge,
+    IngestionProvenance,
     InvalidProjectionOptionsError,
     ProjectionCounts,
     ProjectionOptions,
@@ -96,6 +99,20 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(record["projector_api_version"], PROJECTOR_API_VERSION)
         self.assertEqual(record["edge_artifact_schema"], EDGE_ARTIFACT_SCHEMA)
         self.assertEqual(record["compiler_cache_schema"], COMPILER_CACHE_SCHEMA)
+        ingestion = cast(dict[str, object], record["ingestion"])
+        self.assertEqual(ingestion["schema"], INGESTION_PROVENANCE_SCHEMA)
+        self.assertEqual(ingestion["path"], "scalar-python")
+
+    def test_ingestion_provenance_requires_consistent_encoded_metadata(self) -> None:
+        with self.assertRaises(ValueError):
+            IngestionProvenance(path="encoded-native")
+        encoded = IngestionProvenance(
+            path="encoded-native",
+            encoded_schema_name="pyowl-core/structural-columns",
+            encoded_schema_version=1,
+            encoded_descriptor_sha256="ab" * 32,
+        )
+        self.assertEqual(encoded.encoded_schema_version, 1)
 
     def test_counts_reject_bool_negative_and_float(self) -> None:
         for value in (True, -1, 1.5):
