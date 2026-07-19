@@ -1,0 +1,152 @@
+# Encoded structural ingestion and complete native projection
+
+Status: normative successor optimization for the implemented projector. It preserves
+`mowl-d993536-v1`, all public edge/artifact contracts, deterministic streaming, and the complete
+pure-Python fallback.
+
+## 1. Objective
+
+The optimized native backend MUST compile the caller's exact retained
+`pyowl_core.OntologyView` from the public `EncodedStructuralView` into projector-private role
+indexes and edge batches. It replaces scalar Python OWL traversal and the current partial native
+edge-policy accelerator; it does not introduce another parser, public ontology model, or Java
+dependency.
+
+The native compiler owns the complete projection rule traversal for every pinned profile option.
+It may allocate only projection state required by those rules. It MUST NOT recreate an
+ontology-sized Rust structural graph, materialize all Python axioms, serialize the snapshot, or
+call Python once per axiom or edge.
+
+## 2. Capability negotiation and fallback
+
+The projector validates `CoreCapabilities.encoded_view_schemas`, then requests
+`EncodedStructuralView` through `OntologyView.view(...)`. It retains the view owner until the last
+edge iterator/batch/session is closed and validates:
+
+- schema name/version, core model schema, descriptor digest, scope/options, and structural
+  fingerprint;
+- little-endian tags/scalars, string and sequence offsets, buffer bounds/alignment, and all
+  references; and
+- direct, decoded, mmap, overlay, and composite segment manifests without flattening their bases.
+
+The package never imports `pyowl_core._native`, borrows a private arena, or persists encoded dense
+IDs. A scalar-only provider remains supported by the complete Python compiler. Explicit
+`backend="native"` may use the existing scalar/batched compatibility bridge until encoded-native
+passes its promotion gates; provenance names `scalar-python`, `scalar-native`, or
+`encoded-native` ingestion. Malformed advertised encoded data fails before output and cannot
+silently switch paths after partial emission.
+
+## 3. Native projection compiler
+
+```text
+exact OntologyView identity
+          |
+          +-- scalar compatibility --> Python rule compiler --> edge stream
+          |
+          `-- EncodedStructuralView columns/segments
+                       |
+             Rust rule traversal + private role/inverse/subrole maps
+                       |
+            packed bounded edge batches / external-sort sink
+                       |
+            existing Edge, iterator, sink, digest and artifact APIs
+```
+
+The Rust compiler implements every `reference-rules.json` rule and all option interactions,
+including compatibility-state lifecycle, bag multiplicity, annotation string conversion,
+historical subrole/inverse behavior, ABox, dedicated taxonomy projection, encounter order, and
+canonical order. Generated relation strings and compatibility labels are projector-owned; core
+strings and structural values remain immutable.
+
+Internal edges SHOULD use compact dictionary/string IDs while the owner is retained. The Python
+boundary receives a bounded packed batch, not one callback per edge. Materialized `project()` may
+create `O(E)` public `Edge` objects because its API promises a list; streaming, digest, and
+artifact paths never require the complete edge list in Python or Rust.
+
+Canonical sorting and uniqueness may reuse the P4 spill machinery or a parity-proven Rust
+equivalent. Backend/buffer/fan-in/worker choices cannot change edge order, multiplicity, digests,
+artifact bytes, cleanup, backpressure, or time-to-first-edge semantics.
+
+## 4. Exact parity and cache identity
+
+Scalar and encoded compilers expose test-only canonical rule counters and ordered/bag edge digests.
+Exact equality is required for every oracle golden, option matrix, repeated Scala-instance call
+sequence, generated constructor/permutation case, direct/wire/mmap view, overlay/composite, and
+large licensed corpus.
+
+Compiler caches include:
+
+```text
+(core structural fingerprint and segment/import manifest,
+ core model and encoded-view schema/descriptor digest,
+ projection profile and normalized semantic options,
+ projector package/API/compiler-cache schema,
+ native implementation version)
+```
+
+Backend selection is excluded from portable artifact semantics. Schema-local IDs cannot be used
+outside the retained owner or as standalone cache identity.
+
+## 5. Lifetime, safety, and failure
+
+Buffer borrowing, iterator lifetime, re-entrancy, `scala-instance` exclusion, thread movement,
+fork, cancellation, generator close, interpreter shutdown, and panic conversion have focused
+tests. Rust releases the GIL without Python callbacks and validates count-derived allocations
+before growth. Failure before or during streaming publishes no cache/artifact and cleans private
+spill resources under the existing P4 rules.
+
+A copied structural column is allowed only for a measured alignment/ownership need and is reported
+by byte count. Direct and mmap retained-native views have zero ontology-sized staging copy.
+
+## 6. Performance and memory gates
+
+Benchmarks record separately:
+
+1. encoded-view acquisition/validation;
+2. projection compiler setup and private role indexes;
+3. time to first edge and encounter throughput;
+4. canonical/unique spill and artifact throughput;
+5. parser, scalar materialization, buffer-call, edge-batch, copy/allocation, temporary-byte, RSS,
+   and cleanup counters; and
+6. complete shared-snapshot-to-artifact time used by Exact-OM.
+
+Every comparison fixes the exact input view/fingerprints, profile/options, edge counter/digests,
+cold/warm cache state, buffer/fan-in limits, workers, and output destination. It includes NCIT,
+DOID, GO, the million-axiom synthetic case, and the largest licensed corpus available.
+
+In addition to `performance-packaging.md`, encoded-native acceptance requires:
+
+- zero parser/resolver/core-wire/scalar-axiom/base-flattening calls for an existing compatible
+  view;
+- no complete Python or Rust ontology-sized structural copy and no per-axiom/per-edge FFI;
+- view validation plus Python/Rust boundary below 5% of load-excluded native projection time on
+  each designated medium/large workload;
+- encoded-native at least 2x faster than the scalar Python compiler on two large corpora, never
+  more than 10% slower on the third, and at least 2x faster than the existing scalar-native path
+  by geometric mean;
+- no more than 10% incremental-RSS regression and continued satisfaction of the 1.5 GiB synthetic
+  memory gate; and
+- Exact-OM shared-stack reruns that remove the current projector regression while preserving the
+  pinned rule-level semantic classification and output digests.
+
+`auto` selects encoded-native only after these gates pass on supported wheels. Until then the
+backend remains opt-in and documentation reports measured limitations.
+
+## 7. Versions, packaging, and consumers
+
+Implementation records the compatible core package/API/adapter and exact encoded schema range.
+It increments `COMPILER_CACHE_SCHEMA` when private compilation/cache meaning changes, but does not
+change the projection profile or artifact schema without a semantic/artifact change. Unsupported
+caches rebuild rather than reinterpret IDs.
+
+Pure wheels and compiler-free sdists remain complete on Python 3.10+. Native wheels pass the
+existing ABI, sanitizer, dependency, reproducibility, license, and no-Java audits. The projector
+does not depend on Exact-OM, OAEI, pyELK, or pyHermiT; Exact only passes its existing snapshot
+identity and reads the public projection report.
+
+## 8. Completion
+
+Completion requires exact rule/edge/artifact parity, bounded streaming and lifetime safety,
+direct/mmap/overlay/composite coverage, controlled time/RSS/copy evidence, promoted backend policy,
+updated provenance/cache/docs/version ranges, and Exact-OM conformance over the exact released
+core/projector revisions.

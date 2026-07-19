@@ -22,6 +22,11 @@ The native bridge may borrow immutable contiguous core views or copy bounded bat
 not copy all axioms into a Rust-owned ontology model. Unsafe zero-copy code requires lifetime,
 threading, mutation, and interpreter-shutdown tests plus a documented safety invariant.
 
+The successor optimized implementation is normative in `native-structural-ingestion.md`: it
+consumes the public encoded structural view in coarse calls, runs the complete projection compiler
+in Rust, and emits bounded packed edge batches. The original scalar/native bridge remains a
+compatibility path and cannot be presented as proof that encoded ingestion is optimized.
+
 Semantic shortcuts are forbidden: the Python backend is complete, and native acceleration is
 released only after exact differential parity.
 
@@ -83,6 +88,10 @@ without changing semantics.
 
 Performance exceptions name the benchmark, owner, reason, accepted delta, and expiry release.
 They may not waive correctness or unbounded-memory failures.
+
+The encoded-native path additionally passes the no-materialization, boundary/copy/RSS,
+scalar-native comparison, and Exact shared-stack gates in `native-structural-ingestion.md` before
+`auto` promotion.
 
 ## 6. Distribution layout
 

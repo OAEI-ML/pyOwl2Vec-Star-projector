@@ -145,6 +145,11 @@ profile rule, option, streaming mode, and diagnostic. It is not a reduced fallba
 backend consumes public core views through a reviewed zero-copy or bounded-copy bridge and MUST
 not define its own ontology records.
 
+When a compatible `EncodedStructuralView` is available, the optimized native path follows
+`native-structural-ingestion.md`: Rust performs complete rule traversal from public structural
+columns/segments and emits bounded edge batches without scalar Python axiom expansion. The
+pure-Python compiler remains complete, and encoded support does not change profile semantics.
+
 Backend identity is observable only through diagnostics/provenance and performance. Edges,
 ordering, multiplicities, exceptions caused by invalid ontology constructs, and artifact bytes
 must otherwise agree exactly.

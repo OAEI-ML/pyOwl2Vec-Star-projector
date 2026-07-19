@@ -12,6 +12,7 @@ These documents define the initial `pyowl2vec-star-projector` `0.1.x` line. The 
 | [`reference-behavior.md`](reference-behavior.md) | Pinned Scala rules and compatibility defects |
 | [`verification.md`](verification.md) | Java oracle, goldens, differential tests, fixtures, and gates |
 | [`performance-packaging.md`](performance-packaging.md) | Native/fallback policy, streaming, benchmarks, wheels, and sdist |
+| [`native-structural-ingestion.md`](native-structural-ingestion.md) | successor encoded-view Rust compiler, batching, lifetime/copy contract, and promotion gates |
 | [`baseline.toml`](baseline.toml) | Machine-readable upstream pin and toolchain facts |
 | [`reference-rules.json`](reference-rules.json) | Fixture-backed catalogue of pinned observations |
 
@@ -55,6 +56,7 @@ pyELK, or pyHermiT. This keeps every package independently installable and preve
 | [P4](workpackages/WP-4-streaming.md) | bounded-memory deterministic output | P2 |
 | [P5](workpackages/WP-5-packaging-release.md) | wheels, sdist, CI, and release | P2–P4 |
 | [P6](workpackages/WP-6-integrations.md) | consumer conformance for Exact-OM | P5 |
+| [P7](workpackages/WP-7-encoded-native-compiler.md) | complete encoded-view native compiler and Exact scale handoff | P3–P6, pyowl-core WP17 |
 
 P0 through P5 are implemented. The projector exposes the complete pure-Python compiler, optional
 native edge-policy acceleration, bounded external sorting, portable artifacts, and compiler-free
@@ -62,3 +64,7 @@ fallback packaging without adding Java to the install/runtime dependency graph. 
 owned conformance kit, Exact baseline comparator, handoff benchmark, and dependency-DAG checks are
 implemented. Exact's consumer-side WP-M M0–M4 migration has landed in its own repository; M5 and
 cross-repository release acceptance remain open there.
+
+P7 is the successor performance package. It is not implemented and does not change the completed
+P0–P6 semantic evidence. It may run in parallel with the pyELK and pyHermiT encoded-consumer
+packages after pyowl-core freezes the candidate public schema.

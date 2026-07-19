@@ -1,0 +1,70 @@
+# WP-P7 — Encoded-view complete native compiler
+
+**Target:** compatible `0.1.x` successor or next minor selected by implementation review.
+**Depends on:** P3–P6 and a frozen pyowl-core WP17 encoded-view candidate.
+**Status:** specified, not implemented.
+
+## Goal
+
+Replace scalar Python ontology traversal and partial edge-policy acceleration with a complete Rust
+projection compiler that consumes public encoded structural columns/segments and feeds the
+existing bounded streaming/artifact APIs.
+
+## Read first
+
+- `../native-structural-ingestion.md`, `../SPEC.md`, `../contracts.md`,
+  `../reference-behavior.md`, `../verification.md`, and `../performance-packaging.md`; and
+- pyowl-core `native-ontology-redesign.md`, `indexes-views.md`, and WP17 schema/handoff evidence.
+
+## Owned paths
+
+- public-core encoded-view adapter and compilation-path diagnostics;
+- Rust encoded decoder, full rule compiler, private projection indexes, and packed batch bridge;
+- native/Python compiler comparator and encoded differential/lifetime/hostile-input tests;
+- encoded projection and Exact handoff benchmarks/reports;
+- directly affected cache/provenance/API/performance docs; and
+- coordinated dependency/compiler-schema/build metadata required for the new capability.
+
+P7 does not change pinned profile semantics, rewrite P1 goldens, remove the Python compiler, or
+add consumer dependencies.
+
+## Deliverables
+
+1. Freeze and validate the supported encoded descriptor, columns, segments, scope, and owner
+   lifetime.
+2. Implement every pinned projection rule/option in Rust, including compatibility defects,
+   multiplicity, annotations, taxonomy, ABox, lifecycle state, and deterministic encounter order.
+3. Emit bounded packed edge batches into the existing materialized, iterator, batch-sink,
+   canonical-sort, digest, and artifact surfaces without per-edge FFI.
+4. Preserve scalar-python/scalar-native paths and expose explicit versioned ingestion diagnostics.
+5. Add exact rule-counter, ordered-edge, bag-counter, canonical-byte, artifact, error, and cleanup
+   parity across the oracle, generated, direct/mmap/overlay/composite, and large-corpus matrices.
+6. Prove buffer/iterator owner lifetime, GIL/thread/fork/cancel/close/panic/interpreter safety and
+   run Rust fuzz/sanitizer/lint/audit lanes.
+7. Record load-excluded and shared-snapshot-to-artifact time, time to first edge, throughput,
+   copies/materializations/FFI, RSS/spill, semantic digests, and Exact NCIT/DOID/GO evidence.
+8. Update version ranges, compiler cache/provenance, backend promotion, docs, changelog, wheels,
+   SBOM/licenses, and consumer conformance pins.
+
+## Acceptance
+
+- Scalar and encoded outputs match every exact rule, multiplicity, order, digest, artifact, error,
+  and lifecycle assertion.
+- Existing compatible views incur zero parse, resolver, core-wire, scalar-axiom, ontology-sized
+  structural copy, base flattening, or per-row FFI on encoded-native projection.
+- Direct/mmap paths have zero ontology-sized staging copy; bounded exceptional copies and batch
+  sizes are observable and meet the memory contract.
+- Corrupt/incompatible buffers fail before output; cancellation/failure cleans all private
+  resources and publishes no partial artifact/cache.
+- Every gate in `../native-structural-ingestion.md` and `../performance-packaging.md` passes on the
+  labelled runner; `auto` is changed only with that evidence.
+- Pure/compiler-free Java-free installations remain complete on Python 3.10+, and supported native
+  wheels pass parity and artifact audits.
+- Exact-OM passes its exact snapshot-identity, baseline classification, scale, provenance, and
+  dependency-DAG checks without the projector importing Exact.
+
+## Handoff
+
+Publish exact core/encoded schema support, projector compiler schema, rule and artifact digests,
+raw performance/RSS/copy evidence, backend promotion decision, known limitations, and the Exact
+revision tested. Scalar-only core providers remain supported.
