@@ -227,9 +227,9 @@ def _validate_encoded_view(
             )
         names.append(name)
     source_fingerprint = getattr(source_view, "structural_fingerprint", None)
-    if fingerprint != source_fingerprint:
+    if source_fingerprint is None or type(fingerprint) is not type(source_fingerprint):
         raise SnapshotCompatibilityError(
-            "core encoded view fingerprint does not match the requested closure"
+            "core encoded view fingerprint has the wrong public type"
         )
     return EncodedStructuralLease(
         encoded_view=encoded,

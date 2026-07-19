@@ -28,7 +28,7 @@ class _EncodedStructuralView:
         self.owner = owner
         self.descriptor = b"public encoded schema descriptor"
         self.descriptor_digest = hashlib.sha256(self.descriptor).digest()
-        self.structural_fingerprint = "snapshot-fingerprint"
+        self.structural_fingerprint = "encoded-fingerprint"
         payload: bytes | bytearray = bytearray(b"axioms") if writable else b"axioms"
         self.buffers = {
             "axioms": memoryview(payload),
@@ -123,6 +123,34 @@ class EncodedNativeDispatchTests(unittest.TestCase):
     def test_malformed_advertised_buffer_fails_without_scalar_fallback(self) -> None:
         view = _View(schemas={ENCODED_SCHEMA_NAME: 1}, writable=True)
         with self.assertRaisesRegex(SnapshotCompatibilityError, "writable buffer"):
+            select_ingestion(
+                view,
+                selected_backend="native",
+                native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                core_module=_core(),
+            )
+
+    def test_encoded_fingerprint_is_distinct_from_the_owner_fingerprint(self) -> None:
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        decision = select_ingestion(
+            view,
+            selected_backend="native",
+            native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+            core_module=_core(),
+        )
+
+        self.assertEqual(decision.path, "encoded-native")
+        self.assertNotEqual(
+            view.structural_fingerprint,
+            cast(_EncodedStructuralView, view.view(_EncodedStructuralView)).structural_fingerprint,
+        )
+
+    def test_encoded_fingerprint_wrong_type_fails_before_native_compilation(self) -> None:
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        encoded = _EncodedStructuralView(view, writable=False)
+        cast(Any, encoded).structural_fingerprint = None
+        view.view = lambda _view_type, **_options: encoded  # type: ignore[method-assign]
+        with self.assertRaisesRegex(SnapshotCompatibilityError, "fingerprint"):
             select_ingestion(
                 view,
                 selected_backend="native",
