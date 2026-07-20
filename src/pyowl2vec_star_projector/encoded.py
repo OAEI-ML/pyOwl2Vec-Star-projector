@@ -188,9 +188,7 @@ def _advertised_schema_version(view: object) -> int | None:
     if schemas is None:
         return None
     if not isinstance(schemas, Mapping):
-        raise SnapshotCompatibilityError(
-            "core encoded_view_schemas capability is not a mapping"
-        )
+        raise SnapshotCompatibilityError("core encoded_view_schemas capability is not a mapping")
     value = schemas.get(ENCODED_SCHEMA_NAME)
     if value is None:
         return None
@@ -209,9 +207,7 @@ def _validate_encoded_view(
     requested_scope: object,
 ) -> EncodedStructuralLease:
     if not isinstance(encoded, encoded_type):
-        raise SnapshotCompatibilityError(
-            "core encoded view factory returned the wrong public type"
-        )
+        raise SnapshotCompatibilityError("core encoded view factory returned the wrong public type")
     schema_name = getattr(encoded, "schema_name", None)
     schema_version = getattr(encoded, "schema_version", None)
     model_schema = getattr(encoded, "model_schema", None)
@@ -240,9 +236,7 @@ def _validate_encoded_view(
         )
     expected_model = getattr(getattr(source_view, "capabilities", None), "model_schema", None)
     if type(model_schema) is not int or model_schema != expected_model:
-        raise SnapshotCompatibilityError(
-            "core encoded view model schema does not match its owner"
-        )
+        raise SnapshotCompatibilityError("core encoded view model schema does not match its owner")
     if owner is not source_view:
         raise SnapshotCompatibilityError(
             "core encoded view did not retain the exact source view identity"
@@ -261,10 +255,7 @@ def _validate_encoded_view(
         "descriptor_digest",
         authoritative_descriptor_digest,
     )
-    if (
-        type(descriptor_digest) is not bytes
-        or descriptor_digest != authoritative_descriptor_digest
-    ):
+    if type(descriptor_digest) is not bytes or descriptor_digest != authoritative_descriptor_digest:
         raise SnapshotCompatibilityError(
             "core encoded view descriptor digest does not match its immutable descriptor"
         )
@@ -320,9 +311,7 @@ def _validate_encoded_view(
     )
     source_fingerprint = getattr(source_view, "structural_fingerprint", None)
     if source_fingerprint is None or type(fingerprint) is not type(source_fingerprint):
-        raise SnapshotCompatibilityError(
-            "core encoded view fingerprint has the wrong public type"
-        )
+        raise SnapshotCompatibilityError("core encoded view fingerprint has the wrong public type")
     return EncodedStructuralLease(
         encoded_view=encoded,
         owner=owner,
@@ -357,8 +346,7 @@ def _borrowed_bytes(name: str, value: object) -> memoryview:
         or value.strides != (1,)
     ):
         raise SnapshotCompatibilityError(
-            "core encoded view must expose one-dimensional unsigned-byte "
-            "C-contiguous buffers",
+            "core encoded view must expose one-dimensional unsigned-byte C-contiguous buffers",
             details={"buffer": name},
         )
     return value
@@ -525,9 +513,7 @@ def _validate_segments(
             "core encoded segment manifest must be a nonempty exact tuple"
         )
     segment_limit = _public_limit(top_owner, "max_composite_members")
-    maximum_segments = (
-        _DEFAULT_MAX_SEGMENTS if segment_limit is None else segment_limit + 1
-    )
+    maximum_segments = _DEFAULT_MAX_SEGMENTS if segment_limit is None else segment_limit + 1
     if len(raw_segments) > maximum_segments:
         raise SnapshotCompatibilityError("core encoded segment manifest exceeds its bound")
     _enforce_public_limit(top_owner, "max_index_rows", len(raw_segments))
@@ -564,9 +550,7 @@ def _validate_segments(
         }:
             raise SnapshotCompatibilityError("core encoded segment posting mode is invalid")
         root_ids = _borrowed_segment_bytes("root_ids", raw_root_ids, 4)
-        anonymous_scope_map = _borrowed_segment_bytes(
-            "anonymous_scope_map", raw_scope_map, 64
-        )
+        anonymous_scope_map = _borrowed_segment_bytes("anonymous_scope_map", raw_scope_map, 64)
         posting_bytes += root_ids.nbytes + anonymous_scope_map.nbytes
         posting_rows += root_ids.nbytes // 4 + anonymous_scope_map.nbytes // 64
         _enforce_public_limit(top_owner, "max_index_rows", posting_rows)
@@ -683,14 +667,10 @@ def _segment_root_count(
         or type(getattr(source, "model_schema", None)) is not int
         or getattr(source, "model_schema", None) != 1
     ):
-        raise SnapshotCompatibilityError(
-            "core encoded segment source schema is incompatible"
-        )
+        raise SnapshotCompatibilityError("core encoded segment source schema is incompatible")
     source_descriptor = getattr(source, "descriptor", None)
     source_digest = (
-        hashlib.sha256(source_descriptor).digest()
-        if type(source_descriptor) is bytes
-        else None
+        hashlib.sha256(source_descriptor).digest() if type(source_descriptor) is bytes else None
     )
     advertised_digest = getattr(source, "descriptor_digest", source_digest)
     if (
@@ -698,15 +678,11 @@ def _segment_root_count(
         or type(advertised_digest) is not bytes
         or advertised_digest != source_digest
     ):
-        raise SnapshotCompatibilityError(
-            "core encoded segment source descriptor is incompatible"
-        )
+        raise SnapshotCompatibilityError("core encoded segment source descriptor is incompatible")
     source_buffers = getattr(source, "buffers", None)
     if not isinstance(source_buffers, Mapping):
         raise SnapshotCompatibilityError("core encoded segment source buffers are invalid")
-    root_kinds = _borrowed_segment_bytes(
-        "source.root_kinds", source_buffers.get("root_kinds"), 1
-    )
+    root_kinds = _borrowed_segment_bytes("source.root_kinds", source_buffers.get("root_kinds"), 1)
     root_ids = _borrowed_segment_bytes("source.root_ids", source_buffers.get("root_ids"), 4)
     if root_kinds.nbytes != root_ids.nbytes // 4:
         raise SnapshotCompatibilityError(
@@ -776,9 +752,7 @@ def _validate_segment_family(
                 or delta.member_token is not None
                 or not local_root_count
             ):
-                raise SnapshotCompatibilityError(
-                    "core encoded overlay delta segment is invalid"
-                )
+                raise SnapshotCompatibilityError("core encoded overlay delta segment is invalid")
         return
     member_count = roles.count(_SEGMENT_COMPOSITE_MEMBER)
     bridge_count = roles.count(_SEGMENT_COMPOSITE_BRIDGE)
@@ -791,8 +765,7 @@ def _validate_segment_family(
         if (
             member.source is None
             or member.owner is not getattr(member.source, "owner", _MISSING)
-            or member.posting_mode
-            not in {_POSTINGS_ALL, _POSTINGS_INCLUDE, _POSTINGS_EXCLUDE}
+            or member.posting_mode not in {_POSTINGS_ALL, _POSTINGS_INCLUDE, _POSTINGS_EXCLUDE}
         ):
             raise SnapshotCompatibilityError("core encoded composite member is invalid")
     if bridge_count:
@@ -807,9 +780,7 @@ def _validate_segment_family(
         ):
             raise SnapshotCompatibilityError("core encoded composite bridge is invalid")
     elif local_root_count:
-        raise SnapshotCompatibilityError(
-            "core encoded composite without bridge has local roots"
-        )
+        raise SnapshotCompatibilityError("core encoded composite without bridge has local roots")
 
 
 def _row_count(buffers: Mapping[str, memoryview], name: str) -> int:

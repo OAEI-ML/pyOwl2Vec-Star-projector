@@ -306,9 +306,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
             "scope": lambda encoded: setattr(encoded, "scope", "root-token"),
             "segments": lambda encoded: setattr(encoded, "segments", ()),
             "owner": lambda encoded: setattr(encoded.segments[0], "owner", object()),
-            "postings": lambda encoded: setattr(
-                encoded.segments[0], "root_ids", _uint_rows(4, 1)
-            ),
+            "postings": lambda encoded: setattr(encoded.segments[0], "root_ids", _uint_rows(4, 1)),
         }
         for label, mutate in cases.items():
             with self.subTest(label):

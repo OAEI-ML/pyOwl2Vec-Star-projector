@@ -42,9 +42,10 @@ over retained read-only byte views. This validation constructs no OWL value or d
 does not advertise or promote the unfinished encoded-native compiler path.
 
 The internal compiler slice additionally preflights canonical direct views containing only
-declarations, simple named-class `SubClassOf` and `EquivalentClasses` axioms, simple named
-`ClassAssertion` axioms, direct `ObjectPropertyAssertion` axioms over named or anonymous
-individuals, and named object-property domain/range axioms. Anonymous identifiers use the scalar
+declarations; `SubClassOf`, `EquivalentClasses`, `ClassAssertion`, and object-property
+domain/range axioms over named classes, intersections/unions, and the validated restriction
+envelope; direct `ObjectPropertyAssertion` axioms over named or anonymous individuals; and named
+role axioms. Anonymous identifiers use the scalar
 profile's `_:genid2147483648` sequence in canonical encoded-node order; the compiler validates but
 does not expose or reinterpret their document scope and local key. For a single-document closure,
 the slice also emits allowlisted class `AnnotationAssertion` edges in the pinned category order,
@@ -68,6 +69,17 @@ compilation before output. The slice emits direct ABox triples and streams restr
 domain/range edges with that state through the existing projector `Edge` IR in caller-bounded
 batches, without reconstructing core OWL values. The dedicated asserted-taxonomy API preflights
 the same slice but emits only named-to-named `SubClassOf` edges.
+
+Within that validated expression envelope, non-projecting combinations stay encoded-native and
+reproduce scalar `MOWL_IGNORED_SHAPE` counts by root constructor: complex/complex and
+named/aggregate `SubClassOf`, direct restriction or otherwise unsupported ordered
+`EquivalentClasses` pairs, complex or anonymous-individual `ClassAssertion`, and complex
+domain/range expressions. `EquivalentClasses` still examines only the first two expressions in
+pinned expression order. Consequently, an n-ary axiom whose first two expressions are named emits
+only that named pair and silently ignores a later aggregate or restriction. Constructors not
+semantically validated by this bounded slice, including inverse properties in restrictions,
+complex restriction fillers, complement expressions, and property chains, continue to select
+whole-operation scalar compilation before output.
 
 One bounded segmented form uses the same compiler: an overlay-base manifest may reference a fully
 revalidated canonical direct closure with `ALL` or sorted `EXCLUDE` root postings. It may either

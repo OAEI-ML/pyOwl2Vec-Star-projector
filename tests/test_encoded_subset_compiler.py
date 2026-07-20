@@ -54,6 +54,39 @@ from tests.support.core_views import ConformingView
 
 ROOT = Path(__file__).resolve().parents[1]
 
+_VALIDATED_COMPLEX_EXPRESSIONS = (
+    ("intersection", "ObjectIntersectionOf(:B :C)"),
+    ("union", "ObjectUnionOf(:B :C)"),
+    ("some", "ObjectSomeValuesFrom(:p :B)"),
+    ("all", "ObjectAllValuesFrom(:p :B)"),
+    ("minimum", "ObjectMinCardinality(1 :p :B)"),
+    ("maximum", "ObjectMaxCardinality(1 :p :B)"),
+)
+
+_IGNORED_COMPLEX_ROOTS = (
+    (
+        "subclass",
+        "SubClassOf({expression} ObjectUnionOf(:Y :Z))",
+        "SubClassOf",
+    ),
+    (
+        "equivalent",
+        "EquivalentClasses({expression} ObjectMaxCardinality(7 :q :Z))",
+        "EquivalentClasses",
+    ),
+    ("class-assertion", "ClassAssertion({expression} :i)", "ClassAssertion"),
+    (
+        "domain",
+        "ObjectPropertyDomain(:q {expression})",
+        "ObjectPropertyDomain",
+    ),
+    (
+        "range",
+        "ObjectPropertyRange(:q {expression})",
+        "ObjectPropertyRange",
+    ),
+)
+
 
 def _snapshot(body: str) -> object:
     source = f"Prefix(:=<urn:slice#>) Ontology(<urn:slice> {body})".encode()
@@ -3243,6 +3276,214 @@ def test_named_aggregate_equivalence_matches_scalar_operand_order_and_roles() ->
                 assert Edge("urn:slice#D", "urn:slice#pinv", "urn:slice#A") in actual
 
 
+@pytest.mark.parametrize(
+    ("root_name", "template", "constructor"),
+    _IGNORED_COMPLEX_ROOTS,
+    ids=[row[0] for row in _IGNORED_COMPLEX_ROOTS],
+)
+@pytest.mark.parametrize(
+    ("expression_name", "expression"),
+    _VALIDATED_COMPLEX_EXPRESSIONS,
+    ids=[row[0] for row in _VALIDATED_COMPLEX_EXPRESSIONS],
+)
+def test_validated_complex_root_shapes_match_scalar_ignored_diagnostics(
+    root_name: str,
+    template: str,
+    constructor: str,
+    expression_name: str,
+    expression: str,
+) -> None:
+    del root_name, expression_name
+    view = _snapshot(template.format(expression=expression))
+    lease = _lease(view)
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    scalar = Projector()
+    expected = scalar.project(view, options=python_options)
+    assert scalar.last_report is not None
+    scalar_report = scalar.last_report.to_dict()
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("validated ignored shape crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(
+            view,
+            options=replace(python_options, backend="native"),
+        )
+
+    assert actual == expected == []
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+    assert projector.last_report.provenance.ingestion.path == "encoded-native"
+    ignored = tuple(
+        (item.constructor, item.count)
+        for item in projector.last_report.diagnostics
+        if item.code == "MOWL_IGNORED_SHAPE"
+    )
+    assert ignored == ((constructor, 1),)
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.scalar_fallbacks == 0
+    assert counters.raw_edges == counters.edge_batches == 0
+
+
+def test_ignored_shapes_and_mixed_nary_equivalence_match_all_scalar_options() -> None:
+    view = _snapshot(
+        'SubClassOf(Annotation(<urn:meta> "both-complex") '
+        "ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B)) "
+        "SubClassOf(:AggregateSubject ObjectIntersectionOf(:C :D)) "
+        'EquivalentClasses(Annotation(<urn:meta> "restriction") '
+        ":IgnoredEquivalent ObjectMinCardinality(2 :p :E)) "
+        "EquivalentClasses(:MixA :MixB ObjectIntersectionOf(:LaterA :LaterB)) "
+        "EquivalentClasses(:Lead ObjectUnionOf(:OpB :OpA) "
+        "ObjectSomeValuesFrom(:p :Trailing)) "
+        'ClassAssertion(Annotation(<urn:meta> "complex-class") '
+        "ObjectMaxCardinality(3 :p :F) :complexIndividual) "
+        "ClassAssertion(:NamedClass _:anonymous) "
+        'ObjectPropertyDomain(Annotation(<urn:meta> "complex-domain") '
+        ":p ObjectUnionOf(:DomainA :DomainB)) "
+        'ObjectPropertyRange(Annotation(<urn:meta> "complex-range") '
+        ":p ObjectAllValuesFrom(:q :Range)) "
+        "SubClassOf(:RoleSubject ObjectSomeValuesFrom(:p :RoleTarget)) "
+        "SubClassOf(:TaxA :TaxB) ClassAssertion(:TaxA :namedIndividual)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            only_taxonomy=True,
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("ignored-shape tranche crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=2,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert Edge("urn:slice#MixA", SUBCLASS_OF, "urn:slice#MixB") in actual
+            assert not any("Later" in edge.source or "Later" in edge.destination for edge in actual)
+            assert Edge("urn:slice#Lead", SUBCLASS_OF, "urn:slice#OpA") in actual
+            assert Edge("urn:slice#Lead", SUBCLASS_OF, "urn:slice#OpB") in actual
+            assert not any(edge.destination == "urn:slice#Trailing" for edge in actual)
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            ignored = {
+                item.constructor: item.count
+                for item in projector.last_report.diagnostics
+                if item.code == "MOWL_IGNORED_SHAPE"
+            }
+            assert ignored == {
+                "ClassAssertion": 2,
+                "EquivalentClasses": 1,
+                "ObjectPropertyDomain": 1,
+                "ObjectPropertyRange": 1,
+                "SubClassOf": 3 if options.only_taxonomy else 2,
+            }
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.scalar_fallbacks == 0
+            assert counters.raw_edges >= 1
+
+
+def test_segmented_ignored_shapes_preserve_differential_diagnostics_and_leases() -> None:
+    source_body = (
+        "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B)) "
+        "EquivalentClasses(:MixA :MixB ObjectIntersectionOf(:LaterA :LaterB))"
+    )
+    delta_body = (
+        "ClassAssertion(ObjectMinCardinality(2 :p :C) :i) "
+        "ObjectPropertyDomain(:p ObjectUnionOf(:D :E))"
+    )
+    source = _snapshot(source_body)
+    delta = _snapshot(delta_body)
+    overlay = _snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(backend="python", duplicates="unique", order="canonical")
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("segmented ignored shapes crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected == [Edge("urn:slice#MixA", SUBCLASS_OF, "urn:slice#MixB")]
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 4
+        assert counters.scalar_fallbacks == 0
+        assert counters.referenced_segments in {1, 2}
+
+
 def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -> None:
     view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))")
     lease = _lease(view)
@@ -3283,22 +3524,11 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
 @pytest.mark.parametrize(
     "body",
     [
-        "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B))",
-        "ClassAssertion(ObjectSomeValuesFrom(:p :B) :i)",
-        "ClassAssertion(:A _:anon)",
-        "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
         "EquivalentObjectProperties(:p :q)",
         "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
-        "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
-        "EquivalentClasses(:A :B ObjectIntersectionOf(:C :D))",
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
-        'EquivalentClasses(Annotation(<urn:a> "x") :A ObjectSomeValuesFrom(:p :B))',
-        'ClassAssertion(Annotation(<urn:a> "x") ObjectSomeValuesFrom(:p :B) :i)',
-        'ObjectPropertyRange(Annotation(<urn:a> "x") :p ObjectIntersectionOf(:R :S))',
         'SubObjectPropertyOf(Annotation(<urn:a> "x") ObjectPropertyChain(:p :q) :r)',
-        'SubClassOf(Annotation(<urn:a> "x") '
-        "ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -3400,7 +3630,11 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
         "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
+        "SubClassOf(ObjectSomeValuesFrom(:p :D) ObjectAllValuesFrom(:q :E)) "
         "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D))) "
+        "ClassAssertion(ObjectMinCardinality(2 :p :D) :complexIndividual) "
+        "ObjectPropertyDomain(:p ObjectUnionOf(:C :D)) "
+        "ObjectPropertyRange(:p ObjectMaxCardinality(3 :q :E)) "
         'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "label")'
     )
     lease = _lease(view)
@@ -3435,16 +3669,16 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert len(actual) == 2
     counters = projector.last_encoded_counters
     assert counters is not None
-    assert counters.subclass_axioms == 2
-    assert counters.restriction_subclass_axioms == 1
+    assert counters.subclass_axioms == 3
+    assert counters.restriction_subclass_axioms == 2
     assert counters.equivalent_axioms == 2
     assert counters.aggregate_equivalent_axioms == 1
-    assert counters.class_assertion_axioms == 1
+    assert counters.class_assertion_axioms == 2
     assert counters.sub_object_property_axioms == 1
     assert counters.inverse_object_property_axioms == 1
     assert counters.object_property_assertion_axioms == 2
-    assert counters.object_property_domain_axioms == 1
-    assert counters.object_property_range_axioms == 1
+    assert counters.object_property_domain_axioms == 2
+    assert counters.object_property_range_axioms == 2
     assert counters.annotation_assertion_axioms == 1
     assert counters.anonymous_individuals == 1
     assert counters.literal_nodes == 1
@@ -3546,6 +3780,185 @@ def test_equivalent_class_set_corruption_fails_before_edge_output(corruption: st
             EncodedNegotiation("encoded-native", lease=hostile),
             batch_edges=1,
         )
+
+
+@pytest.mark.parametrize(
+    ("body", "tag", "arity"),
+    [
+        (
+            "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
+            61,
+            3,
+        ),
+        ("EquivalentClasses(:A ObjectSomeValuesFrom(:p :B))", 62, 2),
+        ("ClassAssertion(ObjectSomeValuesFrom(:p :B) :i)", 112, 3),
+        ("ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))", 74, 3),
+        ("ObjectPropertyRange(:p ObjectMaxCardinality(2 :q :B))", 75, 3),
+    ],
+    ids=["subclass", "equivalent", "class-assertion", "domain", "range"],
+)
+def test_validated_ignored_root_arity_corruption_fails_before_output(
+    body: str,
+    tag: int,
+    arity: int,
+) -> None:
+    view = _snapshot(body)
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    node_id = next(
+        index
+        for index in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == tag
+    )
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = node_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match="arity") as raised:
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+    assert raised.value.details["expected_arity"] == arity
+
+
+@pytest.mark.parametrize(
+    ("body", "root_tag", "field_delta"),
+    [
+        (
+            "SubClassOf(:A ObjectIntersectionOf(:B :C)) Declaration(ObjectProperty(:wrong))",
+            61,
+            1,
+        ),
+        (
+            "ClassAssertion(ObjectSomeValuesFrom(:p :B) :i) Declaration(ObjectProperty(:wrong))",
+            112,
+            0,
+        ),
+        (
+            "ObjectPropertyDomain(:p ObjectUnionOf(:A :B)) Declaration(ObjectProperty(:wrong))",
+            74,
+            1,
+        ),
+        (
+            "ObjectPropertyRange(:p ObjectMaxCardinality(2 :q :B)) "
+            "Declaration(ObjectProperty(:wrong))",
+            75,
+            1,
+        ),
+    ],
+    ids=["subclass", "class-assertion", "domain", "range"],
+)
+def test_hostile_wrong_kind_complex_root_reference_selects_scalar_before_output(
+    body: str,
+    root_tag: int,
+    field_delta: int,
+) -> None:
+    view = _snapshot(body)
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_object_property_iri(node_id) == "urn:slice#wrong"
+    )
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    root_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == root_tag
+    )
+    offsets = buffers["node_field_offsets"]
+    field_start = int.from_bytes(offsets[(root_id - 1) * 8 : root_id * 8], "little")
+    values = bytearray(buffers["field_values"])
+    field_offset = (field_start + field_delta) * 8
+    values[field_offset : field_offset + 8] = wrong_id.to_bytes(8, "little")
+    buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        view,
+        ProjectionOptions(backend="native"),
+        EncodedNegotiation("encoded-native", lease=hostile),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert "whole-operation scalar compiler" in (negotiation.reason or "")
+    assert counters is not None
+    assert counters.scalar_fallbacks == 1
+    assert counters.raw_edges == counters.edge_batches == 0
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["equivalent-root", "aggregate-operand"])
+def test_hostile_wrong_kind_equivalent_set_reference_selects_scalar_before_output(
+    nested: bool,
+) -> None:
+    body = (
+        "EquivalentClasses(:A ObjectIntersectionOf(:B :C)) Declaration(ObjectProperty(:wrong))"
+        if nested
+        else "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B)) Declaration(ObjectProperty(:wrong))"
+    )
+    view = _snapshot(body)
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_object_property_iri(node_id) == "urn:slice#wrong"
+    )
+    target_tag = 30 if nested else 62
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    target_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == target_tag
+    )
+    offsets = buffers["node_field_offsets"]
+    field_start = int.from_bytes(offsets[(target_id - 1) * 8 : target_id * 8], "little")
+    field_values = buffers["field_values"]
+    item_start = int.from_bytes(
+        field_values[field_start * 8 : (field_start + 1) * 8],
+        "little",
+    )
+    item_length = int.from_bytes(
+        buffers["field_lengths"][field_start * 8 : (field_start + 1) * 8],
+        "little",
+    )
+    item_values = bytearray(buffers["item_values"])
+    item_ids = [
+        int.from_bytes(item_values[index * 8 : (index + 1) * 8], "little")
+        for index in range(item_start, item_start + item_length)
+    ]
+    item_ids[-1] = wrong_id
+    item_ids.sort()
+    assert len(set(item_ids)) == item_length
+    for index, node_id in enumerate(item_ids, item_start):
+        item_values[index * 8 : (index + 1) * 8] = node_id.to_bytes(8, "little")
+    buffers["item_values"] = memoryview(bytes(item_values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        view,
+        ProjectionOptions(backend="native"),
+        EncodedNegotiation("encoded-native", lease=hostile),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert counters is not None
+    assert counters.scalar_fallbacks == 1
+    assert counters.raw_edges == counters.edge_batches == 0
 
 
 @pytest.mark.parametrize(
