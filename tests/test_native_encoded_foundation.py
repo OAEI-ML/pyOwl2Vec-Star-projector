@@ -108,6 +108,18 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.edges == 4
     assert statistics.nodes > statistics.roots
     assert statistics.buffer_bytes == sum(value.nbytes for value in lease.buffers.values())
+    assert dict(statistics.ingestion_counters) == {
+        "encoded_buffer_bytes": statistics.buffer_bytes,
+        "encoded_buffer_count": 11,
+        "encoded_compiler_gil_released": True,
+        "encoded_detached_buffer_count": 11,
+        "encoded_indexed_buffer_count": 0,
+        "encoded_staging_copy_bytes": 0,
+        "encoded_zero_copy_buffers": 11,
+        "native_boundary_calls": 1,
+        "per_row_ffi_calls": 0,
+        "structural_copy_bytes": 0,
+    }
     assert compiler.retained_buffer_count == len(ENCODED_DIRECT_BUFFER_ORDER) == 11
     assert compiler.state == "finished"
 

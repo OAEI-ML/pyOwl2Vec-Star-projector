@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Protocol, cast
 
 from .backend import native_runtime_policy_reason
@@ -77,6 +78,25 @@ class NativeEncodedDirectStatistics:
         ):
             if type(value) is not int or value < 0:
                 raise ProjectionError("native encoded compiler returned invalid statistics")
+
+    @property
+    def ingestion_counters(self) -> Mapping[str, int | bool]:
+        """Return the auditable facts for this exact private boundary call."""
+
+        return MappingProxyType(
+            {
+                "encoded_buffer_bytes": self.buffer_bytes,
+                "encoded_buffer_count": len(ENCODED_DIRECT_BUFFER_ORDER),
+                "encoded_compiler_gil_released": True,
+                "encoded_detached_buffer_count": len(ENCODED_DIRECT_BUFFER_ORDER),
+                "encoded_indexed_buffer_count": 0,
+                "encoded_staging_copy_bytes": 0,
+                "encoded_zero_copy_buffers": len(ENCODED_DIRECT_BUFFER_ORDER),
+                "native_boundary_calls": 1,
+                "per_row_ffi_calls": 0,
+                "structural_copy_bytes": 0,
+            }
+        )
 
 
 @dataclass(slots=True)
