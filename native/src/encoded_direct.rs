@@ -108,6 +108,14 @@ const TAG_ANNOTATION_ASSERTION: u16 = 120;
 const TAG_SUB_ANNOTATION_PROPERTY_OF: u16 = 121;
 const TAG_ANNOTATION_PROPERTY_DOMAIN: u16 = 122;
 const TAG_ANNOTATION_PROPERTY_RANGE: u16 = 123;
+const TAG_VARIABLE: u16 = 140;
+const TAG_CLASS_ATOM: u16 = 141;
+const TAG_DATA_RANGE_ATOM: u16 = 142;
+const TAG_OBJECT_PROPERTY_ATOM: u16 = 143;
+const TAG_DATA_PROPERTY_ATOM: u16 = 144;
+const TAG_BUILT_IN_ATOM: u16 = 145;
+const TAG_SAME_INDIVIDUAL_ATOM: u16 = 146;
+const TAG_DIFFERENT_INDIVIDUALS_ATOM: u16 = 147;
 const TAG_SWRL_RULE: u16 = 148;
 
 const SUBCLASS_OF: &str = "http://subclassof";
@@ -214,6 +222,7 @@ pub(crate) struct DirectCompileStats {
     pub(crate) roots: usize,
     pub(crate) nodes: usize,
     pub(crate) ontology_annotations: usize,
+    pub(crate) swrl_rules: usize,
     pub(crate) declarations: usize,
     pub(crate) subclasses: usize,
     pub(crate) restriction_subclasses: usize,
@@ -344,6 +353,7 @@ pub(crate) struct DirectCompileOptions {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct RootCounts {
     ontology_annotations: usize,
+    swrl_rules: usize,
     declarations: usize,
     subclasses: usize,
     restriction_subclasses: usize,
@@ -2370,6 +2380,187 @@ impl<'a> DirectColumns<'a> {
         }
     }
 
+    fn validate_variable(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_VARIABLE {
+            return Err(KernelError::malformed(
+                "encoded Variable cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 1)?;
+        self.iri(self.field_node(start)?, maximum_iri)
+            .map(|_iri| ())
+    }
+
+    fn validate_swrl_individual_argument(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? == TAG_VARIABLE {
+            self.validate_variable(node_id, maximum_iri)
+        } else {
+            self.validate_individual(node_id, maximum_iri)
+        }
+    }
+
+    fn validate_swrl_data_argument(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_VARIABLE => self.validate_variable(node_id, maximum_iri),
+            TAG_LITERAL => self.validate_literal(node_id, maximum_iri),
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
+                "encoded SWRL data argument is not a Variable or Literal",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded SWRL data-argument tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn validate_swrl_class_expression(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => self.named_class_iri(node_id, maximum_iri).map(|_iri| ()),
+            tag if is_restriction_tag(tag) => {
+                self.restriction_parts(node_id, maximum_iri).map(|_parts| ())
+            }
+            TAG_OBJECT_ONE_OF | TAG_OBJECT_HAS_VALUE | TAG_OBJECT_HAS_SELF => {
+                self.validate_nonprojecting_class_expression(node_id, maximum_iri)
+            }
+            TAG_OBJECT_COMPLEMENT_OF => {
+                let start = self.exact_fields(node_id, 1)?;
+                let operand_id = self.field_node(start)?;
+                match self.node_tag(operand_id)? {
+                    TAG_ENTITY => self
+                        .named_class_iri(operand_id, maximum_iri)
+                        .map(|_iri| ()),
+                    tag if is_restriction_tag(tag) => self
+                        .restriction_parts(operand_id, maximum_iri)
+                        .map(|_parts| ()),
+                    TAG_OBJECT_ONE_OF | TAG_OBJECT_HAS_VALUE | TAG_OBJECT_HAS_SELF => self
+                        .validate_nonprojecting_class_expression(operand_id, maximum_iri),
+                    tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                        "direct native SWRL ClassAtom complement is outside the bounded class-expression envelope",
+                    )),
+                    tag => Err(KernelError::malformed(format!(
+                        "encoded SWRL class-expression tag {tag} is outside structural-columns v1",
+                    ))),
+                }
+            }
+            TAG_OBJECT_INTERSECTION_OF | TAG_OBJECT_UNION_OF => {
+                let start = self.exact_fields(node_id, 1)?;
+                let (item_start, length) = self.node_set_range(start, 2)?;
+                for item_index in item_start..item_start + length {
+                    let operand_id = self.item_node(item_index)?;
+                    match self.node_tag(operand_id)? {
+                        TAG_ENTITY => {
+                            self.named_class_iri(operand_id, maximum_iri)?;
+                        }
+                        tag if is_restriction_tag(tag) => {
+                            self.restriction_parts(operand_id, maximum_iri)?;
+                        }
+                        TAG_OBJECT_COMPLEMENT_OF
+                        | TAG_OBJECT_ONE_OF
+                        | TAG_OBJECT_HAS_VALUE
+                        | TAG_OBJECT_HAS_SELF => {
+                            self.validate_swrl_class_expression(operand_id, maximum_iri)?;
+                        }
+                        tag if SCHEMA_TAGS.contains(&tag) => {
+                            return Err(KernelError::unsupported(
+                                "direct native SWRL ClassAtom aggregate is outside the bounded class-expression envelope",
+                            ));
+                        }
+                        tag => {
+                            return Err(KernelError::malformed(format!(
+                                "encoded SWRL class-expression tag {tag} is outside structural-columns v1",
+                            )));
+                        }
+                    }
+                }
+                Ok(())
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native SWRL ClassAtom predicate is outside the bounded class-expression envelope",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded SWRL class-expression tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn validate_swrl_atom(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_CLASS_ATOM => {
+                let start = self.exact_fields(node_id, 2)?;
+                self.validate_swrl_class_expression(self.field_node(start)?, maximum_iri)?;
+                self.validate_swrl_individual_argument(self.field_node(start + 1)?, maximum_iri)
+            }
+            TAG_DATA_RANGE_ATOM => {
+                let start = self.exact_fields(node_id, 2)?;
+                self.validate_bounded_data_range(self.field_node(start)?, maximum_iri)?;
+                self.validate_swrl_data_argument(self.field_node(start + 1)?, maximum_iri)
+            }
+            TAG_OBJECT_PROPERTY_ATOM => {
+                let start = self.exact_fields(node_id, 3)?;
+                self.object_property_expression(self.field_node(start)?, maximum_iri)?;
+                self.validate_swrl_individual_argument(self.field_node(start + 1)?, maximum_iri)?;
+                self.validate_swrl_individual_argument(self.field_node(start + 2)?, maximum_iri)
+            }
+            TAG_DATA_PROPERTY_ATOM => {
+                let start = self.exact_fields(node_id, 3)?;
+                self.named_data_property_iri(self.field_node(start)?, maximum_iri)?;
+                self.validate_swrl_individual_argument(self.field_node(start + 1)?, maximum_iri)?;
+                self.validate_swrl_data_argument(self.field_node(start + 2)?, maximum_iri)
+            }
+            TAG_BUILT_IN_ATOM => {
+                let start = self.exact_fields(node_id, 2)?;
+                self.iri(self.field_node(start)?, maximum_iri)?;
+                let (item_start, length) = self.node_sequence_range(start + 1, 0)?;
+                for item_index in item_start..item_start + length {
+                    self.validate_swrl_data_argument(self.item_node(item_index)?, maximum_iri)?;
+                }
+                Ok(())
+            }
+            TAG_SAME_INDIVIDUAL_ATOM | TAG_DIFFERENT_INDIVIDUALS_ATOM => {
+                let start = self.exact_fields(node_id, 2)?;
+                self.validate_swrl_individual_argument(self.field_node(start)?, maximum_iri)?;
+                self.validate_swrl_individual_argument(self.field_node(start + 1)?, maximum_iri)
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
+                "encoded SWRL atom cursor has the wrong constructor tag",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded SWRL atom tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn validate_swrl_rule(self, node_id: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_SWRL_RULE {
+            return Err(KernelError::malformed(
+                "encoded SWRLRule cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        for index in [start, start + 1] {
+            let (item_start, length) = self.node_set_range(index, 0)?;
+            for item_index in item_start..item_start + length {
+                if !is_swrl_atom_tag(self.node_tag(self.item_node(item_index)?)?) {
+                    return Err(KernelError::malformed(
+                        "encoded SWRLRule body or head contains a non-atom",
+                    ));
+                }
+            }
+        }
+        self.validate_annotation_set(start + 2)
+    }
+
     fn validate_supported_nodes(
         self,
         maximum_iri: usize,
@@ -2541,6 +2732,15 @@ impl<'a> DirectColumns<'a> {
                         maximum_iri,
                     )?;
                 }
+                TAG_VARIABLE => {
+                    self.validate_variable(node_id, maximum_iri)?;
+                }
+                tag if is_swrl_atom_tag(tag) => {
+                    self.validate_swrl_atom(node_id, maximum_iri)?;
+                }
+                TAG_SWRL_RULE => {
+                    self.validate_swrl_rule(node_id)?;
+                }
                 tag if is_object_property_characteristic(tag) => {
                     self.validate_object_property_characteristic(node_id, maximum_iri)?;
                 }
@@ -2698,11 +2898,10 @@ impl<'a> DirectColumns<'a> {
                     counts.ontology_annotations += 1;
                 }
                 (ROOT_EXTENSION, TAG_SWRL_RULE) => {
-                    return Err(KernelError::unsupported(
-                        "direct native slice does not support extensions",
-                    ));
+                    counts.swrl_rules += 1;
                 }
                 (ROOT_AXIOM, TAG_ANNOTATION)
+                | (ROOT_AXIOM, TAG_SWRL_RULE)
                 | (ROOT_ONTOLOGY_ANNOTATION, _)
                 | (ROOT_EXTENSION, _) => {
                     return Err(KernelError::malformed(
@@ -3424,6 +3623,7 @@ pub(crate) fn compile_direct_with_options(
         roots: columns.root_count(),
         nodes: columns.node_count(),
         ontology_annotations: counts.ontology_annotations,
+        swrl_rules: counts.swrl_rules,
         declarations: counts.declarations,
         subclasses: counts.subclasses,
         restriction_subclasses: counts.restriction_subclasses,
@@ -3580,6 +3780,19 @@ fn is_object_property_characteristic(tag: u16) -> bool {
         TAG_SYMMETRIC_OBJECT_PROPERTY,
         TAG_ASYMMETRIC_OBJECT_PROPERTY,
         TAG_TRANSITIVE_OBJECT_PROPERTY,
+    ]
+    .contains(&tag)
+}
+
+fn is_swrl_atom_tag(tag: u16) -> bool {
+    [
+        TAG_CLASS_ATOM,
+        TAG_DATA_RANGE_ATOM,
+        TAG_OBJECT_PROPERTY_ATOM,
+        TAG_DATA_PROPERTY_ATOM,
+        TAG_BUILT_IN_ATOM,
+        TAG_SAME_INDIVIDUAL_ATOM,
+        TAG_DIFFERENT_INDIVIDUALS_ATOM,
     ]
     .contains(&tag)
 }
@@ -5612,7 +5825,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_columns_and_unsupported_tags_fail_before_output() {
+    fn malformed_columns_and_wrong_constructor_tags_fail_before_output() {
         let mut malformed = named_subclass_fixture();
         malformed.root_ids[0..4].copy_from_slice(&99_u32.to_le_bytes());
         assert!(matches!(
@@ -5640,7 +5853,7 @@ mod tests {
                 1024,
                 &running_state()
             ),
-            Err(KernelError::Unsupported(_))
+            Err(KernelError::Malformed(_))
         ));
     }
 

@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 19
+ENCODED_DIRECT_KERNEL_VERSION = 20
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -65,6 +65,7 @@ class NativeEncodedDirectStatistics:
     roots: int
     nodes: int
     ontology_annotations: int
+    swrl_rules: int
     declarations: int
     subclasses: int
     restriction_subclasses: int
@@ -120,6 +121,7 @@ class NativeEncodedDirectStatistics:
             self.roots,
             self.nodes,
             self.ontology_annotations,
+            self.swrl_rules,
             self.declarations,
             self.subclasses,
             self.restriction_subclasses,
@@ -267,7 +269,7 @@ class NativeEncodedDirectCompiler:
         except Exception as error:
             raise _execution_error(error) from error
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 52:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 53:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)

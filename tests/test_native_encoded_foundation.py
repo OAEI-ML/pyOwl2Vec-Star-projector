@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pyowl_core
 import pytest
+from pyowl_core.backends.python import PythonParser
 
 from pyowl2vec_star_projector import (
     Edge,
@@ -62,6 +63,16 @@ def _snapshot(body: str) -> object:
             backend=pyowl_core.BackendPreference.PYTHON,
         ),
     )
+
+
+def _swrl_snapshot(body: str) -> object:
+    source = f"Prefix(:=<urn:native-direct#>) Ontology(<urn:native-direct> {body})".encode()
+    options = pyowl_core.LoadOptions(
+        imports=pyowl_core.ImportPolicy.IGNORE,
+        backend=pyowl_core.BackendPreference.PYTHON,
+    )
+    document = PythonParser().parse(source, options=options, allow_swrl=True)
+    return pyowl_core.load_snapshot(document, options=options)
 
 
 def _annotation_snapshot() -> object:
@@ -302,6 +313,26 @@ def _annotated_role_value_snapshot() -> object:
         'InverseObjectProperties(Annotation(<urn:meta> "inverse-expression") '
         "ObjectInverseOf(:p) :inverseExpression) "
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+
+
+def _swrl_extension_snapshot() -> object:
+    return _swrl_snapshot(
+        "SWRLRule(Annotation(<urn:meta> _:ruleMetadata) "
+        "(ClassAtom(ObjectIntersectionOf(:RuleOnly :RuleSupport) Variable(:x)) "
+        "DataRangeAtom(DataUnionOf(<http://www.w3.org/2001/XMLSchema#string> "
+        'DataOneOf("one")) Variable(:d)) '
+        "ObjectPropertyAtom(ObjectInverseOf(:p) Variable(:x) _:ruleIndividual) "
+        'DataPropertyAtom(:dp :named "v") '
+        'BuiltInAtom(<urn:builtin> Variable(:d) "n") '
+        "BuiltInAtom(<urn:zero>) SameIndividualAtom(Variable(:x) :named) "
+        "DifferentIndividualsAtom(_:ruleIndividual Variable(:x))) "
+        "(ClassAtom(ObjectSomeValuesFrom(:p :RuleOnly) Variable(:x)))) "
+        "SWRLRule(() ()) SubClassOf(:TaxA :TaxB) "
+        "ObjectPropertyAssertion(:u :named :other) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R) "
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> "
+        ':RuleOnly "rule class")'
     )
 
 
@@ -947,6 +978,208 @@ def test_role_annotation_value_hash_variants_match_scalar_overwrite_order() -> N
     assert statistics.inverse_object_properties == 6
     assert statistics.role_expansion_edges == 1
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize("include_literals", [False, True])
+def test_swrl_extensions_match_scalar_silent_semantics(include_literals: bool) -> None:
+    view = _swrl_extension_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            include_literals=include_literals,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        include_literals=include_literals,
+    )
+
+    exact = [
+        Edge(
+            "urn:native-direct#TaxA",
+            SUBCLASS_OF,
+            "urn:native-direct#TaxB",
+        )
+    ]
+    if include_literals:
+        exact.append(
+            Edge(
+                "urn:native-direct#RuleOnly",
+                "rdfs:label",
+                "rule class",
+            )
+        )
+    exact.extend(
+        [
+            Edge(
+                "urn:native-direct#named",
+                "urn:native-direct#u",
+                "urn:native-direct#other",
+            ),
+            Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
+        ]
+    )
+    assert actual == expected == exact
+    assert statistics.roots == 7
+    assert statistics.swrl_rules == 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_asserted_taxonomy_preflights_swrl_extensions_without_leakage() -> None:
+    view = _swrl_extension_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+        include_literals=True,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#TaxA", SUBCLASS_OF, "urn:native-direct#TaxB"),
+        Edge("urn:native-direct#TaxB", SUPERCLASS_OF, "urn:native-direct#TaxA"),
+    ]
+    assert statistics.swrl_rules == 2
+    assert statistics.annotation_edges == 0
+    assert statistics.domain_range_edges == 0
+    assert statistics.role_expansion_edges == 0
+
+
+def test_many_swrl_extensions_cross_one_zero_output_bounded_call() -> None:
+    rules = " ".join(
+        f'SWRLRule(Annotation(<urn:rule-meta-{index:03d}> "{index}") () ())'
+        for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_swrl_snapshot(rules)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == statistics.swrl_rules == 250
+    assert statistics.skipped_axioms == 0
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_unsupported_swrl_class_predicate_falls_back_before_output() -> None:
+    compiler = prepare_native_encoded_direct(
+        _lease(
+            _swrl_snapshot(
+                "SubClassOf(:Before :After) "
+                "SWRLRule((ClassAtom(ObjectExactCardinality(1 :p :A) "
+                "Variable(:x))) ())"
+            )
+        )
+    )
+
+    with pytest.raises(NativeEncodedDirectUnsupported, match="SWRL ClassAtom predicate"):
+        compiler.compile_batch(
+            bidirectional=True,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize("tag", range(140, 149))
+def test_swrl_constructor_arity_corruption_fails_before_output(tag: int) -> None:
+    lease = _lease(_swrl_extension_snapshot())
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+    node_id = next(
+        candidate
+        for candidate in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(candidate - 1) * 2 : candidate * 2], "little") == tag
+    )
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = node_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(
+            lease,
+            {"node_field_offsets": memoryview(bytes(offsets))},
+        )
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match="arity"):
+        compiler.compile_batch(
+            bidirectional=True,
+            max_edges=20,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize("corruption", ["root-kind", "body-kind", "variable-target"])
+def test_hostile_swrl_structure_fails_before_output(corruption: str) -> None:
+    lease = _lease(_swrl_extension_snapshot())
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    if corruption == "root-kind":
+        root_kinds = bytearray(buffers["root_kinds"])
+        extension_index = root_kinds.index(3)
+        root_kinds[extension_index] = 2
+        replacements = {"root_kinds": memoryview(bytes(root_kinds))}
+    elif corruption == "body-kind":
+        field_kinds = bytearray(buffers["field_kinds"])
+        field_kinds[field_start(tagged_node(148))] = 7
+        replacements = {"field_kinds": memoryview(bytes(field_kinds))}
+    else:
+        field_values = bytearray(buffers["field_values"])
+        variable_field = field_start(tagged_node(140))
+        class_atom_field = field_start(tagged_node(141))
+        class_id = int.from_bytes(
+            field_values[class_atom_field * 8 : (class_atom_field + 1) * 8],
+            "little",
+        )
+        field_values[variable_field * 8 : (variable_field + 1) * 8] = class_id.to_bytes(
+            8,
+            "little",
+        )
+        replacements = {"field_values": memoryview(bytes(field_values))}
+    compiler = prepare_native_encoded_direct(_replace_buffers(lease, replacements))
+
+    with pytest.raises(SnapshotCompatibilityError):
+        compiler.compile_batch(
+            bidirectional=True,
+            max_edges=20,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
 
 
 @pytest.mark.parametrize("only_taxonomy", [False, True])
