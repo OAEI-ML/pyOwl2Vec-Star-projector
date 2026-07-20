@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector implementation through `11152ca`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector implementation through `b7300d7`. pyOWLCore candidate revision:
 `cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -122,6 +122,15 @@ semantic slice across the actual PyO3 boundary without changing the production c
   projecting class/ABox/domain-range roots and state-neutral logical, object-property, and
   data-property skips; metadata is fully validated and ignored semantically except where the exact
   annotation hash participates in role-state visitation;
+- extension-root `SWRLRule` nodes with canonical body/head atom sets and supported annotation
+  metadata, including empty rule sides, fully validated and counted but silent, excluded from the
+  skipped-axiom total, and unable to mutate role state;
+- the complete structural-columns v1 SWRL constructor family: IRI-backed `Variable` nodes;
+  `ClassAtom` over the existing bounded class-expression envelope; `DataRangeAtom` over the bounded
+  data-range envelope; named/inverse `ObjectPropertyAtom`; named `DataPropertyAtom`; IRI-backed
+  `BuiltInAtom` with ordered, possibly-empty data arguments; and
+  `SameIndividualAtom`/`DifferentIndividualsAtom`, with named, anonymous, variable, and literal
+  argument kinds validated in their exact positions;
 - allocation-free repeated class-entity scans for annotation subject membership, avoiding an
   ontology-sized class-signature index while retaining deterministic canonical root order;
 - `HasKey` roots over the same bounded class-expression envelope, canonical named/inverse object
@@ -150,14 +159,15 @@ complement/aggregate, complex object exact-cardinality filler, or other nonproje
 outside the bounded root positions, structurally unsupported object-property chain, or anonymous
 individual outside the supported ontology/axiom-metadata, `SameIndividual`/`DifferentIndividuals`,
 OneOf/HasValue, and ignored-ClassAssertion positions (including the subject or projected value of
-an `AnnotationAssertion`) is rejected as unsupported before output. N-ary
+an `AnnotationAssertion`), or a SWRL `ClassAtom` predicate outside the bounded envelope is
+rejected as unsupported before output. N-ary
 equivalents beyond the selected first two, non-selected supported aggregate expressions, complete
 supported disjoint/property sets, every supported literal and annotation node, and unpaired object
 domain/range roots are still fully validated. A role annotation whose anonymous local-key bytes are
 not valid UTF-8 remains an exact whole-call fallback because the scalar hash path raises while
 encoding its surrogateescaped value. Malformed supported columns fail closed.
 Same-operation isolated role expansion is proven; retained Scala-instance role-state reuse is not
-part of this one-shot seam. This is kernel version 19 of a private foundation, not the complete
+part of this one-shot seam. This is kernel version 20 of a private foundation, not the complete
 compiler described by WP-P7.
 
 ## What the private kernel actually does
@@ -178,7 +188,9 @@ GIL with `Python::detach`. Rust then:
    field, entity kind, literal language/datatype relationship, minimally encoded cardinality,
    exact OWLAPI-compatible role annotation hashes, typed/nested annotation sets with
    IRI/literal/anonymous values on every supported axiom, ontology annotation, and
-   annotation-property root, bounded nonprojecting object/data class expressions and data ranges,
+   annotation-property root, every SWRL rule/variable/atom constructor over its bounded
+   class/data/property and individual/data-argument envelope, bounded nonprojecting object/data
+   class expressions and data ranges,
    anonymous-individual bytes32/nonempty-key invariants, root kind/tag pairing,
    output/cross-product count, and IRI/output limit;
 3. builds exact-capacity borrowed-IRI role rows/indexes only after whole-view validation, computes
@@ -188,9 +200,9 @@ GIL with `Python::detach`. Rust then:
    disjoint class/union roots, keys, same/different individual roots, class assertions and their
    ignored partition, positive/negative object-property assertions, sub-object properties and
    ignored property chains, every supported object/data/annotation-property axiom family,
-   ontology annotations, annotation assertions, selected annotation edges, non-string literal
-   renderings, skipped axioms, object domain/range roots and products, role-expansion edges, edges,
-   and retained-buffer-byte counters.
+   ontology annotations, SWRL rules, annotation assertions, selected annotation edges, non-string
+   literal renderings, skipped axioms, object domain/range roots and products, role-expansion edges,
+   edges, and retained-buffer-byte counters.
 
 The Python wrapper exposes an exact call ledger for this kernel: eleven input buffers, eleven
 detached/zero-copy buffers, zero indexed buffers, zero staging/structural copy bytes, zero per-row
@@ -205,8 +217,8 @@ capacities.
 The compiler is one-shot. Atomic idle/running/finished/cancelled/failed transitions allow another
 Python thread to cancel detached work. A cancellation racing with successful compilation discards
 the result. Unsupported, malformed, pinned reference, resource, cancelled, and panic outcomes cross
-the boundary as distinct typed failures; no partial batch is returned. The private v19 ABI returns
-its fifty-two counters as an explicitly constructed Python tuple because PyO3's automatic tuple
+the boundary as distinct typed failures; no partial batch is returned. The private v20 ABI returns
+its fifty-three counters as an explicitly constructed Python tuple because PyO3's automatic tuple
 conversion is bounded below that arity.
 
 ## No-copy boundary and exact blocker
@@ -225,15 +237,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`11152ca`:
+`b7300d7`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 28 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 166 passed |
-| Native backend, private foundation, and encoded-dispatch tests | 213 passed |
-| Complete projector test suite | 996 passed |
+| Private PyO3 foundation tests | 183 passed |
+| Native backend, private foundation, and encoded-dispatch tests | 230 passed |
+| Complete projector test suite | 1,013 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -313,6 +325,12 @@ roots; exact role overwrite order for IRI, typed, language-tagged, multiple, nes
 inverse-expression annotation variants; valid-UTF-8 anonymous local-key parity against the encoded
 scalar oracle; and preserved whole-call fallback for unhashable anonymous metadata on annotated
 sub-object-property, property-chain, and inverse-property roots;
+extension-root SWRL parity across all seven atom constructors, variables, named/anonymous
+individual arguments, literals, inverse object properties, bounded class/data predicates,
+zero-argument built-ins, empty rule sides, and annotated rules; silence and state neutrality in
+normal and asserted-taxonomy modes; a 250-rule one-boundary zero-output call; unsupported class
+predicate whole-call fallback before output; and hostile corruption of every SWRL arity, root kind,
+rule body kind, and variable target;
 bytes-exporter and exact-owner lifetime across the expanded slice; GIL release; concurrent
 cancellation; and continued absence of the production encoded feature.
 
@@ -324,7 +342,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and data ranges across selected ignored/skipped axiom families, selected IRI/literal class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, capacity-exact ignored property chains, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions and data ranges, lifecycle reuse, and remaining constructors are unsupported |
+| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and data ranges across selected ignored/skipped axiom families, selected IRI/literal class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions and data ranges, lifecycle reuse, and remaining constructors are unsupported |
 | Bounded batches without per-row FFI | Proven for one caller-bounded private coarse batch; streaming multi-batch integration remains open |
 | Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
