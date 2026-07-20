@@ -810,7 +810,7 @@ impl<'a> DirectColumns<'a> {
         }
         if self.field_length(index)? != 0 {
             return Err(KernelError::unsupported(
-                "direct native slice does not yet support axiom annotations",
+                "direct native slice does not yet support role-axiom annotations",
             ));
         }
         Ok(())
@@ -1260,7 +1260,7 @@ impl<'a> DirectColumns<'a> {
         let start = self.exact_fields(node_id, 3)?;
         self.named_data_property_iri(self.field_node(start)?, maximum)?;
         self.named_data_property_iri(self.field_node(start + 1)?, maximum)?;
-        self.empty_annotation_set(start + 2)
+        self.validate_annotation_set(start + 2)
     }
 
     fn validate_data_property_set_axiom(
@@ -1282,7 +1282,7 @@ impl<'a> DirectColumns<'a> {
         for item_index in item_start..item_start + length {
             self.named_data_property_iri(self.item_node(item_index)?, maximum)?;
         }
-        self.empty_annotation_set(start + 1)
+        self.validate_annotation_set(start + 1)
     }
 
     fn validate_data_property_domain(
@@ -1298,7 +1298,7 @@ impl<'a> DirectColumns<'a> {
         let start = self.exact_fields(node_id, 3)?;
         self.named_data_property_iri(self.field_node(start)?, maximum)?;
         self.class_expression_rank(self.field_node(start + 1)?, maximum)?;
-        self.empty_annotation_set(start + 2)
+        self.validate_annotation_set(start + 2)
     }
 
     fn validate_data_property_range(
@@ -1314,7 +1314,7 @@ impl<'a> DirectColumns<'a> {
         let start = self.exact_fields(node_id, 3)?;
         self.named_data_property_iri(self.field_node(start)?, maximum)?;
         self.validate_bounded_data_range(self.field_node(start + 1)?, maximum)?;
-        self.empty_annotation_set(start + 2)
+        self.validate_annotation_set(start + 2)
     }
 
     fn validate_functional_data_property(
@@ -1329,7 +1329,7 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 2)?;
         self.named_data_property_iri(self.field_node(start)?, maximum)?;
-        self.empty_annotation_set(start + 1)
+        self.validate_annotation_set(start + 1)
     }
 
     fn validate_datatype_definition(
@@ -1345,7 +1345,7 @@ impl<'a> DirectColumns<'a> {
         let start = self.exact_fields(node_id, 3)?;
         self.named_datatype_iri(self.field_node(start)?, maximum)?;
         self.validate_bounded_data_range(self.field_node(start + 1)?, maximum)?;
-        self.empty_annotation_set(start + 2)
+        self.validate_annotation_set(start + 2)
     }
 
     fn validate_has_key(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
@@ -1414,7 +1414,7 @@ impl<'a> DirectColumns<'a> {
         self.named_data_property_iri(self.field_node(start)?, maximum)?;
         self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
         self.validate_literal(self.field_node(start + 2)?, maximum)?;
-        self.empty_annotation_set(start + 3)
+        self.validate_annotation_set(start + 3)
     }
 
     fn object_inverse_iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
@@ -1545,7 +1545,7 @@ impl<'a> DirectColumns<'a> {
         for item_index in item_start..item_start + length {
             self.object_property_expression(self.item_node(item_index)?, maximum)?;
         }
-        self.empty_annotation_set(start + 1)
+        self.validate_annotation_set(start + 1)
     }
 
     fn validate_object_property_characteristic(
@@ -1561,7 +1561,7 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 2)?;
         self.object_property_expression(self.field_node(start)?, maximum)?;
-        self.empty_annotation_set(start + 1)
+        self.validate_annotation_set(start + 1)
     }
 
     fn object_property_assertion_parts(
@@ -1592,7 +1592,7 @@ impl<'a> DirectColumns<'a> {
         };
         let source = self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
         let destination = self.named_individual_iri(self.field_node(start + 2)?, maximum)?;
-        self.empty_annotation_set(start + 3)?;
+        self.validate_annotation_set(start + 3)?;
         Ok((source, relation, destination))
     }
 
@@ -1610,7 +1610,7 @@ impl<'a> DirectColumns<'a> {
         self.object_property_expression_iri(self.field_node(start)?, maximum)?;
         self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
         self.named_individual_iri(self.field_node(start + 2)?, maximum)?;
-        self.empty_annotation_set(start + 3)?;
+        self.validate_annotation_set(start + 3)?;
         Ok(())
     }
 
@@ -1887,7 +1887,7 @@ impl<'a> DirectColumns<'a> {
                 "direct native slice supports only named taxonomy or named-role SubClassOf",
             ));
         };
-        self.empty_annotation_set(start + 2)?;
+        self.validate_annotation_set(start + 2)?;
         Ok(projection)
     }
 
@@ -1930,7 +1930,7 @@ impl<'a> DirectColumns<'a> {
             self.class_expression_rank(class_id, maximum)?;
             None
         };
-        self.empty_annotation_set(start + 2)?;
+        self.validate_annotation_set(start + 2)?;
         Ok(property.zip(class))
     }
 
@@ -2068,7 +2068,7 @@ impl<'a> DirectColumns<'a> {
                 _ => {}
             }
         }
-        self.empty_annotation_set(start + 1)?;
+        self.validate_annotation_set(start + 1)?;
         let (Some(first_id), Some(second_id)) = (first_id, second_id) else {
             return Err(KernelError::malformed(
                 "encoded EquivalentClasses has too few expressions",
@@ -2102,7 +2102,7 @@ impl<'a> DirectColumns<'a> {
         for item_index in item_start..item_start + length {
             self.class_expression_rank(self.item_node(item_index)?, maximum)?;
         }
-        self.empty_annotation_set(start + 1)
+        self.validate_annotation_set(start + 1)
     }
 
     fn validate_disjoint_union(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
@@ -2117,7 +2117,7 @@ impl<'a> DirectColumns<'a> {
         for item_index in item_start..item_start + length {
             self.class_expression_rank(self.item_node(item_index)?, maximum)?;
         }
-        self.empty_annotation_set(start + 2)
+        self.validate_annotation_set(start + 2)
     }
 
     fn class_assertion_projection(
@@ -2143,7 +2143,7 @@ impl<'a> DirectColumns<'a> {
         }
         let named_individual = self.node_tag(individual_id)? == TAG_ENTITY;
         self.validate_individual(individual_id, maximum)?;
-        self.empty_annotation_set(start + 2)?;
+        self.validate_annotation_set(start + 2)?;
         if named_class && named_individual {
             Ok(ClassAssertionProjection::Edge {
                 individual: self.named_individual_iri(individual_id, maximum)?,
@@ -2371,7 +2371,7 @@ impl<'a> DirectColumns<'a> {
                 TAG_DECLARATION => {
                     let start = self.exact_fields(node_id, 2)?;
                     self.entity(self.field_node(start)?)?;
-                    self.empty_annotation_set(start + 1)?;
+                    self.validate_annotation_set(start + 1)?;
                 }
                 TAG_OBJECT_SOME_VALUES_FROM
                 | TAG_OBJECT_ALL_VALUES_FROM
@@ -4520,7 +4520,7 @@ mod tests {
         fixture.finish_node(TAG_ANNOTATION); // 16
         fixture.push_node_ref(8);
         fixture.push_node_ref(9);
-        fixture.push_empty_set();
+        fixture.push_node_set(&[16]);
         fixture.finish_node(TAG_SUB_CLASS_OF); // 17
         fixture.push_node_ref(10);
         fixture.push_node_ref(11);

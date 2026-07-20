@@ -228,6 +228,46 @@ def _annotation_metadata_root_snapshot() -> object:
     )
 
 
+def _annotated_non_role_axiom_snapshot() -> object:
+    metadata = "Annotation(Annotation(<urn:nested> _:nestedMeta) <urn:meta> _:axiomMeta)"
+    xsd_string = "<http://www.w3.org/2001/XMLSchema#string>"
+    axioms = [
+        f"Declaration({metadata} Class(:A))",
+        f"SubClassOf({metadata} :A :B)",
+        f"SubClassOf({metadata} :B ObjectSomeValuesFrom(:p :C))",
+        f"EquivalentClasses({metadata} :E :F)",
+        f"EquivalentClasses({metadata} :G "
+        "ObjectIntersectionOf(:H ObjectSomeValuesFrom(:p :I)))",
+        f"DisjointClasses({metadata} :J :K)",
+        f"DisjointUnion({metadata} :Defined :L :M)",
+        f"EquivalentObjectProperties({metadata} :q :r)",
+        f"DisjointObjectProperties({metadata} :q :r)",
+        f"FunctionalObjectProperty({metadata} :q)",
+        f"InverseFunctionalObjectProperty({metadata} :q)",
+        f"ReflexiveObjectProperty({metadata} :q)",
+        f"IrreflexiveObjectProperty({metadata} :q)",
+        f"SymmetricObjectProperty({metadata} :q)",
+        f"AsymmetricObjectProperty({metadata} :q)",
+        f"TransitiveObjectProperty({metadata} :q)",
+        f"ObjectPropertyDomain({metadata} :p :D)",
+        f"ObjectPropertyRange({metadata} :p :R)",
+        f"ClassAssertion({metadata} :A :individual)",
+        f"ObjectPropertyAssertion({metadata} :u :source :target)",
+        f"NegativeObjectPropertyAssertion({metadata} :q :source :target)",
+        f"SubDataPropertyOf({metadata} :dp :dq)",
+        f"EquivalentDataProperties({metadata} :dp :dq)",
+        f"DisjointDataProperties({metadata} :dp :dq)",
+        f"DataPropertyDomain({metadata} :dp :A)",
+        f"DataPropertyRange({metadata} :dp {xsd_string})",
+        f"FunctionalDataProperty({metadata} :dp)",
+        f"DatatypeDefinition({metadata} :custom {xsd_string})",
+        f'DataPropertyAssertion({metadata} :dp :individual "value")',
+        f'NegativeDataPropertyAssertion({metadata} :dp :individual "blocked")',
+        "SubObjectPropertyOf(:child :p)",
+    ]
+    return _snapshot(" ".join(axioms))
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -1089,15 +1129,22 @@ def test_many_data_assertions_cross_one_zero_output_bounded_call() -> None:
         "negative-assertion",
     ],
 )
-def test_annotated_data_property_families_fail_before_output(body: str) -> None:
-    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
-    with pytest.raises(NativeEncodedDirectUnsupported, match=r"annotations|schema tag 5"):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=1,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
+def test_annotated_data_property_families_are_state_neutral_skips(body: str) -> None:
+    view = _snapshot(body)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == []
+    assert statistics.skipped_axioms == 1
+    assert compiler.state == "finished"
 
 
 @pytest.mark.parametrize(
@@ -1375,6 +1422,158 @@ def test_asserted_taxonomy_preflights_annotation_metadata_roots_without_leakage(
     assert statistics.annotation_edges == 0
     assert statistics.skipped_axioms == 0
     assert statistics.role_expansion_edges == 0
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_annotated_non_role_axiom_families_match_scalar(
+    only_taxonomy: bool,
+) -> None:
+    view = _annotated_non_role_axiom_snapshot()
+    options = ProjectionOptions(
+        backend="python",
+        only_taxonomy=only_taxonomy,
+        duplicates="preserve",
+        order="encounter",
+    )
+    expected = Projector().project(view, options=options)
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert len(actual) == (7 if only_taxonomy else 11)
+    assert statistics.roots == 31
+    assert statistics.declarations == 1
+    assert statistics.subclasses == 2
+    assert statistics.restriction_subclasses == 1
+    assert statistics.equivalents == 2
+    assert statistics.aggregate_equivalents == 1
+    assert statistics.disjoint_classes == 1
+    assert statistics.disjoint_unions == 1
+    assert statistics.class_assertions == 1
+    assert statistics.object_property_assertions == 1
+    assert statistics.negative_object_property_assertions == 1
+    assert statistics.sub_object_properties == 1
+    assert statistics.equivalent_object_properties == 1
+    assert statistics.disjoint_object_properties == 1
+    assert statistics.functional_object_properties == 1
+    assert statistics.inverse_functional_object_properties == 1
+    assert statistics.reflexive_object_properties == 1
+    assert statistics.irreflexive_object_properties == 1
+    assert statistics.symmetric_object_properties == 1
+    assert statistics.asymmetric_object_properties == 1
+    assert statistics.transitive_object_properties == 1
+    assert statistics.sub_data_properties == 1
+    assert statistics.equivalent_data_properties == 1
+    assert statistics.disjoint_data_properties == 1
+    assert statistics.data_property_domains == 1
+    assert statistics.data_property_ranges == 1
+    assert statistics.functional_data_properties == 1
+    assert statistics.datatype_definitions == 1
+    assert statistics.data_property_assertions == 1
+    assert statistics.negative_data_property_assertions == 1
+    assert statistics.skipped_axioms == 21
+    assert statistics.domain_range_edges == 1
+    assert statistics.role_expansion_edges == (1 if only_taxonomy else 3)
+
+
+def test_asserted_taxonomy_preflights_annotated_non_role_axioms() -> None:
+    view = _annotated_non_role_axiom_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert statistics.roots == 31
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
+
+
+def test_many_annotated_non_role_roots_cross_one_zero_output_bounded_call() -> None:
+    axioms = " ".join(
+        "DataPropertyAssertion("
+        f"Annotation(<urn:meta> _:metadata{index:03d}) "
+        f':dp :individual{index:03d} "{index}")'
+        for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(axioms)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == statistics.data_property_assertions == 250
+    assert statistics.skipped_axioms == 250
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize(
+    ("target_tag", "annotation_delta"),
+    [(61, 2), (75, 2), (76, 1), (115, 3)],
+    ids=["subclass", "object-range", "object-characteristic", "data-assertion"],
+)
+def test_hostile_non_role_axiom_annotation_sets_fail_before_output(
+    target_tag: int,
+    annotation_delta: int,
+) -> None:
+    lease = _lease(_annotated_non_role_axiom_snapshot())
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    subclass_start = field_start(tagged_node(61))
+    class_id = int.from_bytes(
+        buffers["field_values"][subclass_start * 8 : (subclass_start + 1) * 8],
+        "little",
+    )
+    annotation_field = field_start(tagged_node(target_tag)) + annotation_delta
+    item_start = int.from_bytes(
+        buffers["field_values"][annotation_field * 8 : (annotation_field + 1) * 8],
+        "little",
+    )
+    item_values = bytearray(buffers["item_values"])
+    item_values[item_start * 8 : (item_start + 1) * 8] = class_id.to_bytes(8, "little")
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"item_values": memoryview(bytes(item_values))})
+    )
+    with pytest.raises(SnapshotCompatibilityError, match="annotation set item"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=20,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
 
 
 def test_many_annotation_metadata_roots_cross_one_zero_output_bounded_call() -> None:
@@ -1847,7 +2046,7 @@ def test_hostile_anonymous_individual_shape_fails_before_output() -> None:
 
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
     constructor_lease = _lease(
-        _snapshot('Declaration(Annotation(<urn:meta> "unsupported") Class(:A))')
+        _snapshot('SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") :p :q)')
     )
     compiler = prepare_native_encoded_direct(constructor_lease)
     with pytest.raises(NativeEncodedDirectUnsupported, match="annotations"):
@@ -1882,7 +2081,8 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
     [
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
         "ClassAssertion(ObjectComplementOf(ObjectComplementOf(:A)) :i)",
-        'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A ObjectIntersectionOf(:B :C))',
+        'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A '
+        "ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
     ],
     ids=["nested-equivalent", "recursive-class", "annotated-equivalent"],
 )
@@ -2119,15 +2319,22 @@ def test_disjoint_class_set_and_defined_class_corruption_fail_closed() -> None:
     ],
     ids=["disjoint-classes", "disjoint-union"],
 )
-def test_annotated_disjoint_class_families_fail_before_output(body: str) -> None:
-    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
-    with pytest.raises(NativeEncodedDirectUnsupported, match=r"annotations|schema tag 5"):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=1,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
+def test_annotated_disjoint_class_families_are_state_neutral_skips(body: str) -> None:
+    view = _snapshot(body)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == []
+    assert statistics.skipped_axioms == 1
+    assert compiler.state == "finished"
 
 
 def test_many_disjoint_class_roots_cross_one_zero_output_bounded_call() -> None:
@@ -3061,13 +3268,10 @@ def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
         "<http://www.w3.org/2001/XMLSchema#string>))))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
-        'ObjectPropertyRange(Annotation(<urn:meta> "unsupported") :p :R)',
         'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") '
         "ObjectPropertyChain(:p :q) :r)",
         'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") :p :q)',
         'InverseObjectProperties(Annotation(<urn:meta> "unsupported") :p :q)',
-        'EquivalentObjectProperties(Annotation(<urn:meta> "unsupported") :p :q)',
-        'FunctionalObjectProperty(Annotation(<urn:meta> "unsupported") :p)',
     ],
     ids=[
         "inverse-complex-filler",
@@ -3075,12 +3279,9 @@ def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
         "nested-data-restriction",
         "restriction-pair",
         "nested-domain",
-        "annotated-range",
         "annotated-property-chain",
         "annotated-subproperty",
         "annotated-inverse",
-        "annotated-equivalent",
-        "annotated-characteristic",
     ],
 )
 def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body: str) -> None:
@@ -3099,14 +3300,10 @@ def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body
     [
         "ObjectPropertyAssertion(:p _:anonymous :i)",
         "NegativeObjectPropertyAssertion(:p :i _:anonymous)",
-        'ObjectPropertyAssertion(Annotation(<urn:meta> "unsupported") :p :i :j)',
-        'NegativeObjectPropertyAssertion(Annotation(<urn:meta> "unsupported") :p :i :j)',
     ],
     ids=[
         "anonymous-positive",
         "anonymous-negative",
-        "annotated-positive",
-        "annotated-negative",
     ],
 )
 def test_out_of_slice_object_assertion_boundaries_are_transactionally_unsupported(
