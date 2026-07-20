@@ -87,7 +87,8 @@ domain/range expressions. An inverse property in a domain/range axiom is likewis
 ignored once under the root constructor, matching the scalar named-property type check.
 `EquivalentObjectProperties` and `DisjointObjectProperties` sets over named or inverse property
 expressions are fully preflighted and stay encoded-native, but the pinned projector never visits
-them as role axioms.
+them as role axioms. The unary named-or-inverse `FunctionalObjectProperty` constructor follows
+the same non-projecting path.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
