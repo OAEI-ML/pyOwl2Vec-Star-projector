@@ -15,16 +15,21 @@ Rust: silent unannotated declarations, named-to-named `SubClassOf`, named-only n
 `EquivalentClasses`, named `ClassAssertion`, the named-property/named-filler some/all/min/max
 restriction subset of `SubClassOf`, named-property `ObjectPropertyAssertion` over named individuals,
 skipped named-or-inverse `NegativeObjectPropertyAssertion`, and paired named object-property
-domain/range products. Positive inverse assertions reproduce the pinned typed reference failure.
-Equivalent classes use the first two expressions in UTF-8 IRI order. `only_taxonomy` suppresses
-restriction edges but preserves named equivalence, class assertions, positive object assertions,
-negative assertion skips, and domain/range, while the optional asserted-taxonomy mode emits only the
-direct subclass family after preflighting the whole supported slice. It retains the owner/exporters,
-preflights before allocating output, releases the GIL, supports concurrent cancellation, and
-returns one caller-bounded coarse batch. Role axioms/inverse expansion, other constructors,
-annotations, complex or anonymous operands, segments, and sliced, mmap, or non-bytes exporters are
-unsupported without copying. The safe generic PyO3 buffer API is unavailable at the current
-`abi3-py310` floor, so general mmap ownership remains an explicit design blocker.
+domain/range products. Unannotated named-or-inverse `SubObjectPropertyOf` and
+`InverseObjectProperties` roots reproduce OWLAPI hash-set visitation, the historical sibling
+overwrite, and last-inverse-wins behavior, expanding restrictions and domain/range products but not
+direct assertions. Equivalent/disjoint object-property sets and all seven object-property
+characteristics are validated skipped roots. Positive inverse assertions reproduce the pinned typed
+reference failure. Equivalent classes use the first two expressions in UTF-8 IRI order.
+`only_taxonomy` suppresses restriction edges but preserves named equivalence, class assertions,
+positive object assertions, negative-assertion/property-family skips, and expanded domain/range,
+while the optional asserted-taxonomy mode emits only the direct subclass family after preflighting
+the whole supported slice. It retains the owner/exporters, preflights before allocating output,
+releases the GIL, supports concurrent cancellation, and returns one caller-bounded coarse batch.
+Annotations and property chains, other constructors, complex or anonymous operands, segments, and
+sliced, mmap, or non-bytes exporters are unsupported without copying. The safe generic PyO3 buffer
+API is unavailable at the current `abi3-py310` floor, so general mmap ownership remains an explicit
+design blocker.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

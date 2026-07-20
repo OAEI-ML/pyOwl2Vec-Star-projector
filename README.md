@@ -204,7 +204,9 @@ structural-column views and immutable `bytes` exporters for a direct, unannotate
 named-role kernel (`SubClassOf`, `EquivalentClasses`, `ClassAssertion`, simple restrictions, and
 named-individual object-property assertions plus domain/range products); negative named/inverse
 object-property assertions are validated and skipped, while positive inverse assertions preserve
-the pinned typed failure. It is not selected by production dispatch and is not a complete compiler.
-See the
+the pinned typed failure. Unannotated named/inverse subproperty and inverse-property axioms now
+expand restriction and domain/range edges in exact compatibility order; object-property
+equivalence, disjointness, and characteristics are validated skipped roots. It is not selected by
+production dispatch and is not a complete compiler. See the
 [P3 report](reports/p3/native-backend.md) for parity, performance, memory, and binary evidence.
 The [P4 report](reports/p4/streaming.md) covers bounded external sorting and artifacts.
