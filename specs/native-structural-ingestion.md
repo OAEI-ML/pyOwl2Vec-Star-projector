@@ -36,6 +36,11 @@ passes its promotion gates; provenance names `scalar-python`, `scalar-native`, o
 `encoded-native` ingestion. Malformed advertised encoded data fails before output and cannot
 silently switch paths after partial emission.
 
+Before any compiler dispatch, the public adapter checks closure scope, the bounded segment family,
+fixed-width column pairing, monotone offsets, and root/node/item/scalar/posting references directly
+over retained read-only byte views. This validation constructs no OWL value or dense-ID cache and
+does not advertise or promote the unfinished encoded-native compiler path.
+
 ## 3. Native projection compiler
 
 ```text

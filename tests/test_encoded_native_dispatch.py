@@ -4,6 +4,7 @@ import gc
 import hashlib
 import unittest
 import weakref
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
@@ -23,6 +24,8 @@ from pyowl2vec_star_projector.errors import SnapshotCompatibilityError
 
 from .support.core_views import fixture_view
 
+_CLOSURE_SCOPE = "closure-token"
+
 
 class _EncodedStructuralView:
     def __init__(self, owner: object, *, writable: bool) -> None:
@@ -33,12 +36,26 @@ class _EncodedStructuralView:
         self.descriptor = ENCODED_STRUCTURAL_DESCRIPTOR_V1
         self.descriptor_digest = hashlib.sha256(self.descriptor).digest()
         self.structural_fingerprint = "encoded-fingerprint"
+        self.scope = _CLOSURE_SCOPE
+        self.document_key = None
         self.buffers = {
             name: memoryview(b"\x00" * (8 if name == "node_field_offsets" else 0))
             for name in ENCODED_BUFFER_WIDTHS
         }
         if writable:
             self.buffers["root_kinds"] = memoryview(bytearray(b"\x00"))
+        self.segments = (_EncodedSegment(owner),)
+
+
+class _EncodedSegment:
+    def __init__(self, owner: object) -> None:
+        self.role = 1
+        self.owner = owner
+        self.source: object | None = None
+        self.posting_mode = 0
+        self.root_ids = memoryview(b"")
+        self.anonymous_scope_map = memoryview(b"")
+        self.member_token = None
 
 
 class _View:
@@ -64,8 +81,25 @@ class _View:
 def _core() -> object:
     return SimpleNamespace(
         EncodedStructuralView=_EncodedStructuralView,
-        AxiomScope=SimpleNamespace(CLOSURE="closure-token"),
+        AxiomScope=SimpleNamespace(CLOSURE=_CLOSURE_SCOPE),
     )
+
+
+def _uint_rows(width: int, *values: int) -> memoryview:
+    return memoryview(b"".join(value.to_bytes(width, "little") for value in values))
+
+
+def _one_node_buffers() -> dict[str, memoryview]:
+    buffers = {name: memoryview(b"") for name in ENCODED_BUFFER_WIDTHS}
+    buffers.update(
+        {
+            "root_kinds": _uint_rows(1, 2),
+            "root_ids": _uint_rows(4, 1),
+            "node_tags": _uint_rows(2, 1),
+            "node_field_offsets": _uint_rows(8, 0, 0),
+        }
+    )
+    return buffers
 
 
 class EncodedNativeDispatchTests(unittest.TestCase):
@@ -259,6 +293,181 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     SnapshotCompatibilityError,
                     "one-dimensional unsigned-byte C-contiguous",
+                ):
+                    select_ingestion(
+                        view,
+                        selected_backend="native",
+                        native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                        core_module=_core(),
+                    )
+
+    def test_scope_and_direct_segment_manifest_fail_closed(self) -> None:
+        cases: dict[str, Callable[[_EncodedStructuralView], None]] = {
+            "scope": lambda encoded: setattr(encoded, "scope", "root-token"),
+            "segments": lambda encoded: setattr(encoded, "segments", ()),
+            "owner": lambda encoded: setattr(encoded.segments[0], "owner", object()),
+            "postings": lambda encoded: setattr(
+                encoded.segments[0], "root_ids", _uint_rows(4, 1)
+            ),
+        }
+        for label, mutate in cases.items():
+            with self.subTest(label):
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                encoded = _EncodedStructuralView(view, writable=False)
+                mutate(encoded)
+                view.view = (  # type: ignore[method-assign]
+                    lambda _view_type, _encoded=encoded, **_options: _encoded
+                )
+                with self.assertRaisesRegex(
+                    SnapshotCompatibilityError,
+                    "scope|segment|posting|owner|reference",
+                ):
+                    select_ingestion(
+                        view,
+                        selected_backend="native",
+                        native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                        core_module=_core(),
+                    )
+
+    def test_column_offsets_bounds_and_references_fail_closed(self) -> None:
+        valid_view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        valid = _EncodedStructuralView(valid_view, writable=False)
+        valid.buffers = _one_node_buffers()
+        valid_view.view = lambda _view_type, **_options: valid  # type: ignore[method-assign]
+        self.assertEqual(
+            select_ingestion(
+                valid_view,
+                selected_backend="native",
+                native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                core_module=_core(),
+            ).path,
+            "encoded-native",
+        )
+
+        cases: dict[str, dict[str, memoryview]] = {}
+        root_reference = _one_node_buffers()
+        root_reference["root_ids"] = _uint_rows(4, 2)
+        cases["root-reference"] = root_reference
+
+        offsets = _one_node_buffers()
+        offsets["node_field_offsets"] = _uint_rows(8, 1, 1)
+        cases["offsets"] = offsets
+
+        node_reference = _one_node_buffers()
+        node_reference.update(
+            {
+                "node_field_offsets": _uint_rows(8, 0, 1),
+                "field_kinds": _uint_rows(1, 1),
+                "field_values": _uint_rows(8, 2),
+                "field_lengths": _uint_rows(8, 0),
+            }
+        )
+        cases["node-reference"] = node_reference
+
+        scalar_bounds = _one_node_buffers()
+        scalar_bounds.update(
+            {
+                "node_field_offsets": _uint_rows(8, 0, 1),
+                "field_kinds": _uint_rows(1, 2),
+                "field_values": _uint_rows(8, 0),
+                "field_lengths": _uint_rows(8, 2),
+                "scalar_bytes": memoryview(b"x"),
+            }
+        )
+        cases["scalar-bounds"] = scalar_bounds
+
+        item_reference = _one_node_buffers()
+        item_reference.update(
+            {
+                "node_field_offsets": _uint_rows(8, 0, 1),
+                "field_kinds": _uint_rows(1, 7),
+                "field_values": _uint_rows(8, 0),
+                "field_lengths": _uint_rows(8, 1),
+                "item_kinds": _uint_rows(1, 1),
+                "item_values": _uint_rows(8, 2),
+                "item_lengths": _uint_rows(8, 0),
+            }
+        )
+        cases["item-reference"] = item_reference
+
+        for label, buffers in cases.items():
+            with self.subTest(label):
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                encoded = _EncodedStructuralView(view, writable=False)
+                encoded.buffers = buffers
+                view.view = (  # type: ignore[method-assign]
+                    lambda _view_type, _encoded=encoded, **_options: _encoded
+                )
+                with self.assertRaisesRegex(
+                    SnapshotCompatibilityError,
+                    "offset|bound|reference|range",
+                ):
+                    select_ingestion(
+                        view,
+                        selected_backend="native",
+                        native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                        core_module=_core(),
+                    )
+
+    def test_referenced_segment_postings_are_bounded_by_source_roots(self) -> None:
+        source_owner = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        source = _EncodedStructuralView(source_owner, writable=False)
+        source.buffers = _one_node_buffers()
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        encoded = _EncodedStructuralView(view, writable=False)
+        segment = encoded.segments[0]
+        segment.role = 2
+        segment.owner = source_owner
+        segment.source = source
+        segment.posting_mode = 2
+        segment.root_ids = _uint_rows(4, 1)
+        view.view = lambda _view_type, **_options: encoded  # type: ignore[method-assign]
+
+        self.assertEqual(
+            select_ingestion(
+                view,
+                selected_backend="native",
+                native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                core_module=_core(),
+            ).path,
+            "encoded-native",
+        )
+        segment.root_ids = _uint_rows(4, 2)
+
+        with self.assertRaisesRegex(SnapshotCompatibilityError, "in-range references"):
+            select_ingestion(
+                view,
+                selected_backend="native",
+                native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                core_module=_core(),
+            )
+
+    def test_public_owner_limits_bound_column_and_segment_scans(self) -> None:
+        cases = {
+            "column-rows": ("max_index_rows", 0, _one_node_buffers()),
+            "segment-metadata": (
+                "max_index_bytes",
+                8,
+                _EncodedStructuralView(
+                    _View(schemas={ENCODED_SCHEMA_NAME: 1}), writable=False
+                ).buffers,
+            ),
+        }
+        for label, (limit_name, allowed, buffers) in cases.items():
+            with self.subTest(label):
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                view.load_options = SimpleNamespace(  # type: ignore[attr-defined]
+                    limits=SimpleNamespace(**{limit_name: allowed})
+                )
+                encoded = _EncodedStructuralView(view, writable=False)
+                encoded.buffers = buffers
+                view.view = (  # type: ignore[method-assign]
+                    lambda _view_type, _encoded=encoded, **_options: _encoded
+                )
+
+                with self.assertRaisesRegex(
+                    SnapshotCompatibilityError,
+                    f"public {limit_name}",
                 ):
                     select_ingestion(
                         view,
