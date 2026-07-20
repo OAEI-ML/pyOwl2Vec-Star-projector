@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector implementation through `1498fca`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector implementation through `9ad7b20`. pyOWLCore candidate revision:
 `cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -20,9 +20,9 @@ semantic slice across the actual PyO3 boundary without changing the production c
 
 - one canonical direct structural-columns v1 segment;
 - exact full immutable-`bytes` exporters for all eleven columns;
-- IRI and Entity nodes plus silent unannotated Declaration roots;
-- unannotated named-to-named `SubClassOf`, named and supported aggregate `EquivalentClasses`, and
-  named `ClassAssertion` roots;
+- IRI and Entity nodes plus silent Declaration roots with supported annotation metadata;
+- named-to-named `SubClassOf`, named and supported aggregate `EquivalentClasses`, and named
+  `ClassAssertion` roots;
 - named-or-inverse-property/named-filler `ObjectSomeValuesFrom`, `ObjectAllValuesFrom`,
   `ObjectMinCardinality`, and `ObjectMaxCardinality` on either side of a named class in
   `SubClassOf`; inverse expressions project through their underlying named IRI, and min/max
@@ -113,6 +113,10 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - annotated named `SubAnnotationPropertyOf`, `AnnotationPropertyDomain`, and
   `AnnotationPropertyRange` roots, with exact annotation-property and target-IRI fields, fully
   validated, counted, skipped, and unable to mutate object-role state;
+- bounded annotation metadata on every otherwise-supported non-role axiom family, including
+  projecting class/ABox/domain-range roots and state-neutral logical, object-property, and
+  data-property skips; metadata is fully validated and ignored semantically, while annotations on
+  the two role-state axiom families remain an explicit whole-call fallback;
 - allocation-free repeated class-entity scans for annotation subject membership, avoiding an
   ontology-sized class-signature index while retaining deterministic canonical root order;
 - `HasKey` roots over the same bounded class-expression envelope, canonical named/inverse object
@@ -135,19 +139,19 @@ semantic slice across the actual PyO3 boundary without changing the production c
   named `SubClassOf`, with no annotation leakage; and
 - one caller-bounded coarse output batch, with no per-root or per-edge Python call.
 
-Any other valid segment, exporter, constructor, annotation on an axiom outside the explicitly
-supported metadata families, nested/unsupported class aggregate operand, complex/unsupported
-object restriction, recursive object complement, nested data-range complement/aggregate, complex
-object exact-cardinality filler, or other nonprojecting expression outside the bounded root
-positions, annotated or structurally unsupported object-property chain, or anonymous individual
-outside the supported ontology/axiom-metadata, `SameIndividual`/`DifferentIndividuals`,
+Any other valid segment, exporter, constructor, annotation on `SubObjectPropertyOf` (including an
+object-property chain) or `InverseObjectProperties`, nested/unsupported class aggregate operand,
+complex/unsupported object restriction, recursive object complement, nested data-range
+complement/aggregate, complex object exact-cardinality filler, or other nonprojecting expression
+outside the bounded root positions, structurally unsupported object-property chain, or anonymous
+individual outside the supported ontology/axiom-metadata, `SameIndividual`/`DifferentIndividuals`,
 OneOf/HasValue, and ignored-ClassAssertion positions (including the subject or projected value of
 an `AnnotationAssertion`) is rejected as unsupported before output. N-ary
 equivalents beyond the selected first two, non-selected supported aggregate expressions, complete
 supported disjoint/property sets, every supported literal and annotation node, and unpaired object
 domain/range roots are still fully validated. Malformed supported columns fail closed.
 Same-operation isolated role expansion is proven; retained Scala-instance role-state reuse is not
-part of this one-shot seam. This is kernel version 17 of a private foundation, not the complete
+part of this one-shot seam. This is kernel version 18 of a private foundation, not the complete
 compiler described by WP-P7.
 
 ## What the private kernel actually does
@@ -166,10 +170,9 @@ GIL with `Python::detach`. Rust then:
    arena coverage;
 2. preflights every supported constructor, aggregate member/type/order envelope, UTF-8 IRI/literal
    field, entity kind, literal language/datatype relationship, minimally encoded cardinality,
-   empty metadata sets on the previously supported axiom families, typed/nested annotation sets
-   with IRI/literal/anonymous values on `AnnotationAssertion`, skipped logical,
-   ontology-annotation, and annotation-property roots, bounded nonprojecting object/data class
-   expressions and data ranges,
+   empty metadata sets on the role-state axiom families, typed/nested annotation sets with
+   IRI/literal/anonymous values on every supported non-role axiom, ontology annotation, and
+   annotation-property root, bounded nonprojecting object/data class expressions and data ranges,
    anonymous-individual bytes32/nonempty-key invariants, root kind/tag pairing,
    output/cross-product count, and IRI/output limit;
 3. builds exact-capacity borrowed-IRI role rows/indexes only after whole-view validation, computes
@@ -196,7 +199,7 @@ capacities.
 The compiler is one-shot. Atomic idle/running/finished/cancelled/failed transitions allow another
 Python thread to cancel detached work. A cancellation racing with successful compilation discards
 the result. Unsupported, malformed, pinned reference, resource, cancelled, and panic outcomes cross
-the boundary as distinct typed failures; no partial batch is returned. The private v17 ABI returns
+the boundary as distinct typed failures; no partial batch is returned. The private v18 ABI returns
 its fifty-two counters as an explicitly constructed Python tuple because PyO3's automatic tuple
 conversion is bounded below that arity.
 
@@ -216,15 +219,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`1498fca`:
+`9ad7b20`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 28 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 156 passed |
-| Native backend, private foundation, and encoded-dispatch tests | 203 passed |
-| Complete projector test suite | 986 passed |
+| Private PyO3 foundation tests | 159 passed |
+| Native backend, private foundation, and encoded-dispatch tests | 206 passed |
+| Complete projector test suite | 989 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -295,6 +298,11 @@ annotation-property, and selected-annotation roots; exact normal, `only_taxonomy
 asserted-taxonomy state neutrality; a 250-root one-boundary zero-output call; hostile sub/super
 property, domain/range property and target IRI, annotation-set item, and ontology-root-kind
 corruption; and preserved whole-call fallback for an anonymous projected annotation value;
+annotated projecting and state-neutral non-role axiom families across normal, `only_taxonomy`, and
+asserted-taxonomy modes; exhaustive annotated data-property and disjoint-class skips; a 250-root
+annotated-data-assertion one-boundary zero-output call; hostile annotation-set items on subclass,
+object range, object characteristic, and data assertion roots; and preserved whole-call fallback
+for annotated sub-object-property, property-chain, and inverse-property role axioms;
 bytes-exporter and exact-owner lifetime across the expanded slice; GIL release; concurrent
 cancellation; and continued absence of the production encoded feature.
 
@@ -306,7 +314,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and data ranges across selected ignored/skipped axiom families, selected IRI/literal class annotations, ontology annotations, annotation-property axioms, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, same-operation named/inverse role expansion, capacity-exact ignored property chains, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions and data ranges, remaining axiom-annotation families, lifecycle reuse, and remaining constructors are unsupported |
+| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and data ranges across selected ignored/skipped axiom families, selected IRI/literal class annotations, ontology annotations, annotation-property axioms, metadata on supported non-role axioms, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, same-operation named/inverse role expansion, capacity-exact ignored property chains, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions and data ranges, role-axiom annotation hashes, lifecycle reuse, and remaining constructors are unsupported |
 | Bounded batches without per-row FFI | Proven for one caller-bounded private coarse batch; streaming multi-batch integration remains open |
 | Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
