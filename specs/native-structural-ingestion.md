@@ -91,8 +91,9 @@ them as role axioms. The unary named-or-inverse `FunctionalObjectProperty`,
 `InverseFunctionalObjectProperty`, `ReflexiveObjectProperty`, `IrreflexiveObjectProperty`,
 `SymmetricObjectProperty`, `AsymmetricObjectProperty`, and `TransitiveObjectProperty` constructors
 follow the same non-projecting path.
-Named `SubDataPropertyOf` axioms and canonical `EquivalentDataProperties` sets are likewise fully
-preflighted and skipped without entering the object-role closure.
+Named `SubDataPropertyOf` axioms and canonical `EquivalentDataProperties` or
+`DisjointDataProperties` sets are likewise fully preflighted and skipped without entering the
+object-role closure.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.

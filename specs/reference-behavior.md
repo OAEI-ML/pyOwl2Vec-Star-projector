@@ -241,8 +241,8 @@ warning flood or stdout print is part of the public contract.
 `SymmetricObjectProperty`, `AsymmetricObjectProperty`, and `TransitiveObjectProperty` are not part
 of the pinned RBox scan at all. Each is counted as a skipped axiom with a grouped
 `MOWL_SKIPPED_AXIOM` diagnostic and cannot mutate retained role state.
-`SubDataPropertyOf` and `EquivalentDataProperties` follow the same skipped-axiom contract and
-cannot mutate object-role state.
+`SubDataPropertyOf`, `EquivalentDataProperties`, and `DisjointDataProperties` follow the same
+skipped-axiom contract and cannot mutate object-role state.
 
 ## 11. Mutable instance state
 
