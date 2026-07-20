@@ -122,6 +122,8 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.restriction_subclasses == 0
     assert statistics.equivalents == 0
     assert statistics.aggregate_equivalents == 0
+    assert statistics.disjoint_classes == 0
+    assert statistics.disjoint_unions == 0
     assert statistics.class_assertions == 0
     assert statistics.object_property_assertions == 0
     assert statistics.negative_object_property_assertions == 0
@@ -332,6 +334,69 @@ def test_asserted_taxonomy_preflights_and_suppresses_aggregate_equivalence() -> 
     assert actual == expected
     assert statistics.equivalents == statistics.aggregate_equivalents == 1
     assert statistics.role_expansion_edges == 0
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_disjoint_class_families_are_aggregate_aware_state_neutral_skips(
+    only_taxonomy: bool,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) "
+        "SubClassOf(:Source ObjectSomeValuesFrom(:p :Target)) "
+        "DisjointClasses(:A :B ObjectIntersectionOf("
+        ":C ObjectSomeValuesFrom(:p :D))) "
+        "DisjointUnion(:Defined :E ObjectUnionOf(:F :G))"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=max(1, len(expected)),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert statistics.roots == 4
+    assert statistics.disjoint_classes == 1
+    assert statistics.disjoint_unions == 1
+    assert statistics.skipped_axioms == 2
+    assert statistics.role_expansion_edges == (0 if only_taxonomy else 1)
+
+
+def test_asserted_taxonomy_preflights_disjoint_class_families_without_skips() -> None:
+    view = _snapshot(
+        "SubClassOf(:TaxA :TaxB) DisjointClasses("
+        ":A ObjectIntersectionOf(:B :C)) DisjointUnion("
+        ":Defined :D ObjectUnionOf(:E :F))"
+    )
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert statistics.disjoint_classes == statistics.disjoint_unions == 1
+    assert statistics.skipped_axioms == 0
 
 
 def test_asserted_taxonomy_mode_preflights_and_suppresses_adjacent_axioms() -> None:
@@ -887,9 +952,9 @@ def test_data_literal_datatype_iri_limit_fails_before_taxonomy_publication() -> 
 
 
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
-    constructor_lease = _lease(_snapshot("DisjointClasses(:A :B)"))
+    constructor_lease = _lease(_snapshot("SameIndividual(:i :j)"))
     compiler = prepare_native_encoded_direct(constructor_lease)
-    with pytest.raises(NativeEncodedDirectUnsupported, match="schema tag 63"):
+    with pytest.raises(NativeEncodedDirectUnsupported, match="schema tag 110"):
         compiler.compile_batch(
             bidirectional=False,
             max_edges=10,
@@ -1066,6 +1131,100 @@ def test_aggregate_edge_limit_fails_before_prior_taxonomy_publication() -> None:
             max_iri_bytes=1024 * 1024,
         )
     assert compiler.state == "failed"
+
+
+def test_disjoint_class_set_and_defined_class_corruption_fail_closed() -> None:
+    set_lease = _lease(_snapshot("DisjointClasses(:A :B :C)"))
+    item_values = bytearray(set_lease.buffers["item_values"])
+    first = bytes(item_values[:8])
+    item_values[:8] = item_values[8:16]
+    item_values[8:16] = first
+    hostile_set = _replace_buffers(
+        set_lease,
+        {"item_values": memoryview(bytes(item_values))},
+    )
+    malformed_set = prepare_native_encoded_direct(hostile_set)
+    with pytest.raises(SnapshotCompatibilityError, match="sorted and unique"):
+        malformed_set.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed_set.state == "failed"
+
+    union_lease = _lease(
+        _snapshot("DisjointUnion(:Defined :A :B) Declaration(ObjectProperty(:wrong))")
+    )
+    tags = union_lease.buffers["node_tags"]
+    offsets = union_lease.buffers["node_field_offsets"]
+    values = bytearray(union_lease.buffers["field_values"])
+    declaration_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 60
+    )
+    declaration_start = int.from_bytes(
+        offsets[(declaration_id - 1) * 8 : declaration_id * 8],
+        "little",
+    )
+    wrong_id = bytes(values[declaration_start * 8 : (declaration_start + 1) * 8])
+    union_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 64
+    )
+    union_start = int.from_bytes(
+        offsets[(union_id - 1) * 8 : union_id * 8],
+        "little",
+    )
+    values[union_start * 8 : (union_start + 1) * 8] = wrong_id
+    hostile_union = _replace_buffers(
+        union_lease,
+        {"field_values": memoryview(bytes(values))},
+    )
+    malformed_union = prepare_native_encoded_direct(hostile_union)
+    with pytest.raises(SnapshotCompatibilityError, match="not a class"):
+        malformed_union.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed_union.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'DisjointClasses(Annotation(<urn:meta> "unsupported") :A :B)',
+        'DisjointUnion(Annotation(<urn:meta> "unsupported") :Defined :A :B)',
+    ],
+    ids=["disjoint-classes", "disjoint-union"],
+)
+def test_annotated_disjoint_class_families_fail_before_output(body: str) -> None:
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
+    with pytest.raises(NativeEncodedDirectUnsupported, match=r"annotations|schema tag 5"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_many_disjoint_class_roots_cross_one_zero_output_bounded_call() -> None:
+    axioms = " ".join(f"DisjointClasses(:A{index:03d} :B{index:03d})" for index in range(250))
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(axioms)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == statistics.disjoint_classes == 250
+    assert statistics.disjoint_unions == 0
+    assert statistics.skipped_axioms == 250
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
 
 
 def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication() -> None:

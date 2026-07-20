@@ -56,6 +56,8 @@ const TAG_OBJECT_MAX_CARDINALITY: u16 = 39;
 const TAG_DECLARATION: u16 = 60;
 const TAG_SUB_CLASS_OF: u16 = 61;
 const TAG_EQUIVALENT_CLASSES: u16 = 62;
+const TAG_DISJOINT_CLASSES: u16 = 63;
+const TAG_DISJOINT_UNION: u16 = 64;
 const TAG_SUB_OBJECT_PROPERTY_OF: u16 = 70;
 const TAG_EQUIVALENT_OBJECT_PROPERTIES: u16 = 71;
 const TAG_DISJOINT_OBJECT_PROPERTIES: u16 = 72;
@@ -147,6 +149,8 @@ pub(crate) struct DirectCompileStats {
     pub(crate) restriction_subclasses: usize,
     pub(crate) equivalents: usize,
     pub(crate) aggregate_equivalents: usize,
+    pub(crate) disjoint_classes: usize,
+    pub(crate) disjoint_unions: usize,
     pub(crate) class_assertions: usize,
     pub(crate) object_property_assertions: usize,
     pub(crate) negative_object_property_assertions: usize,
@@ -225,6 +229,8 @@ struct RootCounts {
     restriction_subclasses: usize,
     equivalents: usize,
     aggregate_equivalents: usize,
+    disjoint_classes: usize,
+    disjoint_unions: usize,
     class_assertions: usize,
     object_property_assertions: usize,
     negative_object_property_assertions: usize,
@@ -262,6 +268,8 @@ impl RootCounts {
     fn skipped_axioms(self) -> Result<usize, KernelError> {
         [
             self.negative_object_property_assertions,
+            self.disjoint_classes,
+            self.disjoint_unions,
             self.equivalent_object_properties,
             self.disjoint_object_properties,
             self.functional_object_properties,
@@ -1366,6 +1374,35 @@ impl<'a> DirectColumns<'a> {
         }
     }
 
+    fn validate_disjoint_classes(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_DISJOINT_CLASSES {
+            return Err(KernelError::malformed(
+                "encoded disjoint-classes cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        let (item_start, length) = self.node_set_range(start, 2)?;
+        for item_index in item_start..item_start + length {
+            self.class_expression_rank(self.item_node(item_index)?, maximum)?;
+        }
+        self.empty_annotation_set(start + 1)
+    }
+
+    fn validate_disjoint_union(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_DISJOINT_UNION {
+            return Err(KernelError::malformed(
+                "encoded disjoint-union cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_class_iri(self.field_node(start)?, maximum)?;
+        let (item_start, length) = self.node_set_range(start + 1, 2)?;
+        for item_index in item_start..item_start + length {
+            self.class_expression_rank(self.item_node(item_index)?, maximum)?;
+        }
+        self.empty_annotation_set(start + 2)
+    }
+
     fn class_assertion_pair(
         self,
         node_id: usize,
@@ -1590,6 +1627,12 @@ impl<'a> DirectColumns<'a> {
                 TAG_EQUIVALENT_CLASSES => {
                     self.equivalent_projection(node_id, maximum_iri)?;
                 }
+                TAG_DISJOINT_CLASSES => {
+                    self.validate_disjoint_classes(node_id, maximum_iri)?;
+                }
+                TAG_DISJOINT_UNION => {
+                    self.validate_disjoint_union(node_id, maximum_iri)?;
+                }
                 TAG_SUB_OBJECT_PROPERTY_OF | TAG_INVERSE_OBJECT_PROPERTIES => {
                     self.role_axiom_parts(node_id, self.node_tag(node_id)?, maximum_iri)?;
                 }
@@ -1697,6 +1740,8 @@ impl<'a> DirectColumns<'a> {
                         counts.aggregate_equivalents += 1;
                     }
                 }
+                (ROOT_AXIOM, TAG_DISJOINT_CLASSES) => counts.disjoint_classes += 1,
+                (ROOT_AXIOM, TAG_DISJOINT_UNION) => counts.disjoint_unions += 1,
                 (ROOT_AXIOM, TAG_SUB_OBJECT_PROPERTY_OF) => {
                     counts.sub_object_properties += 1;
                 }
@@ -2374,6 +2419,8 @@ pub(crate) fn compile_direct(
         restriction_subclasses: counts.restriction_subclasses,
         equivalents: counts.equivalents,
         aggregate_equivalents: counts.aggregate_equivalents,
+        disjoint_classes: counts.disjoint_classes,
+        disjoint_unions: counts.disjoint_unions,
         class_assertions: counts.class_assertions,
         object_property_assertions: counts.object_property_assertions,
         negative_object_property_assertions: counts.negative_object_property_assertions,
@@ -2911,6 +2958,24 @@ mod tests {
         fixture.finish_node(TAG_EQUIVALENT_CLASSES); // 32
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&32_u32.to_le_bytes());
+        fixture
+    }
+
+    fn named_disjoint_class_fixture() -> Fixture {
+        let mut fixture = named_aggregate_role_fixture();
+        fixture.push_node_set(&[8, 9, 31]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DISJOINT_CLASSES); // 33
+        fixture.push_node_ref(10);
+        fixture.push_node_set(&[9, 31]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DISJOINT_UNION); // 34
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [33_u32, 34] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
         fixture
     }
 
@@ -3459,6 +3524,54 @@ mod tests {
     }
 
     #[test]
+    fn disjoint_class_families_are_validated_state_neutral_skips() {
+        let fixture = named_disjoint_class_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            10,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 10);
+        assert_eq!(stats.disjoint_classes, 1);
+        assert_eq!(stats.disjoint_unions, 1);
+        assert_eq!(stats.skipped_axioms, 11);
+        assert_eq!(stats.role_expansion_edges, 6);
+
+        let (only_taxonomy, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            true,
+            4,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(only_taxonomy.len(), 4);
+        assert_eq!(stats.skipped_axioms, 11);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.disjoint_classes, 1);
+        assert_eq!(stats.disjoint_unions, 1);
+        assert_eq!(stats.skipped_axioms, 0);
+    }
+
+    #[test]
     fn named_data_property_families_validate_literals_and_remain_state_neutral() {
         let fixture = named_data_property_fixture();
         let (edges, stats) = compile_direct(
@@ -3571,7 +3684,7 @@ mod tests {
         ));
 
         let mut unsupported = named_subclass_fixture();
-        unsupported.node_tags[10..12].copy_from_slice(&63_u16.to_le_bytes());
+        unsupported.node_tags[10..12].copy_from_slice(&TAG_SWRL_RULE.to_le_bytes());
         assert!(matches!(
             compile_direct(
                 unsupported.columns(),
