@@ -27,9 +27,11 @@ from pyowl2vec_star_projector.compiler import (
 )
 from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
+    EncodedNegotiation,
     EncodedStructuralLease,
     _validate_encoded_view,
 )
+from pyowl2vec_star_projector.encoded_compiler import prepare_encoded_subset_compilation
 from pyowl2vec_star_projector.errors import (
     SnapshotCompatibilityError,
     UnsupportedAxiomShapeError,
@@ -109,8 +111,11 @@ def _property_chain_snapshot() -> object:
     return _snapshot(
         "SubObjectPropertyOf(:c0 :r) SubObjectPropertyOf(:c71 :r) "
         f"{unrelated} "
-        "SubObjectPropertyOf(ObjectPropertyChain(:z ObjectInverseOf(:a) :m) :r) "
-        "SubObjectPropertyOf(ObjectPropertyChain(:m ObjectInverseOf(:a) :z) :r) "
+        "SubObjectPropertyOf(Annotation(<urn:chain-meta> <urn:chain-value>) "
+        "ObjectPropertyChain(:z ObjectInverseOf(:a) :m) :r) "
+        "SubObjectPropertyOf(Annotation(Annotation(<urn:nested> _:ignored) "
+        '<urn:chain-meta> "typed"^^<urn:datatype>) '
+        "ObjectPropertyChain(:m ObjectInverseOf(:a) :z) :r) "
         "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R)"
     )
 
@@ -266,6 +271,38 @@ def _annotated_non_role_axiom_snapshot() -> object:
         "SubObjectPropertyOf(:child :p)",
     ]
     return _snapshot(" ".join(axioms))
+
+
+def _annotated_role_axiom_snapshot() -> object:
+    return _snapshot(
+        'SubObjectPropertyOf(Annotation(Annotation(<urn:nested> "ignored") '
+        '<urn:meta> "0") :a :p) '
+        'SubObjectPropertyOf(Annotation(<urn:meta> "4") :c :a) '
+        'InverseObjectProperties(Annotation(<urn:meta> "0") :p :x) '
+        'InverseObjectProperties(Annotation(<urn:meta> "0") :p :y) '
+        "SubObjectPropertyOf(Annotation(<urn:chain-meta> <urn:chain-value>) "
+        "ObjectPropertyChain(:left ObjectInverseOf(:right)) :p) "
+        'SubClassOf(Annotation(<urn:subclass-meta> "ignored") '
+        ":Source ObjectSomeValuesFrom(:p :Target)) "
+        'ObjectPropertyDomain(Annotation(<urn:meta> "domain") :p :D) '
+        'ObjectPropertyRange(Annotation(<urn:meta> "range") :p :R)'
+    )
+
+
+def _annotated_role_value_snapshot() -> object:
+    return _snapshot(
+        "InverseObjectProperties(Annotation(<urn:meta> <urn:value>) :p :iriValue) "
+        'InverseObjectProperties(Annotation(<urn:meta> "typed"^^<urn:datatype>) '
+        ":p :typedValue) "
+        'InverseObjectProperties(Annotation(<urn:meta> "bonjour"@fr) :p :langValue) '
+        'InverseObjectProperties(Annotation(<urn:a> "first") '
+        'Annotation(<urn:b> "second") :p :multiValue) '
+        'InverseObjectProperties(Annotation(Annotation(<urn:nested> "ignored") '
+        '<urn:meta> "plain") :p :nestedValue) '
+        'InverseObjectProperties(Annotation(<urn:meta> "inverse-expression") '
+        "ObjectInverseOf(:p) :inverseExpression) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
 
 
 def _lease(view: object) -> EncodedStructuralLease:
@@ -793,6 +830,123 @@ def test_named_role_hashset_order_expands_restrictions_and_domains_but_not_asser
         and edge.relation in {"urn:native-direct#p", "urn:native-direct#s"}
         for edge in actual
     )
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_annotated_role_hashes_match_scalar_overwrites_and_chain_state(
+    only_taxonomy: bool,
+) -> None:
+    view = _annotated_role_axiom_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    exact = (
+        [
+            Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
+            Edge("urn:native-direct#D", "urn:native-direct#a", "urn:native-direct#R"),
+            Edge("urn:native-direct#D", "urn:native-direct#c", "urn:native-direct#R"),
+            Edge("urn:native-direct#R", "urn:native-direct#x", "urn:native-direct#D"),
+        ]
+        if only_taxonomy
+        else [
+            Edge(
+                "urn:native-direct#Source",
+                "urn:native-direct#p",
+                "urn:native-direct#Target",
+            ),
+            Edge(
+                "urn:native-direct#Source",
+                "urn:native-direct#a",
+                "urn:native-direct#Target",
+            ),
+            Edge(
+                "urn:native-direct#Source",
+                "urn:native-direct#c",
+                "urn:native-direct#Target",
+            ),
+            Edge(
+                "urn:native-direct#Target",
+                "urn:native-direct#x",
+                "urn:native-direct#Source",
+            ),
+            Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
+            Edge("urn:native-direct#D", "urn:native-direct#a", "urn:native-direct#R"),
+            Edge("urn:native-direct#D", "urn:native-direct#c", "urn:native-direct#R"),
+            Edge("urn:native-direct#R", "urn:native-direct#x", "urn:native-direct#D"),
+        ]
+    )
+    assert actual == exact
+    assert not any(edge.relation == "urn:native-direct#y" for edge in actual)
+    assert statistics.roots == 8
+    assert statistics.sub_object_properties == 3
+    assert statistics.object_property_chains == 1
+    assert statistics.inverse_object_properties == 2
+    assert statistics.role_expansion_edges == (3 if only_taxonomy else 6)
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_asserted_taxonomy_preflights_annotated_roles_without_state_leakage() -> None:
+    view = _annotated_role_axiom_snapshot()
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == []
+    assert statistics.sub_object_properties == 3
+    assert statistics.object_property_chains == 1
+    assert statistics.inverse_object_properties == 2
+    assert statistics.domain_range_edges == 0
+    assert statistics.role_expansion_edges == 0
+
+
+def test_role_annotation_value_hash_variants_match_scalar_overwrite_order() -> None:
+    view = _annotated_role_value_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
+            Edge(
+                "urn:native-direct#R",
+                "urn:native-direct#langValue",
+                "urn:native-direct#D",
+            ),
+        ]
+    )
+    assert statistics.inverse_object_properties == 6
+    assert statistics.role_expansion_edges == 1
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
 
 
 @pytest.mark.parametrize("only_taxonomy", [False, True])
@@ -2046,10 +2200,10 @@ def test_hostile_anonymous_individual_shape_fails_before_output() -> None:
 
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
     constructor_lease = _lease(
-        _snapshot('SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") :p :q)')
+        _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))")
     )
     compiler = prepare_native_encoded_direct(constructor_lease)
-    with pytest.raises(NativeEncodedDirectUnsupported, match="annotations"):
+    with pytest.raises(NativeEncodedDirectUnsupported, match="class expression"):
         compiler.compile_batch(
             bidirectional=False,
             max_edges=10,
@@ -2434,6 +2588,7 @@ def test_asserted_taxonomy_preflights_property_chains_without_role_leakage() -> 
 def test_many_property_chains_cross_one_zero_output_bounded_call() -> None:
     axioms = " ".join(
         "SubObjectPropertyOf("
+        f'Annotation(<urn:chain-meta{index:03d}> "value{index:03d}") '
         f"ObjectPropertyChain(:left{index:03d} ObjectInverseOf(:right{index:03d})) "
         f":super{index:03d})"
         for index in range(250)
@@ -2451,6 +2606,150 @@ def test_many_property_chains_cross_one_zero_output_bounded_call() -> None:
     assert statistics.object_property_chains == 250
     assert statistics.skipped_axioms == 0
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize("target_tag", [70, 73], ids=["subproperty", "inverse"])
+def test_hostile_role_annotation_sets_fail_before_output(target_tag: int) -> None:
+    lease = _lease(_annotated_role_axiom_snapshot())
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    subclass_start = field_start(tagged_node(61))
+    class_id = int.from_bytes(
+        buffers["field_values"][subclass_start * 8 : (subclass_start + 1) * 8],
+        "little",
+    )
+    annotation_field = field_start(tagged_node(target_tag)) + 2
+    item_start = int.from_bytes(
+        buffers["field_values"][annotation_field * 8 : (annotation_field + 1) * 8],
+        "little",
+    )
+    item_values = bytearray(buffers["item_values"])
+    item_values[item_start * 8 : (item_start + 1) * 8] = class_id.to_bytes(8, "little")
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"item_values": memoryview(bytes(item_values))})
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match="annotation set item"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=20,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SubObjectPropertyOf(Annotation(<urn:meta> _:anonymous) :p :q)",
+        "SubObjectPropertyOf(Annotation(<urn:meta> _:anonymous) ObjectPropertyChain(:p :q) :r)",
+        "InverseObjectProperties(Annotation(<urn:meta> _:anonymous) :p :q)",
+    ],
+    ids=["subproperty", "property-chain", "inverse"],
+)
+def test_unhashable_anonymous_role_annotations_fallback_before_output(body: str) -> None:
+    compiler = prepare_native_encoded_direct(
+        _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
+    )
+
+    with pytest.raises(
+        NativeEncodedDirectUnsupported,
+        match="cannot reproduce scalar hashing",
+    ):
+        compiler.compile_batch(
+            bidirectional=True,
+            max_edges=20,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_valid_utf8_anonymous_role_hashes_match_encoded_scalar_order() -> None:
+    view = _snapshot(
+        "InverseObjectProperties(Annotation(<urn:meta> _:one) :p :one) "
+        "InverseObjectProperties(Annotation(<urn:meta> _:two) :p :two) "
+        "InverseObjectProperties(Annotation(<urn:meta> _:three) :p :three) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    lease = _lease(view)
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+    offsets = buffers["node_field_offsets"]
+    anonymous_ids = [
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 3
+    ]
+    replacements = [b"a" * 32, b"z" * 32, "🙂".encode() * 8]
+    scalar_bytes = bytearray(buffers["scalar_bytes"])
+    for node_id, replacement in zip(anonymous_ids, replacements, strict=True):
+        field_start = int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+        local_field = field_start + 1
+        scalar_start = int.from_bytes(
+            buffers["field_values"][local_field * 8 : (local_field + 1) * 8],
+            "little",
+        )
+        scalar_length = int.from_bytes(
+            buffers["field_lengths"][local_field * 8 : (local_field + 1) * 8],
+            "little",
+        )
+        assert scalar_length == len(replacement)
+        scalar_bytes[scalar_start : scalar_start + scalar_length] = replacement
+    mutated = _replace_buffers(
+        lease,
+        {"scalar_bytes": memoryview(bytes(scalar_bytes))},
+    )
+    options = ProjectionOptions(
+        backend="native",
+        duplicates="preserve",
+        order="encounter",
+    )
+    reference, negotiation, counters = prepare_encoded_subset_compilation(
+        view,
+        options,
+        EncodedNegotiation("encoded-native", lease=mutated),
+        batch_edges=10,
+    )
+
+    assert reference is not None
+    assert negotiation.path == "encoded-native"
+    assert counters is not None
+    expected = list(reference.iter_raw_edges())
+    actual, statistics = prepare_native_encoded_direct(mutated).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
+            Edge("urn:native-direct#R", "urn:native-direct#one", "urn:native-direct#D"),
+        ]
+    )
+    assert statistics.inverse_object_properties == 3
+    assert statistics.role_expansion_edges == 1
 
 
 @pytest.mark.parametrize(
@@ -3268,10 +3567,6 @@ def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
         "<http://www.w3.org/2001/XMLSchema#string>))))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
-        'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") '
-        "ObjectPropertyChain(:p :q) :r)",
-        'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") :p :q)',
-        'InverseObjectProperties(Annotation(<urn:meta> "unsupported") :p :q)',
     ],
     ids=[
         "inverse-complex-filler",
@@ -3279,9 +3574,6 @@ def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
         "nested-data-restriction",
         "restriction-pair",
         "nested-domain",
-        "annotated-property-chain",
-        "annotated-subproperty",
-        "annotated-inverse",
     ],
 )
 def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body: str) -> None:

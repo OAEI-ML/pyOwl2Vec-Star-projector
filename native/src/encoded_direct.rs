@@ -802,20 +802,6 @@ impl<'a> DirectColumns<'a> {
         Ok(payload)
     }
 
-    fn empty_annotation_set(self, index: usize) -> Result<(), KernelError> {
-        if self.field_kind(index)? != COMPONENT_SET {
-            return Err(KernelError::malformed(
-                "encoded annotation field is not a canonical set",
-            ));
-        }
-        if self.field_length(index)? != 0 {
-            return Err(KernelError::unsupported(
-                "direct native slice does not yet support role-axiom annotations",
-            ));
-        }
-        Ok(())
-    }
-
     fn iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
         if self.node_tag(node_id)? != TAG_IRI {
             return Err(KernelError::malformed(
@@ -1107,6 +1093,58 @@ impl<'a> DirectColumns<'a> {
             }
         }
         Ok(())
+    }
+
+    fn annotation_set_hash(self, index: usize, maximum_iri: usize) -> Result<i32, KernelError> {
+        let (item_start, length) = self.node_set_range(index, 0)?;
+        let mut result = 0_i32;
+        for item_index in item_start..item_start + length {
+            result = result
+                .wrapping_add(self.annotation_hash(self.item_node(item_index)?, maximum_iri)?);
+        }
+        Ok(result)
+    }
+
+    fn annotation_hash(self, node_id: usize, maximum_iri: usize) -> Result<i32, KernelError> {
+        if self.node_tag(node_id)? != TAG_ANNOTATION {
+            return Err(KernelError::malformed(
+                "encoded annotation set item does not reference an Annotation",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        let property = self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
+        let value = self.annotation_value_hash(self.field_node(start + 1)?, maximum_iri)?;
+        // OWLAPI 4.5.22 excludes nested annotations from OWLAnnotation.hashCode,
+        // but their canonical set still belongs to the validated snapshot.
+        self.validate_annotation_set(start + 2)?;
+        Ok(combine_hash(6311, &[owlapi_iri_hash(property), value]))
+    }
+
+    fn annotation_value_hash(self, node_id: usize, maximum_iri: usize) -> Result<i32, KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_IRI => Ok(owlapi_iri_hash(self.iri(node_id, maximum_iri)?)),
+            TAG_LITERAL => {
+                let (lexical, _datatype) = self.literal_parts(node_id, maximum_iri)?;
+                Ok(java_string_hash(lexical))
+            }
+            TAG_ANONYMOUS_INDIVIDUAL => {
+                self.validate_anonymous_individual(node_id)?;
+                let start = self.exact_fields(node_id, 2)?;
+                let local_key = self.scalar_payload(start + 1, COMPONENT_BYTES)?;
+                let local_key = std::str::from_utf8(local_key).map_err(|_| {
+                    KernelError::unsupported(
+                        "direct native role annotation value cannot reproduce scalar hashing",
+                    )
+                })?;
+                Ok(java_string_hash(local_key))
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native role annotation hashing supports only IRI, literal, or anonymous-individual values",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded role annotation value tag {tag} is outside structural-columns v1",
+            ))),
+        }
     }
 
     fn validate_metadata_annotation_value(
@@ -1499,7 +1537,7 @@ impl<'a> DirectColumns<'a> {
             self.object_property_expression(first_id, maximum)?;
         }
         self.object_property_expression(self.field_node(start + 1)?, maximum)?;
-        self.empty_annotation_set(start + 2)?;
+        self.annotation_set_hash(start + 2, maximum)?;
         Ok(is_chain)
     }
 
@@ -1508,7 +1546,14 @@ impl<'a> DirectColumns<'a> {
         node_id: usize,
         expected_tag: u16,
         maximum: usize,
-    ) -> Result<(ObjectPropertyExpression<'a>, ObjectPropertyExpression<'a>), KernelError> {
+    ) -> Result<
+        (
+            ObjectPropertyExpression<'a>,
+            ObjectPropertyExpression<'a>,
+            i32,
+        ),
+        KernelError,
+    > {
         if self.node_tag(node_id)? != expected_tag
             || ![TAG_SUB_OBJECT_PROPERTY_OF, TAG_INVERSE_OBJECT_PROPERTIES].contains(&expected_tag)
         {
@@ -1519,8 +1564,8 @@ impl<'a> DirectColumns<'a> {
         let start = self.exact_fields(node_id, 3)?;
         let first = self.object_property_expression(self.field_node(start)?, maximum)?;
         let second = self.object_property_expression(self.field_node(start + 1)?, maximum)?;
-        self.empty_annotation_set(start + 2)?;
-        Ok((first, second))
+        let annotation_hash = self.annotation_set_hash(start + 2, maximum)?;
+        Ok((first, second, annotation_hash))
     }
 
     fn validate_object_property_set_axiom(
@@ -2701,13 +2746,20 @@ impl<'a> DirectColumns<'a> {
             {
                 continue;
             }
-            let (first, second) = self.role_axiom_parts(node_id, tag, maximum_iri)?;
+            let (first, second, annotation_hash) =
+                self.role_axiom_parts(node_id, tag, maximum_iri)?;
             let owlapi_hash = if tag == TAG_SUB_OBJECT_PROPERTY_OF {
-                combine_hash(1823, &[first.owlapi_hash, second.owlapi_hash, 0])
+                combine_hash(
+                    1823,
+                    &[first.owlapi_hash, second.owlapi_hash, annotation_hash],
+                )
             } else {
                 combine_hash(
                     1229,
-                    &[first.owlapi_hash.wrapping_add(second.owlapi_hash), 0],
+                    &[
+                        first.owlapi_hash.wrapping_add(second.owlapi_hash),
+                        annotation_hash,
+                    ],
                 )
             };
             let unsigned = owlapi_hash as u32;
