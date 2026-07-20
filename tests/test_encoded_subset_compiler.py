@@ -3200,6 +3200,106 @@ def test_named_subclass_restrictions_match_scalar_options_and_role_expansion() -
                 )
 
 
+def test_inverse_property_restrictions_and_domain_range_match_scalar_exactly() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        'SubClassOf(Annotation(<urn:meta> "some-inverse") '
+        ":SomeSubject ObjectSomeValuesFrom(ObjectInverseOf(:p) :SomeTarget)) "
+        "SubClassOf(ObjectAllValuesFrom(ObjectInverseOf(:p) :AllTarget) :AllSubject) "
+        "SubClassOf(:MinSubject ObjectMinCardinality(2 ObjectInverseOf(:p) :MinTarget)) "
+        "SubClassOf(ObjectMaxCardinality(3 ObjectInverseOf(:p) :MaxTarget) :MaxSubject) "
+        "EquivalentClasses(:Aggregate ObjectIntersectionOf(:Named "
+        "ObjectSomeValuesFrom(:z :NamedZ) "
+        "ObjectSomeValuesFrom(ObjectInverseOf(:a) :InverseA) "
+        "ObjectSomeValuesFrom(:a :NamedA) "
+        "ObjectSomeValuesFrom(ObjectInverseOf(:z) :InverseZ) "
+        "ObjectAllValuesFrom(ObjectInverseOf(:p) :AggregateAll) "
+        "ObjectMinCardinality(4 ObjectInverseOf(:p) :AggregateMin) "
+        "ObjectMaxCardinality(5 ObjectInverseOf(:p) :AggregateMax))) "
+        'EquivalentClasses(Annotation(<urn:meta> "ignored-inverse") '
+        ":IgnoredEquivalent ObjectSomeValuesFrom(ObjectInverseOf(:p) :IgnoredTarget)) "
+        'ClassAssertion(Annotation(<urn:meta> "inverse-class") '
+        "ObjectSomeValuesFrom(ObjectInverseOf(:p) :ClassTarget) :complexIndividual) "
+        'ObjectPropertyDomain(Annotation(<urn:meta> "inverse-domain") '
+        "ObjectInverseOf(:p) :IgnoredDomain) "
+        'ObjectPropertyRange(Annotation(<urn:meta> "inverse-range") '
+        "ObjectInverseOf(:p) :IgnoredRange) "
+        "ObjectPropertyDomain(ObjectInverseOf(:q) ObjectUnionOf(:ComplexDomainA "
+        ":ComplexDomainB)) "
+        "ObjectPropertyRange(ObjectInverseOf(:q) "
+        "ObjectAllValuesFrom(ObjectInverseOf(:p) :ComplexRange)) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(backend="python", only_taxonomy=True, order="encounter"),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("inverse-property slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=3,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            ignored = {
+                item.constructor: item.count
+                for item in projector.last_report.diagnostics
+                if item.code == "MOWL_IGNORED_SHAPE"
+            }
+            assert ignored == {
+                "ClassAssertion": 1,
+                "EquivalentClasses": 1,
+                "ObjectPropertyDomain": 2,
+                "ObjectPropertyRange": 2,
+                **({"SubClassOf": 4} if options.only_taxonomy else {}),
+            }
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.scalar_fallbacks == 0
+            assert counters.raw_edges == len(scalar_edges)
+            if not options.only_taxonomy:
+                assert (
+                    Edge("urn:slice#SomeSubject", "urn:slice#p", "urn:slice#SomeTarget") in actual
+                )
+                assert (
+                    Edge("urn:slice#SomeTarget", "urn:slice#pinv", "urn:slice#SomeSubject")
+                    in actual
+                )
+                assert Edge("urn:slice#Aggregate", "urn:slice#a", "urn:slice#InverseA") in actual
+                assert Edge("urn:slice#Aggregate", "urn:slice#z", "urn:slice#InverseZ") in actual
+
+
 def test_named_aggregate_equivalence_matches_scalar_operand_order_and_roles() -> None:
     view = _snapshot(
         "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
@@ -3484,6 +3584,90 @@ def test_segmented_ignored_shapes_preserve_differential_diagnostics_and_leases()
         assert counters.referenced_segments in {1, 2}
 
 
+def test_segmented_inverse_properties_preserve_order_diagnostics_and_leases() -> None:
+    source_body = (
+        'SubClassOf(Annotation(<urn:meta> "inverse-source") '
+        ":A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B)) "
+        "ObjectPropertyDomain(ObjectInverseOf(:p) :IgnoredDomain)"
+    )
+    delta_body = (
+        "EquivalentClasses(:C ObjectIntersectionOf(:D "
+        "ObjectAllValuesFrom(ObjectInverseOf(:p) :E))) "
+        'ObjectPropertyRange(Annotation(<urn:meta> "inverse-delta") '
+        "ObjectInverseOf(:p) :IgnoredRange) "
+        "ObjectPropertyDomain(:p :ProjectedDomain) "
+        "ObjectPropertyRange(:p :ProjectedRange)"
+    )
+    source = _snapshot(source_body)
+    delta = _snapshot(delta_body)
+    overlay = _snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(backend="python", duplicates="unique", order="canonical")
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("segmented inverse properties crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert (
+            actual
+            == expected
+            == [
+                Edge("urn:slice#A", "urn:slice#p", "urn:slice#B"),
+                Edge("urn:slice#C", SUBCLASS_OF, "urn:slice#D"),
+                Edge("urn:slice#C", "urn:slice#p", "urn:slice#E"),
+                Edge("urn:slice#ProjectedDomain", "urn:slice#p", "urn:slice#ProjectedRange"),
+            ]
+        )
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        ignored = {
+            item.constructor: item.count
+            for item in projector.last_report.diagnostics
+            if item.code == "MOWL_IGNORED_SHAPE"
+        }
+        assert ignored == {"ObjectPropertyDomain": 1, "ObjectPropertyRange": 1}
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.scalar_fallbacks == 0
+        assert counters.referenced_segments in {1, 2}
+
+
 def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -> None:
     view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))")
     lease = _lease(view)
@@ -3526,7 +3710,8 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
     [
         "EquivalentObjectProperties(:p :q)",
         "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
-        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
+        "SubObjectPropertyOf(ObjectInverseOf(:p) :q)",
+        "InverseObjectProperties(ObjectInverseOf(:p) :q)",
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
         'SubObjectPropertyOf(Annotation(<urn:a> "x") ObjectPropertyChain(:p :q) :r)',
     ],
@@ -3998,6 +4183,79 @@ def test_restriction_arity_corruption_fails_before_edge_output(
             batch_edges=1,
         )
     assert raised.value.details["expected_arity"] == arity
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "arity",
+        "field-kind",
+        "field-length",
+        "out-of-range",
+        "wrong-entity",
+        "nested-inverse",
+    ],
+)
+def test_inverse_property_corruption_fails_before_edge_output(corruption: str) -> None:
+    view = _snapshot(
+        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B)) "
+        "ObjectPropertyDomain(ObjectInverseOf(:q) :D)"
+    )
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    inverse_ids = tuple(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 10
+    )
+    assert len(inverse_ids) == 2
+    node_id = inverse_ids[0]
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(offsets[(node_id - 1) * 8 : node_id * 8], "little")
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = node_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption == "field-kind":
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[field_index] = 2
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "field-length":
+        lengths = bytearray(buffers["field_lengths"])
+        lengths[field_index * 8 : (field_index + 1) * 8] = (1).to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    else:
+        values = bytearray(buffers["field_values"])
+        if corruption == "out-of-range":
+            replacement = tags.nbytes // 2 + 1
+        elif corruption == "nested-inverse":
+            replacement = inverse_ids[1]
+        else:
+            columns = _EncodedColumns(lease)
+            replacement = next(
+                candidate
+                for candidate in range(1, columns.node_count + 1)
+                if columns._named_class_iri(candidate) == "urn:slice#A"
+            )
+        values[field_index * 8 : (field_index + 1) * 8] = replacement.to_bytes(8, "little")
+        buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"arity|node reference|out of range|ObjectInverseOf property",
+    ) as raised:
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+    if corruption == "arity":
+        assert raised.value.details["expected_arity"] == 1
 
 
 @pytest.mark.parametrize("tag", [30, 31])

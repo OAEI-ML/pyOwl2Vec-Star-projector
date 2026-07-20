@@ -6,7 +6,7 @@ followed by one top-local delta segment; or recursively resolved composite
 members with an optional top-local bridge.  Those roots may contain
 declarations; ``SubClassOf``, ``EquivalentClasses``, ``ClassAssertion``, and
 object-property domain/range axioms over the validated named, aggregate, and
-named-property/named-filler restriction envelope; direct
+named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
 named role axioms, including annotations on those declaration/logical axioms.
 The compiler reproduces both emitted edges and grouped ignored-shape outcomes
@@ -58,6 +58,7 @@ _TAG_ENTITY = 2
 _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_LITERAL = 4
 _TAG_ANNOTATION = 5
+_TAG_OBJECT_INVERSE_OF = 10
 _TAG_OBJECT_INTERSECTION_OF = 30
 _TAG_OBJECT_UNION_OF = 31
 _TAG_OBJECT_SOME_VALUES_FROM = 34
@@ -844,7 +845,7 @@ class _EncodedColumns:
             raise SnapshotCompatibilityError(
                 "encoded subset batch cursor does not reference a supported restriction"
             )
-        relation = self._named_object_property_iri(self._field_node(property_index))
+        relation = self._projected_object_property_iri(self._field_node(property_index))
         destination = self._named_class_iri(self._field_node(filler_index))
         if relation is None or destination is None:  # pragma: no cover - preflight
             raise SnapshotCompatibilityError(
@@ -1119,13 +1120,14 @@ class _EncodedColumns:
                 "encoded subset batch cursor does not reference a domain/range axiom"
             )
         start = self._exact_fields(node_id, 3)
-        property_iri = self._named_object_property_iri(self._field_node(start))
+        property_id = self._field_node(start)
+        property_iri = self._named_object_property_iri(property_id)
         class_iri = self._named_class_iri(self._field_node(start + 1))
-        if property_iri is None:  # pragma: no cover - preflight
+        if property_iri is None and self.node_tag(property_id) != _TAG_OBJECT_INVERSE_OF:
             raise SnapshotCompatibilityError(
                 "encoded subset domain/range shape changed after successful preflight"
             )
-        if class_iri is None:
+        if property_iri is None or class_iri is None:
             return None
         return property_iri, class_iri
 
@@ -1179,6 +1181,13 @@ class _EncodedColumns:
             self._annotation_set_range(start + 2)
             inspection.counters.annotation_nodes += 1
             return
+        if tag == _TAG_OBJECT_INVERSE_OF:
+            start = self._exact_fields(node_id, 1)
+            if not self._is_named_object_property(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset ObjectInverseOf property is not a named object property"
+                )
+            return
         if tag in _AGGREGATE_TAGS:
             start = self._exact_fields(node_id, 1)
             item_start, length = self._node_set_range(start, minimum=2)
@@ -1204,11 +1213,14 @@ class _EncodedColumns:
                 inspection.counters.scalar_bytes_checked += checked
                 property_index = start + 1
                 filler_index = start + 2
-            named_property = self._is_named_object_property(self._field_node(property_index))
+            supported_property = self._is_supported_object_property_expression(
+                self._field_node(property_index)
+            )
             named_filler = self._is_named_class(self._field_node(filler_index))
-            if not named_property or not named_filler:
+            if not supported_property or not named_filler:
                 inspection.fallback(
-                    "encoded subset requires a named property and filler in restrictions"
+                    "encoded subset requires a supported property expression and named filler "
+                    "in restrictions"
                 )
             return
         if tag == _TAG_DECLARATION:
@@ -1256,12 +1268,14 @@ class _EncodedColumns:
             return
         if tag in {_TAG_OBJECT_PROPERTY_DOMAIN, _TAG_OBJECT_PROPERTY_RANGE}:
             start = self._exact_fields(node_id, 3)
-            named_property = self._is_named_object_property(self._field_node(start))
+            supported_property = self._is_supported_object_property_expression(
+                self._field_node(start)
+            )
             validated_expression = self._is_validated_class_expression(self._field_node(start + 1))
-            if not named_property or not validated_expression:
+            if not supported_property or not validated_expression:
                 inspection.fallback(
-                    "encoded subset requires a named object property and validated class "
-                    "expression in domain/range axioms"
+                    "encoded subset requires a supported object property expression and "
+                    "validated class expression in domain/range axioms"
                 )
             self._annotation_set_range(start + 2)
             return
@@ -1557,6 +1571,15 @@ class _EncodedColumns:
         kind, iri_id, _checked = self._entity(node_id)
         return self._iri_text(iri_id)[0] if kind == b"object_property" else None
 
+    def _projected_object_property_iri(self, node_id: int) -> str | None:
+        named = self._named_object_property_iri(node_id)
+        if named is not None:
+            return named
+        if self.node_tag(node_id) != _TAG_OBJECT_INVERSE_OF:
+            return None
+        start = self._exact_fields(node_id, 1)
+        return self._named_object_property_iri(self._field_node(start))
+
     def _is_named_class(self, node_id: int) -> bool:
         if self.node_tag(node_id) != _TAG_ENTITY:
             return False
@@ -1585,6 +1608,9 @@ class _EncodedColumns:
             return False
         kind, _iri_id, _checked = self._entity(node_id)
         return kind == b"object_property"
+
+    def _is_supported_object_property_expression(self, node_id: int) -> bool:
+        return self._projected_object_property_iri(node_id) is not None
 
     def _is_validated_class_expression(self, node_id: int) -> bool:
         return self._is_named_class(node_id) or self.node_tag(node_id) in (

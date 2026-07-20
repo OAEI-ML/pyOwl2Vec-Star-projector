@@ -55,7 +55,9 @@ preflighted but unobserved. An annotation-bearing multi-document closure selects
 scalar compilation when `include_literals=True`, because schema v1 closure columns do not identify
 which assertion roots belong to the root ontology. Named-subject `SubClassOf` axioms over
 named-property/named-filler some, all, minimum, and maximum restrictions use the same role
-expansion as domain/range edges. A single named class
+expansion as domain/range edges. A one-level `ObjectInverseOf` property expression in those
+restrictions reproduces the scalar helper's historical behavior by projecting through the
+underlying named property IRI; it does not reverse the emitted edge. A single named class
 paired by `EquivalentClasses` with an intersection or union of named classes and those restrictions
 uses the pinned expression ordering and role expansion. Named `SubObjectPropertyOf` and
 `InverseObjectProperties` axioms update the retained compatibility role state in exact OWLAPI
@@ -74,11 +76,14 @@ Within that validated expression envelope, non-projecting combinations stay enco
 reproduce scalar `MOWL_IGNORED_SHAPE` counts by root constructor: complex/complex and
 named/aggregate `SubClassOf`, direct restriction or otherwise unsupported ordered
 `EquivalentClasses` pairs, complex or anonymous-individual `ClassAssertion`, and complex
-domain/range expressions. `EquivalentClasses` still examines only the first two expressions in
-pinned expression order. Consequently, an n-ary axiom whose first two expressions are named emits
-only that named pair and silently ignores a later aggregate or restriction. Constructors not
-semantically validated by this bounded slice, including inverse properties in restrictions,
-complex restriction fillers, complement expressions, and property chains, continue to select
+domain/range expressions. An inverse property in a domain/range axiom is likewise preflighted but
+ignored once under the root constructor, matching the scalar named-property type check.
+`EquivalentClasses` still examines only the first two expressions in pinned expression order.
+Consequently, an n-ary axiom whose first two expressions are named emits only that named pair and
+silently ignores a later aggregate or restriction. Inverse object-property assertions remain on
+the whole-operation scalar error path, and inverse expressions in RBox axioms remain scalar
+fallbacks. Other constructors not semantically validated by this bounded slice, including complex
+restriction fillers, complement expressions, and property chains, continue to select
 whole-operation scalar compilation before output.
 
 One bounded segmented form uses the same compiler: an overlay-base manifest may reference a fully
