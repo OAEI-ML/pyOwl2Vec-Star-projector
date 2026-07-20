@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector implementation through `3ee90a1`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector implementation through `a3cbef6`. pyOWLCore candidate revision:
 `cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -33,9 +33,9 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - scalar-nonprojecting `ObjectExactCardinality` with a minimally encoded cardinality,
   named/inverse property, and named-class filler in the same bounded root positions, likewise
   validated and ignored without output or role-state mutation;
-- non-recursive `ObjectComplementOf` over a named class or one supported nonprojecting object/data
-  class-expression operand in those positions, with the complete operand validated before the
-  containing root is counted and ignored;
+- non-recursive `ObjectComplementOf` over a named class, supported named-property object
+  restriction, or one supported nonprojecting object/data class-expression operand in those
+  positions, with the complete operand validated before the containing root is counted and ignored;
 - all six scalar-nonprojecting data class expressions in bounded `SubClassOf` and `ClassAssertion`
   roots: nonempty ordered named-property sequences for `DataSomeValuesFrom`/`DataAllValuesFrom`,
   named-property/literal `DataHasValue`, and minimally encoded cardinality plus named property for
@@ -47,14 +47,18 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - named-class `ClassAssertion` roots over anonymous individuals follow the same scalar ignored-shape
   contract, while named-class/named-individual assertions retain their existing `http://type` edge;
 - scalar-selected `ObjectIntersectionOf`/`ObjectUnionOf` expressions in `EquivalentClasses`, with
-  flat named-class and supported restriction operands; named operands emit taxonomy edges while
-  restriction operands use the same direct/subrole/inverse expansion as subclass restrictions;
+  flat named-class, supported restriction, and bounded nonprojecting operands; named operands emit
+  taxonomy edges, restriction operands use the same direct/subrole/inverse expansion as subclass
+  restrictions, and nonprojecting operands are fully validated and ignored;
+- aggregate or supported restriction `ClassAssertion`, aggregate `SubClassOf`, and direct
+  nonprojecting/restriction `EquivalentClasses` selections are fully validated and their roots
+  counted while emitting no output, matching scalar ignored-shape behavior;
 - exact scalar aggregate ordering: named expressions/operands use UTF-8 lexical IRI order,
   aggregate and restriction kinds use pinned OWLAPI type order, same-kind restrictions retain
   frozen node order, and duplicate projected edges remain duplicated;
 - `DisjointClasses` and named-defined-class `DisjointUnion` roots over the same bounded named,
-  aggregate, and restriction expression envelope, fully validated and counted but skipped without
-  output or role-state mutation;
+  aggregate, restriction, and nonprojecting expression envelope, fully validated and counted but
+  skipped without output or role-state mutation;
 - paired named `ObjectPropertyDomain`/`ObjectPropertyRange` roots, producing the reference
   domain-by-range products in UTF-8 property order;
 - named-property `ObjectPropertyAssertion` roots over named individuals, producing direct triples
@@ -81,9 +85,9 @@ semantic slice across the actual PyO3 boundary without changing the production c
   `IrreflexiveObjectProperty`, `SymmetricObjectProperty`, `AsymmetricObjectProperty`, and
   `TransitiveObjectProperty`, fully validated, counted, skipped, and state-neutral;
 - named `SubDataPropertyOf`, canonical named `EquivalentDataProperties` and
-  `DisjointDataProperties` sets, named-class `DataPropertyDomain`, named-datatype
-  `DataPropertyRange`, named `FunctionalDataProperty`, and named-to-named `DatatypeDefinition`,
-  fully validated, counted, skipped, and unable to mutate object-role state;
+  `DisjointDataProperties` sets, bounded-class-expression `DataPropertyDomain`, bounded-data-range
+  `DataPropertyRange`, named `FunctionalDataProperty`, and named-to-bounded-range
+  `DatatypeDefinition`, fully validated, counted, skipped, and unable to mutate object-role state;
 - named-source `DataPropertyAssertion` and `NegativeDataPropertyAssertion` roots with plain, typed,
   or language-tagged literals, fully validated and counted but always skipped without an edge;
 - exact three-field literal validation, including UTF-8 lexical/language text, a named datatype,
@@ -134,7 +138,7 @@ equivalents beyond the selected first two, non-selected supported aggregate expr
 supported disjoint/property sets, every supported literal and annotation node, and unpaired object
 domain/range roots are still fully validated. Malformed supported columns fail closed.
 Same-operation isolated role expansion is proven; retained Scala-instance role-state reuse is not
-part of this one-shot seam. This is kernel version 14 of a private foundation, not the complete
+part of this one-shot seam. This is kernel version 15 of a private foundation, not the complete
 compiler described by WP-P7.
 
 ## What the private kernel actually does
@@ -181,7 +185,7 @@ capacities.
 The compiler is one-shot. Atomic idle/running/finished/cancelled/failed transitions allow another
 Python thread to cancel detached work. A cancellation racing with successful compilation discards
 the result. Unsupported, malformed, pinned reference, resource, cancelled, and panic outcomes cross
-the boundary as distinct typed failures; no partial batch is returned. The private v14 ABI returns
+the boundary as distinct typed failures; no partial batch is returned. The private v15 ABI returns
 its forty-eight counters as an explicitly constructed Python tuple because PyO3's automatic tuple
 conversion is bounded below that arity.
 
@@ -201,15 +205,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`3ee90a1`:
+`a3cbef6`:
 
 | Gate | Result |
 |---|---|
-| Rust unit tests (`cargo test --no-default-features`) | 25 passed |
+| Rust unit tests (`cargo test --no-default-features`) | 26 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 125 passed |
-| Native backend, private foundation, and encoded-dispatch tests | 172 passed |
-| Complete projector test suite | 955 passed |
+| Private PyO3 foundation tests | 137 passed |
+| Native backend, private foundation, and encoded-dispatch tests | 184 passed |
+| Complete projector test suite | 967 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -262,6 +266,13 @@ normal, `only_taxonomy`, and asserted-taxonomy modes; a 250-root one-boundary da
 hostile quantifier sequence, property, literal, datatype, facet IRI, and facet-set references;
 non-minimal data exact cardinality; and recursive data-complement/nested-aggregate whole-call
 fallback;
+mixed named/restriction/nonprojecting aggregate equivalence, ignored aggregate subclass and
+aggregate/restriction class assertions, direct ignored equivalent selections, expression-aware
+disjoint/union/key/data-domain/data-range/datatype-definition skips, and their exact counters in
+normal, `only_taxonomy`, and asserted-taxonomy modes; a 250-root one-boundary mixed skipped-family
+call; hostile data-domain, data-range, datatype-definition, and HasKey expression references; and
+nested aggregate/complement whole-call fallback across subclass, assertion, disjoint, key, data
+property, and datatype-definition roots;
 bytes-exporter and exact-owner lifetime across the expanded slice; GIL release; concurrent
 cancellation; and continued absence of the production encoded feature.
 
@@ -273,7 +284,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct named/aggregate class and ABox slice, bounded object/data nonprojecting expressions and data ranges, selected IRI/literal class annotations, named-property/filler object restrictions and object domains/ranges, same-operation named/inverse role expansion, capacity-exact ignored property chains, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions and data ranges, ontology/remaining annotation families, lifecycle reuse, and remaining constructors are unsupported |
+| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and data ranges across selected ignored/skipped axiom families, selected IRI/literal class annotations, named-property/filler object restrictions and object domains/ranges, same-operation named/inverse role expansion, capacity-exact ignored property chains, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions and data ranges, ontology/remaining annotation families, lifecycle reuse, and remaining constructors are unsupported |
 | Bounded batches without per-row FFI | Proven for one caller-bounded private coarse batch; streaming multi-batch integration remains open |
 | Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
