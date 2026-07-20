@@ -253,6 +253,7 @@ mutate object-role state.
 `DifferentIndividuals` follows the same skipped, state-neutral contract.
 `NegativeObjectPropertyAssertion` is skipped, including inverse-property forms, and cannot mutate
 object-role state.
+`DataPropertyAssertion` is skipped and cannot affect projected data-property or object-role state.
 
 ## 11. Mutable instance state
 
