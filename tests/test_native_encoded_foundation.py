@@ -162,6 +162,34 @@ def _data_class_expression_snapshot() -> object:
     )
 
 
+def _expanded_expression_axiom_snapshot() -> object:
+    return _snapshot(
+        'EquivalentClasses(:Eq ObjectIntersectionOf(:Named DataHasValue(:dp "eq") '
+        "ObjectOneOf(:one))) "
+        "EquivalentClasses(:Ignored DataExactCardinality(2 :dp "
+        "<http://www.w3.org/2001/XMLSchema#string>)) "
+        "SubClassOf(:AggregateSub ObjectIntersectionOf(:B "
+        "DataSomeValuesFrom(:dp <http://www.w3.org/2001/XMLSchema#string>))) "
+        'ClassAssertion(ObjectUnionOf(:C DataHasValue(:dp "assert")) '
+        ":aggregateIndividual) "
+        "ClassAssertion(ObjectSomeValuesFrom(:op :F) :restrictionIndividual) "
+        'DisjointClasses(ObjectHasSelf(:op) DataHasValue(:dp "disjoint") '
+        "ObjectIntersectionOf(:D ObjectOneOf(:one))) "
+        "DisjointUnion(:Defined ObjectOneOf(:one) "
+        "DataExactCardinality(1 :dp <http://www.w3.org/2001/XMLSchema#string>)) "
+        "HasKey(DataSomeValuesFrom(:dp "
+        "<http://www.w3.org/2001/XMLSchema#string>) () (:dp)) "
+        "DataPropertyDomain(:dp "
+        "ObjectComplementOf(ObjectSomeValuesFrom(:op :F))) "
+        "DataPropertyRange(:dp DataUnionOf("
+        "<http://www.w3.org/2001/XMLSchema#string> DataOneOf(\"range\"))) "
+        'DatatypeDefinition(:dt DataComplementOf(DataOneOf("definition"))) '
+        "SubClassOf(:TaxA :TaxB) ClassAssertion(:Type :named) "
+        "SubObjectPropertyOf(:child :r) "
+        "ObjectPropertyDomain(:r :Domain) ObjectPropertyRange(:r :Range)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -962,18 +990,20 @@ def test_annotated_data_property_families_fail_before_output(body: str) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        "DataPropertyDomain(:dp ObjectIntersectionOf(:A :B))",
-        "DataPropertyRange(:dp DataUnionOf("
+        "DataPropertyDomain(:dp ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
+        "DataPropertyRange(:dp DataComplementOf(DataComplementOf("
+        "<http://www.w3.org/2001/XMLSchema#string>)))",
+        "DatatypeDefinition(:custom DataIntersectionOf("
         "<http://www.w3.org/2001/XMLSchema#string> "
-        "<http://www.w3.org/2001/XMLSchema#integer>))",
-        "DatatypeDefinition(:custom DataComplementOf(<http://www.w3.org/2001/XMLSchema#string>))",
+        "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
+        "<http://www.w3.org/2001/XMLSchema#decimal>)))",
         'DataPropertyAssertion(:dp _:anonymous "value")',
         'NegativeDataPropertyAssertion(:dp _:anonymous "value")',
     ],
     ids=[
-        "complex-domain",
-        "complex-range",
-        "complex-definition",
+        "nested-domain",
+        "nested-range",
+        "nested-definition",
         "anonymous-positive",
         "anonymous-negative",
     ],
@@ -1515,14 +1545,37 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
 @pytest.mark.parametrize(
     "body",
     [
-        "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectExactCardinality(1 :p :C)))",
+        "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
         "ClassAssertion(ObjectComplementOf(ObjectComplementOf(:A)) :i)",
         'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A ObjectIntersectionOf(:B :C))',
     ],
-    ids=["complex-equivalent", "recursive-class", "annotated-equivalent"],
+    ids=["nested-equivalent", "recursive-class", "annotated-equivalent"],
 )
 def test_valid_but_out_of_slice_class_axioms_are_transactionally_unsupported(body: str) -> None:
     compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
+    with pytest.raises(NativeEncodedDirectUnsupported):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SubClassOf(:A ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
+        "ClassAssertion(ObjectComplementOf(ObjectIntersectionOf(:A :B)) :i)",
+        "DisjointClasses(:A ObjectComplementOf(ObjectIntersectionOf(:B :C)))",
+        "HasKey(ObjectIntersectionOf(:A ObjectUnionOf(:B :C)) () (:dp))",
+    ],
+    ids=["subclass", "class-assertion", "disjoint", "has-key"],
+)
+def test_nested_expanded_expression_axiom_shapes_fallback_whole_call(body: str) -> None:
+    compiler = prepare_native_encoded_direct(
+        _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
+    )
     with pytest.raises(NativeEncodedDirectUnsupported):
         compiler.compile_batch(
             bidirectional=False,
@@ -2055,6 +2108,72 @@ def test_asserted_taxonomy_preflights_bounded_data_class_expressions() -> None:
     assert statistics.role_expansion_edges == 0
 
 
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_bounded_expressions_extend_ignored_and_skipped_axiom_families(
+    only_taxonomy: bool,
+) -> None:
+    view = _expanded_expression_axiom_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert len(actual) == 5
+    assert statistics.roots == 16
+    assert statistics.subclasses == 2
+    assert statistics.ignored_subclasses == 1
+    assert statistics.equivalents == 2
+    assert statistics.aggregate_equivalents == 1
+    assert statistics.class_assertions == 3
+    assert statistics.ignored_class_assertions == 2
+    assert statistics.disjoint_classes == 1
+    assert statistics.disjoint_unions == 1
+    assert statistics.has_keys == 1
+    assert statistics.data_property_domains == 1
+    assert statistics.data_property_ranges == 1
+    assert statistics.datatype_definitions == 1
+    assert statistics.skipped_axioms == 6
+    assert statistics.role_expansion_edges == 1
+
+
+def test_asserted_taxonomy_preflights_expanded_expression_axiom_families() -> None:
+    view = _expanded_expression_axiom_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert statistics.aggregate_equivalents == 1
+    assert statistics.ignored_subclasses == 1
+    assert statistics.ignored_class_assertions == 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
+
+
 def test_many_nonprojecting_roots_cross_one_zero_output_bounded_call() -> None:
     axioms = " ".join(
         (
@@ -2105,6 +2224,55 @@ def test_many_data_class_expression_roots_cross_one_zero_output_bounded_call() -
     assert statistics.subclasses == statistics.ignored_subclasses == 125
     assert statistics.class_assertions == statistics.ignored_class_assertions == 125
     assert statistics.skipped_axioms == 0
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_many_expanded_expression_axiom_roots_cross_one_zero_output_bounded_call() -> None:
+    xsd_string = "<http://www.w3.org/2001/XMLSchema#string>"
+    axioms: list[str] = []
+    for index in range(250):
+        family = index % 5
+        if family == 0:
+            axioms.append(
+                f'DisjointClasses(DataHasValue(:dp{index:03d} "{index}") '
+                f"ObjectOneOf(:i{index:03d}))"
+            )
+        elif family == 1:
+            axioms.append(
+                f"HasKey(DataSomeValuesFrom(:dp{index:03d} {xsd_string}) "
+                f"() (:dp{index:03d}))"
+            )
+        elif family == 2:
+            axioms.append(
+                f"DataPropertyDomain(:dp{index:03d} ObjectComplementOf("
+                f"ObjectSomeValuesFrom(:op{index:03d} :F{index:03d})))"
+            )
+        elif family == 3:
+            axioms.append(
+                f"DataPropertyRange(:dp{index:03d} DataUnionOf({xsd_string} "
+                f'DataOneOf("{index}")))'
+            )
+        else:
+            axioms.append(
+                f"DatatypeDefinition(:dt{index:03d} "
+                f'DataComplementOf(DataOneOf("{index}")))'
+            )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(" ".join(axioms))))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == 250
+    assert statistics.disjoint_classes == 50
+    assert statistics.has_keys == 50
+    assert statistics.data_property_domains == 50
+    assert statistics.data_property_ranges == 50
+    assert statistics.datatype_definitions == 50
+    assert statistics.skipped_axioms == 250
+    assert statistics.role_expansion_edges == 0
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
 
 
@@ -2283,6 +2451,74 @@ def test_hostile_data_class_expression_rows_fail_before_output(
         )
         replacements = {"field_values": memoryview(bytes(field_values))}
     compiler = prepare_native_encoded_direct(_replace_buffers(lease, replacements))
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    ("target_tag", "field_delta", "replacement", "match"),
+    [
+        (93, 1, "data-property", "class"),
+        (94, 1, "class", "datatype"),
+        (100, 1, "class", "datatype"),
+        (101, 0, "data-property", "class"),
+    ],
+    ids=["data-domain", "data-range", "datatype-definition", "has-key-class"],
+)
+def test_hostile_expanded_expression_axiom_fields_fail_before_output(
+    target_tag: int,
+    field_delta: int,
+    replacement: str,
+    match: str,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) DataPropertyDomain(:dp :A) "
+            "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
+            "DatatypeDefinition(:dt <http://www.w3.org/2001/XMLSchema#string>) "
+            "HasKey(:A () (:dp))"
+        )
+    )
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    domain_start = field_start(tagged_node(93))
+    replacement_delta = 0 if replacement == "data-property" else 1
+    replacement_id = int.from_bytes(
+        buffers["field_values"][
+            (domain_start + replacement_delta) * 8 : (domain_start + replacement_delta + 1) * 8
+        ],
+        "little",
+    )
+    target_field = field_start(tagged_node(target_tag)) + field_delta
+    field_values = bytearray(buffers["field_values"])
+    field_values[target_field * 8 : (target_field + 1) * 8] = replacement_id.to_bytes(
+        8,
+        "little",
+    )
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"field_values": memoryview(bytes(field_values))})
+    )
     with pytest.raises(SnapshotCompatibilityError, match=match):
         compiler.compile_batch(
             bidirectional=False,
