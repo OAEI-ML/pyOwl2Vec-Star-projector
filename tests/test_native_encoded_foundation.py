@@ -122,6 +122,10 @@ def _nonprojecting_class_snapshot() -> object:
         "SubClassOf(:C ObjectHasSelf(ObjectInverseOf(:q))) "
         "ClassAssertion(ObjectOneOf(:member _:assertion) :i) "
         "ClassAssertion(:Named _:classAnonymous) ClassAssertion(:Type :named) "
+        "SubClassOf(:ExactA ObjectExactCardinality(2 ObjectInverseOf(:exact) :ExactB)) "
+        "SubClassOf(ObjectComplementOf(ObjectHasSelf(ObjectInverseOf(:complement))) "
+        ":Complement) "
+        "ClassAssertion(ObjectComplementOf(ObjectOneOf(:member _:nested)) :complemented) "
         "SubClassOf(:TaxA :TaxB) SubObjectPropertyOf(:child :r) "
         "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R)"
     )
@@ -1481,7 +1485,7 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
     "body",
     [
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectExactCardinality(1 :p :C)))",
-        "ClassAssertion(ObjectComplementOf(:A) :i)",
+        "ClassAssertion(ObjectComplementOf(ObjectComplementOf(:A)) :i)",
         'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A ObjectIntersectionOf(:B :C))',
     ],
     ids=["complex-equivalent", "recursive-class", "annotated-equivalent"],
@@ -1928,12 +1932,12 @@ def test_nonprojecting_object_expressions_match_scalar_state_neutral_ignores(
     assert not any(
         edge.relation in {"urn:native-direct#p", "urn:native-direct#q"} for edge in actual
     )
-    assert statistics.roots == 10
-    assert statistics.subclasses == 4
+    assert statistics.roots == 13
+    assert statistics.subclasses == 6
     assert statistics.restriction_subclasses == 0
-    assert statistics.ignored_subclasses == 3
-    assert statistics.class_assertions == 3
-    assert statistics.ignored_class_assertions == 2
+    assert statistics.ignored_subclasses == 5
+    assert statistics.class_assertions == 4
+    assert statistics.ignored_class_assertions == 3
     assert statistics.skipped_axioms == 0
     assert statistics.role_expansion_edges == 1
 
@@ -1957,18 +1961,20 @@ def test_asserted_taxonomy_preflights_nonprojecting_expressions_without_leakage(
 
     assert actual == expected
     assert len(actual) == 2
-    assert statistics.ignored_subclasses == 3
-    assert statistics.ignored_class_assertions == 2
+    assert statistics.ignored_subclasses == 5
+    assert statistics.ignored_class_assertions == 3
     assert statistics.role_expansion_edges == 0
 
 
 def test_many_nonprojecting_roots_cross_one_zero_output_bounded_call() -> None:
     axioms = " ".join(
         (
-            f"SubClassOf(:A{index:03d} ObjectHasSelf(:p{index:03d}))"
+            f"SubClassOf(:A{index:03d} ObjectExactCardinality("
+            f"{index} ObjectInverseOf(:p{index:03d}) :B{index:03d}))"
             if index % 2 == 0
             else "ClassAssertion("
-            f"ObjectOneOf(:member{index:03d} _:anonymous{index:03d}) :i{index:03d})"
+            f"ObjectComplementOf(ObjectOneOf(:member{index:03d} "
+            f"_:anonymous{index:03d})) :i{index:03d})"
         )
         for index in range(250)
     )
@@ -1994,8 +2000,15 @@ def test_many_nonprojecting_roots_cross_one_zero_output_bounded_call() -> None:
         (36, 0, False, "object-property"),
         (36, 1, False, "individual"),
         (37, 0, False, "object-property"),
+        (40, 1, False, "object-property"),
     ],
-    ids=["one-of-member", "has-value-property", "has-value-member", "has-self-property"],
+    ids=[
+        "one-of-member",
+        "has-value-property",
+        "has-value-member",
+        "has-self-property",
+        "exact-property",
+    ],
 )
 def test_hostile_nonprojecting_expression_rows_fail_before_output(
     target_tag: int,
@@ -2007,6 +2020,7 @@ def test_hostile_nonprojecting_expression_rows_fail_before_output(
         _snapshot(
             "SubClassOf(:Before :After) SubClassOf(:A ObjectOneOf(:member _:one)) "
             "SubClassOf(:B ObjectHasValue(ObjectInverseOf(:p) _:value)) "
+            "SubClassOf(:C ObjectExactCardinality(2 ObjectInverseOf(:exact) :F)) "
             "ClassAssertion(ObjectHasSelf(ObjectInverseOf(:q)) :i) "
             "Declaration(Class(:Wrong))"
         )
@@ -2071,13 +2085,79 @@ def test_hostile_nonprojecting_expression_rows_fail_before_output(
     assert compiler.state == "failed"
 
 
+def test_hostile_complement_operand_fails_before_output() -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) "
+            "ClassAssertion(ObjectComplementOf(ObjectOneOf(:member _:one)) :i)"
+        )
+    )
+    tags = lease.buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    offsets = lease.buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    assertion_start = field_start(tagged_node(112))
+    individual_id = int.from_bytes(
+        lease.buffers["field_values"][(assertion_start + 1) * 8 : (assertion_start + 2) * 8],
+        "little",
+    )
+    complement_start = field_start(tagged_node(32))
+    field_values = bytearray(lease.buffers["field_values"])
+    field_values[complement_start * 8 : (complement_start + 1) * 8] = individual_id.to_bytes(
+        8,
+        "little",
+    )
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"field_values": memoryview(bytes(field_values))})
+    )
+    with pytest.raises(SnapshotCompatibilityError, match="class expression"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_nonminimal_exact_cardinality_fails_before_output() -> None:
+    lease = _lease(
+        _snapshot("SubClassOf(:A ObjectExactCardinality(256 ObjectInverseOf(:p) :B))")
+    )
+    scalar = bytearray(lease.buffers["scalar_bytes"])
+    offset = scalar.index(b"\x00\x01")
+    scalar[offset + 1] = 0
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"scalar_bytes": memoryview(bytes(scalar))})
+    )
+    with pytest.raises(SnapshotCompatibilityError, match="minimally encoded"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
 @pytest.mark.parametrize(
     "body",
     [
-        "SubClassOf(:A ObjectComplementOf(ObjectOneOf(:member _:one)))",
-        "SubClassOf(:A ObjectExactCardinality(1 :p :B))",
+        "SubClassOf(:A ObjectComplementOf(ObjectComplementOf(:B)))",
+        "SubClassOf(:A ObjectExactCardinality(1 :p ObjectComplementOf(:B)))",
     ],
-    ids=["recursive-complement", "exact-cardinality"],
+    ids=["nested-complement", "complex-exact-filler"],
 )
 def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str) -> None:
     compiler = prepare_native_encoded_direct(
@@ -2097,7 +2177,8 @@ def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str
     [
         "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
         "SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
-        "SubClassOf(:A ObjectExactCardinality(1 :p :B))",
+        "SubClassOf(:A DataSomeValuesFrom("
+        ":dp <http://www.w3.org/2001/XMLSchema#string>))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
         'ObjectPropertyRange(Annotation(<urn:meta> "unsupported") :p :R)',
@@ -2111,7 +2192,7 @@ def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str
     ids=[
         "inverse-property",
         "complex-filler",
-        "exact-cardinality",
+        "data-restriction",
         "restriction-pair",
         "complex-domain",
         "annotated-range",

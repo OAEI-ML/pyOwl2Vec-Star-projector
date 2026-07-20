@@ -50,6 +50,7 @@ const TAG_OBJECT_INVERSE_OF: u16 = 10;
 const TAG_OBJECT_PROPERTY_CHAIN: u16 = 11;
 const TAG_OBJECT_INTERSECTION_OF: u16 = 30;
 const TAG_OBJECT_UNION_OF: u16 = 31;
+const TAG_OBJECT_COMPLEMENT_OF: u16 = 32;
 const TAG_OBJECT_ONE_OF: u16 = 33;
 const TAG_OBJECT_SOME_VALUES_FROM: u16 = 34;
 const TAG_OBJECT_ALL_VALUES_FROM: u16 = 35;
@@ -57,6 +58,7 @@ const TAG_OBJECT_HAS_VALUE: u16 = 36;
 const TAG_OBJECT_HAS_SELF: u16 = 37;
 const TAG_OBJECT_MIN_CARDINALITY: u16 = 38;
 const TAG_OBJECT_MAX_CARDINALITY: u16 = 39;
+const TAG_OBJECT_EXACT_CARDINALITY: u16 = 40;
 const TAG_DECLARATION: u16 = 60;
 const TAG_SUB_CLASS_OF: u16 = 61;
 const TAG_EQUIVALENT_CLASSES: u16 = 62;
@@ -1583,6 +1585,29 @@ impl<'a> DirectColumns<'a> {
                 self.object_property_expression(self.field_node(start)?, maximum)?;
                 Ok(())
             }
+            TAG_OBJECT_EXACT_CARDINALITY => {
+                let start = self.exact_fields(node_id, 3)?;
+                self.canonical_integer(start)?;
+                self.object_property_expression(self.field_node(start + 1)?, maximum)?;
+                self.named_class_iri(self.field_node(start + 2)?, maximum)?;
+                Ok(())
+            }
+            TAG_OBJECT_COMPLEMENT_OF => {
+                let start = self.exact_fields(node_id, 1)?;
+                let operand_id = self.field_node(start)?;
+                match self.node_tag(operand_id)? {
+                    TAG_ENTITY => self.named_class_iri(operand_id, maximum).map(|_iri| ()),
+                    tag if is_nonrecursive_nonprojecting_class_tag(tag) => {
+                        self.validate_nonprojecting_class_expression(operand_id, maximum)
+                    }
+                    tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                        "direct native ObjectComplementOf operand is outside the bounded nonrecursive envelope",
+                    )),
+                    tag => Err(KernelError::malformed(format!(
+                        "encoded complement operand tag {tag} is outside structural-columns v1",
+                    ))),
+                }
+            }
             tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
                 "direct native slice does not support this nonprojecting class expression",
             )),
@@ -2103,7 +2128,11 @@ impl<'a> DirectColumns<'a> {
                 | TAG_OBJECT_MAX_CARDINALITY => {
                     self.restriction_parts(node_id, maximum_iri)?;
                 }
-                TAG_OBJECT_ONE_OF | TAG_OBJECT_HAS_VALUE | TAG_OBJECT_HAS_SELF => {
+                TAG_OBJECT_COMPLEMENT_OF
+                | TAG_OBJECT_ONE_OF
+                | TAG_OBJECT_HAS_VALUE
+                | TAG_OBJECT_HAS_SELF
+                | TAG_OBJECT_EXACT_CARDINALITY => {
                     self.validate_nonprojecting_class_expression(node_id, maximum_iri)?;
                 }
                 TAG_SUB_CLASS_OF => {
@@ -3100,7 +3129,24 @@ fn is_restriction_tag(tag: u16) -> bool {
 }
 
 fn is_nonprojecting_class_tag(tag: u16) -> bool {
-    [TAG_OBJECT_ONE_OF, TAG_OBJECT_HAS_VALUE, TAG_OBJECT_HAS_SELF].contains(&tag)
+    [
+        TAG_OBJECT_COMPLEMENT_OF,
+        TAG_OBJECT_ONE_OF,
+        TAG_OBJECT_HAS_VALUE,
+        TAG_OBJECT_HAS_SELF,
+        TAG_OBJECT_EXACT_CARDINALITY,
+    ]
+    .contains(&tag)
+}
+
+fn is_nonrecursive_nonprojecting_class_tag(tag: u16) -> bool {
+    [
+        TAG_OBJECT_ONE_OF,
+        TAG_OBJECT_HAS_VALUE,
+        TAG_OBJECT_HAS_SELF,
+        TAG_OBJECT_EXACT_CARDINALITY,
+    ]
+    .contains(&tag)
 }
 
 fn is_aggregate_tag(tag: u16) -> bool {
@@ -3736,8 +3782,25 @@ mod tests {
         fixture.push_node_ref(7);
         fixture.push_empty_set();
         fixture.finish_node(TAG_SUB_CLASS_OF); // 22
-        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 7]);
+        fixture.push_scalar(COMPONENT_INTEGER, &[2]);
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(7);
+        fixture.finish_node(TAG_OBJECT_EXACT_CARDINALITY); // 23
+        fixture.push_node_ref(23);
+        fixture.finish_node(TAG_OBJECT_COMPLEMENT_OF); // 24
+        fixture.push_node_ref(6);
+        fixture.push_node_ref(23);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 25
+        fixture.push_node_ref(24);
+        fixture.push_node_ref(9);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 26
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 9]);
         for root_id in 16_u32..=22 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        for root_id in [25_u32, 26] {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
@@ -4392,10 +4455,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(edges.len(), 2);
-        assert_eq!(stats.subclasses, 4);
-        assert_eq!(stats.ignored_subclasses, 3);
-        assert_eq!(stats.class_assertions, 3);
-        assert_eq!(stats.ignored_class_assertions, 2);
+        assert_eq!(stats.subclasses, 5);
+        assert_eq!(stats.ignored_subclasses, 4);
+        assert_eq!(stats.class_assertions, 4);
+        assert_eq!(stats.ignored_class_assertions, 3);
         assert_eq!(stats.role_expansion_edges, 0);
         assert_eq!(stats.skipped_axioms, 0);
 
@@ -4410,8 +4473,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(asserted.len(), 2);
-        assert_eq!(stats.ignored_subclasses, 3);
-        assert_eq!(stats.ignored_class_assertions, 2);
+        assert_eq!(stats.ignored_subclasses, 4);
+        assert_eq!(stats.ignored_class_assertions, 3);
     }
 
     #[test]
