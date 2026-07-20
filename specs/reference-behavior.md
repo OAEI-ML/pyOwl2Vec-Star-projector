@@ -249,6 +249,7 @@ mutate object-role state.
 `FunctionalDataProperty` is likewise skipped and cannot mutate object-role state.
 `DatatypeDefinition` is skipped and cannot affect projected datatype or role state.
 `HasKey` is skipped and cannot affect projected class, data-property, or object-role state.
+`SameIndividual` is skipped and cannot affect projected individual or object-role state.
 
 ## 11. Mutable instance state
 
