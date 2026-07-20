@@ -244,9 +244,15 @@ def _validate_encoded_view(
                 "core encoded view exposed a writable buffer",
                 details={"buffer": name},
             )
-        if buffer.itemsize != 1 or not buffer.contiguous:
+        if (
+            buffer.format != "B"
+            or buffer.ndim != 1
+            or buffer.itemsize != 1
+            or not buffer.c_contiguous
+        ):
             raise SnapshotCompatibilityError(
-                "core encoded view must expose contiguous byte buffers",
+                "core encoded view must expose one-dimensional unsigned-byte "
+                "C-contiguous buffers",
                 details={"buffer": name},
             )
         names.append(name)

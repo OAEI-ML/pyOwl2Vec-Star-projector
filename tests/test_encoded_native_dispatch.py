@@ -241,6 +241,32 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                         core_module=_core(),
                     )
 
+    def test_borrowed_columns_require_exact_unsigned_byte_shape(self) -> None:
+        cases = {
+            "signed-format": memoryview(b"\x00").cast("b"),
+            "multidimensional": memoryview(b"\x00").cast("B", shape=(1, 1)),
+            "strided": memoryview(b"\x00\x00\x00\x00")[::2],
+        }
+        for label, column in cases.items():
+            with self.subTest(label):
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                encoded = _EncodedStructuralView(view, writable=False)
+                encoded.buffers["root_kinds"] = column
+                view.view = (  # type: ignore[method-assign]
+                    lambda _view_type, _encoded=encoded, **_options: _encoded
+                )
+
+                with self.assertRaisesRegex(
+                    SnapshotCompatibilityError,
+                    "one-dimensional unsigned-byte C-contiguous",
+                ):
+                    select_ingestion(
+                        view,
+                        selected_backend="native",
+                        native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                        core_module=_core(),
+                    )
+
     def test_encoded_lease_keeps_the_exact_owner_alive(self) -> None:
         view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
         reference = weakref.ref(view)
