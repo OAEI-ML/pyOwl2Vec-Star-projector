@@ -10,7 +10,7 @@ named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
 named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
 and validated skipped equivalent/disjoint/functional-object-property axioms, including
-annotations on those declaration/logical axioms.
+inverse-functional, with annotations on those declaration/logical axioms.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -78,6 +78,7 @@ _TAG_INVERSE_OBJECT_PROPERTIES = 73
 _TAG_OBJECT_PROPERTY_DOMAIN = 74
 _TAG_OBJECT_PROPERTY_RANGE = 75
 _TAG_FUNCTIONAL_OBJECT_PROPERTY = 76
+_TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY = 77
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -242,6 +243,7 @@ class EncodedSubsetCounters:
     object_property_domain_axioms: int = 0
     object_property_range_axioms: int = 0
     functional_object_property_axioms: int = 0
+    inverse_functional_object_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -279,6 +281,7 @@ class EncodedSubsetCounters:
             self.object_property_domain_axioms,
             self.object_property_range_axioms,
             self.functional_object_property_axioms,
+            self.inverse_functional_object_property_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -320,6 +323,7 @@ class _MutableCounters:
     object_property_domain_axioms: int = 0
     object_property_range_axioms: int = 0
     functional_object_property_axioms: int = 0
+    inverse_functional_object_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -357,6 +361,9 @@ class _MutableCounters:
             object_property_domain_axioms=self.object_property_domain_axioms,
             object_property_range_axioms=self.object_property_range_axioms,
             functional_object_property_axioms=self.functional_object_property_axioms,
+            inverse_functional_object_property_axioms=(
+                self.inverse_functional_object_property_axioms
+            ),
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -826,6 +833,8 @@ class _EncodedColumns:
             counters.object_property_range_axioms += 1
         elif tag == _TAG_FUNCTIONAL_OBJECT_PROPERTY:
             counters.functional_object_property_axioms += 1
+        elif tag == _TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY:
+            counters.inverse_functional_object_property_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1349,11 +1358,19 @@ class _EncodedColumns:
                 )
             self._annotation_set_range(start + 2)
             return
-        if tag == _TAG_FUNCTIONAL_OBJECT_PROPERTY:
+        if tag in {
+            _TAG_FUNCTIONAL_OBJECT_PROPERTY,
+            _TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
+        }:
             start = self._exact_fields(node_id, 2)
+            constructor = (
+                "FunctionalObjectProperty"
+                if tag == _TAG_FUNCTIONAL_OBJECT_PROPERTY
+                else "InverseFunctionalObjectProperty"
+            )
             if not self._is_supported_object_property_expression(self._field_node(start)):
                 raise SnapshotCompatibilityError(
-                    "encoded subset FunctionalObjectProperty property is not a supported "
+                    f"encoded subset {constructor} property is not a supported "
                     "object property expression"
                 )
             self._annotation_set_range(start + 1)
@@ -2750,6 +2767,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_EQUIVALENT_OBJECT_PROPERTIES: "EquivalentObjectProperties",
         _TAG_DISJOINT_OBJECT_PROPERTIES: "DisjointObjectProperties",
         _TAG_FUNCTIONAL_OBJECT_PROPERTY: "FunctionalObjectProperty",
+        _TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY: "InverseFunctionalObjectProperty",
     }
     result: dict[str, int] = {}
     for root in roots:
