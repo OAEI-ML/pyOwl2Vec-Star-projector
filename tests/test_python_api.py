@@ -207,6 +207,7 @@ def test_scalar_report_exposes_compiler_timing_without_encoded_publication(
     assert ingestion.encoded_view_publication_seconds is None
     assert ingestion.consumer_compile_seconds == pytest.approx(0.375)
     assert ingestion.counters == {
+        "base_flattening_bytes": 0,
         "encoded_buffer_bytes": 0,
         "encoded_buffer_count": 0,
         "encoded_compiler_gil_released": False,
@@ -218,6 +219,14 @@ def test_scalar_report_exposes_compiler_timing_without_encoded_publication(
         "encoded_staging_copy_bytes": 0,
         "encoded_zero_copy_buffers": 0,
         "materialized_scalar_rows": 0,
+        "parser_calls": 0,
+        "per_row_ffi_calls": 0,
+        "resolver_calls": 0,
+        "scalar_axiom_materializations": 0,
+        "scalar_term_materializations": 0,
+        "structural_copy_bytes": 0,
+        "wire_decoder_calls": 0,
+        "wire_encoder_calls": 0,
     }
 
 

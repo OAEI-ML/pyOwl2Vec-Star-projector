@@ -18,7 +18,7 @@ def _ontology(tmp_path: Path) -> Path:
     return path
 
 
-def test_scalar_smoke_preserves_identity_and_reports_missing_acceptance_evidence(
+def test_scalar_smoke_preserves_identity_and_reports_path_rejection(
     tmp_path: Path,
 ) -> None:
     result = benchmark_encoded_compiler.run(
@@ -45,7 +45,8 @@ def test_scalar_smoke_preserves_identity_and_reports_missing_acceptance_evidence
         assert sample["ingestion"]["path"] == "scalar-python"
         assert not any(sample["core_operation_delta"].values())
         assert evidence["acceptance_ready"] is False
-        assert "parser_calls" in evidence["missing_public_zero_counters"]
+        assert evidence["missing_public_zero_counters"] == []
+        assert evidence["nonzero_forbidden_counters"] == {}
 
 
 def test_required_encoded_mode_rejects_scalar_selection(tmp_path: Path) -> None:

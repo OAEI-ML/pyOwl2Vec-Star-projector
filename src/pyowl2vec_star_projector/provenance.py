@@ -24,6 +24,7 @@ IngestionPath = Literal["scalar-python", "scalar-native", "encoded-native"]
 
 _INGESTION_COUNTERS = frozenset(
     {
+        "base_flattening_bytes",
         "encoded_buffer_bytes",
         "encoded_buffer_count",
         "encoded_compiler_gil_released",
@@ -35,6 +36,14 @@ _INGESTION_COUNTERS = frozenset(
         "encoded_staging_copy_bytes",
         "encoded_zero_copy_buffers",
         "materialized_scalar_rows",
+        "parser_calls",
+        "per_row_ffi_calls",
+        "resolver_calls",
+        "scalar_axiom_materializations",
+        "scalar_term_materializations",
+        "structural_copy_bytes",
+        "wire_decoder_calls",
+        "wire_encoder_calls",
     }
 )
 _ENCODED_COUNTER_DEFAULTS: Mapping[str, int | bool] = {

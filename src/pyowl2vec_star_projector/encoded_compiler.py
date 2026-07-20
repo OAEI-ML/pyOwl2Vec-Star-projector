@@ -772,6 +772,7 @@ class EncodedSubsetCompilation:
         staging_copy_bytes = sum(segment.anonymous_scope_map.nbytes for segment in segments)
         return MappingProxyType(
             {
+                "base_flattening_bytes": 0,
                 "encoded_buffer_bytes": buffer_bytes,
                 "encoded_buffer_count": buffer_count,
                 "encoded_compiler_gil_released": False,
@@ -783,6 +784,14 @@ class EncodedSubsetCompilation:
                 "encoded_staging_copy_bytes": staging_copy_bytes,
                 "encoded_zero_copy_buffers": buffer_count,
                 "materialized_scalar_rows": 0,
+                "parser_calls": 0,
+                "per_row_ffi_calls": 0,
+                "resolver_calls": 0,
+                "scalar_axiom_materializations": 0,
+                "scalar_term_materializations": 0,
+                "structural_copy_bytes": staging_copy_bytes,
+                "wire_decoder_calls": 0,
+                "wire_encoder_calls": 0,
             }
         )
 

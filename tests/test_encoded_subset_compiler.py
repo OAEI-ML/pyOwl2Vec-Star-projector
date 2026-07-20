@@ -514,6 +514,7 @@ def test_encoded_report_exposes_public_phase_and_zero_copy_diagnostics() -> None
     assert ingestion.encoded_view_publication_seconds == pytest.approx(0.25)
     assert ingestion.consumer_compile_seconds == pytest.approx(0.5)
     assert ingestion.counters == {
+        "base_flattening_bytes": 0,
         "encoded_buffer_bytes": sum(buffer.nbytes for buffer in lease.buffers.values()),
         "encoded_buffer_count": len(lease.buffers),
         "encoded_compiler_gil_released": False,
@@ -525,6 +526,14 @@ def test_encoded_report_exposes_public_phase_and_zero_copy_diagnostics() -> None
         "encoded_staging_copy_bytes": 0,
         "encoded_zero_copy_buffers": len(lease.buffers),
         "materialized_scalar_rows": 0,
+        "parser_calls": 0,
+        "per_row_ffi_calls": 0,
+        "resolver_calls": 0,
+        "scalar_axiom_materializations": 0,
+        "scalar_term_materializations": 0,
+        "structural_copy_bytes": 0,
+        "wire_decoder_calls": 0,
+        "wire_encoder_calls": 0,
     }
     encoded = json.dumps(projector.last_report.to_dict(), sort_keys=True)
     assert "object at 0x" not in encoded
@@ -1044,6 +1053,7 @@ def test_overlay_base_scope_remap_matches_scalar_blank_identity() -> None:
     assert ingestion.counters["encoded_referenced_view_count"] == 1
     assert ingestion.counters["encoded_segment_count"] == 2
     assert ingestion.counters["encoded_staging_copy_bytes"] == 64
+    assert ingestion.counters["structural_copy_bytes"] == 64
     assert ingestion.counters["materialized_scalar_rows"] == 0
 
 
