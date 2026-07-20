@@ -1862,11 +1862,28 @@ impl<'a> DirectColumns<'a> {
         Ok(())
     }
 
-    fn restriction_parts(
+    fn validate_class_expression_reference(
         self,
         node_id: usize,
         maximum: usize,
-    ) -> Result<(&'a str, &'a str), KernelError> {
+    ) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => self.named_class_iri(node_id, maximum).map(|_iri| ()),
+            tag if is_class_expression_tag(tag) => Ok(()),
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
+                "encoded class-expression reference has the wrong constructor tag",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded class-expression tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn restriction_projection(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<Option<(&'a str, &'a str)>, KernelError> {
         let (property_index, filler_index) = match self.node_tag(node_id)? {
             TAG_OBJECT_SOME_VALUES_FROM | TAG_OBJECT_ALL_VALUES_FROM => {
                 let start = self.exact_fields(node_id, 2)?;
@@ -1890,8 +1907,12 @@ impl<'a> DirectColumns<'a> {
         };
         let relation =
             self.object_property_expression_iri(self.field_node(property_index)?, maximum)?;
-        let destination = self.named_class_iri(self.field_node(filler_index)?, maximum)?;
-        Ok((relation, destination))
+        let filler_id = self.field_node(filler_index)?;
+        self.validate_class_expression_reference(filler_id, maximum)?;
+        if self.node_tag(filler_id)? != TAG_ENTITY {
+            return Ok(None);
+        }
+        Ok(Some((relation, self.named_class_iri(filler_id, maximum)?)))
     }
 
     fn validate_facet_restriction(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
@@ -2068,45 +2089,74 @@ impl<'a> DirectColumns<'a> {
         Ok(())
     }
 
-    fn validate_class_aggregate_graph(self, state: &AtomicU8) -> Result<(), KernelError> {
-        let mut has_nested_class_aggregate = false;
+    fn recursive_class_single_child(self, node_id: usize) -> Result<Option<usize>, KernelError> {
+        let child_index = match self.node_tag(node_id)? {
+            TAG_OBJECT_COMPLEMENT_OF => self.exact_fields(node_id, 1)?,
+            TAG_OBJECT_SOME_VALUES_FROM | TAG_OBJECT_ALL_VALUES_FROM => {
+                self.exact_fields(node_id, 2)? + 1
+            }
+            TAG_OBJECT_MIN_CARDINALITY
+            | TAG_OBJECT_MAX_CARDINALITY
+            | TAG_OBJECT_EXACT_CARDINALITY => self.exact_fields(node_id, 3)? + 2,
+            _ => return Ok(None),
+        };
+        self.field_node(child_index).map(Some)
+    }
+
+    fn validate_recursive_class_expression_graph(
+        self,
+        state: &AtomicU8,
+    ) -> Result<(), KernelError> {
+        let mut has_recursive_edge = false;
         'nodes: for node_id in 1..=self.node_count() {
             check_cancel(state, node_id)?;
-            if !is_aggregate_tag(self.node_tag(node_id)?) {
+            let tag = self.node_tag(node_id)?;
+            if !is_recursive_class_expression_tag(tag) {
                 continue;
             }
-            let (item_start, length) = self.node_set_range(self.exact_fields(node_id, 1)?, 2)?;
-            for item_index in item_start..item_start + length {
-                if is_aggregate_tag(self.node_tag(self.item_node(item_index)?)?) {
-                    has_nested_class_aggregate = true;
-                    break 'nodes;
+            if is_aggregate_tag(tag) {
+                let (item_start, length) =
+                    self.node_set_range(self.exact_fields(node_id, 1)?, 2)?;
+                for item_index in item_start..item_start + length {
+                    if is_recursive_class_expression_tag(
+                        self.node_tag(self.item_node(item_index)?)?,
+                    ) {
+                        has_recursive_edge = true;
+                        break 'nodes;
+                    }
+                }
+            } else if let Some(child) = self.recursive_class_single_child(node_id)? {
+                if is_recursive_class_expression_tag(self.node_tag(child)?) {
+                    has_recursive_edge = true;
+                    break;
                 }
             }
         }
-        if !has_nested_class_aggregate {
+        if !has_recursive_edge {
             return Ok(());
         }
 
         let color_length = self.node_count().checked_add(1).ok_or_else(|| {
-            KernelError::resource("encoded class-aggregate color length overflow")
+            KernelError::resource("encoded recursive class-expression color length overflow")
         })?;
         let mut colors = Vec::new();
         colors.try_reserve_exact(color_length).map_err(|_| {
-            KernelError::resource("encoded class-aggregate color allocation failed")
+            KernelError::resource("encoded recursive class-expression color allocation failed")
         })?;
         colors.resize(color_length, 0_u8);
         let mut stack = Vec::new();
         let mut work_index = 0_usize;
 
         for start_id in 1..=self.node_count() {
-            if !is_aggregate_tag(self.node_tag(start_id)?) || colors[start_id] == 2 {
+            if !is_recursive_class_expression_tag(self.node_tag(start_id)?) || colors[start_id] == 2
+            {
                 continue;
             }
-            queue_class_aggregate_event(&mut stack, start_id, false)?;
+            queue_recursive_class_event(&mut stack, start_id, false)?;
             while let Some((node_id, exiting)) = stack.pop() {
                 check_cancel(state, work_index)?;
                 work_index = work_index.checked_add(1).ok_or_else(|| {
-                    KernelError::resource("encoded class-aggregate traversal overflow")
+                    KernelError::resource("encoded recursive class-expression traversal overflow")
                 })?;
                 if exiting {
                     colors[node_id] = 2;
@@ -2116,28 +2166,47 @@ impl<'a> DirectColumns<'a> {
                     2 => continue,
                     1 => {
                         return Err(KernelError::malformed(
-                            "encoded class-aggregate graph is cyclic",
+                            "encoded recursive class-expression graph is cyclic",
                         ));
                     }
                     _ => {}
                 }
                 colors[node_id] = 1;
-                queue_class_aggregate_event(&mut stack, node_id, true)?;
-                let (item_start, length) =
-                    self.node_set_range(self.exact_fields(node_id, 1)?, 2)?;
-                for item_index in (item_start..item_start + length).rev() {
-                    let child = self.item_node(item_index)?;
-                    if !is_aggregate_tag(self.node_tag(child)?) {
+                queue_recursive_class_event(&mut stack, node_id, true)?;
+                let tag = self.node_tag(node_id)?;
+                if is_aggregate_tag(tag) {
+                    let (item_start, length) =
+                        self.node_set_range(self.exact_fields(node_id, 1)?, 2)?;
+                    for item_index in (item_start..item_start + length).rev() {
+                        let child = self.item_node(item_index)?;
+                        if !is_recursive_class_expression_tag(self.node_tag(child)?) {
+                            continue;
+                        }
+                        if colors[child] == 1 {
+                            return Err(KernelError::malformed(
+                                "encoded recursive class-expression graph is cyclic",
+                            ));
+                        }
+                        if colors[child] == 0 {
+                            queue_recursive_class_event(&mut stack, child, false)?;
+                        }
+                    }
+                } else if let Some(child) = self.recursive_class_single_child(node_id)? {
+                    if !is_recursive_class_expression_tag(self.node_tag(child)?) {
                         continue;
                     }
                     if colors[child] == 1 {
                         return Err(KernelError::malformed(
-                            "encoded class-aggregate graph is cyclic",
+                            "encoded recursive class-expression graph is cyclic",
                         ));
                     }
                     if colors[child] == 0 {
-                        queue_class_aggregate_event(&mut stack, child, false)?;
+                        queue_recursive_class_event(&mut stack, child, false)?;
                     }
+                } else {
+                    return Err(KernelError::malformed(
+                        "encoded recursive class-expression cursor changed after preflight",
+                    ));
                 }
             }
         }
@@ -2206,30 +2275,14 @@ impl<'a> DirectColumns<'a> {
                 let start = self.exact_fields(node_id, 3)?;
                 self.canonical_integer(start)?;
                 self.object_property_expression(self.field_node(start + 1)?, maximum)?;
-                self.named_class_iri(self.field_node(start + 2)?, maximum)?;
-                Ok(())
+                self.validate_class_expression_reference(self.field_node(start + 2)?, maximum)
             }
             tag if is_data_class_expression_tag(tag) => {
                 self.validate_data_class_expression(node_id, maximum)
             }
             TAG_OBJECT_COMPLEMENT_OF => {
                 let start = self.exact_fields(node_id, 1)?;
-                let operand_id = self.field_node(start)?;
-                match self.node_tag(operand_id)? {
-                    TAG_ENTITY => self.named_class_iri(operand_id, maximum).map(|_iri| ()),
-                    tag if is_restriction_tag(tag) => {
-                        self.restriction_parts(operand_id, maximum).map(|_parts| ())
-                    }
-                    tag if is_nonrecursive_nonprojecting_class_tag(tag) => {
-                        self.validate_nonprojecting_class_expression(operand_id, maximum)
-                    }
-                    tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
-                        "direct native ObjectComplementOf operand is outside the bounded nonrecursive envelope",
-                    )),
-                    tag => Err(KernelError::malformed(format!(
-                        "encoded complement operand tag {tag} is outside structural-columns v1",
-                    ))),
-                }
+                self.validate_class_expression_reference(self.field_node(start)?, maximum)
             }
             tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
                 "direct native slice does not support this nonprojecting class expression",
@@ -2247,9 +2300,9 @@ impl<'a> DirectColumns<'a> {
     ) -> Result<(), KernelError> {
         match self.node_tag(node_id)? {
             TAG_ENTITY => self.named_class_iri(node_id, maximum).map(|_iri| ()),
-            tag if is_restriction_tag(tag) => {
-                self.restriction_parts(node_id, maximum).map(|_parts| ())
-            }
+            tag if is_restriction_tag(tag) => self
+                .restriction_projection(node_id, maximum)
+                .map(|_projection| ()),
             tag if is_nonprojecting_class_tag(tag) => {
                 self.validate_nonprojecting_class_expression(node_id, maximum)
             }
@@ -2281,23 +2334,31 @@ impl<'a> DirectColumns<'a> {
                 destination: self.named_class_iri(super_id, maximum)?,
             }
         } else if sub_tag == TAG_ENTITY && is_restriction_tag(super_tag) {
-            let (relation, destination) = self.restriction_parts(super_id, maximum)?;
-            SubclassProjection::Restriction {
-                source: self.named_class_iri(sub_id, maximum)?,
-                relation,
-                destination,
+            let source = self.named_class_iri(sub_id, maximum)?;
+            match self.restriction_projection(super_id, maximum)? {
+                Some((relation, destination)) => SubclassProjection::Restriction {
+                    source,
+                    relation,
+                    destination,
+                },
+                None => SubclassProjection::Ignored,
             }
         } else if is_restriction_tag(sub_tag) && super_tag == TAG_ENTITY {
-            let (relation, destination) = self.restriction_parts(sub_id, maximum)?;
-            SubclassProjection::Restriction {
-                source: self.named_class_iri(super_id, maximum)?,
-                relation,
-                destination,
+            let source = self.named_class_iri(super_id, maximum)?;
+            match self.restriction_projection(sub_id, maximum)? {
+                Some((relation, destination)) => SubclassProjection::Restriction {
+                    source,
+                    relation,
+                    destination,
+                },
+                None => SubclassProjection::Ignored,
             }
         } else if is_nonprojecting_class_tag(sub_tag)
             || is_nonprojecting_class_tag(super_tag)
             || is_aggregate_tag(sub_tag)
             || is_aggregate_tag(super_tag)
+            || is_restriction_tag(sub_tag)
+            || is_restriction_tag(super_tag)
         {
             self.validate_ignored_subclass_operand(sub_id, maximum)?;
             self.validate_ignored_subclass_operand(super_id, maximum)?;
@@ -2374,7 +2435,7 @@ impl<'a> DirectColumns<'a> {
                     self.named_class_iri(operand_id, maximum)?;
                 }
                 tag if is_restriction_tag(tag) => {
-                    self.restriction_parts(operand_id, maximum)?;
+                    self.restriction_projection(operand_id, maximum)?;
                 }
                 tag if is_nonprojecting_class_tag(tag) => {
                     self.validate_nonprojecting_class_expression(operand_id, maximum)?;
@@ -2416,19 +2477,19 @@ impl<'a> DirectColumns<'a> {
                 Ok(3002)
             }
             TAG_OBJECT_SOME_VALUES_FROM => {
-                self.restriction_parts(node_id, maximum)?;
+                self.restriction_projection(node_id, maximum)?;
                 Ok(3005)
             }
             TAG_OBJECT_ALL_VALUES_FROM => {
-                self.restriction_parts(node_id, maximum)?;
+                self.restriction_projection(node_id, maximum)?;
                 Ok(3006)
             }
             TAG_OBJECT_MIN_CARDINALITY => {
-                self.restriction_parts(node_id, maximum)?;
+                self.restriction_projection(node_id, maximum)?;
                 Ok(3008)
             }
             TAG_OBJECT_MAX_CARDINALITY => {
-                self.restriction_parts(node_id, maximum)?;
+                self.restriction_projection(node_id, maximum)?;
                 Ok(3010)
             }
             tag if is_nonprojecting_class_tag(tag) => {
@@ -2798,73 +2859,8 @@ impl<'a> DirectColumns<'a> {
         node_id: usize,
         maximum_iri: usize,
     ) -> Result<(), KernelError> {
-        match self.node_tag(node_id)? {
-            TAG_ENTITY => self.named_class_iri(node_id, maximum_iri).map(|_iri| ()),
-            tag if is_restriction_tag(tag) => {
-                self.restriction_parts(node_id, maximum_iri).map(|_parts| ())
-            }
-            TAG_OBJECT_ONE_OF | TAG_OBJECT_HAS_VALUE | TAG_OBJECT_HAS_SELF => {
-                self.validate_nonprojecting_class_expression(node_id, maximum_iri)
-            }
-            TAG_OBJECT_COMPLEMENT_OF => {
-                let start = self.exact_fields(node_id, 1)?;
-                let operand_id = self.field_node(start)?;
-                match self.node_tag(operand_id)? {
-                    TAG_ENTITY => self
-                        .named_class_iri(operand_id, maximum_iri)
-                        .map(|_iri| ()),
-                    tag if is_restriction_tag(tag) => self
-                        .restriction_parts(operand_id, maximum_iri)
-                        .map(|_parts| ()),
-                    TAG_OBJECT_ONE_OF | TAG_OBJECT_HAS_VALUE | TAG_OBJECT_HAS_SELF => self
-                        .validate_nonprojecting_class_expression(operand_id, maximum_iri),
-                    tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
-                        "direct native SWRL ClassAtom complement is outside the bounded class-expression envelope",
-                    )),
-                    tag => Err(KernelError::malformed(format!(
-                        "encoded SWRL class-expression tag {tag} is outside structural-columns v1",
-                    ))),
-                }
-            }
-            TAG_OBJECT_INTERSECTION_OF | TAG_OBJECT_UNION_OF => {
-                let start = self.exact_fields(node_id, 1)?;
-                let (item_start, length) = self.node_set_range(start, 2)?;
-                for item_index in item_start..item_start + length {
-                    let operand_id = self.item_node(item_index)?;
-                    match self.node_tag(operand_id)? {
-                        TAG_ENTITY => {
-                            self.named_class_iri(operand_id, maximum_iri)?;
-                        }
-                        tag if is_restriction_tag(tag) => {
-                            self.restriction_parts(operand_id, maximum_iri)?;
-                        }
-                        TAG_OBJECT_COMPLEMENT_OF
-                        | TAG_OBJECT_ONE_OF
-                        | TAG_OBJECT_HAS_VALUE
-                        | TAG_OBJECT_HAS_SELF => {
-                            self.validate_swrl_class_expression(operand_id, maximum_iri)?;
-                        }
-                        tag if SCHEMA_TAGS.contains(&tag) => {
-                            return Err(KernelError::unsupported(
-                                "direct native SWRL ClassAtom aggregate is outside the bounded class-expression envelope",
-                            ));
-                        }
-                        tag => {
-                            return Err(KernelError::malformed(format!(
-                                "encoded SWRL class-expression tag {tag} is outside structural-columns v1",
-                            )));
-                        }
-                    }
-                }
-                Ok(())
-            }
-            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
-                "direct native SWRL ClassAtom predicate is outside the bounded class-expression envelope",
-            )),
-            tag => Err(KernelError::malformed(format!(
-                "encoded SWRL class-expression tag {tag} is outside structural-columns v1",
-            ))),
-        }
+        self.class_expression_rank(node_id, maximum_iri)
+            .map(|_rank| ())
     }
 
     fn validate_swrl_atom(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
@@ -2986,7 +2982,7 @@ impl<'a> DirectColumns<'a> {
                 | TAG_OBJECT_ALL_VALUES_FROM
                 | TAG_OBJECT_MIN_CARDINALITY
                 | TAG_OBJECT_MAX_CARDINALITY => {
-                    self.restriction_parts(node_id, maximum_iri)?;
+                    self.restriction_projection(node_id, maximum_iri)?;
                 }
                 TAG_OBJECT_COMPLEMENT_OF
                 | TAG_OBJECT_ONE_OF
@@ -3129,7 +3125,7 @@ impl<'a> DirectColumns<'a> {
                 }
             }
         }
-        self.validate_class_aggregate_graph(state)?;
+        self.validate_recursive_class_expression_graph(state)?;
         self.validate_data_range_graph(maximum_iri, state)
     }
 
@@ -3427,8 +3423,11 @@ impl<'a> DirectColumns<'a> {
                                     })?;
                             }
                             tag if is_restriction_tag(tag) && !only_taxonomy => {
-                                let (relation, _destination) =
-                                    self.restriction_parts(operand_id, maximum_iri)?;
+                                let Some((relation, _destination)) =
+                                    self.restriction_projection(operand_id, maximum_iri)?
+                                else {
+                                    continue;
+                                };
                                 let expanded = role_state.edge_count(relation)?;
                                 counts.edges =
                                     counts.edges.checked_add(expanded).ok_or_else(|| {
@@ -3569,8 +3568,11 @@ impl<'a> DirectColumns<'a> {
                         if self.node_tag(operand_id)? != tag {
                             continue;
                         }
-                        let (relation, destination) =
-                            self.restriction_parts(operand_id, options.maximum_iri)?;
+                        let Some((relation, destination)) =
+                            self.restriction_projection(operand_id, options.maximum_iri)?
+                        else {
+                            continue;
+                        };
                         push_role_edges(edges, role_state, source, relation, destination)?;
                     }
                 }
@@ -4104,20 +4106,14 @@ fn is_nonprojecting_class_tag(tag: u16) -> bool {
     .contains(&tag)
 }
 
-fn is_nonrecursive_nonprojecting_class_tag(tag: u16) -> bool {
-    [
-        TAG_OBJECT_ONE_OF,
-        TAG_OBJECT_HAS_VALUE,
-        TAG_OBJECT_HAS_SELF,
-        TAG_OBJECT_EXACT_CARDINALITY,
-        TAG_DATA_SOME_VALUES_FROM,
-        TAG_DATA_ALL_VALUES_FROM,
-        TAG_DATA_HAS_VALUE,
-        TAG_DATA_MIN_CARDINALITY,
-        TAG_DATA_MAX_CARDINALITY,
-        TAG_DATA_EXACT_CARDINALITY,
-    ]
-    .contains(&tag)
+fn is_class_expression_tag(tag: u16) -> bool {
+    is_aggregate_tag(tag) || is_restriction_tag(tag) || is_nonprojecting_class_tag(tag)
+}
+
+fn is_recursive_class_expression_tag(tag: u16) -> bool {
+    is_aggregate_tag(tag)
+        || is_restriction_tag(tag)
+        || [TAG_OBJECT_COMPLEMENT_OF, TAG_OBJECT_EXACT_CARDINALITY].contains(&tag)
 }
 
 fn is_data_class_expression_tag(tag: u16) -> bool {
@@ -4383,14 +4379,14 @@ fn queue_data_range_event(
     Ok(())
 }
 
-fn queue_class_aggregate_event(
+fn queue_recursive_class_event(
     stack: &mut Vec<(usize, bool)>,
     node_id: usize,
     exiting: bool,
 ) -> Result<(), KernelError> {
-    stack
-        .try_reserve(1)
-        .map_err(|_| KernelError::resource("encoded class-aggregate stack allocation failed"))?;
+    stack.try_reserve(1).map_err(|_| {
+        KernelError::resource("encoded recursive class-expression stack allocation failed")
+    })?;
     stack.push((node_id, exiting));
     Ok(())
 }

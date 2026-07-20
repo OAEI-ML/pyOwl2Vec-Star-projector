@@ -599,16 +599,26 @@ def test_named_aggregate_equivalents_match_operand_order_roles_and_duplicates(
 
 @pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
 @pytest.mark.parametrize("mode", ["normal", "only-taxonomy", "asserted-taxonomy"])
+@pytest.mark.parametrize(
+    "nested_operands",
+    [
+        "ObjectUnionOf(:C :D)",
+        "ObjectComplementOf(ObjectIntersectionOf(:C ObjectComplementOf(:D))) "
+        "ObjectSomeValuesFrom(:ignored ObjectUnionOf(:X :Y))",
+    ],
+    ids=["aggregate", "complement-and-restriction-filler"],
+)
 def test_nested_aggregate_equivalence_emits_supported_siblings_in_rust(
     annotated: bool,
     mode: str,
+    nested_operands: str,
 ) -> None:
     metadata = 'Annotation(<urn:meta> "nested") ' if annotated else ""
     view = _snapshot(
         "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
         "SubClassOf(:Before :After) "
         f"EquivalentClasses({metadata}:A ObjectIntersectionOf("
-        ":B ObjectUnionOf(:C :D) ObjectSomeValuesFrom(:p :E)))"
+        f":B {nested_operands} ObjectSomeValuesFrom(:p :E)))"
     )
     if mode == "asserted-taxonomy":
         scalar = list(
@@ -686,6 +696,35 @@ def test_deep_nested_aggregate_equivalence_uses_one_bounded_output_call() -> Non
         Edge("urn:native-direct#Root", SUBCLASS_OF, "urn:native-direct#Side199")
     ]
     assert statistics.aggregate_equivalents == 1
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_deep_complement_restriction_recursion_uses_one_bounded_output_call() -> None:
+    recursive = ":Leaf"
+    for index in range(200):
+        if index % 2 == 0:
+            recursive = f"ObjectComplementOf({recursive})"
+        else:
+            recursive = f"ObjectSomeValuesFrom(:ignored{index:03d} {recursive})"
+    view = _snapshot(
+        "EquivalentClasses(:Root "
+        f"ObjectIntersectionOf(:Direct {recursive}))"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Root", SUBCLASS_OF, "urn:native-direct#Direct")
+    ]
+    assert statistics.aggregate_equivalents == 1
+    assert statistics.role_expansion_edges == 0
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
 
 
@@ -1195,24 +1234,34 @@ def test_recursive_swrl_data_range_predicate_is_validated_and_silent() -> None:
     assert statistics.role_expansion_edges == 0
 
 
-def test_unsupported_swrl_class_predicate_falls_back_before_output() -> None:
-    compiler = prepare_native_encoded_direct(
-        _lease(
-            _swrl_snapshot(
-                "SubClassOf(:Before :After) "
-                "SWRLRule((ClassAtom(ObjectExactCardinality(1 :p :A) "
-                "Variable(:x))) ())"
-            )
-        )
+def test_recursive_swrl_class_predicate_is_validated_and_silent() -> None:
+    view = _swrl_snapshot(
+        "SubClassOf(:Before :After) "
+        "SWRLRule((ClassAtom(ObjectExactCardinality(1 :p "
+        "ObjectComplementOf(ObjectIntersectionOf(:A ObjectComplementOf(:B)))) "
+        "Variable(:x))) ())"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=2,
+        max_iri_bytes=1024 * 1024,
     )
 
-    with pytest.raises(NativeEncodedDirectUnsupported, match="SWRL ClassAtom predicate"):
-        compiler.compile_batch(
-            bidirectional=True,
-            max_edges=10,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After"),
+        Edge("urn:native-direct#After", SUPERCLASS_OF, "urn:native-direct#Before"),
+    ]
+    assert statistics.swrl_rules == 1
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
 
 
 @pytest.mark.parametrize("tag", range(140, 149))
@@ -2594,19 +2643,7 @@ def test_hostile_anonymous_individual_shape_fails_before_output() -> None:
     assert compiler.state == "failed"
 
 
-def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
-    constructor_lease = _lease(
-        _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))")
-    )
-    compiler = prepare_native_encoded_direct(constructor_lease)
-    with pytest.raises(NativeEncodedDirectUnsupported, match="class expression"):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=10,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
-
+def test_unsupported_exporters_are_rejected_before_output() -> None:
     direct = _lease(_snapshot("SubClassOf(:A :B)"))
     root_kinds = bytes(direct.buffers["root_kinds"])
     sliced_owner = b"x" + root_kinds
@@ -2633,15 +2670,23 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
     ],
     ids=["recursive-class"],
 )
-def test_valid_but_out_of_slice_class_axioms_are_transactionally_unsupported(body: str) -> None:
-    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
-    with pytest.raises(NativeEncodedDirectUnsupported):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=10,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
+def test_recursive_complement_class_assertion_matches_scalar(body: str) -> None:
+    view = _snapshot(f"SubClassOf(:Before :After) {body}")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    assert statistics.ignored_class_assertions == 1
+    assert statistics.role_expansion_edges == 0
 
 
 @pytest.mark.parametrize(
@@ -2652,17 +2697,22 @@ def test_valid_but_out_of_slice_class_axioms_are_transactionally_unsupported(bod
     ],
     ids=["class-assertion", "disjoint"],
 )
-def test_complement_wrapped_aggregate_axioms_fallback_whole_call(body: str) -> None:
-    compiler = prepare_native_encoded_direct(
-        _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
+def test_complement_wrapped_aggregate_axioms_match_scalar(body: str) -> None:
+    view = _snapshot(f"SubClassOf(:Before :After) {body}")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
     )
-    with pytest.raises(NativeEncodedDirectUnsupported):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=10,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    assert statistics.role_expansion_edges == 0
 
 
 @pytest.mark.parametrize(
@@ -2709,7 +2759,7 @@ def test_nested_aggregate_nonprojecting_consumers_match_scalar(
     assert statistics.role_expansion_edges == 0
 
 
-def test_cyclic_nested_class_aggregate_fails_before_output() -> None:
+def test_cyclic_recursive_class_expression_fails_before_output() -> None:
     lease = _lease(
         _snapshot(
             "SubClassOf(:Before :After) EquivalentClasses(:Root "
@@ -2747,7 +2797,10 @@ def test_cyclic_nested_class_aggregate_fails_before_output() -> None:
         _replace_buffers(lease, {"item_values": memoryview(bytes(values))})
     )
 
-    with pytest.raises(SnapshotCompatibilityError, match="class-aggregate graph is cyclic"):
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="recursive class-expression graph is cyclic",
+    ):
         compiler.compile_batch(
             bidirectional=False,
             max_edges=2,
@@ -2770,6 +2823,64 @@ def test_cyclic_nested_class_aggregate_fails_before_output() -> None:
             max_iri_bytes=1024 * 1024,
         )
     assert unflattened.state == "failed"
+
+    recursive_lease = _lease(
+        _snapshot("ClassAssertion(ObjectComplementOf(ObjectComplementOf(:A)) :i)")
+    )
+    recursive_tags = recursive_lease.buffers["node_tags"]
+    complement_ids = [
+        node_id
+        for node_id in range(1, recursive_tags.nbytes // 2 + 1)
+        if int.from_bytes(
+            recursive_tags[(node_id - 1) * 2 : node_id * 2],
+            "little",
+        )
+        == 32
+    ]
+    assert len(complement_ids) == 2
+    recursive_offsets = recursive_lease.buffers["node_field_offsets"]
+    recursive_values = bytearray(recursive_lease.buffers["field_values"])
+
+    def complement_field(node_id: int) -> int:
+        return int.from_bytes(
+            recursive_offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    references = {
+        node_id: int.from_bytes(
+            recursive_values[
+                complement_field(node_id) * 8 : (complement_field(node_id) + 1) * 8
+            ],
+            "little",
+        )
+        for node_id in complement_ids
+    }
+    outer_complement = next(
+        node_id for node_id, child in references.items() if child in complement_ids
+    )
+    inner_complement = references[outer_complement]
+    inner_field = complement_field(inner_complement)
+    recursive_values[inner_field * 8 : (inner_field + 1) * 8] = outer_complement.to_bytes(
+        8,
+        "little",
+    )
+    recursive = prepare_native_encoded_direct(
+        _replace_buffers(
+            recursive_lease,
+            {"field_values": memoryview(bytes(recursive_values))},
+        )
+    )
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="recursive class-expression graph is cyclic",
+    ):
+        recursive.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert recursive.state == "failed"
 
 
 def test_equivalent_set_corruption_and_mixed_edge_limit_fail_before_publication() -> None:
@@ -4015,17 +4126,24 @@ def test_nonminimal_exact_cardinality_fails_before_output(body: str) -> None:
     ],
     ids=["nested-complement", "complex-exact-filler"],
 )
-def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str) -> None:
-    compiler = prepare_native_encoded_direct(
-        _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
+def test_recursive_or_exact_nonprojecting_variants_match_scalar(body: str) -> None:
+    view = _snapshot(f"SubClassOf(:Before :After) {body}")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
     )
-    with pytest.raises(NativeEncodedDirectUnsupported):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=10,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    assert statistics.subclasses == 2
+    assert statistics.ignored_subclasses == 1
+    assert statistics.role_expansion_edges == 0
 
 
 @pytest.mark.parametrize(
@@ -4165,15 +4283,24 @@ def test_cyclic_recursive_data_range_fails_before_output() -> None:
         "restriction-pair",
     ],
 )
-def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body: str) -> None:
-    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
-    with pytest.raises(NativeEncodedDirectUnsupported):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=10,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
+def test_complex_restriction_shapes_match_scalar_state_neutrality(body: str) -> None:
+    view = _snapshot(f"SubClassOf(:Before :After) {body}")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    assert statistics.subclasses == 2
+    assert statistics.ignored_subclasses == 1
+    assert statistics.role_expansion_edges == 0
 
 
 @pytest.mark.parametrize(
