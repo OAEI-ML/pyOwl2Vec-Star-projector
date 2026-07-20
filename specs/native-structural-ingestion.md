@@ -116,8 +116,23 @@ follows the same bounded skip contract, retaining literal-byte and anonymous-ID 
 `SubAnnotationPropertyOf` between named annotation properties is preflighted and skipped.
 `AnnotationPropertyDomain` over a named annotation property and IRI is preflighted and skipped.
 `AnnotationPropertyRange` follows the symmetric named-property/IRI skipped path.
-Each distinct root increments `skipped_axioms`, contributes to the grouped
+Each distinct skipped-axiom root above increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
+
+`SWRLRule` is different: it is a structural extension root, not an axiom root, and the scalar
+projector does not traverse or diagnose it. The encoded compiler accepts the frozen tags 140--148
+only as a structurally validated, non-executing envelope. Variables must reference IRIs; class
+atoms use the validated native class-expression envelope; data-range atoms use named datatypes;
+object-property atoms accept named or inverse properties; and the remaining data-property,
+built-in, same-individual, and different-individual atom fields retain their frozen argument
+types. Empty rule sets and empty built-in argument sequences are valid. Accepted rules emit no
+edges, do not increment `skipped_axioms`, do not add a diagnostic, and cannot mutate role state.
+Rule-only anonymous individuals are excluded from the scalar-compatible axiom blank-ID pool,
+while classes mentioned by rules remain visible to the ontology signature used for selected class
+annotations. Valid rule predicates outside the bounded class-expression envelope, including
+complements, and composite data ranges select one whole-operation scalar fallback before output;
+no SWRL inference or atom execution is claimed by this path.
+
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
 Consequently, an n-ary axiom whose first two expressions are named emits only that named pair and
 silently ignores a later aggregate or restriction. Inverse object-property assertions remain on

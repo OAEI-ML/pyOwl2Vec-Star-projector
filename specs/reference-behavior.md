@@ -259,6 +259,14 @@ object-role state.
 `AnnotationPropertyDomain` follows the same skipped, state-neutral contract.
 `AnnotationPropertyRange` follows the same skipped, state-neutral contract.
 
+SWRL rules are extension components rather than axioms. The pinned projector never executes them
+and its axiom traversal does not count or diagnose them: a rule contributes zero edges, zero
+`skipped_axioms`, and no `MOWL_SKIPPED_AXIOM` entry. It also cannot mutate retained role state.
+Classes mentioned only by a rule still participate in the ontology signature used to select class
+annotations, but anonymous individuals mentioned only by a rule do not enter the axiom-derived
+blank-ID sequence. Native structural ingestion may preserve this silent behavior for its validated
+SWRL envelope; rule predicates outside that envelope retain whole-operation scalar fallback.
+
 ## 11. Mutable instance state
 
 The Scala object's `subRoles` and `inverseRoles` maps are fields and are not reset by

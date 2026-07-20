@@ -21,6 +21,7 @@ from pyowl_core import (
     canonical_bytes,
     compose_views,
 )
+from pyowl_core.backends.python import PythonParser
 from pyowl_core.model import AnonymousIndividual, ObjectPropertyAssertion
 
 from pyowl2vec_star_projector import Edge, ProjectionOptions, Projector
@@ -29,6 +30,7 @@ from pyowl2vec_star_projector.backend import BackendSelection
 from pyowl2vec_star_projector.compiler import (
     RDF_TYPE,
     SUBCLASS_OF,
+    SUPERCLASS_OF,
     _owlapi_hash,
 )
 from pyowl2vec_star_projector.compiler import (
@@ -98,6 +100,16 @@ def _snapshot(body: str) -> object:
             backend=BackendPreference.PYTHON,
         ),
     )
+
+
+def _swrl_snapshot(body: str) -> object:
+    source = f"Prefix(:=<urn:slice#>) Ontology(<urn:slice> {body})".encode()
+    options = LoadOptions(
+        imports=ImportPolicy.IGNORE,
+        backend=BackendPreference.PYTHON,
+    )
+    document = PythonParser().parse(source, options=options, allow_swrl=True)
+    return pyowl_core.load_snapshot(document, options=options)
 
 
 def _lease(
@@ -12769,6 +12781,441 @@ def test_literal_corruption_fails_before_edge_output(corruption: str) -> None:
         prepare_encoded_subset_compilation(
             view,
             ProjectionOptions(backend="native", include_literals=True),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+def test_swrl_rules_match_scalar_silent_extension_semantics() -> None:
+    view = _swrl_snapshot(
+        "SWRLRule(Annotation(<urn:meta> _:aRuleMeta) "
+        "(ClassAtom(ObjectIntersectionOf(:RuleOnly :RuleSupport) Variable(:x)) "
+        "DataRangeAtom(<http://www.w3.org/2001/XMLSchema#string> Variable(:d)) "
+        "ObjectPropertyAtom(ObjectInverseOf(:p) Variable(:x) _:aRuleIndividual) "
+        'DataPropertyAtom(:dp :named "v") '
+        'BuiltInAtom(<urn:builtin> Variable(:d) "n") '
+        "BuiltInAtom(<urn:zero>) SameIndividualAtom(Variable(:x) :named) "
+        "DifferentIndividualsAtom(_:aRuleIndividual Variable(:x))) "
+        "(ClassAtom(ObjectSomeValuesFrom(:p :RuleOnly) Variable(:x)))) "
+        "SWRLRule(() ()) "
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> "
+        ':RuleOnly "rule class") '
+        "ObjectPropertyAssertion(:u _:zProjected :named) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            compatibility_state="scala-instance",
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("SWRL extension slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert (
+                Edge(
+                    "_:genid2147483648",
+                    "urn:slice#u",
+                    "urn:slice#named",
+                )
+                in actual
+            )
+            assert Edge("urn:slice#D", "urn:slice#p", "urn:slice#R") in actual
+            label = Edge("urn:slice#RuleOnly", "rdfs:label", "rule class")
+            assert (label in actual) is options.include_literals
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert projector.last_report.provenance.counts.skipped_axioms == 0
+            assert projector.last_report.provenance.counts.ignored_shapes == 0
+            assert projector.last_report.diagnostics == ()
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 6
+            assert counters.swrl_rules == 2
+            assert counters.object_property_assertion_axioms == 1
+            assert counters.object_property_domain_axioms == 1
+            assert counters.object_property_range_axioms == 1
+            assert counters.anonymous_individuals == 3
+            assert counters.literal_nodes == 3
+            assert counters.scalar_fallbacks == 0
+
+
+def test_swrl_rules_do_not_mutate_scala_instance_role_state() -> None:
+    rule_view = _swrl_snapshot(
+        "SWRLRule((ObjectPropertyAtom(ObjectInverseOf(:shared) "
+        "Variable(:x) Variable(:y))) "
+        "(ClassAtom(:Result Variable(:x))))"
+    )
+    domain_range_view = _snapshot(
+        "ObjectPropertyDomain(:shared :D) ObjectPropertyRange(:shared :R)"
+    )
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(rule_view, options=options) == []
+    assert scalar.last_report is not None
+    first_scalar_report = scalar.last_report.to_dict()
+    expected = scalar.project(domain_range_view, options=options)
+    assert scalar.last_report is not None
+    second_scalar_report = scalar.last_report.to_dict()
+
+    projector = Projector()
+    with (
+        _forced_encoded(_lease(rule_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded SWRL lifecycle crossed scalar traversal"),
+        ),
+    ):
+        assert projector.project(rule_view, options=replace(options, backend="native")) == []
+
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        first_scalar_report
+    )
+    first_counters = projector.last_encoded_counters
+    assert first_counters is not None
+    assert first_counters.swrl_rules == 1
+    assert first_counters.scalar_fallbacks == 0
+
+    with (
+        _forced_encoded(_lease(domain_range_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded SWRL follow-on crossed scalar traversal"),
+        ),
+    ):
+        actual = projector.project(
+            domain_range_view,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected == [Edge("urn:slice#D", "urn:slice#shared", "urn:slice#R")]
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        second_scalar_report
+    )
+    assert projector.last_report.provenance.invocation_count == 2
+
+
+@pytest.mark.parametrize(
+    "atom",
+    [
+        "ClassAtom(ObjectComplementOf(:A) Variable(:x))",
+        "DataRangeAtom(DataUnionOf(<http://www.w3.org/2001/XMLSchema#string> "
+        "<http://www.w3.org/2001/XMLSchema#integer>) Variable(:x))",
+    ],
+)
+def test_unsupported_swrl_predicates_fallback_once_before_output(atom: str) -> None:
+    view = _swrl_snapshot(
+        f"SWRLRule(({atom}) (ClassAtom(:B Variable(:x)))) ObjectPropertyAssertion(:p :i :j)"
+    )
+    lease = _lease(view)
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    scalar = Projector()
+    expected = scalar.project(view, options=python_options)
+    assert scalar.last_report is not None
+    scalar_report = scalar.last_report.to_dict()
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            wraps=scalar_compilation,
+        ) as scalar_prepare,
+    ):
+        projector = Projector()
+        actual = projector.project(
+            view,
+            options=replace(python_options, backend="native"),
+        )
+
+    assert actual == expected == [Edge("urn:slice#i", "urn:slice#p", "urn:slice#j")]
+    assert scalar_prepare.call_count == 1
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+    assert projector.last_report.provenance.ingestion.path == "scalar-native"
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.swrl_rules == 1
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == counters.raw_edges == 0
+
+
+def test_segmented_swrl_rules_preserve_silent_extensions_edges_and_leases() -> None:
+    source_body = (
+        "SWRLRule(Annotation(<urn:meta> _:sourceRuleMeta) "
+        "(ObjectPropertyAtom(:ruleProperty Variable(:x) _:sourceRuleIndividual)) "
+        "(ClassAtom(:SourceResult Variable(:x)))) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyAssertion(:u _:projected :i)"
+    )
+    delta_body = (
+        "SWRLRule((DataRangeAtom(<http://www.w3.org/2001/XMLSchema#string> "
+        "Variable(:value))) (BuiltInAtom(<urn:check> Variable(:value)))) "
+        "ObjectPropertyRange(:p :R) SubObjectPropertyOf(:child :p)"
+    )
+    source = _swrl_snapshot(source_body)
+    delta = _swrl_snapshot(delta_body)
+    overlay = _swrl_snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(backend="python", duplicates="unique", order="canonical")
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert prepared.statistics.skipped_axioms == 0
+        assert len(prepared._role_axioms) == 1
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("segmented SWRL rules crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected
+        assert set(actual) == {
+            Edge("_:genid2147483648", "urn:slice#u", "urn:slice#i"),
+            Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+            Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        }
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        assert projector.last_report.provenance.counts.skipped_axioms == 0
+        assert projector.last_report.diagnostics == ()
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.swrl_rules == 2
+        assert counters.anonymous_individuals == 3
+        assert counters.scalar_fallbacks == 0
+        assert counters.referenced_segments in {1, 2}
+
+
+def test_asserted_taxonomy_silently_ignores_supported_swrl_extensions() -> None:
+    view = _swrl_snapshot(
+        "SubClassOf(:A :B) SWRLRule((ClassAtom(:A Variable(:x))) (ClassAtom(:B Variable(:x))))"
+    )
+    expected = Projector().project_taxonomy(
+        view,
+        bidirectional=True,
+        duplicates="preserve",
+        order="encounter",
+        backend="python",
+        buffer_edges=1,
+    )
+
+    with (
+        _forced_encoded(_lease(view)),
+        patch.object(
+            api_module,
+            "iter_asserted_taxonomy",
+            side_effect=AssertionError("encoded SWRL taxonomy crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+            backend="native",
+            buffer_edges=1,
+        )
+
+    assert actual == expected
+    assert set(actual) == {
+        Edge("urn:slice#A", SUBCLASS_OF, "urn:slice#B"),
+        Edge("urn:slice#B", SUPERCLASS_OF, "urn:slice#A"),
+    }
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.subclass_axioms == 1
+    assert counters.swrl_rules == 1
+    assert counters.scalar_fallbacks == 0
+
+
+@pytest.mark.parametrize("tag", range(140, 149))
+def test_swrl_constructor_arity_corruption_fails_before_output(tag: int) -> None:
+    view = _swrl_snapshot(
+        "SWRLRule((ClassAtom(:A Variable(:x)) "
+        "DataRangeAtom(<http://www.w3.org/2001/XMLSchema#string> Variable(:value)) "
+        "ObjectPropertyAtom(:op Variable(:x) :named) "
+        'DataPropertyAtom(:dp :named "value") '
+        'BuiltInAtom(<urn:builtin> Variable(:value) "argument") '
+        "SameIndividualAtom(Variable(:x) :named) "
+        "DifferentIndividualsAtom(Variable(:x) _:anon)) "
+        "(ClassAtom(:B Variable(:x)))) SubClassOf(:Projected :Edge)"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    node_id = next(
+        candidate
+        for candidate in range(1, columns.node_count + 1)
+        if columns.node_tag(candidate) == tag
+    )
+    buffers = dict(lease.buffers)
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = node_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match="arity"):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["root-kind", "body-kind", "body-item", "variable-target", "built-in-item"],
+)
+def test_swrl_structural_corruption_fails_before_output(corruption: str) -> None:
+    view = _swrl_snapshot(
+        "Declaration(Class(:Wrong)) "
+        "SWRLRule((ClassAtom(:A Variable(:x)) "
+        'BuiltInAtom(<urn:builtin> Variable(:x) "argument")) '
+        "(ClassAtom(:B Variable(:x)))) SubClassOf(:Projected :Edge)"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    buffers = dict(lease.buffers)
+    rule_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 148
+    )
+    rule_start, _rule_end = columns._field_range(rule_id)
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_class_iri(node_id) == "urn:slice#Wrong"
+    )
+
+    if corruption == "root-kind":
+        kinds = bytearray(buffers["root_kinds"])
+        extension_index = next(index for index, kind in enumerate(kinds) if kind == 3)
+        kinds[extension_index] = 2
+        buffers["root_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "body-kind":
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[rule_start] = 7
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "body-item":
+        item_index = int.from_bytes(
+            buffers["field_values"][rule_start * 8 : (rule_start + 1) * 8],
+            "little",
+        )
+        iri_id = next(
+            node_id
+            for node_id in range(1, columns.node_count + 1)
+            if columns.node_tag(node_id) == 1
+        )
+        values = bytearray(buffers["item_values"])
+        values[item_index * 8 : (item_index + 1) * 8] = iri_id.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    else:
+        target_tag = 140 if corruption == "variable-target" else 145
+        target_id = next(
+            node_id
+            for node_id in range(1, columns.node_count + 1)
+            if columns.node_tag(node_id) == target_tag
+        )
+        target_start, _target_end = columns._field_range(target_id)
+        values = bytearray(
+            buffers["field_values"] if corruption == "variable-target" else buffers["item_values"]
+        )
+        if corruption == "variable-target":
+            index = target_start
+        else:
+            index = int.from_bytes(
+                buffers["field_values"][(target_start + 1) * 8 : (target_start + 2) * 8],
+                "little",
+            )
+        values[index * 8 : (index + 1) * 8] = wrong_id.to_bytes(8, "little")
+        buffer_name = "field_values" if corruption == "variable-target" else "item_values"
+        buffers[buffer_name] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"extension root|canonical set|non-atom|Variable|BuiltInAtom",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
             EncodedNegotiation("encoded-native", lease=hostile),
             batch_edges=1,
         )

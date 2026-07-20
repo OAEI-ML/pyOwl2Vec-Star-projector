@@ -25,6 +25,10 @@ individuals, and structurally validated literals.
 Named ``SubAnnotationPropertyOf`` axioms also use a bounded skipped path.
 Named-property/IRI ``AnnotationPropertyDomain`` axioms follow the same bounded skipped path.
 ``AnnotationPropertyRange`` uses the symmetric named-property/IRI skipped path.
+Structurally validated ``SWRLRule`` extension roots are ignored silently, matching
+the scalar projector: the compiler validates variables and atoms but does not
+execute rules or report them as skipped axioms.  Class and data-range predicates
+outside the bounded expression envelope retain whole-operation scalar fallback.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -117,6 +121,15 @@ _TAG_ANNOTATION_ASSERTION = 120
 _TAG_SUB_ANNOTATION_PROPERTY_OF = 121
 _TAG_ANNOTATION_PROPERTY_DOMAIN = 122
 _TAG_ANNOTATION_PROPERTY_RANGE = 123
+_TAG_VARIABLE = 140
+_TAG_CLASS_ATOM = 141
+_TAG_DATA_RANGE_ATOM = 142
+_TAG_OBJECT_PROPERTY_ATOM = 143
+_TAG_DATA_PROPERTY_ATOM = 144
+_TAG_BUILT_IN_ATOM = 145
+_TAG_SAME_INDIVIDUAL_ATOM = 146
+_TAG_DIFFERENT_INDIVIDUALS_ATOM = 147
+_TAG_SWRL_RULE = 148
 
 _SEGMENT_DIRECT = 1
 _SEGMENT_OVERLAY_BASE = 2
@@ -128,6 +141,7 @@ _POSTINGS_INCLUDE = 1
 _POSTINGS_EXCLUDE = 2
 
 _ROOT_AXIOM = 2
+_ROOT_EXTENSION = 3
 _COMPONENT_NONE = 0
 _COMPONENT_NODE = 1
 _COMPONENT_TEXT = 2
@@ -156,6 +170,17 @@ _EXPRESSION_ORDER = {
     _TAG_OBJECT_MIN_CARDINALITY: 3008,
     _TAG_OBJECT_MAX_CARDINALITY: 3010,
 }
+_SWRL_ATOM_TAGS = frozenset(
+    {
+        _TAG_CLASS_ATOM,
+        _TAG_DATA_RANGE_ATOM,
+        _TAG_OBJECT_PROPERTY_ATOM,
+        _TAG_DATA_PROPERTY_ATOM,
+        _TAG_BUILT_IN_ATOM,
+        _TAG_SAME_INDIVIDUAL_ATOM,
+        _TAG_DIFFERENT_INDIVIDUALS_ATOM,
+    }
+)
 
 _SCHEMA_TAGS = frozenset(
     {
@@ -301,6 +326,7 @@ class EncodedSubsetCounters:
     sub_annotation_property_axioms: int = 0
     annotation_property_domain_axioms: int = 0
     annotation_property_range_axioms: int = 0
+    swrl_rules: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
     annotation_nodes: int = 0
@@ -360,6 +386,7 @@ class EncodedSubsetCounters:
             self.sub_annotation_property_axioms,
             self.annotation_property_domain_axioms,
             self.annotation_property_range_axioms,
+            self.swrl_rules,
             self.anonymous_individuals,
             self.literal_nodes,
             self.annotation_nodes,
@@ -423,6 +450,7 @@ class _MutableCounters:
     sub_annotation_property_axioms: int = 0
     annotation_property_domain_axioms: int = 0
     annotation_property_range_axioms: int = 0
+    swrl_rules: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
     annotation_nodes: int = 0
@@ -486,6 +514,7 @@ class _MutableCounters:
             sub_annotation_property_axioms=self.sub_annotation_property_axioms,
             annotation_property_domain_axioms=self.annotation_property_domain_axioms,
             annotation_property_range_axioms=self.annotation_property_range_axioms,
+            swrl_rules=self.swrl_rules,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
             annotation_nodes=self.annotation_nodes,
@@ -923,10 +952,19 @@ class _EncodedColumns:
         root_kind = self.root_kind(root_index)
         root_id = self.root_id(root_index)
         counters = inspection.counters
-        if root_kind != _ROOT_AXIOM:
-            inspection.fallback("encoded subset supports axiom roots only")
-            return
         tag = self.node_tag(root_id)
+        if root_kind == _ROOT_EXTENSION:
+            if tag != _TAG_SWRL_RULE:
+                raise SnapshotCompatibilityError("encoded subset extension root is not an SWRLRule")
+            counters.swrl_rules += 1
+            return
+        if root_kind != _ROOT_AXIOM:
+            inspection.fallback("encoded subset supports axiom and SWRLRule extension roots only")
+            return
+        if tag == _TAG_SWRL_RULE:
+            raise SnapshotCompatibilityError(
+                "encoded subset SWRLRule does not use the extension root kind"
+            )
         if tag == _TAG_DECLARATION:
             counters.declaration_axioms += 1
         elif tag == _TAG_SUB_CLASS_OF:
@@ -1206,11 +1244,15 @@ class _EncodedColumns:
         )
         return Edge(subject, relation, destination), non_string_literal
 
-    def reachable_node_ids(self) -> frozenset[int]:
+    def reachable_node_ids(self, *, root_kind: int | None = None) -> frozenset[int]:
         """Return nodes reachable from the posting-selected root subset."""
 
         reachable: set[int] = set()
-        pending = [self.root_id(index) for index in self._root_indices]
+        pending = [
+            self.root_id(index)
+            for index in self._root_indices
+            if root_kind is None or self.root_kind(index) == root_kind
+        ]
         while pending:
             node_id = pending.pop()
             if node_id in reachable:
@@ -1439,6 +1481,100 @@ class _EncodedColumns:
                     "encoded subset requires a supported property expression and named filler "
                     "in restrictions"
                 )
+            return
+        if tag == _TAG_VARIABLE:
+            start = self._exact_fields(node_id, 1)
+            if self.node_tag(self._field_node(start)) != _TAG_IRI:
+                raise SnapshotCompatibilityError(
+                    "encoded subset Variable does not reference an IRI"
+                )
+            return
+        if tag == _TAG_CLASS_ATOM:
+            start = self._exact_fields(node_id, 2)
+            if not self._is_validated_class_expression(self._field_node(start)):
+                inspection.fallback(
+                    "encoded subset requires a validated class predicate in ClassAtom"
+                )
+            if not self._is_swrl_individual_argument(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset ClassAtom argument is not an individual argument"
+                )
+            return
+        if tag == _TAG_DATA_RANGE_ATOM:
+            start = self._exact_fields(node_id, 2)
+            if not self._is_named_datatype(self._field_node(start)):
+                inspection.fallback(
+                    "encoded subset requires a named datatype predicate in DataRangeAtom"
+                )
+            if not self._is_swrl_data_argument(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DataRangeAtom argument is not a data argument"
+                )
+            return
+        if tag == _TAG_OBJECT_PROPERTY_ATOM:
+            start = self._exact_fields(node_id, 3)
+            if not self._is_supported_object_property_expression(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset ObjectPropertyAtom predicate is not a supported object "
+                    "property expression"
+                )
+            for index in (start + 1, start + 2):
+                if not self._is_swrl_individual_argument(self._field_node(index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset ObjectPropertyAtom argument is not an individual argument"
+                    )
+            return
+        if tag == _TAG_DATA_PROPERTY_ATOM:
+            start = self._exact_fields(node_id, 3)
+            if not self._is_named_data_property(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DataPropertyAtom predicate is not a data property"
+                )
+            if not self._is_swrl_individual_argument(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DataPropertyAtom source is not an individual argument"
+                )
+            if not self._is_swrl_data_argument(self._field_node(start + 2)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DataPropertyAtom target is not a data argument"
+                )
+            return
+        if tag == _TAG_BUILT_IN_ATOM:
+            start = self._exact_fields(node_id, 2)
+            if self.node_tag(self._field_node(start)) != _TAG_IRI:
+                raise SnapshotCompatibilityError(
+                    "encoded subset BuiltInAtom predicate does not reference an IRI"
+                )
+            item_start, length = self._node_sequence_range(start + 1)
+            for item_index in range(item_start, item_start + length):
+                if not self._is_swrl_data_argument(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset BuiltInAtom argument is not a data argument"
+                    )
+            return
+        if tag in {_TAG_SAME_INDIVIDUAL_ATOM, _TAG_DIFFERENT_INDIVIDUALS_ATOM}:
+            start = self._exact_fields(node_id, 2)
+            constructor = (
+                "SameIndividualAtom"
+                if tag == _TAG_SAME_INDIVIDUAL_ATOM
+                else "DifferentIndividualsAtom"
+            )
+            for index in (start, start + 1):
+                if not self._is_swrl_individual_argument(self._field_node(index)):
+                    raise SnapshotCompatibilityError(
+                        f"encoded subset {constructor} argument is not an individual argument"
+                    )
+            return
+        if tag == _TAG_SWRL_RULE:
+            start = self._exact_fields(node_id, 3)
+            for index, member in ((start, "body"), (start + 1, "head")):
+                item_start, length = self._node_set_range(index)
+                for item_index in range(item_start, item_start + length):
+                    if self.node_tag(self._item_node(item_index)) not in _SWRL_ATOM_TAGS:
+                        raise SnapshotCompatibilityError(
+                            f"encoded subset SWRLRule {member} contains a non-atom"
+                        )
+            self._annotation_set_range(start + 2)
             return
         if tag == _TAG_DECLARATION:
             start = self._exact_fields(node_id, 2)
@@ -2096,6 +2232,12 @@ class _EncodedColumns:
         return self.node_tag(node_id) == _TAG_ANONYMOUS_INDIVIDUAL or self._is_named_individual(
             node_id
         )
+
+    def _is_swrl_individual_argument(self, node_id: int) -> bool:
+        return self.node_tag(node_id) == _TAG_VARIABLE or self._is_supported_individual(node_id)
+
+    def _is_swrl_data_argument(self, node_id: int) -> bool:
+        return self.node_tag(node_id) in {_TAG_LITERAL, _TAG_VARIABLE}
 
     def _is_named_object_property(self, node_id: int) -> bool:
         if self.node_tag(node_id) != _TAG_ENTITY:
@@ -3242,12 +3384,13 @@ def _anonymous_id_maps(
 ) -> dict[_CanonicalCursor, dict[int, str]]:
     node_groups: list[tuple[_EncodedNodeRef, ...]] = []
     result: dict[_CanonicalCursor, dict[int, str]] = {}
-    for columns, cursor, reachable in groups:
+    for columns, cursor, _reachable in groups:
         result[cursor] = {}
+        axiom_reachable = columns.reachable_node_ids(root_kind=_ROOT_AXIOM)
         node_groups.append(
             tuple(
                 _EncodedNodeRef(columns, cursor, node_id)
-                for node_id in sorted(reachable)
+                for node_id in sorted(axiom_reachable)
                 if columns.node_tag(node_id) == _TAG_ANONYMOUS_INDIVIDUAL
             )
         )
