@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector implementation through `da6df97`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector implementation through `d35b431`. pyOWLCore candidate revision:
 `cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -49,9 +49,10 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - named-class `ClassAssertion` roots over anonymous individuals follow the same scalar ignored-shape
   contract, while named-class/named-individual assertions retain their existing `http://type` edge;
 - scalar-selected `ObjectIntersectionOf`/`ObjectUnionOf` expressions in `EquivalentClasses`, with
-  flat named-class, supported restriction, and bounded nonprojecting operands; named operands emit
-  taxonomy edges, restriction operands use the same direct/subrole/inverse expansion as subclass
-  restrictions, and nonprojecting operands are fully validated and ignored;
+  direct named-class, supported restriction, bounded nonprojecting, or recursively nested
+  cross-kind aggregate operands; direct named operands emit taxonomy edges, direct restrictions use
+  the same direct/subrole/inverse expansion as subclass restrictions, and nested/nonprojecting
+  operands are fully validated and ignored;
 - aggregate or supported restriction `ClassAssertion`, aggregate `SubClassOf`, and direct
   nonprojecting/restriction `EquivalentClasses` selections are fully validated and their roots
   counted while emitting no output, matching scalar ignored-shape behavior;
@@ -162,9 +163,9 @@ semantic slice across the actual PyO3 boundary without changing the production c
   named `SubClassOf`, with no annotation leakage; and
 - one caller-bounded coarse output batch, with no per-root or per-edge Python call.
 
-Any other valid segment, exporter, constructor, nested/unsupported class aggregate operand,
-complex/unsupported object restriction, recursive object complement, complex object
-exact-cardinality filler, or other nonprojecting expression
+Any other valid segment, exporter, constructor, unsupported class-expression recursion through
+`ObjectComplementOf` or an object-restriction filler, complex/unsupported object restriction,
+complex object exact-cardinality filler, or other nonprojecting expression
 outside the bounded root positions, structurally unsupported object-property chain, or a SWRL
 `ClassAtom` predicate outside the bounded envelope is rejected as unsupported before output. N-ary
 equivalents beyond the selected first two, non-selected supported aggregate expressions, complete
@@ -173,7 +174,7 @@ domain/range roots are still fully validated. A role annotation whose anonymous 
 not valid UTF-8 remains an exact whole-call fallback because the scalar hash path raises while
 encoding its surrogateescaped value. Malformed supported columns fail closed.
 Same-operation isolated role expansion is proven; retained Scala-instance role-state reuse is not
-part of this one-shot seam. This is kernel version 22 of a private foundation, not the complete
+part of this one-shot seam. This is kernel version 23 of a private foundation, not the complete
 compiler described by WP-P7.
 
 ## What the private kernel actually does
@@ -196,7 +197,8 @@ GIL with `Python::detach`. Rust then:
    IRI/literal/anonymous values on every supported axiom, ontology annotation, and
    annotation-property root, every SWRL rule/variable/atom constructor over its bounded
    class/data/property and individual/data-argument envelope, bounded nonprojecting object/data
-   class expressions, the complete recursive data-range graph with cycle detection,
+   class expressions, recursively nested cross-kind class aggregates and the complete recursive
+   data-range graph with cycle detection,
    anonymous-individual bytes32/nonempty-key invariants,
    axiom-only reachability and canonical blank-ID order, root kind/tag pairing,
    output/cross-product count, and IRI/output limit;
@@ -221,15 +223,16 @@ does not dispatch to the private kernel. Aggregate and domain/range counting/ord
 borrowed scans; selected annotation membership likewise uses repeated borrowed class-entity scans.
 When anonymous nodes exist, one bit-packed reachability vector, depth-bounded traversal stack, and
 exact-sized sorted node-ID vector reproduce the scalar axiom-derived identifier space. When
-recursive data-range nodes exist, a compact color vector and grow-checked iterative event stack
-validate arbitrary nesting and reject cycles without using the native call stack. The other
+recursive data-range or nested class-aggregate nodes exist, compact color vectors and grow-checked
+iterative event stacks validate arbitrary data-range nesting and cross-kind class-aggregate nesting,
+rejecting cycles without using the native call stack. The other
 structural indexes are the projector-private role rows and subrole/inverse maps required by the
 pinned rules; they borrow retained IRI text and are reserved to exact root-derived capacities.
 
 The compiler is one-shot. Atomic idle/running/finished/cancelled/failed transitions allow another
 Python thread to cancel detached work. A cancellation racing with successful compilation discards
 the result. Unsupported, malformed, pinned reference, resource, cancelled, and panic outcomes cross
-the boundary as distinct typed failures; no partial batch is returned. The private v22 ABI returns
+the boundary as distinct typed failures; no partial batch is returned. The private v23 ABI returns
 its fifty-four counters as an explicitly constructed Python tuple because PyO3's automatic tuple
 conversion is bounded below that arity.
 
@@ -249,15 +252,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`da6df97`:
+`d35b431`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 28 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 198 passed |
-| Native backend, private foundation, and encoded-dispatch tests | 245 passed |
-| Complete projector test suite | 1,028 passed |
+| Private PyO3 foundation tests | 204 passed |
+| Native backend, private foundation, and encoded-dispatch tests | 251 passed |
+| Complete projector test suite | 1,034 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -277,8 +280,8 @@ and a 250-restriction/750-expanded-edge limit failure; mixed-family, datatype-IR
 cross-product limit failure; non-minimal integer, canonical class/object/data-property/disjoint set,
 root-reference, hostile assertion-reference, hostile aggregate arity/type, hostile disjoint
 defined-class references, and noncanonical literal-language corruption; valid unsupported complex
-restriction filler, restriction-pair, nested/unsupported class aggregate, and remaining
-out-of-slice shapes;
+restriction filler, restriction-pair, complement-wrapped aggregate, and remaining out-of-slice
+shapes;
 selected annotation IRI/plain/language/XSD/custom-datatype
 values; exact malformed typed rendering; full-RDFS relation rewriting; unsupported properties and
 non-class subjects; deterministic annotation category/root order; three duplicate edges preserved
@@ -314,16 +317,19 @@ data-range rejection before output;
 mixed named/restriction/nonprojecting aggregate equivalence, ignored aggregate subclass and
 aggregate/restriction class assertions, direct ignored equivalent selections, expression-aware
 disjoint/union/key/data-domain/data-range/datatype-definition skips, and their exact counters in
-normal, `only_taxonomy`, and asserted-taxonomy modes; a 250-root one-boundary mixed skipped-family
-call; hostile data-domain, data-range, datatype-definition, and HasKey expression references; and
-nested aggregate/complement whole-call fallback across subclass, assertion, disjoint, key, data
-property, and datatype-definition roots;
+normal, `only_taxonomy`, and asserted-taxonomy modes; recursively nested cross-kind aggregate
+equivalence with direct named and role-expanded sibling output across all three modes and annotated
+axioms; nested-aggregate state neutrality in subclass, key, data-domain, and object-domain
+consumers; a 200-level iterative one-boundary output call; same-constructor flattening and cyclic
+graph rejection before output; a 250-root one-boundary mixed skipped-family call; hostile
+data-domain, data-range, datatype-definition, and HasKey expression references; and retained
+whole-call fallback for complement-wrapped aggregates;
 inverse-property Some/All/Min/Max projection on both subclass orientations and aggregate
 equivalence; exact underlying-IRI direct/subrole/inverse ordering in normal, `only_taxonomy`, and
 asserted-taxonomy modes; inverse-property and bounded-complex domain/range state neutrality
 alongside a retained named/named pair; 250 inverse-restriction/750-expanded-edge limit failure;
 hostile inverse inner, domain class, range property, and range class corruption; and
-inverse-complex-filler and nested-domain whole-call fallback;
+inverse-complex-filler whole-call fallback;
 silent ontology annotations and annotated `SubAnnotationPropertyOf`, `AnnotationPropertyDomain`,
 and `AnnotationPropertyRange` scalar parity; anonymous metadata values on ontology,
 annotation-property, and selected-annotation roots; exact normal, `only_taxonomy`, and
@@ -361,7 +367,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and recursive data ranges across selected ignored/skipped axiom families, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions, lifecycle reuse, and remaining constructors are unsupported |
+| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, recursively nested cross-kind class aggregates, bounded object/data nonprojecting expressions and recursive data ranges across selected ignored/skipped axiom families, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property skipped families; complement/restriction-filler recursion and remaining class expressions, lifecycle reuse, and remaining constructors are unsupported |
 | Bounded batches without per-row FFI | Proven for one caller-bounded private coarse batch; streaming multi-batch integration remains open |
 | Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
