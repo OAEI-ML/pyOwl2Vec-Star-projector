@@ -2068,6 +2068,82 @@ impl<'a> DirectColumns<'a> {
         Ok(())
     }
 
+    fn validate_class_aggregate_graph(self, state: &AtomicU8) -> Result<(), KernelError> {
+        let mut has_nested_class_aggregate = false;
+        'nodes: for node_id in 1..=self.node_count() {
+            check_cancel(state, node_id)?;
+            if !is_aggregate_tag(self.node_tag(node_id)?) {
+                continue;
+            }
+            let (item_start, length) = self.node_set_range(self.exact_fields(node_id, 1)?, 2)?;
+            for item_index in item_start..item_start + length {
+                if is_aggregate_tag(self.node_tag(self.item_node(item_index)?)?) {
+                    has_nested_class_aggregate = true;
+                    break 'nodes;
+                }
+            }
+        }
+        if !has_nested_class_aggregate {
+            return Ok(());
+        }
+
+        let color_length = self.node_count().checked_add(1).ok_or_else(|| {
+            KernelError::resource("encoded class-aggregate color length overflow")
+        })?;
+        let mut colors = Vec::new();
+        colors.try_reserve_exact(color_length).map_err(|_| {
+            KernelError::resource("encoded class-aggregate color allocation failed")
+        })?;
+        colors.resize(color_length, 0_u8);
+        let mut stack = Vec::new();
+        let mut work_index = 0_usize;
+
+        for start_id in 1..=self.node_count() {
+            if !is_aggregate_tag(self.node_tag(start_id)?) || colors[start_id] == 2 {
+                continue;
+            }
+            queue_class_aggregate_event(&mut stack, start_id, false)?;
+            while let Some((node_id, exiting)) = stack.pop() {
+                check_cancel(state, work_index)?;
+                work_index = work_index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded class-aggregate traversal overflow")
+                })?;
+                if exiting {
+                    colors[node_id] = 2;
+                    continue;
+                }
+                match colors[node_id] {
+                    2 => continue,
+                    1 => {
+                        return Err(KernelError::malformed(
+                            "encoded class-aggregate graph is cyclic",
+                        ));
+                    }
+                    _ => {}
+                }
+                colors[node_id] = 1;
+                queue_class_aggregate_event(&mut stack, node_id, true)?;
+                let (item_start, length) =
+                    self.node_set_range(self.exact_fields(node_id, 1)?, 2)?;
+                for item_index in (item_start..item_start + length).rev() {
+                    let child = self.item_node(item_index)?;
+                    if !is_aggregate_tag(self.node_tag(child)?) {
+                        continue;
+                    }
+                    if colors[child] == 1 {
+                        return Err(KernelError::malformed(
+                            "encoded class-aggregate graph is cyclic",
+                        ));
+                    }
+                    if colors[child] == 0 {
+                        queue_class_aggregate_event(&mut stack, child, false)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn validate_data_class_expression(
         self,
         node_id: usize,
@@ -2283,7 +2359,8 @@ impl<'a> DirectColumns<'a> {
         node_id: usize,
         maximum: usize,
     ) -> Result<(), KernelError> {
-        if !is_aggregate_tag(self.node_tag(node_id)?) {
+        let aggregate_tag = self.node_tag(node_id)?;
+        if !is_aggregate_tag(aggregate_tag) {
             return Err(KernelError::malformed(
                 "encoded aggregate cursor has the wrong constructor tag",
             ));
@@ -2301,6 +2378,13 @@ impl<'a> DirectColumns<'a> {
                 }
                 tag if is_nonprojecting_class_tag(tag) => {
                     self.validate_nonprojecting_class_expression(operand_id, maximum)?;
+                }
+                tag if is_aggregate_tag(tag) => {
+                    if tag == aggregate_tag {
+                        return Err(KernelError::malformed(
+                            "encoded class-aggregate operands are not flattened",
+                        ));
+                    }
                 }
                 tag if SCHEMA_TAGS.contains(&tag) => {
                     return Err(KernelError::unsupported(
@@ -3045,6 +3129,7 @@ impl<'a> DirectColumns<'a> {
                 }
             }
         }
+        self.validate_class_aggregate_graph(state)?;
         self.validate_data_range_graph(maximum_iri, state)
     }
 
@@ -3367,7 +3452,7 @@ impl<'a> DirectColumns<'a> {
                                     })?;
                             }
                             tag if is_restriction_tag(tag) => {}
-                            tag if is_nonprojecting_class_tag(tag) => {}
+                            tag if is_nonprojecting_class_tag(tag) || is_aggregate_tag(tag) => {}
                             _ => {
                                 return Err(KernelError::malformed(
                                     "encoded aggregate operand changed after successful preflight",
@@ -4294,6 +4379,18 @@ fn queue_data_range_event(
     stack
         .try_reserve(1)
         .map_err(|_| KernelError::resource("encoded data-range stack allocation failed"))?;
+    stack.push((node_id, exiting));
+    Ok(())
+}
+
+fn queue_class_aggregate_event(
+    stack: &mut Vec<(usize, bool)>,
+    node_id: usize,
+    exiting: bool,
+) -> Result<(), KernelError> {
+    stack
+        .try_reserve(1)
+        .map_err(|_| KernelError::resource("encoded class-aggregate stack allocation failed"))?;
     stack.push((node_id, exiting));
     Ok(())
 }

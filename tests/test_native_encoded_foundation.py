@@ -597,6 +597,98 @@ def test_named_aggregate_equivalents_match_operand_order_roles_and_duplicates(
     assert not any("#U" in edge.destination for edge in actual)
 
 
+@pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
+@pytest.mark.parametrize("mode", ["normal", "only-taxonomy", "asserted-taxonomy"])
+def test_nested_aggregate_equivalence_emits_supported_siblings_in_rust(
+    annotated: bool,
+    mode: str,
+) -> None:
+    metadata = 'Annotation(<urn:meta> "nested") ' if annotated else ""
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:Before :After) "
+        f"EquivalentClasses({metadata}:A ObjectIntersectionOf("
+        ":B ObjectUnionOf(:C :D) ObjectSomeValuesFrom(:p :E)))"
+    )
+    if mode == "asserted-taxonomy":
+        scalar = list(
+            iter_asserted_taxonomy(
+                view,
+                bidirectional=False,
+                duplicates="preserve",
+                order="encounter",
+            )
+        )
+    else:
+        scalar = Projector().project(
+            view,
+            options=ProjectionOptions(
+                backend="python",
+                only_taxonomy=mode == "only-taxonomy",
+                duplicates="preserve",
+                order="encounter",
+            ),
+        )
+    expected = [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    if mode != "asserted-taxonomy":
+        expected.append(
+            Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B")
+        )
+    if mode == "normal":
+        expected.extend(
+            [
+                Edge("urn:native-direct#A", "urn:native-direct#p", "urn:native-direct#E"),
+                Edge(
+                    "urn:native-direct#A",
+                    "urn:native-direct#child",
+                    "urn:native-direct#E",
+                ),
+                Edge(
+                    "urn:native-direct#E",
+                    "urn:native-direct#pinv",
+                    "urn:native-direct#A",
+                ),
+            ]
+        )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=mode == "only-taxonomy",
+        asserted_taxonomy_only=mode == "asserted-taxonomy",
+    )
+
+    assert actual == scalar == expected
+    assert statistics.equivalents == statistics.aggregate_equivalents == 1
+    assert statistics.role_expansion_edges == (2 if mode == "normal" else 0)
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_deep_nested_aggregate_equivalence_uses_one_bounded_output_call() -> None:
+    expression = ":Leaf"
+    for index in range(200):
+        constructor = "ObjectUnionOf" if index % 2 == 0 else "ObjectIntersectionOf"
+        expression = f"{constructor}(:Side{index:03d} {expression})"
+    view = _snapshot(f"EquivalentClasses(:Root {expression})")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Root", SUBCLASS_OF, "urn:native-direct#Side199")
+    ]
+    assert statistics.aggregate_equivalents == 1
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
 def test_asserted_taxonomy_preflights_and_suppresses_aggregate_equivalence() -> None:
     view = _snapshot(
         "SubClassOf(:TaxA :TaxB) EquivalentClasses(:A ObjectIntersectionOf("
@@ -1557,26 +1649,6 @@ def test_annotated_data_property_families_are_state_neutral_skips(body: str) -> 
     assert actual == expected == []
     assert statistics.skipped_axioms == 1
     assert compiler.state == "finished"
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        "DataPropertyDomain(:dp ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
-    ],
-    ids=[
-        "nested-domain",
-    ],
-)
-def test_out_of_slice_data_shapes_are_transactionally_unsupported(body: str) -> None:
-    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
-    with pytest.raises(NativeEncodedDirectUnsupported):
-        compiler.compile_batch(
-            bidirectional=False,
-            max_edges=1,
-            max_iri_bytes=1024 * 1024,
-        )
-    assert compiler.state == "failed"
 
 
 @pytest.mark.parametrize(
@@ -2557,12 +2629,9 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
 @pytest.mark.parametrize(
     "body",
     [
-        "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
         "ClassAssertion(ObjectComplementOf(ObjectComplementOf(:A)) :i)",
-        'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A '
-        "ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
     ],
-    ids=["nested-equivalent", "recursive-class", "annotated-equivalent"],
+    ids=["recursive-class"],
 )
 def test_valid_but_out_of_slice_class_axioms_are_transactionally_unsupported(body: str) -> None:
     compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
@@ -2578,14 +2647,12 @@ def test_valid_but_out_of_slice_class_axioms_are_transactionally_unsupported(bod
 @pytest.mark.parametrize(
     "body",
     [
-        "SubClassOf(:A ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
         "ClassAssertion(ObjectComplementOf(ObjectIntersectionOf(:A :B)) :i)",
         "DisjointClasses(:A ObjectComplementOf(ObjectIntersectionOf(:B :C)))",
-        "HasKey(ObjectIntersectionOf(:A ObjectUnionOf(:B :C)) () (:dp))",
     ],
-    ids=["subclass", "class-assertion", "disjoint", "has-key"],
+    ids=["class-assertion", "disjoint"],
 )
-def test_nested_expanded_expression_axiom_shapes_fallback_whole_call(body: str) -> None:
+def test_complement_wrapped_aggregate_axioms_fallback_whole_call(body: str) -> None:
     compiler = prepare_native_encoded_direct(
         _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
     )
@@ -2596,6 +2663,113 @@ def test_nested_expanded_expression_axiom_shapes_fallback_whole_call(body: str) 
             max_iri_bytes=1024 * 1024,
         )
     assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    ("body", "counter"),
+    [
+        (
+            "SubClassOf(:A ObjectIntersectionOf(:B ObjectUnionOf(:C :D)))",
+            "ignored_subclasses",
+        ),
+        (
+            "HasKey(ObjectIntersectionOf(:A ObjectUnionOf(:B :C)) () (:dp))",
+            "has_keys",
+        ),
+        (
+            "DataPropertyDomain(:dp ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
+            "data_property_domains",
+        ),
+        (
+            "ObjectPropertyDomain(:p ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
+            "object_property_domains",
+        ),
+    ],
+    ids=["subclass", "has-key", "data-domain", "object-domain"],
+)
+def test_nested_aggregate_nonprojecting_consumers_match_scalar(
+    body: str,
+    counter: str,
+) -> None:
+    view = _snapshot(f"SubClassOf(:Before :After) {body}")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    assert getattr(statistics, counter) == 1
+    assert statistics.role_expansion_edges == 0
+
+
+def test_cyclic_nested_class_aggregate_fails_before_output() -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) EquivalentClasses(:Root "
+            "ObjectIntersectionOf(:Direct ObjectUnionOf(:InnerA :InnerB)))"
+        )
+    )
+    tags = lease.buffers["node_tags"]
+    aggregates = {
+        int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little"): node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") in {30, 31}
+    }
+    outer = aggregates[30]
+    inner = aggregates[31]
+    offsets = lease.buffers["node_field_offsets"]
+    inner_field = int.from_bytes(offsets[(inner - 1) * 8 : inner * 8], "little")
+    item_start = int.from_bytes(
+        lease.buffers["field_values"][inner_field * 8 : (inner_field + 1) * 8],
+        "little",
+    )
+    item_length = int.from_bytes(
+        lease.buffers["field_lengths"][inner_field * 8 : (inner_field + 1) * 8],
+        "little",
+    )
+    values = bytearray(lease.buffers["item_values"])
+    members = [
+        int.from_bytes(values[index * 8 : (index + 1) * 8], "little")
+        for index in range(item_start, item_start + item_length)
+    ]
+    members[0] = outer
+    members.sort()
+    for index, node_id in enumerate(members, start=item_start):
+        values[index * 8 : (index + 1) * 8] = node_id.to_bytes(8, "little")
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"item_values": memoryview(bytes(values))})
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match="class-aggregate graph is cyclic"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+    unflattened_tags = bytearray(tags)
+    unflattened_tags[(inner - 1) * 2 : inner * 2] = (30).to_bytes(2, "little")
+    unflattened = prepare_native_encoded_direct(
+        _replace_buffers(
+            lease,
+            {"node_tags": memoryview(bytes(unflattened_tags))},
+        )
+    )
+    with pytest.raises(SnapshotCompatibilityError, match="operands are not flattened"):
+        unflattened.compile_batch(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert unflattened.state == "failed"
 
 
 def test_equivalent_set_corruption_and_mixed_edge_limit_fail_before_publication() -> None:
@@ -3984,13 +4158,11 @@ def test_cyclic_recursive_data_range_fails_before_output() -> None:
         "ObjectComplementOf(:B)))",
         "SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
-        "ObjectPropertyDomain(:p ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
     ],
     ids=[
         "inverse-complex-filler",
         "complex-filler",
         "restriction-pair",
-        "nested-domain",
     ],
 )
 def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body: str) -> None:
