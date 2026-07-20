@@ -956,6 +956,307 @@ def test_overlay_delta_deduplicates_after_anonymous_scope_remap() -> None:
     assert counters.scalar_fallbacks == 0
 
 
+def test_overlay_recursively_resolves_segmented_overlay_source() -> None:
+    base = _snapshot("SubClassOf(:A :B)")
+    inner_delta = _snapshot("SubClassOf(:B :C)")
+    inner = apply_delta(
+        base,  # type: ignore[arg-type]
+        OntologyDelta(add_axioms=CanonicalSet(tuple(inner_delta.iter_axioms()))),  # type: ignore[attr-defined]
+    )
+    inner_lease = _overlay_delta_lease(
+        inner,
+        _lease(base),
+        _lease(inner_delta),
+    )
+    outer_delta = _snapshot("SubClassOf(:C :D)")
+    outer = apply_delta(
+        inner,
+        OntologyDelta(add_axioms=CanonicalSet(tuple(outer_delta.iter_axioms()))),  # type: ignore[attr-defined]
+    )
+    lease = _overlay_delta_lease(
+        outer,
+        inner_lease,
+        _lease(outer_delta),
+    )
+    prepared, negotiation, initial = prepare_encoded_subset_compilation(
+        outer,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert initial is not None
+    assert {id(item.owner) for item in prepared._retained_leases} == {
+        id(inner),
+        id(base),
+    }
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+    )
+    expected = tuple(Projector().project(outer, options=options) for options in cases)
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("recursive overlay crossed scalar traversal"),
+        ),
+    ):
+        for options, scalar_edges in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = projector.project(
+                outer,
+                options=replace(options, backend="native"),
+            )
+
+            assert actual == scalar_edges
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.referenced_segments == 2
+            assert counters.composite_member_segments == 0
+            assert counters.source_roots_inspected == 2
+            assert counters.delta_roots_inspected == 2
+            assert counters.roots_inspected == counters.selected_roots == 3
+            assert counters.scalar_fallbacks == 0
+
+
+def test_overlay_recursively_resolves_composite_source_indexes_and_lifetime() -> None:
+    left = _snapshot("ObjectPropertyDomain(:p :D) SubObjectPropertyOf(:child :p)")
+    right = _snapshot(
+        "ObjectPropertyRange(:p :R) InverseObjectProperties(:p :pinv) ClassAssertion(:R :i)"
+    )
+    bridge = _snapshot("Declaration(Class(:Bridge))")
+    inner = compose_views(
+        left,
+        right,
+        delta=OntologyDelta(
+            add_axioms=CanonicalSet(tuple(bridge.iter_axioms())),  # type: ignore[attr-defined]
+        ),
+    )
+    inner_lease = _semantic_composite_lease(
+        inner,
+        (_lease(left), _lease(right)),
+        bridge=_lease(bridge),
+    )
+    delta = _snapshot("SubClassOf(:AA :Top)")
+    overlay = apply_delta(
+        inner,
+        OntologyDelta(add_axioms=CanonicalSet(tuple(delta.iter_axioms()))),  # type: ignore[attr-defined]
+    )
+    lease = _overlay_delta_lease(overlay, inner_lease, _lease(delta))
+    prepared, negotiation, initial = prepare_encoded_subset_compilation(
+        overlay,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert initial is not None
+    assert {id(item.owner) for item in prepared._retained_leases} == {
+        id(inner),
+        id(left),
+        id(right),
+    }
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+    )
+    expected = tuple(Projector().project(overlay, options=options) for options in cases)
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("composite-source overlay crossed scalar traversal"),
+        ),
+    ):
+        for options, scalar_edges in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = projector.project(
+                overlay,
+                options=replace(options, backend="native"),
+            )
+
+            assert actual == scalar_edges
+            assert Edge("urn:slice#D", "urn:slice#p", "urn:slice#R") in actual
+            assert Edge("urn:slice#D", "urn:slice#child", "urn:slice#R") in actual
+            assert Edge("urn:slice#R", "urn:slice#pinv", "urn:slice#D") in actual
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.referenced_segments == 3
+            assert counters.composite_member_segments == 2
+            assert counters.bridge_roots_inspected == 1
+            assert counters.source_roots_inspected == 6
+            assert counters.delta_roots_inspected == 1
+            assert counters.roots_inspected == counters.selected_roots == 7
+            assert counters.scalar_fallbacks == 0
+
+
+def test_overlay_exclude_postings_address_only_composite_local_roots() -> None:
+    left = _snapshot("SubClassOf(:NestedA :Top)")
+    right = _snapshot("SubClassOf(:NestedB :Top)")
+    bridge = _snapshot("SubClassOf(:LocalDrop :Top) SubClassOf(:LocalKeep :Top)")
+    bridge_axioms = tuple(bridge.iter_axioms())  # type: ignore[attr-defined]
+    drop = next(axiom for axiom in bridge_axioms if b"LocalDrop" in canonical_bytes(axiom))
+    drop_id = bridge_axioms.index(drop) + 1
+    inner = compose_views(
+        left,
+        right,
+        delta=OntologyDelta(add_axioms=CanonicalSet(bridge_axioms)),
+    )
+    inner_lease = _semantic_composite_lease(
+        inner,
+        (_lease(left), _lease(right)),
+        bridge=_lease(bridge),
+    )
+    overlay = apply_delta(
+        inner,
+        OntologyDelta(remove_axioms=CanonicalSet((drop,))),
+    )
+    lease = _overlay_base_lease(
+        overlay,
+        inner_lease,
+        posting_mode=2,
+        postings=_postings(drop_id),
+    )
+    options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(overlay, options=options)
+    prepared, negotiation, initial = prepare_encoded_subset_compilation(
+        overlay,
+        replace(options, backend="native"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert initial is not None
+    assert {id(item.owner) for item in prepared._retained_leases} == {
+        id(inner),
+        id(left),
+        id(right),
+    }
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("posted composite overlay crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(
+            overlay,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected
+    assert {edge.source for edge in actual} == {
+        "urn:slice#NestedA",
+        "urn:slice#NestedB",
+        "urn:slice#LocalKeep",
+    }
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.referenced_segments == 3
+    assert counters.composite_member_segments == 2
+    assert counters.bridge_roots_inspected == 2
+    assert counters.posting_rows_inspected == 1
+    assert counters.source_roots_inspected == counters.roots_inspected == 4
+    assert counters.selected_roots == 3
+    assert counters.scalar_fallbacks == 0
+
+
+def test_overlay_composes_scope_maps_across_composite_source() -> None:
+    body = "ObjectPropertyAssertion(:p _:x :i)"
+    left = _snapshot(body)
+    right = _snapshot(body)
+    inner = compose_views(left, right)
+    inner_lease = _semantic_composite_lease(
+        inner,
+        (_lease(left), _lease(right)),
+    )
+    inner_axioms = tuple(inner.iter_axioms())  # type: ignore[attr-defined]
+    current_scopes = sorted(
+        axiom.source.document_scope
+        for axiom in inner_axioms
+        if isinstance(axiom, ObjectPropertyAssertion)
+        and isinstance(axiom.source, AnonymousIndividual)
+    )
+    assert len(current_scopes) == 2
+    target_scopes = (b"\x10" * 32, b"\xf0" * 32)
+    top_scope_map = dict(zip(current_scopes, target_scopes, strict=True))
+    mapped_axioms = tuple(
+        replace(
+            axiom,
+            source=AnonymousIndividual(
+                top_scope_map[axiom.source.document_scope],
+                axiom.source.local_key,
+            ),
+        )
+        for axiom in inner_axioms
+        if isinstance(axiom, ObjectPropertyAssertion)
+        and isinstance(axiom.source, AnonymousIndividual)
+    )
+    target_document = replace(
+        left.root,  # type: ignore[attr-defined]
+        axioms=CanonicalSet(mapped_axioms),
+    )
+    target = ConformingView((target_document,))
+    lease = _overlay_base_lease(
+        target,
+        inner_lease,
+        scope_map=_scope_map(*top_scope_map.items()),
+    )
+    options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(target, options=options)
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("scope-composed overlay crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(
+            target,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert {edge.source for edge in actual} == {
+        "_:genid2147483648",
+        "_:genid2147483649",
+    }
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.referenced_segments == 3
+    assert counters.composite_member_segments == 2
+    assert counters.scope_map_rows_inspected >= 2
+    assert counters.source_roots_inspected == counters.roots_inspected == 2
+    assert counters.selected_roots == 2
+    assert counters.anonymous_individuals == 2
+    assert counters.scalar_fallbacks == 0
+
+
 def test_composite_members_merge_exact_order_indexes_and_bridge() -> None:
     left = _snapshot(
         "SubClassOf(:Z :Top) ObjectPropertyDomain(:p :D) SubObjectPropertyOf(:child :p)"
@@ -1441,6 +1742,131 @@ def test_composite_supported_family_falls_back_for_unsupported_axiom_slice() -> 
     assert counters.roots_inspected == counters.source_roots_inspected == 2
     assert counters.scalar_fallbacks == 1
     assert counters.edge_batches == counters.raw_edges == 0
+
+
+def test_segmented_overlay_order_changing_scope_map_falls_back_after_preflight() -> None:
+    anonymous_left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
+    anonymous_right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
+    anonymous = compose_views(anonymous_left, anonymous_right)
+    anonymous_lease = _lease(anonymous)
+    other = _snapshot("SubClassOf(:Other :Top)")
+    inner = compose_views(anonymous, other)
+    inner_lease = _composite_lease(
+        inner,
+        (
+            _CompositeMemberFixture(anonymous_lease, b"a" * 32),
+            _CompositeMemberFixture(_lease(other), b"b" * 32),
+        ),
+    )
+    current_scopes = sorted(
+        _anonymous_scope(anonymous_lease, node_id)
+        for node_id in _anonymous_node_ids(anonymous_lease)
+    )
+    assert len(current_scopes) == 2
+    overlay = apply_delta(inner, OntologyDelta())
+    lease = _overlay_base_lease(
+        overlay,
+        inner_lease,
+        scope_map=_scope_map(
+            (current_scopes[0], b"\xff" * 32),
+            (current_scopes[1], b"\x00" * 32),
+        ),
+    )
+
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        overlay,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert "scope remap does not preserve canonical order" in (negotiation.reason or "")
+    assert counters is not None
+    assert counters.referenced_segments == 3
+    assert counters.composite_member_segments == 2
+    assert counters.scope_map_rows_inspected >= 2
+    assert counters.source_roots_inspected == counters.roots_inspected == 3
+    assert counters.selected_roots == 3
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == counters.raw_edges == 0
+
+
+def test_segmented_overlay_scope_fallback_does_not_mask_hostile_nested_source() -> None:
+    anonymous_left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
+    anonymous_right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
+    anonymous = compose_views(anonymous_left, anonymous_right)
+    anonymous_lease = _lease(anonymous)
+    other = _snapshot("SubClassOf(:A :Top) SubClassOf(:B :Top)")
+    other_lease = _lease(other)
+    hostile_buffers = dict(other_lease.buffers)
+    root_ids = bytes(hostile_buffers["root_ids"])
+    assert len(root_ids) == 8
+    hostile_buffers["root_ids"] = memoryview(root_ids[4:] + root_ids[:4])
+    frozen_buffers = MappingProxyType(hostile_buffers)
+    hostile_encoded = replace(other_lease.encoded_view, buffers=frozen_buffers)
+    hostile_other = replace(
+        other_lease,
+        encoded_view=hostile_encoded,
+        buffers=frozen_buffers,
+    )
+    inner = compose_views(anonymous, other)
+    inner_lease = _composite_lease(
+        inner,
+        (
+            _CompositeMemberFixture(anonymous_lease, b"a" * 32),
+            _CompositeMemberFixture(hostile_other, b"b" * 32),
+        ),
+    )
+    current_scopes = sorted(
+        _anonymous_scope(anonymous_lease, node_id)
+        for node_id in _anonymous_node_ids(anonymous_lease)
+    )
+    assert len(current_scopes) == 2
+    overlay = apply_delta(inner, OntologyDelta())
+    lease = _overlay_base_lease(
+        overlay,
+        inner_lease,
+        scope_map=_scope_map(
+            (current_scopes[0], b"\xff" * 32),
+            (current_scopes[1], b"\x00" * 32),
+        ),
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match="roots are not canonical"):
+        prepare_encoded_subset_compilation(
+            overlay,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+
+
+def test_segmented_overlay_cycle_fails_before_output() -> None:
+    left = _snapshot("SubClassOf(:A :Top)")
+    right = _snapshot("SubClassOf(:B :Top)")
+    inner = compose_views(left, right)
+    inner_lease = _composite_lease(
+        inner,
+        (
+            _CompositeMemberFixture(_lease(left), b"a" * 32),
+            _CompositeMemberFixture(_lease(right), b"b" * 32),
+        ),
+    )
+    overlay = apply_delta(inner, OntologyDelta())
+    overlay_lease = _overlay_base_lease(overlay, inner_lease)
+    inner_first = cast(_SegmentFixture, inner_lease.segments[0])
+    inner_first.owner = overlay
+    inner_first.source = overlay_lease.encoded_view
+
+    with pytest.raises(SnapshotCompatibilityError, match="segment graph is cyclic"):
+        prepare_encoded_subset_compilation(
+            overlay,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=overlay_lease),
+            batch_edges=1,
+        )
 
 
 def test_recursive_composite_cycle_fails_before_output() -> None:

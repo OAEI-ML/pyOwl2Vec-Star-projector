@@ -2144,7 +2144,9 @@ def _compose_group_scope_map(
             composed[original_scope] = target_scope
     frozen: Mapping[bytes, bytes] = MappingProxyType(composed)
     if not _scope_remap_preserves_order(columns, reachable, frozen):
-        state.fallback("encoded composite anonymous scope remap does not preserve canonical order")
+        state.fallback(
+            "encoded recursive segment anonymous scope remap does not preserve canonical order"
+        )
     return _ResolvedColumnGroup(group.lease, group.root_indices, frozen)
 
 
@@ -2411,7 +2413,7 @@ def _overlay_base_source(
     int,
     int,
 ]:
-    """Validate one referenced-direct overlay base and resolve its postings."""
+    """Resolve a direct overlay base or carry its validated segmented source."""
 
     try:
         typed_segment = cast(_SegmentLike, segment)
@@ -2480,7 +2482,8 @@ def _overlay_base_source(
         or getattr(source_segments[0], "role", None) != _SEGMENT_DIRECT
     ):
         raise _ReferencedSegmentFallback(
-            "encoded compiler overlay slice requires a canonical direct source"
+            "encoded compiler overlay slice requires recursive segment resolution",
+            source_lease,
         )
     root_count = source_lease.buffers["root_kinds"].nbytes
     excluded: set[int] = set()
@@ -2504,7 +2507,11 @@ def _overlay_base_source(
 
 
 class _ReferencedSegmentFallback(Exception):
-    """Internal signal for a valid referenced family outside this bounded slice."""
+    """Internal signal carrying a validated source into recursive resolution."""
+
+    def __init__(self, reason: str, source_lease: EncodedStructuralLease) -> None:
+        super().__init__(reason)
+        self.source_lease = source_lease
 
 
 def _scope_remap_preserves_order(
@@ -2679,6 +2686,18 @@ def prepare_encoded_subset_compilation(
     is_composite = any(
         role in {_SEGMENT_COMPOSITE_MEMBER, _SEGMENT_COMPOSITE_BRIDGE} for role in segment_roles
     )
+    overlay_source: (
+        tuple[
+            EncodedStructuralLease,
+            tuple[int, ...],
+            Mapping[bytes, bytes],
+            int,
+            int,
+        ]
+        | None
+    ) = None
+    recursive_source: EncodedStructuralLease | None = None
+    recursively_segmented = is_composite
     column_groups: tuple[
         tuple[_EncodedColumns, _CanonicalCursor, frozenset[int]],
         ...,
@@ -2693,18 +2712,19 @@ def prepare_encoded_subset_compilation(
         else:
             _validate_empty_local_columns(lease, family="overlay without delta")
         try:
-            (
-                source_lease,
-                selected_roots,
-                scope_map,
-                posting_rows,
-                scope_map_rows,
-            ) = _overlay_base_source(lease, segments[0])
+            overlay_source = _overlay_base_source(lease, segments[0])
         except _ReferencedSegmentFallback as fallback:
-            counters = _MutableCounters(referenced_segments=1, scalar_fallbacks=1)
-            reason = f"{fallback}; selected whole-operation scalar compiler"
-            return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+            recursive_source = fallback.source_lease
+            recursively_segmented = True
 
+    if overlay_source is not None:
+        (
+            source_lease,
+            selected_roots,
+            scope_map,
+            posting_rows,
+            scope_map_rows,
+        ) = overlay_source
         source_columns = _EncodedColumns(source_lease, root_indices=selected_roots)
         source_cursor = _CanonicalCursor(source_columns, scope_map)
         source_reachable = source_columns.reachable_node_ids()
@@ -2760,8 +2780,14 @@ def prepare_encoded_subset_compilation(
         counters.selected_roots = len(roots)
         counters.deduplicated_roots = deduplicated_roots
         counters.canonical_bytes_compared = comparator.bytes_compared
-    elif is_composite:
+    elif recursively_segmented:
         resolution = _SegmentResolutionState(lease)
+        if recursive_source is not None:
+            _register_resolution_lease(
+                resolution,
+                recursive_source,
+                referenced=True,
+            )
         try:
             resolved_groups = _resolve_segment_groups(lease, resolution)
         except RecursionError as error:

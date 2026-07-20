@@ -66,31 +66,34 @@ the same slice but emits only named-to-named `SubClassOf` edges.
 One bounded segmented form uses the same compiler: an overlay-base manifest may reference a fully
 revalidated canonical direct closure with `ALL` or sorted `EXCLUDE` root postings. It may either
 have empty top-local columns or be followed by exactly one fully revalidated top-local delta
-segment. The compilation retains both leases/owners, applies postings before rule indexes and
-blank-ID assignment, and accepts anonymous scope maps only when the mapped scopes remain strictly
-canonical-order preserving. For a delta, a bounded exact cursor memoizes canonical node lengths
-and streams canonical-model bytes directly from each retained column table. A reusable canonical
-root merge combines the selected base and local delta after scope remapping and structurally
-deduplicates equal roots without reconstructing OWL values or allocating an ontology-sized
-canonical arena. Domain/range indexes, role state, class signatures, and anonymous identifiers are
-then derived across both tables.
+segment. A direct source stays on the original fast lane, with its existing counters and
+order-changing-scope fallback. A canonical segmented overlay or composite source instead enters
+the recursive resolver, so a top `EXCLUDE` removes only roots local to that immediate source while
+preserving its inherited roots. The compilation retains every distinct referenced lease/owner,
+applies postings before rule indexes and blank-ID assignment, and accepts anonymous scope maps
+only when their composed leaf-to-effective mappings remain strictly canonical-order preserving.
+For a delta, a bounded exact cursor memoizes canonical node lengths and streams canonical-model
+bytes directly from each retained column table. A reusable canonical root merge combines the
+selected base and local delta after scope remapping and structurally deduplicates equal roots
+without reconstructing OWL values or allocating an ontology-sized canonical arena. Domain/range
+indexes, role state, class signatures, and anonymous identifiers are then derived across every
+resolved table.
 
 The same cursor and arbitrary-group merge execute canonical composite manifests with at least two
-token-sorted unique members and an optional nonempty top-local bridge. Member sources resolve
-recursively without flattening. `ALL` retains every resolved source occurrence; `INCLUDE` selects
-only the posted roots local to the immediate referenced view; and `EXCLUDE` removes only those
-source-local roots while preserving roots inherited by that view. Anonymous scope maps compose
-from leaf scope to effective scope at each reference boundary before final canonical merge and
-structural deduplication. Every distinct referenced table is fully revalidated once, and every
-required lease/owner remains retained by the prepared compilation.
+token-sorted unique members and an optional nonempty top-local bridge. Member sources and
+segmented top-overlay bases resolve recursively without flattening. `ALL` retains every resolved
+source occurrence; `INCLUDE` selects only the posted roots local to the immediate referenced view;
+and `EXCLUDE` removes only those source-local roots while preserving roots inherited by that view.
+Anonymous scope maps compose from leaf scope to effective scope at each reference boundary before
+final canonical merge and structural deduplication. Every distinct referenced table is fully
+revalidated once, and every required lease/owner remains retained by the prepared compilation.
 
-A valid order-changing scope map, or a nested source outside the recursive composite-member lane,
-selects whole-operation scalar-native compilation before output. Malformed posting bounds/layout,
-scope rows, owner links, base/delta/member/bridge metadata, member tokens, recursive cycles,
-local-root order, empty-local claims, or referenced columns fail closed. Any other valid
-constructor or annotations on the supported
-declaration/logical-axiom families also select scalar-native compilation for the complete
-operation before edge output. Test-visible counters cover inspected roots/nodes/scalar bytes,
+A valid order-changing scope map selects whole-operation scalar-native compilation before output.
+Malformed posting bounds/layout, scope rows, owner links, base/delta/member/bridge metadata, member
+tokens, recursive cycles, local-root order, empty-local claims, or referenced columns fail closed.
+Any other valid constructor or annotations on the supported declaration/logical-axiom families
+also select scalar-native compilation for the complete operation before edge output. Test-visible
+counters cover inspected roots/nodes/scalar bytes,
 supported axiom kinds, referenced/member segments, posting/scope rows,
 source/delta/bridge/selected and deduplicated roots, canonical bytes compared, batches, raw edges,
 and scalar fallbacks. This slice is intentionally absent from the native feature ledger; it does
