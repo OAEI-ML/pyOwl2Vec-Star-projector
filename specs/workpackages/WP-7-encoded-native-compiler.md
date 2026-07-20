@@ -2,7 +2,7 @@
 
 **Target:** compatible `0.1.x` successor or next minor selected by implementation review.
 **Depends on:** P3–P6 and a frozen pyowl-core WP17 encoded-view candidate.
-**Status:** specified, not implemented.
+**Status:** implementation checkpoint in progress; capability unadvertised and acceptance open.
 
 ## Goal
 

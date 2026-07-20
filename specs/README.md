@@ -65,6 +65,7 @@ owned conformance kit, Exact baseline comparator, handoff benchmark, and depende
 implemented. Exact's consumer-side WP-M M0–M4 migration has landed in its own repository; M5 and
 cross-repository release acceptance remain open there.
 
-P7 is the successor performance package. It is not implemented and does not change the completed
-P0–P6 semantic evidence. It may run in parallel with the pyELK and pyHermiT encoded-consumer
-packages after pyowl-core freezes the candidate public schema.
+P7 is the successor performance package. Its fail-closed encoded compiler checkpoint is in
+progress and does not change the completed P0–P6 semantic evidence. It remains unadvertised until
+the acceptance evidence in [`../reports/p7/encoded-native-compiler.md`](../reports/p7/encoded-native-compiler.md)
+and the work package is complete.
