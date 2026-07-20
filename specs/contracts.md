@@ -220,6 +220,16 @@ Every report/artifact can expose a serializable `ProjectionProvenance` containin
 - edge, duplicate, skipped-axiom, ignored-shape, and warning counts; and
 - whether the source arrived directly, through a provider, or through verified core wire.
 
+The versioned ingestion subrecord additionally carries execution-only
+`encoded_view_publication_seconds` and `consumer_compile_seconds` values when measured, plus an
+immutable allowlisted counter map. The map covers consumer-side scalar rows materialized,
+borrowed/zero-copy encoded buffers and bytes, detached/indexed buffers, segment/referenced-view
+and posting counts, bounded structural staging-copy bytes, and whether compilation released the
+GIL. The publication duration includes public encoded-view acquisition and the Projector adapter's
+in-place validation. These fields are monotonic, non-negative, path-free diagnostics; they do not
+enter portable artifact bytes or semantic digests. Reading the report cannot trigger another core
+view request.
+
 It never records a secret resolver credential or assumes the original source path is portable.
 Two runs can be semantically compared by fingerprints, profile, options, and schema without
 matching machine-specific fields.

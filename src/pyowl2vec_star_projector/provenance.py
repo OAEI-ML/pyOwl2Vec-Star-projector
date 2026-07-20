@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
+from types import MappingProxyType
 from typing import Literal
 
 from ._version import (
@@ -18,6 +21,22 @@ from .options import ProjectionOptions
 
 SourceKind = Literal["direct", "provider", "wire"]
 IngestionPath = Literal["scalar-python", "scalar-native", "encoded-native"]
+
+_INGESTION_COUNTERS = frozenset(
+    {
+        "encoded_buffer_bytes",
+        "encoded_buffer_count",
+        "encoded_compiler_gil_released",
+        "encoded_detached_buffer_count",
+        "encoded_indexed_buffer_count",
+        "encoded_posting_bytes",
+        "encoded_referenced_view_count",
+        "encoded_segment_count",
+        "encoded_staging_copy_bytes",
+        "encoded_zero_copy_buffers",
+        "materialized_scalar_rows",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +70,7 @@ class ProjectionCounts:
 
 @dataclass(frozen=True, slots=True)
 class IngestionProvenance:
-    """Execution-only ontology handoff selected before projection traversal."""
+    """Execution-only, path-safe ontology handoff and phase diagnostics."""
 
     schema: str = INGESTION_PROVENANCE_SCHEMA
     path: IngestionPath = "scalar-python"
@@ -59,6 +78,9 @@ class IngestionProvenance:
     encoded_schema_name: str | None = None
     encoded_schema_version: int | None = None
     encoded_descriptor_sha256: str | None = None
+    encoded_view_publication_seconds: float | None = None
+    consumer_compile_seconds: float | None = None
+    counters: Mapping[str, int | bool] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.schema != INGESTION_PROVENANCE_SCHEMA:
@@ -85,6 +107,48 @@ class IngestionProvenance:
                 raise ValueError("encoded-native provenance requires complete schema metadata")
         elif any(value is not None for value in encoded):
             raise ValueError("scalar ingestion cannot claim encoded schema metadata")
+        for name in (
+            "encoded_view_publication_seconds",
+            "consumer_compile_seconds",
+        ):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(f"{name} must be a finite non-negative duration or None")
+            object.__setattr__(self, name, float(value))
+        if not isinstance(self.counters, Mapping):
+            raise TypeError("ingestion counters must be a mapping")
+        counters = dict(self.counters)
+        if set(counters) - _INGESTION_COUNTERS:
+            raise ValueError("ingestion counters contain unsupported fields")
+        for name, value in counters.items():
+            if name == "encoded_compiler_gil_released":
+                if type(value) is not bool:
+                    raise ValueError("encoded compiler GIL counter must be bool")
+            elif type(value) is not int or value < 0:
+                raise ValueError("ingestion counters must be non-negative ints")
+        object.__setattr__(self, "counters", MappingProxyType(dict(sorted(counters.items()))))
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the bounded public handoff record without machine-local data."""
+
+        return {
+            "schema": self.schema,
+            "path": self.path,
+            "reason": self.reason,
+            "encoded_schema_name": self.encoded_schema_name,
+            "encoded_schema_version": self.encoded_schema_version,
+            "encoded_descriptor_sha256": self.encoded_descriptor_sha256,
+            "encoded_view_publication_seconds": self.encoded_view_publication_seconds,
+            "consumer_compile_seconds": self.consumer_compile_seconds,
+            "counters": dict(self.counters),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +178,7 @@ class ProjectionProvenance:
             raise ValueError("selected backend and ingestion path are inconsistent")
 
     def to_dict(self) -> dict[str, object]:
-        """Return a deterministic JSON-compatible record without machine paths."""
+        """Return a JSON-compatible record without machine paths."""
         return {
             "projector_version": self.projector_version,
             "projector_api_version": self.projector_api_version,
@@ -125,7 +189,7 @@ class ProjectionProvenance:
             "selected_backend": self.selected_backend,
             "native_implementation_version": self.native_implementation_version,
             "source_kind": self.source_kind,
-            "ingestion": asdict(self.ingestion),
+            "ingestion": self.ingestion.to_dict(),
             "core": asdict(self.core),
             "counts": asdict(self.counts),
             "diagnostics_digest": self.diagnostics_digest,

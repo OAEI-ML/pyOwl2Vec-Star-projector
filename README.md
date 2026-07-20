@@ -78,6 +78,13 @@ edges = projector.project(
 assert projector.last_view is ontology_view
 ```
 
+After successful consumption, `projector.last_report.provenance.ingestion` exposes the selected
+path and its path-safe handoff diagnostics. It records monotonic encoded-view
+publication/validation and compiler-setup durations plus bounded scalar-row, borrowed-buffer,
+segment, posting, and staging-copy counters. Scalar paths publish the same counter vocabulary
+with exact zero encoded values. These execution diagnostics are intentionally excluded from
+portable artifact hashes, and reading them never asks core for another encoded view.
+
 For low-latency consumption, set `order="encounter"` and use `iter_edges`; for bounded delivery,
 use `project_to_sink` with a batch callback. `project_taxonomy` is the separate asserted named-
 class taxonomy API and does not inherit the historical `only_taxonomy` defect.

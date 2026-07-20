@@ -114,6 +114,49 @@ class ProvenanceTests(unittest.TestCase):
         )
         self.assertEqual(encoded.encoded_schema_version, 1)
 
+    def test_ingestion_diagnostics_are_bounded_immutable_and_json_safe(self) -> None:
+        provenance = IngestionProvenance(
+            path="encoded-native",
+            encoded_schema_name="pyowl-core/structural-columns",
+            encoded_schema_version=1,
+            encoded_descriptor_sha256="ab" * 32,
+            encoded_view_publication_seconds=0.125,
+            consumer_compile_seconds=0.25,
+            counters={
+                "encoded_buffer_bytes": 64,
+                "encoded_compiler_gil_released": False,
+                "encoded_staging_copy_bytes": 0,
+                "materialized_scalar_rows": 0,
+            },
+        )
+
+        record = provenance.to_dict()
+        json.dumps(record, sort_keys=True)
+        self.assertEqual(record["encoded_view_publication_seconds"], 0.125)
+        self.assertEqual(record["consumer_compile_seconds"], 0.25)
+        self.assertEqual(
+            record["counters"],
+            {
+                "encoded_buffer_bytes": 64,
+                "encoded_compiler_gil_released": False,
+                "encoded_staging_copy_bytes": 0,
+                "materialized_scalar_rows": 0,
+            },
+        )
+        with self.assertRaises(TypeError):
+            provenance.counters["encoded_buffer_bytes"] = 1  # type: ignore[index]
+
+        for value in (True, -1, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    IngestionProvenance(consumer_compile_seconds=value)  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            IngestionProvenance(counters={"private_pointer": 1})
+        with self.assertRaises(ValueError):
+            IngestionProvenance(counters={"encoded_buffer_bytes": True})
+        with self.assertRaises(ValueError):
+            IngestionProvenance(counters={"encoded_compiler_gil_released": 0})
+
     def test_counts_reject_bool_negative_and_float(self) -> None:
         for value in (True, -1, 1.5):
             with self.subTest(value=value):

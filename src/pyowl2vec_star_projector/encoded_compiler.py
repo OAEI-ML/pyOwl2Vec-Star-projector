@@ -325,6 +325,8 @@ class _SegmentLike(Protocol):
     source: object | None
     owner: object
     posting_mode: object
+    root_ids: memoryview
+    anonymous_scope_map: memoryview
     member_token: object
 
 
@@ -747,6 +749,42 @@ class EncodedSubsetCompilation:
     @property
     def counters(self) -> EncodedSubsetCounters:
         return self._counters.freeze()
+
+    @property
+    def ingestion_counters(self) -> Mapping[str, int | bool]:
+        """Return bounded, path-safe copy/materialization diagnostics for this compilation."""
+
+        leases: dict[int, EncodedStructuralLease] = {}
+        for lease in (
+            self.lease,
+            *self._retained_leases,
+            *self._annotation_provenance_leases,
+        ):
+            leases.setdefault(id(lease.encoded_view), lease)
+        buffer_count = sum(len(lease.buffers) for lease in leases.values())
+        buffer_bytes = sum(
+            buffer.nbytes for lease in leases.values() for buffer in lease.buffers.values()
+        )
+        segments = tuple(
+            cast(_SegmentLike, segment) for lease in leases.values() for segment in lease.segments
+        )
+        posting_bytes = sum(segment.root_ids.nbytes for segment in segments)
+        staging_copy_bytes = sum(segment.anonymous_scope_map.nbytes for segment in segments)
+        return MappingProxyType(
+            {
+                "encoded_buffer_bytes": buffer_bytes,
+                "encoded_buffer_count": buffer_count,
+                "encoded_compiler_gil_released": False,
+                "encoded_detached_buffer_count": 0,
+                "encoded_indexed_buffer_count": buffer_count,
+                "encoded_posting_bytes": posting_bytes,
+                "encoded_referenced_view_count": max(0, len(leases) - 1),
+                "encoded_segment_count": len(segments),
+                "encoded_staging_copy_bytes": staging_copy_bytes,
+                "encoded_zero_copy_buffers": buffer_count,
+                "materialized_scalar_rows": 0,
+            }
+        )
 
     @property
     def diagnostics(self) -> tuple[ProjectionDiagnostic, ...]:

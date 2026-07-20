@@ -492,6 +492,45 @@ def test_simple_subset_matches_scalar_without_scalar_axiom_traversal() -> None:
             )
 
 
+def test_encoded_report_exposes_public_phase_and_zero_copy_diagnostics() -> None:
+    view = _snapshot("SubClassOf(:A :B) ObjectPropertyAssertion(:p :i :j)")
+    lease = _lease(view)
+    ticks = iter((10.0, 10.25, 20.0, 20.5))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(api_module, "perf_counter", side_effect=lambda: next(ticks)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("public encoded diagnostics crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        projector.project(view, options=ProjectionOptions(backend="native"))
+
+    assert projector.last_report is not None
+    ingestion = projector.last_report.provenance.ingestion
+    assert ingestion.encoded_view_publication_seconds == pytest.approx(0.25)
+    assert ingestion.consumer_compile_seconds == pytest.approx(0.5)
+    assert ingestion.counters == {
+        "encoded_buffer_bytes": sum(buffer.nbytes for buffer in lease.buffers.values()),
+        "encoded_buffer_count": len(lease.buffers),
+        "encoded_compiler_gil_released": False,
+        "encoded_detached_buffer_count": 0,
+        "encoded_indexed_buffer_count": len(lease.buffers),
+        "encoded_posting_bytes": 0,
+        "encoded_referenced_view_count": 0,
+        "encoded_segment_count": 1,
+        "encoded_staging_copy_bytes": 0,
+        "encoded_zero_copy_buffers": len(lease.buffers),
+        "materialized_scalar_rows": 0,
+    }
+    encoded = json.dumps(projector.last_report.to_dict(), sort_keys=True)
+    assert "object at 0x" not in encoded
+    assert "file://" not in encoded
+
+
 def test_named_equivalence_and_class_assertion_match_scalar_in_bounded_batches() -> None:
     view = _snapshot(
         "Declaration(Class(:Z)) Declaration(Class(:AA)) Declaration(Class(:B)) "
@@ -998,6 +1037,14 @@ def test_overlay_base_scope_remap_matches_scalar_blank_identity() -> None:
     assert counters.scope_map_rows_inspected == 1
     assert counters.source_roots_inspected == counters.selected_roots == 1
     assert counters.scalar_fallbacks == 0
+    assert projector.last_report is not None
+    ingestion = projector.last_report.provenance.ingestion
+    assert ingestion.counters["encoded_buffer_count"] == 2 * len(lease.buffers)
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 2 * len(lease.buffers)
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 2
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 64
+    assert ingestion.counters["materialized_scalar_rows"] == 0
 
 
 def test_overlay_delta_deduplicates_after_anonymous_scope_remap() -> None:

@@ -253,6 +253,11 @@ spill resources under the existing P4 rules.
 
 A copied structural column is allowed only for a measured alignment/ownership need and is reported
 by byte count. Direct and mmap retained-native views have zero ontology-sized staging copy.
+Every completed projection publishes the selected path, monotonic public-view
+publication/validation and compiler-setup durations, and the bounded copy/materialization ledger
+through `ProjectionReport.provenance.ingestion`. Consumers such as Exact read that report; they do
+not request, flatten, or decode an encoded view themselves. The report contains no paths, object
+identities, pointers, or buffer addresses and remains outside portable artifact semantics.
 
 ## 6. Performance and memory gates
 

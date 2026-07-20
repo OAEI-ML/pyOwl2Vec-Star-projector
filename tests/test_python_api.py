@@ -19,6 +19,7 @@ from pyowl2vec_star_projector import (
     project_source,
     project_taxonomy,
 )
+from pyowl2vec_star_projector import api as api_module
 
 from .support.core_views import Capabilities, ConformingView, Provider, fixture_view
 
@@ -186,6 +187,38 @@ def test_report_groups_diagnostics_without_stdout(capsys: pytest.CaptureFixture[
     assert result.report.provenance.selected_backend == "python"
     assert result.report.provenance.ingestion.path == "scalar-python"
     assert len(result.report.provenance.diagnostics_digest) == 64
+
+
+def test_scalar_report_exposes_compiler_timing_without_encoded_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ticks = iter((10.0, 10.125, 20.0, 20.375))
+    monkeypatch.setattr(api_module, "perf_counter", lambda: next(ticks))
+    projector = Projector()
+
+    projector.project(
+        fixture_view("equivalence-ordering"),
+        options=ProjectionOptions(backend="python"),
+    )
+
+    assert projector.last_report is not None
+    ingestion = projector.last_report.provenance.ingestion
+    assert ingestion.path == "scalar-python"
+    assert ingestion.encoded_view_publication_seconds is None
+    assert ingestion.consumer_compile_seconds == pytest.approx(0.375)
+    assert ingestion.counters == {
+        "encoded_buffer_bytes": 0,
+        "encoded_buffer_count": 0,
+        "encoded_compiler_gil_released": False,
+        "encoded_detached_buffer_count": 0,
+        "encoded_indexed_buffer_count": 0,
+        "encoded_posting_bytes": 0,
+        "encoded_referenced_view_count": 0,
+        "encoded_segment_count": 0,
+        "encoded_staging_copy_bytes": 0,
+        "encoded_zero_copy_buffers": 0,
+        "materialized_scalar_rows": 0,
+    }
 
 
 def test_isolated_projector_is_reentrant_across_threads() -> None:

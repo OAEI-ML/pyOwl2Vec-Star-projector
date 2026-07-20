@@ -9,6 +9,7 @@ import threading
 from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from os import PathLike
+from time import perf_counter
 from typing import Any, BinaryIO
 
 from ._version import BATCH_SINK_PROTOCOL_VERSION
@@ -356,17 +357,23 @@ class Projector:
                 selection, native_version, native_features = _activate_selection(selection)
                 warn_if_auto_fallback(selection)
                 checked = validate_view(view)
+                publication_started = perf_counter()
                 ingestion = select_ingestion(
                     checked,
                     selected_backend=selection.selected,
                     native_features=native_features,
                     backend_fallback_reason=selection.fallback_reason,
                 )
+                publication_seconds = perf_counter() - publication_started
+                encoded_view_publication_seconds = (
+                    publication_seconds if ingestion.path == "encoded-native" else None
+                )
                 role_state = (
                     self._scala_state
                     if options.compatibility_state == "scala-instance"
                     else RoleState.empty()
                 )
+                compile_started = perf_counter()
                 encoded_compilation, ingestion, encoded_counters = (
                     prepare_encoded_subset_compilation(
                         checked,
@@ -383,6 +390,7 @@ class Projector:
                     compilation = encoded_compilation
                 if options.compatibility_state == "scala-instance":
                     compilation.prepare_role_state()
+                consumer_compile_seconds = perf_counter() - compile_started
                 with self._metadata_lock:
                     self._last_view = compilation.view
                     self._last_report = None
@@ -431,6 +439,9 @@ class Projector:
                     selection.selected,
                     native_version,
                     ingestion,
+                    encoded_view_publication_seconds,
+                    consumer_compile_seconds,
+                    encoded_compilation,
                 )
                 with self._metadata_lock:
                     self._last_report = report
@@ -469,6 +480,9 @@ class Projector:
         selected_backend: str,
         native_version: str | None,
         ingestion: EncodedNegotiation,
+        encoded_view_publication_seconds: float | None,
+        consumer_compile_seconds: float,
+        encoded_compilation: EncodedSubsetCompilation | None,
     ) -> ProjectionReport:
         diagnostic_payload = [asdict(item) for item in diagnostics]
         diagnostic_bytes = json.dumps(
@@ -522,7 +536,12 @@ class Projector:
             invocation_count=invocation,
             call_history_digest=history_digest,
             native_implementation_version=native_version,
-            ingestion=_ingestion_provenance(ingestion),
+            ingestion=_ingestion_provenance(
+                ingestion,
+                encoded_view_publication_seconds=encoded_view_publication_seconds,
+                consumer_compile_seconds=consumer_compile_seconds,
+                encoded_compilation=encoded_compilation,
+            ),
         )
         return ProjectionReport(provenance, diagnostics)
 
@@ -616,7 +635,13 @@ def _activate_selection(
         return fallback, None, frozenset()
 
 
-def _ingestion_provenance(ingestion: EncodedNegotiation) -> IngestionProvenance:
+def _ingestion_provenance(
+    ingestion: EncodedNegotiation,
+    *,
+    encoded_view_publication_seconds: float | None,
+    consumer_compile_seconds: float,
+    encoded_compilation: EncodedSubsetCompilation | None,
+) -> IngestionProvenance:
     lease = ingestion.lease
     return IngestionProvenance(
         path=ingestion.path,
@@ -624,7 +649,30 @@ def _ingestion_provenance(ingestion: EncodedNegotiation) -> IngestionProvenance:
         encoded_schema_name=None if lease is None else lease.schema_name,
         encoded_schema_version=None if lease is None else lease.schema_version,
         encoded_descriptor_sha256=None if lease is None else lease.descriptor_sha256,
+        encoded_view_publication_seconds=encoded_view_publication_seconds,
+        consumer_compile_seconds=consumer_compile_seconds,
+        counters=(
+            _empty_ingestion_counters()
+            if encoded_compilation is None
+            else encoded_compilation.ingestion_counters
+        ),
     )
+
+
+def _empty_ingestion_counters() -> dict[str, int | bool]:
+    return {
+        "encoded_buffer_bytes": 0,
+        "encoded_buffer_count": 0,
+        "encoded_compiler_gil_released": False,
+        "encoded_detached_buffer_count": 0,
+        "encoded_indexed_buffer_count": 0,
+        "encoded_posting_bytes": 0,
+        "encoded_referenced_view_count": 0,
+        "encoded_segment_count": 0,
+        "encoded_staging_copy_bytes": 0,
+        "encoded_zero_copy_buffers": 0,
+        "materialized_scalar_rows": 0,
+    }
 
 
 def project_taxonomy(
