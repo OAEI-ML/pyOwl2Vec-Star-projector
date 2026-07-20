@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 24
+ENCODED_DIRECT_KERNEL_VERSION = 25
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -197,6 +197,35 @@ class NativeEncodedDirectStatistics:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class NativeEncodedDirectRoleState:
+    """Private retained role maps for explicit Scala-instance parity."""
+
+    _kernel: Any
+    _module: Any
+
+    @property
+    def in_use(self) -> bool:
+        value = getattr(self._kernel, "in_use", None)
+        if type(value) is not bool:
+            raise ProjectionError("native encoded role state returned invalid use status")
+        return value
+
+    @property
+    def subrole_property_count(self) -> int:
+        value = getattr(self._kernel, "subrole_property_count", None)
+        if type(value) is not int or value < 0:
+            raise ProjectionError("native encoded role state returned invalid subrole count")
+        return value
+
+    @property
+    def inverse_property_count(self) -> int:
+        value = getattr(self._kernel, "inverse_property_count", None)
+        if type(value) is not int or value < 0:
+            raise ProjectionError("native encoded role state returned invalid inverse count")
+        return value
+
+
 @dataclass(slots=True)
 class NativeEncodedDirectCompiler:
     """Owner-retaining Python handle for the private one-shot Rust compiler."""
@@ -228,6 +257,7 @@ class NativeEncodedDirectCompiler:
         asserted_taxonomy_only: bool = False,
         only_taxonomy: bool = False,
         include_literals: bool = False,
+        role_state: NativeEncodedDirectRoleState | None = None,
     ) -> tuple[list[Edge], NativeEncodedDirectStatistics]:
         if type(bidirectional) is not bool:
             raise TypeError("bidirectional must be bool")
@@ -241,6 +271,10 @@ class NativeEncodedDirectCompiler:
             raise ValueError("max_edges must be a positive int")
         if type(max_iri_bytes) is not int or max_iri_bytes < 1:
             raise ValueError("max_iri_bytes must be a positive int")
+        if role_state is not None and type(role_state) is not NativeEncodedDirectRoleState:
+            raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
+        if role_state is not None and role_state._module is not self._module:
+            raise ProjectionError("native encoded role state belongs to another native module")
         try:
             raw_edges, raw_stats = self._kernel.compile_batch(
                 bidirectional,
@@ -249,6 +283,7 @@ class NativeEncodedDirectCompiler:
                 asserted_taxonomy_only,
                 only_taxonomy,
                 include_literals,
+                None if role_state is None else role_state._kernel,
             )
         except MemoryError as error:
             raise _resource_error(error) from error
@@ -302,6 +337,31 @@ class NativeEncodedDirectCompiler:
         return result
 
 
+def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:
+    """Create one unadvertised retained role-state handle for ordered calls."""
+
+    module = load_native_module()
+    try:
+        version = getattr(module, "ENCODED_DIRECT_KERNEL_VERSION", None)
+        factory = getattr(module, "EncodedDirectRoleState", None)
+    except Exception as error:
+        raise NativeBackendUnavailableError(
+            "native encoded role-state metadata could not be read",
+            details={"cause": type(error).__name__},
+        ) from error
+    if version != ENCODED_DIRECT_KERNEL_VERSION:
+        raise NativeBackendUnavailableError("native encoded foundation version is incompatible")
+    if not callable(factory):
+        raise NativeBackendUnavailableError("native encoded role-state foundation is incomplete")
+    try:
+        kernel = factory()
+    except MemoryError as error:
+        raise _resource_error(error) from error
+    except Exception as error:
+        raise _execution_error(error) from error
+    return NativeEncodedDirectRoleState(kernel, module)
+
+
 def prepare_native_encoded_direct(
     lease: EncodedStructuralLease,
 ) -> NativeEncodedDirectCompiler:
@@ -340,6 +400,7 @@ def prepare_native_encoded_direct(
         version = getattr(module, "ENCODED_DIRECT_KERNEL_VERSION", None)
         order = getattr(module, "ENCODED_DIRECT_BUFFER_ORDER", None)
         compiler = getattr(module, "EncodedDirectCompiler", None)
+        role_state_factory = getattr(module, "EncodedDirectRoleState", None)
         unsupported = getattr(module, "EncodedDirectUnsupportedError", None)
         buffer_error = getattr(module, "EncodedDirectBufferError", None)
         cancelled = getattr(module, "EncodedDirectCancelledError", None)
@@ -357,7 +418,7 @@ def prepare_native_encoded_direct(
             "native encoded foundation buffer order is incompatible"
         )
     exceptions = (unsupported, buffer_error, cancelled, reference_error)
-    if not callable(compiler) or not all(
+    if not callable(compiler) or not callable(role_state_factory) or not all(
         isinstance(value, type) and issubclass(value, Exception) for value in exceptions
     ):
         raise NativeBackendUnavailableError("native encoded foundation is incomplete")
@@ -591,6 +652,7 @@ __all__ = [
     "NATIVE_API_VERSION",
     "NativeEncodedDirectCancelled",
     "NativeEncodedDirectCompiler",
+    "NativeEncodedDirectRoleState",
     "NativeEncodedDirectStatistics",
     "NativeEncodedDirectUnsupported",
     "iter_native_compilation",
@@ -600,4 +662,5 @@ __all__ = [
     "native_implementation_version",
     "native_runtime_metadata",
     "prepare_native_encoded_direct",
+    "prepare_native_encoded_role_state",
 ]

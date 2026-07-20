@@ -15,11 +15,13 @@ mod encoded_direct;
 
 use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 
 use encoded_direct::{
-    compile_direct_with_options, DirectColumns, DirectCompileOptions, KernelError, BUFFER_COUNT,
-    BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    compile_direct_with_options, compile_direct_with_retained_role_state, DirectColumns,
+    DirectCompileOptions, KernelError, OwnedRoleState, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED,
+    STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -28,7 +30,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyMapping, PyMemoryView, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 24;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 25;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -360,6 +362,98 @@ impl Drop for EdgeBatchProcessor {
     }
 }
 
+#[derive(Debug, Default)]
+struct RetainedRoleState {
+    roles: Mutex<OwnedRoleState>,
+    in_use: AtomicBool,
+}
+
+#[derive(Debug)]
+struct RetainedRoleUse {
+    retained: Arc<RetainedRoleState>,
+}
+
+impl Drop for RetainedRoleUse {
+    fn drop(&mut self) {
+        self.retained.in_use.store(false, Ordering::Release);
+    }
+}
+
+impl RetainedRoleState {
+    fn claim(self: &Arc<Self>) -> PyResult<RetainedRoleUse> {
+        if self
+            .in_use
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(PyValueError::new_err(
+                "encoded direct role state is already in use",
+            ));
+        }
+        Ok(RetainedRoleUse {
+            retained: Arc::clone(self),
+        })
+    }
+
+    fn compile_claimed(
+        &self,
+        columns: DirectColumns<'_>,
+        options: DirectCompileOptions,
+        compiler_state: &AtomicU8,
+    ) -> PyResult<(
+        Vec<encoded_direct::DirectEdge>,
+        encoded_direct::DirectCompileStats,
+    )> {
+        let mut roles = self.roles.lock().map_err(|_| {
+            PyRuntimeError::new_err("encoded direct role state is permanently failed")
+        })?;
+        compile_direct_with_retained_role_state(columns, options, compiler_state, Some(&mut roles))
+            .map_err(kernel_error)
+    }
+}
+
+/// Private retained role maps for explicit Scala-instance compatibility calls.
+///
+/// Only normalized role IRI strings cross operation boundaries; ontology
+/// owners and structural buffers remain owned by their one-shot compiler.
+#[pyclass(module = "pyowl2vec_star_projector._native", frozen)]
+struct EncodedDirectRoleState {
+    retained: Arc<RetainedRoleState>,
+}
+
+#[pymethods]
+impl EncodedDirectRoleState {
+    #[new]
+    fn new() -> Self {
+        Self {
+            retained: Arc::new(RetainedRoleState::default()),
+        }
+    }
+
+    #[getter]
+    fn in_use(&self) -> bool {
+        self.retained.in_use.load(Ordering::Acquire)
+    }
+
+    #[getter]
+    fn subrole_property_count(&self) -> PyResult<usize> {
+        self.retained
+            .roles
+            .lock()
+            .map(|roles| roles.subrole_count())
+            .map_err(|_| PyRuntimeError::new_err("encoded direct role state is permanently failed"))
+    }
+
+    #[getter]
+    fn inverse_property_count(&self) -> PyResult<usize> {
+        self.retained
+            .roles
+            .lock()
+            .map(|roles| roles.inverse_count())
+            .map_err(|_| PyRuntimeError::new_err("encoded direct role state is permanently failed"))
+    }
+}
+
 /// One-shot private compiler for the current honest P7 Rust slice.
 ///
 /// The object retains both the encoded view/owner and an owned reference to
@@ -458,7 +552,9 @@ impl EncodedDirectCompiler {
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
+        role_state=None,
     ))]
+    #[allow(clippy::too_many_arguments)] // The private PyO3 ABI keeps options explicit.
     fn compile_batch(
         &self,
         bidirectional: bool,
@@ -467,6 +563,7 @@ impl EncodedDirectCompiler {
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
+        role_state: Option<PyRef<'_, EncodedDirectRoleState>>,
     ) -> PyResult<EncodedDirectBatch> {
         if max_edges == 0 {
             return Err(PyValueError::new_err("max_edges must be positive"));
@@ -486,85 +583,101 @@ impl EncodedDirectCompiler {
             max_edges,
             max_iri_bytes,
         };
+        let retained_role_state = role_state.map(|value| Arc::clone(&value.retained));
+        let retained_role_use = match retained_role_state.as_ref() {
+            Some(retained) => match retained.claim() {
+                Ok(role_use) => Some(role_use),
+                Err(error) => return self.finish_result(Err(error)),
+            },
+            None => None,
+        };
         let result = guarded(|| {
             Python::attach(|py| {
-                py.detach(|| compile_direct_with_options(columns, options, &self.state))
-                    .map_err(kernel_error)
-                    .and_then(|(edges, stats)| {
-                        let mut output = Vec::new();
-                        output.try_reserve_exact(edges.len()).map_err(|_| {
-                            PyMemoryError::new_err("encoded native tuple-batch allocation failed")
-                        })?;
-                        output.extend(
-                            edges
-                                .into_iter()
-                                .map(|edge| (edge.source, edge.relation, edge.destination)),
-                        );
-                        let statistics = PyTuple::new(
-                            py,
-                            [
-                                stats.roots,
-                                stats.nodes,
-                                stats.anonymous_individuals,
-                                stats.ontology_annotations,
-                                stats.swrl_rules,
-                                stats.declarations,
-                                stats.subclasses,
-                                stats.restriction_subclasses,
-                                stats.ignored_subclasses,
-                                stats.equivalents,
-                                stats.aggregate_equivalents,
-                                stats.disjoint_classes,
-                                stats.disjoint_unions,
-                                stats.has_keys,
-                                stats.same_individuals,
-                                stats.different_individuals,
-                                stats.class_assertions,
-                                stats.ignored_class_assertions,
-                                stats.object_property_assertions,
-                                stats.negative_object_property_assertions,
-                                stats.sub_object_properties,
-                                stats.object_property_chains,
-                                stats.equivalent_object_properties,
-                                stats.disjoint_object_properties,
-                                stats.inverse_object_properties,
-                                stats.functional_object_properties,
-                                stats.inverse_functional_object_properties,
-                                stats.reflexive_object_properties,
-                                stats.irreflexive_object_properties,
-                                stats.symmetric_object_properties,
-                                stats.asymmetric_object_properties,
-                                stats.transitive_object_properties,
-                                stats.sub_data_properties,
-                                stats.equivalent_data_properties,
-                                stats.disjoint_data_properties,
-                                stats.data_property_domains,
-                                stats.data_property_ranges,
-                                stats.functional_data_properties,
-                                stats.datatype_definitions,
-                                stats.data_property_assertions,
-                                stats.negative_data_property_assertions,
-                                stats.annotation_assertions,
-                                stats.sub_annotation_properties,
-                                stats.annotation_property_domains,
-                                stats.annotation_property_ranges,
-                                stats.annotation_edges,
-                                stats.non_string_literal_renderings,
-                                stats.skipped_axioms,
-                                stats.object_property_domains,
-                                stats.object_property_ranges,
-                                stats.domain_range_edges,
-                                stats.role_expansion_edges,
-                                stats.edges,
-                                stats.buffer_bytes,
-                            ],
-                        )?
-                        .unbind();
-                        Ok((output, statistics))
-                    })
+                py.detach(|| {
+                    if let Some(retained) = retained_role_state.as_ref() {
+                        retained.compile_claimed(columns, options, &self.state)
+                    } else {
+                        compile_direct_with_options(columns, options, &self.state)
+                            .map_err(kernel_error)
+                    }
+                })
+                .and_then(|(edges, stats)| {
+                    let mut output = Vec::new();
+                    output.try_reserve_exact(edges.len()).map_err(|_| {
+                        PyMemoryError::new_err("encoded native tuple-batch allocation failed")
+                    })?;
+                    output.extend(
+                        edges
+                            .into_iter()
+                            .map(|edge| (edge.source, edge.relation, edge.destination)),
+                    );
+                    let statistics = PyTuple::new(
+                        py,
+                        [
+                            stats.roots,
+                            stats.nodes,
+                            stats.anonymous_individuals,
+                            stats.ontology_annotations,
+                            stats.swrl_rules,
+                            stats.declarations,
+                            stats.subclasses,
+                            stats.restriction_subclasses,
+                            stats.ignored_subclasses,
+                            stats.equivalents,
+                            stats.aggregate_equivalents,
+                            stats.disjoint_classes,
+                            stats.disjoint_unions,
+                            stats.has_keys,
+                            stats.same_individuals,
+                            stats.different_individuals,
+                            stats.class_assertions,
+                            stats.ignored_class_assertions,
+                            stats.object_property_assertions,
+                            stats.negative_object_property_assertions,
+                            stats.sub_object_properties,
+                            stats.object_property_chains,
+                            stats.equivalent_object_properties,
+                            stats.disjoint_object_properties,
+                            stats.inverse_object_properties,
+                            stats.functional_object_properties,
+                            stats.inverse_functional_object_properties,
+                            stats.reflexive_object_properties,
+                            stats.irreflexive_object_properties,
+                            stats.symmetric_object_properties,
+                            stats.asymmetric_object_properties,
+                            stats.transitive_object_properties,
+                            stats.sub_data_properties,
+                            stats.equivalent_data_properties,
+                            stats.disjoint_data_properties,
+                            stats.data_property_domains,
+                            stats.data_property_ranges,
+                            stats.functional_data_properties,
+                            stats.datatype_definitions,
+                            stats.data_property_assertions,
+                            stats.negative_data_property_assertions,
+                            stats.annotation_assertions,
+                            stats.sub_annotation_properties,
+                            stats.annotation_property_domains,
+                            stats.annotation_property_ranges,
+                            stats.annotation_edges,
+                            stats.non_string_literal_renderings,
+                            stats.skipped_axioms,
+                            stats.object_property_domains,
+                            stats.object_property_ranges,
+                            stats.domain_range_edges,
+                            stats.role_expansion_edges,
+                            stats.edges,
+                            stats.buffer_bytes,
+                        ],
+                    )?
+                    .unbind();
+                    Ok((output, statistics))
+                })
             })
         });
-        self.finish_result(result)
+        let result = self.finish_result(result);
+        drop(retained_role_use);
+        result
     }
 
     /// Cancel idle or detached work.  A racing successful result is discarded.
@@ -911,6 +1024,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.py().get_type::<EncodedDirectReferenceError>(),
     )?;
     module.add_class::<EdgeBatchProcessor>()?;
+    module.add_class::<EncodedDirectRoleState>()?;
     module.add_class::<EncodedDirectCompiler>()?;
     Ok(())
 }
@@ -980,5 +1094,34 @@ mod tests {
         assert!(engine.cancelled);
         assert!(engine.canonical.is_empty());
         assert!(engine.seen.is_empty());
+    }
+
+    #[test]
+    fn retained_role_state_rejects_overlap_and_releases_after_failure() {
+        let retained = Arc::new(RetainedRoleState::default());
+        let empty: [&[u8]; BUFFER_COUNT] = std::array::from_fn(|_| &[] as &[u8]);
+        let columns = DirectColumns::from_ordered(empty);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1,
+        };
+        let compiler_state = AtomicU8::new(STATE_RUNNING);
+
+        let role_use = retained.claim().unwrap();
+        let error = retained.claim().unwrap_err();
+        Python::initialize();
+        Python::attach(|py| assert!(error.is_instance_of::<PyValueError>(py)));
+        drop(role_use);
+
+        let role_use = retained.claim().unwrap();
+        assert!(retained
+            .compile_claimed(columns, options, &compiler_state)
+            .is_err());
+        drop(role_use);
+        assert!(!retained.in_use.load(Ordering::Acquire));
     }
 }

@@ -41,9 +41,11 @@ from pyowl2vec_star_projector.native import (
     ENCODED_DIRECT_BUFFER_ORDER,
     NativeEncodedDirectCancelled,
     NativeEncodedDirectCompiler,
+    NativeEncodedDirectRoleState,
     NativeEncodedDirectUnsupported,
     load_native_module,
     prepare_native_encoded_direct,
+    prepare_native_encoded_role_state,
 )
 
 NATIVE_AVAILABLE = probe_native_backend().available
@@ -4711,6 +4713,73 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
     del compiler
     gc.collect()
     assert owner_ref() is None
+
+
+def test_retained_role_state_matches_ordered_scala_instance_calls_across_views() -> None:
+    role_view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
+    )
+    consumer_view = _snapshot(
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    conflict_view = _snapshot(
+        "SubObjectPropertyOf(:other :p) InverseObjectProperties(:p :otherInverse) "
+        "SubClassOf(:X ObjectSomeValuesFrom(:p :Y))"
+    )
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    expected = [
+        scalar.project(role_view, options=options),
+        scalar.project(consumer_view, options=options),
+        scalar.project(conflict_view, options=options),
+    ]
+
+    role_state = prepare_native_encoded_role_state()
+    assert isinstance(role_state, NativeEncodedDirectRoleState)
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+    actual: list[list[Edge]] = []
+    for view, maximum in zip(
+        (role_view, consumer_view, conflict_view),
+        (1, len(expected[1]), len(expected[2])),
+        strict=True,
+    ):
+        edges, _statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+            bidirectional=False,
+            max_edges=maximum,
+            max_iri_bytes=1024 * 1024,
+            role_state=role_state,
+        )
+        actual.append(edges)
+
+    assert actual == expected
+    assert actual[0] == []
+    assert actual[1] == [
+        Edge("urn:native-direct#A", "urn:native-direct#p", "urn:native-direct#B"),
+        Edge("urn:native-direct#A", "urn:native-direct#child", "urn:native-direct#B"),
+        Edge("urn:native-direct#B", "urn:native-direct#pinv", "urn:native-direct#A"),
+        Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
+        Edge("urn:native-direct#D", "urn:native-direct#child", "urn:native-direct#R"),
+        Edge("urn:native-direct#R", "urn:native-direct#pinv", "urn:native-direct#D"),
+    ]
+    assert actual[2] == [
+        Edge("urn:native-direct#X", "urn:native-direct#p", "urn:native-direct#Y"),
+        Edge("urn:native-direct#X", "urn:native-direct#other", "urn:native-direct#Y"),
+        Edge(
+            "urn:native-direct#Y",
+            "urn:native-direct#otherInverse",
+            "urn:native-direct#X",
+        ),
+    ]
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 1
+    assert role_state.inverse_property_count == 3
 
 
 def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:

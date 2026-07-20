@@ -5,6 +5,7 @@
 //! released.  The complete input is validated before the output vector is
 //! allocated, so unsupported or malformed inputs cannot expose partial edges.
 
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub(crate) const BUFFER_COUNT: usize = 11;
@@ -491,46 +492,104 @@ struct RoleAxiom<'a> {
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
+pub(crate) struct OwnedRoleState {
+    subroles: Vec<(String, Vec<String>)>,
+    inverses: Vec<(String, String)>,
+}
+
+impl OwnedRoleState {
+    pub(crate) fn subrole_count(&self) -> usize {
+        self.subroles.len()
+    }
+
+    pub(crate) fn inverse_count(&self) -> usize {
+        self.inverses.len()
+    }
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
 struct RoleState<'a> {
-    subroles: Vec<(&'a str, Vec<&'a str>)>,
-    inverses: Vec<(&'a str, &'a str)>,
+    subroles: Vec<(Cow<'a, str>, Vec<Cow<'a, str>>)>,
+    inverses: Vec<(Cow<'a, str>, Cow<'a, str>)>,
 }
 
 impl<'a> RoleState<'a> {
-    fn with_capacity(subrole_axioms: usize, inverse_axioms: usize) -> Result<Self, KernelError> {
+    fn with_capacity(
+        retained: Option<&OwnedRoleState>,
+        subrole_axioms: usize,
+        inverse_axioms: usize,
+        maximum_iri: usize,
+    ) -> Result<Self, KernelError> {
         let inverse_capacity = inverse_axioms
             .checked_mul(2)
             .ok_or_else(|| KernelError::resource("encoded inverse-role capacity overflow"))?;
         let mut state = Self::default();
+        let retained_subroles = retained.map_or(0, |value| value.subroles.len());
+        let retained_inverses = retained.map_or(0, |value| value.inverses.len());
         state
             .subroles
-            .try_reserve_exact(subrole_axioms)
+            .try_reserve_exact(
+                retained_subroles
+                    .checked_add(subrole_axioms)
+                    .ok_or_else(|| KernelError::resource("encoded subrole capacity overflow"))?,
+            )
             .map_err(|_| KernelError::resource("encoded subrole index allocation failed"))?;
         state
             .inverses
-            .try_reserve_exact(inverse_capacity)
+            .try_reserve_exact(
+                retained_inverses
+                    .checked_add(inverse_capacity)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded inverse-role capacity overflow")
+                    })?,
+            )
             .map_err(|_| KernelError::resource("encoded inverse-role index allocation failed"))?;
+        if let Some(retained) = retained {
+            for (property, subroles) in &retained.subroles {
+                let mut values = Vec::new();
+                values
+                    .try_reserve_exact(subroles.len())
+                    .map_err(|_| KernelError::resource("encoded subrole list allocation failed"))?;
+                for subrole in subroles {
+                    values.push(Cow::Owned(clone_retained_role_iri(subrole, maximum_iri)?));
+                }
+                state.subroles.push((
+                    Cow::Owned(clone_retained_role_iri(property, maximum_iri)?),
+                    values,
+                ));
+            }
+            for (property, inverse) in &retained.inverses {
+                state.inverses.push((
+                    Cow::Owned(clone_retained_role_iri(property, maximum_iri)?),
+                    Cow::Owned(clone_retained_role_iri(inverse, maximum_iri)?),
+                ));
+            }
+        }
         Ok(state)
     }
 
-    fn subroles_for(&self, property: &str) -> &[&'a str] {
+    fn subroles_for(&self, property: &str) -> &[Cow<'a, str>] {
         self.subroles
             .iter()
             .find_map(|(key, values)| (*key == property).then_some(values.as_slice()))
             .unwrap_or_default()
     }
 
-    fn inverse_for(&self, property: &str) -> Option<&'a str> {
+    fn inverse_for(&self, property: &str) -> Option<&str> {
         self.inverses
             .iter()
-            .find_map(|(key, inverse)| (*key == property).then_some(*inverse))
+            .find_map(|(key, inverse)| (*key == property).then_some(inverse.as_ref()))
     }
 
-    fn set_subroles(&mut self, property: &'a str, values: Vec<&'a str>) -> Result<(), KernelError> {
+    fn set_subroles(
+        &mut self,
+        property: Cow<'a, str>,
+        values: Vec<Cow<'a, str>>,
+    ) -> Result<(), KernelError> {
         if let Some((_key, current)) = self
             .subroles
             .iter_mut()
-            .find(|(key, _values)| *key == property)
+            .find(|(key, _values)| key.as_ref() == property.as_ref())
         {
             *current = values;
             return Ok(());
@@ -542,11 +601,15 @@ impl<'a> RoleState<'a> {
         Ok(())
     }
 
-    fn set_inverse(&mut self, property: &'a str, inverse: &'a str) -> Result<(), KernelError> {
+    fn set_inverse(
+        &mut self,
+        property: Cow<'a, str>,
+        inverse: Cow<'a, str>,
+    ) -> Result<(), KernelError> {
         if let Some((_key, current)) = self
             .inverses
             .iter_mut()
-            .find(|(key, _inverse)| *key == property)
+            .find(|(key, _inverse)| key.as_ref() == property.as_ref())
         {
             *current = inverse;
             return Ok(());
@@ -569,12 +632,12 @@ impl<'a> RoleState<'a> {
             values
                 .try_reserve_exact(capacity)
                 .map_err(|_| KernelError::resource("encoded subrole list allocation failed"))?;
-            values.push(axiom.first);
-            values.extend_from_slice(previous);
-            self.set_subroles(axiom.second, values)
+            values.push(Cow::Borrowed(axiom.first));
+            values.extend(previous.iter().cloned());
+            self.set_subroles(Cow::Borrowed(axiom.second), values)
         } else if axiom.tag == TAG_INVERSE_OBJECT_PROPERTIES {
-            self.set_inverse(axiom.first, axiom.second)?;
-            self.set_inverse(axiom.second, axiom.first)
+            self.set_inverse(Cow::Borrowed(axiom.first), Cow::Borrowed(axiom.second))?;
+            self.set_inverse(Cow::Borrowed(axiom.second), Cow::Borrowed(axiom.first))
         } else {
             Err(KernelError::malformed(
                 "encoded role-state row has the wrong constructor tag",
@@ -587,6 +650,37 @@ impl<'a> RoleState<'a> {
             .checked_add(self.subroles_for(property).len())
             .and_then(|count| count.checked_add(usize::from(self.inverse_for(property).is_some())))
             .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))
+    }
+
+    fn to_owned(&self) -> Result<OwnedRoleState, KernelError> {
+        let mut owned = OwnedRoleState::default();
+        owned
+            .subroles
+            .try_reserve_exact(self.subroles.len())
+            .map_err(|_| KernelError::resource("encoded retained subrole allocation failed"))?;
+        owned
+            .inverses
+            .try_reserve_exact(self.inverses.len())
+            .map_err(|_| KernelError::resource("encoded retained inverse allocation failed"))?;
+        for (property, subroles) in &self.subroles {
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(subroles.len())
+                .map_err(|_| KernelError::resource("encoded retained subrole allocation failed"))?;
+            for subrole in subroles {
+                values.push(clone_text(subrole.as_ref())?);
+            }
+            owned
+                .subroles
+                .push((clone_text(property.as_ref())?, values));
+        }
+        for (property, inverse) in &self.inverses {
+            owned.inverses.push((
+                clone_text(property.as_ref())?,
+                clone_text(inverse.as_ref())?,
+            ));
+        }
+        Ok(owned)
     }
 }
 
@@ -3298,6 +3392,7 @@ impl<'a> DirectColumns<'a> {
         counts: RootCounts,
         maximum_iri: usize,
         state: &AtomicU8,
+        retained: Option<&OwnedRoleState>,
     ) -> Result<RoleState<'a>, KernelError> {
         let role_axiom_count = counts.role_axioms()?;
         let mut rows = Vec::new();
@@ -3364,11 +3459,13 @@ impl<'a> DirectColumns<'a> {
             )
         });
         let mut role_state = RoleState::with_capacity(
+            retained,
             counts
                 .sub_object_properties
                 .checked_sub(counts.object_property_chains)
                 .ok_or_else(|| KernelError::malformed("encoded role counters are inconsistent"))?,
             counts.inverse_object_properties,
+            maximum_iri,
         )?;
         for (index, row) in rows.into_iter().enumerate() {
             check_cancel(state, index)?;
@@ -3724,6 +3821,15 @@ pub(crate) fn compile_direct_with_options(
     options: DirectCompileOptions,
     state: &AtomicU8,
 ) -> Result<(Vec<DirectEdge>, DirectCompileStats), KernelError> {
+    compile_direct_with_retained_role_state(columns, options, state, None)
+}
+
+pub(crate) fn compile_direct_with_retained_role_state(
+    columns: DirectColumns<'_>,
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&mut OwnedRoleState>,
+) -> Result<(Vec<DirectEdge>, DirectCompileStats), KernelError> {
     let DirectCompileOptions {
         bidirectional,
         asserted_taxonomy_only,
@@ -3741,8 +3847,13 @@ pub(crate) fn compile_direct_with_options(
     let role_state = if asserted_taxonomy_only {
         RoleState::default()
     } else {
-        columns.build_role_state(counts, max_iri_bytes, state)?
+        columns.build_role_state(counts, max_iri_bytes, state, retained.as_deref())?
     };
+    if !asserted_taxonomy_only {
+        if let Some(retained) = retained {
+            *retained = role_state.to_owned()?;
+        }
+    }
     let directions = 1_usize + usize::from(bidirectional);
     let direct_subclasses = counts
         .subclasses
@@ -4239,7 +4350,7 @@ fn push_role_edges(
     for subrole in role_state.subroles_for(relation) {
         edges.push(DirectEdge {
             source: clone_text(source)?,
-            relation: clone_text(subrole)?,
+            relation: clone_text(subrole.as_ref())?,
             destination: clone_text(destination)?,
         });
     }
@@ -4281,6 +4392,16 @@ fn clone_text(value: &str) -> Result<String, KernelError> {
         .map_err(|_| KernelError::resource("encoded edge-string allocation failed"))?;
     output.push_str(value);
     Ok(output)
+}
+
+fn clone_retained_role_iri(value: &str, maximum: usize) -> Result<String, KernelError> {
+    if value.len() > maximum {
+        return Err(KernelError::resource(format!(
+            "encoded retained role IRI contains {} bytes; limit is {maximum}",
+            value.len()
+        )));
+    }
+    clone_text(value)
 }
 
 fn render_individual(
@@ -5687,6 +5808,93 @@ mod tests {
         assert!(asserted.is_empty());
         assert_eq!(stats.skipped_axioms, 0);
         assert_eq!(stats.role_expansion_edges, 0);
+    }
+
+    #[test]
+    fn retained_role_state_expands_later_views_and_commits_before_output_limits() {
+        let role_fixture = named_role_axiom_fixture();
+        let mut retained = OwnedRoleState::default();
+        let result = compile_direct_with_retained_role_state(
+            role_fixture.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 5,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            Some(&mut retained),
+        );
+        assert!(matches!(result, Err(KernelError::Resource(_))));
+        assert_eq!(retained.subrole_count(), 1);
+        assert_eq!(retained.inverse_count(), 2);
+
+        let mut empty = Fixture::default();
+        empty
+            .node_field_offsets
+            .extend_from_slice(&0_u64.to_le_bytes());
+        let limited = compile_direct_with_retained_role_state(
+            empty.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 3,
+            },
+            &running_state(),
+            Some(&mut retained),
+        );
+        assert!(matches!(limited, Err(KernelError::Resource(_))));
+        assert_eq!(retained.subrole_count(), 1);
+        assert_eq!(retained.inverse_count(), 2);
+
+        let mut consumer = named_role_axiom_fixture();
+        consumer.root_kinds = vec![ROOT_AXIOM; 2];
+        consumer.root_ids.clear();
+        for root_id in [20_u32, 21] {
+            consumer.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        let (edges, stats) = compile_direct_with_retained_role_state(
+            consumer.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 3,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            Some(&mut retained),
+        )
+        .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:D".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:R".into(),
+                },
+                DirectEdge {
+                    source: "urn:D".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:R".into(),
+                },
+                DirectEdge {
+                    source: "urn:R".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:D".into(),
+                },
+            ]
+        );
+        assert_eq!(stats.role_expansion_edges, 2);
+        assert_eq!(retained.subrole_count(), 1);
+        assert_eq!(retained.inverse_count(), 2);
     }
 
     #[test]
