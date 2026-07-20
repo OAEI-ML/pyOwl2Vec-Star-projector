@@ -30,7 +30,10 @@ from pyowl2vec_star_projector.encoded import (
     EncodedStructuralLease,
     _validate_encoded_view,
 )
-from pyowl2vec_star_projector.errors import SnapshotCompatibilityError
+from pyowl2vec_star_projector.errors import (
+    SnapshotCompatibilityError,
+    UnsupportedAxiomShapeError,
+)
 from pyowl2vec_star_projector.native import (
     ENCODED_DIRECT_BUFFER_ORDER,
     NativeEncodedDirectCancelled,
@@ -119,6 +122,9 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.restriction_subclasses == 0
     assert statistics.equivalents == 0
     assert statistics.class_assertions == 0
+    assert statistics.object_property_assertions == 0
+    assert statistics.negative_object_property_assertions == 0
+    assert statistics.skipped_axioms == 0
     assert statistics.object_property_domains == 0
     assert statistics.object_property_ranges == 0
     assert statistics.domain_range_edges == 0
@@ -337,6 +343,99 @@ def test_asserted_taxonomy_mode_suppresses_preflighted_role_family() -> None:
     assert statistics.domain_range_edges == 0
 
 
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_named_object_assertions_and_negative_inverse_skips_match_python_oracle(
+    only_taxonomy: bool,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:r :C)) "
+        "ClassAssertion(:A :i) ObjectPropertyAssertion(:p :i :j) "
+        "ObjectPropertyAssertion(:q :j :i) NegativeObjectPropertyAssertion(:p :j :i) "
+        "NegativeObjectPropertyAssertion(ObjectInverseOf(:q) :i :j) "
+        "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R)"
+    )
+    lease = _lease(view)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(lease)
+    actual, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert statistics.roots == 9
+    assert statistics.object_property_assertions == 2
+    assert statistics.negative_object_property_assertions == 2
+    assert statistics.skipped_axioms == 2
+    assert statistics.edges == len(expected)
+    assertion_edges = [
+        Edge("urn:native-direct#i", "urn:native-direct#p", "urn:native-direct#j"),
+        Edge("urn:native-direct#j", "urn:native-direct#q", "urn:native-direct#i"),
+    ]
+    assertion_start = 3 if not only_taxonomy else 2
+    assert actual[assertion_start : assertion_start + 2] == assertion_edges
+    assert actual[-1] == Edge(
+        "urn:native-direct#D",
+        "urn:native-direct#r",
+        "urn:native-direct#R",
+    )
+
+
+def test_asserted_taxonomy_suppresses_preflighted_object_assertions_and_skips() -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) ObjectPropertyAssertion(:p :i :j) "
+        "NegativeObjectPropertyAssertion(ObjectInverseOf(:p) :j :i)"
+    )
+    lease = _lease(view)
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    compiler = prepare_native_encoded_direct(lease)
+    actual, statistics = compiler.compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert statistics.object_property_assertions == 1
+    assert statistics.negative_object_property_assertions == 1
+    assert statistics.skipped_axioms == 0
+
+
+def test_positive_inverse_object_assertion_preserves_reference_failure() -> None:
+    compiler = prepare_native_encoded_direct(
+        _lease(_snapshot("ObjectPropertyAssertion(ObjectInverseOf(:p) :i :j)"))
+    )
+    with pytest.raises(UnsupportedAxiomShapeError, match="inverse object-property") as raised:
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert raised.value.details == {
+        "constructor": "ObjectInverseOf",
+        "reference_error": "java.lang.ClassCastException",
+    }
+    assert compiler.state == "failed"
+
+
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
     constructor_lease = _lease(_snapshot("DisjointClasses(:A :B)"))
     compiler = prepare_native_encoded_direct(constructor_lease)
@@ -475,6 +574,74 @@ def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body
     assert compiler.state == "failed"
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "ObjectPropertyAssertion(:p _:anonymous :i)",
+        "NegativeObjectPropertyAssertion(:p :i _:anonymous)",
+        'ObjectPropertyAssertion(Annotation(<urn:meta> "unsupported") :p :i :j)',
+        'NegativeObjectPropertyAssertion(Annotation(<urn:meta> "unsupported") :p :i :j)',
+    ],
+    ids=[
+        "anonymous-positive",
+        "anonymous-negative",
+        "annotated-positive",
+        "annotated-negative",
+    ],
+)
+def test_out_of_slice_object_assertion_boundaries_are_transactionally_unsupported(
+    body: str,
+) -> None:
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
+    with pytest.raises(NativeEncodedDirectUnsupported):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_hostile_object_assertion_individual_and_edge_limit_fail_before_publication() -> None:
+    lease = _lease(_snapshot("ObjectPropertyAssertion(:p :i :j)"))
+    tags = lease.buffers["node_tags"]
+    assertion_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 113
+    )
+    offsets = lease.buffers["node_field_offsets"]
+    field_start = int.from_bytes(
+        offsets[(assertion_id - 1) * 8 : assertion_id * 8],
+        "little",
+    )
+    values = bytearray(lease.buffers["field_values"])
+    property_id = bytes(values[field_start * 8 : field_start * 8 + 8])
+    source_offset = (field_start + 1) * 8
+    values[source_offset : source_offset + 8] = property_id
+    hostile = _replace_buffers(lease, {"field_values": memoryview(bytes(values))})
+    malformed = prepare_native_encoded_direct(hostile)
+    with pytest.raises(SnapshotCompatibilityError, match="named individual"):
+        malformed.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed.state == "failed"
+
+    assertions = " ".join(
+        f"ObjectPropertyAssertion(:p :i{index:03d} :j{index:03d})" for index in range(250)
+    )
+    limited = prepare_native_encoded_direct(_lease(_snapshot(assertions)))
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        limited.compile_batch(
+            bidirectional=False,
+            max_edges=249,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert limited.state == "failed"
+
+
 def test_descriptor_binding_and_hostile_supported_rows_fail_closed() -> None:
     lease = _lease(_snapshot("SubClassOf(:A :B)"))
     mismatched = replace(lease, descriptor_sha256="00" * 32)
@@ -498,6 +665,8 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
     view = _snapshot(
         "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
         "EquivalentClasses(:A :C) ClassAssertion(:A :individual) "
+        "ObjectPropertyAssertion(:p :individual :other) "
+        "NegativeObjectPropertyAssertion(ObjectInverseOf(:p) :other :individual) "
         "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:p :B)"
     )
     lease = _lease(view)
@@ -516,6 +685,8 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
         view = _snapshot(
             "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
             "EquivalentClasses(:A :C) ClassAssertion(:A :individual) "
+            "ObjectPropertyAssertion(:p :individual :other) "
+            "NegativeObjectPropertyAssertion(ObjectInverseOf(:p) :other :individual) "
             "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:p :B)"
         )
         lease = _lease(view)
@@ -559,6 +730,8 @@ def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:
         _snapshot(
             "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
             "EquivalentClasses(:A :C) ClassAssertion(:A :individual) "
+            "ObjectPropertyAssertion(:p :individual :other) "
+            "NegativeObjectPropertyAssertion(ObjectInverseOf(:p) :other :individual) "
             "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:p :B)"
         )
     )

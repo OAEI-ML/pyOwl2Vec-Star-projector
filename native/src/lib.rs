@@ -27,7 +27,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyMapping, PyMemoryView, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 3;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 4;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -41,23 +41,10 @@ const ENCODED_DESCRIPTOR_SHA256: [u8; 32] = [
 create_exception!(_native, EncodedDirectUnsupportedError, PyValueError);
 create_exception!(_native, EncodedDirectBufferError, PyValueError);
 create_exception!(_native, EncodedDirectCancelledError, PyRuntimeError);
+create_exception!(_native, EncodedDirectReferenceError, PyValueError);
 
 type EdgeTuple = (String, String, String);
-type EncodedDirectStatsTuple = (
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-    usize,
-);
-type EncodedDirectBatch = (Vec<EdgeTuple>, EncodedDirectStatsTuple);
+type EncodedDirectBatch = (Vec<EdgeTuple>, Py<PyTuple>);
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct Edge {
@@ -512,9 +499,9 @@ impl EncodedDirectCompiler {
                         .into_iter()
                         .map(|edge| (edge.source, edge.relation, edge.destination)),
                 );
-                Ok((
-                    output,
-                    (
+                let statistics = PyTuple::new(
+                    py,
+                    [
                         stats.roots,
                         stats.nodes,
                         stats.declarations,
@@ -522,13 +509,18 @@ impl EncodedDirectCompiler {
                         stats.restriction_subclasses,
                         stats.equivalents,
                         stats.class_assertions,
+                        stats.object_property_assertions,
+                        stats.negative_object_property_assertions,
+                        stats.skipped_axioms,
                         stats.object_property_domains,
                         stats.object_property_ranges,
                         stats.domain_range_edges,
                         stats.edges,
                         stats.buffer_bytes,
-                    ),
-                ))
+                    ],
+                )?
+                .unbind();
+                Ok((output, statistics))
             })
         });
         self.finish_result(result)
@@ -843,6 +835,7 @@ fn kernel_error(error: KernelError) -> PyErr {
     match error {
         KernelError::Malformed(message) => EncodedDirectBufferError::new_err(message),
         KernelError::Unsupported(message) => EncodedDirectUnsupportedError::new_err(message),
+        KernelError::ReferenceFailure(message) => EncodedDirectReferenceError::new_err(message),
         KernelError::Resource(message) => PyMemoryError::new_err(message),
         KernelError::Cancelled => {
             EncodedDirectCancelledError::new_err("encoded direct compiler was cancelled")
@@ -871,6 +864,10 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add(
         "EncodedDirectCancelledError",
         module.py().get_type::<EncodedDirectCancelledError>(),
+    )?;
+    module.add(
+        "EncodedDirectReferenceError",
+        module.py().get_type::<EncodedDirectReferenceError>(),
     )?;
     module.add_class::<EdgeBatchProcessor>()?;
     module.add_class::<EncodedDirectCompiler>()?;

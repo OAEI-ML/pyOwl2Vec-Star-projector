@@ -44,6 +44,7 @@ const COMPONENT_SEQUENCE: u8 = 7;
 const TAG_IRI: u16 = 1;
 const TAG_ENTITY: u16 = 2;
 const TAG_ANNOTATION: u16 = 5;
+const TAG_OBJECT_INVERSE_OF: u16 = 10;
 const TAG_OBJECT_SOME_VALUES_FROM: u16 = 34;
 const TAG_OBJECT_ALL_VALUES_FROM: u16 = 35;
 const TAG_OBJECT_MIN_CARDINALITY: u16 = 38;
@@ -54,6 +55,8 @@ const TAG_EQUIVALENT_CLASSES: u16 = 62;
 const TAG_OBJECT_PROPERTY_DOMAIN: u16 = 74;
 const TAG_OBJECT_PROPERTY_RANGE: u16 = 75;
 const TAG_CLASS_ASSERTION: u16 = 112;
+const TAG_OBJECT_PROPERTY_ASSERTION: u16 = 113;
+const TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: u16 = 114;
 const TAG_SWRL_RULE: u16 = 148;
 
 const SUBCLASS_OF: &str = "http://subclassof";
@@ -80,6 +83,7 @@ const SCHEMA_TAGS: &[u16] = &[
 pub(crate) enum KernelError {
     Malformed(String),
     Unsupported(String),
+    ReferenceFailure(String),
     Resource(String),
     Cancelled,
 }
@@ -91,6 +95,10 @@ impl KernelError {
 
     fn unsupported(message: impl Into<String>) -> Self {
         Self::Unsupported(message.into())
+    }
+
+    fn reference_failure(message: impl Into<String>) -> Self {
+        Self::ReferenceFailure(message.into())
     }
 
     fn resource(message: impl Into<String>) -> Self {
@@ -114,6 +122,9 @@ pub(crate) struct DirectCompileStats {
     pub(crate) restriction_subclasses: usize,
     pub(crate) equivalents: usize,
     pub(crate) class_assertions: usize,
+    pub(crate) object_property_assertions: usize,
+    pub(crate) negative_object_property_assertions: usize,
+    pub(crate) skipped_axioms: usize,
     pub(crate) object_property_domains: usize,
     pub(crate) object_property_ranges: usize,
     pub(crate) domain_range_edges: usize,
@@ -141,6 +152,8 @@ struct RootCounts {
     restriction_subclasses: usize,
     equivalents: usize,
     class_assertions: usize,
+    object_property_assertions: usize,
+    negative_object_property_assertions: usize,
     object_property_domains: usize,
     object_property_ranges: usize,
 }
@@ -447,17 +460,17 @@ impl<'a> DirectColumns<'a> {
         if tag != TAG_ENTITY {
             if SCHEMA_TAGS.contains(&tag) {
                 return Err(KernelError::unsupported(
-                    "direct native slice supports only named individuals in ClassAssertion",
+                    "direct native slice supports only named individuals in ABox assertions",
                 ));
             }
             return Err(KernelError::malformed(
-                "encoded ClassAssertion individual has an unknown node tag",
+                "encoded individual has an unknown node tag",
             ));
         }
         let (kind, iri_id) = self.entity(node_id)?;
         if kind != b"named_individual" {
             return Err(KernelError::malformed(
-                "encoded ClassAssertion entity is not a named individual",
+                "encoded individual entity is not a named individual",
             ));
         }
         self.iri(iri_id, maximum)
@@ -486,6 +499,83 @@ impl<'a> DirectColumns<'a> {
             ));
         }
         self.iri(iri_id, maximum)
+    }
+
+    fn object_inverse_iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
+        if self.node_tag(node_id)? != TAG_OBJECT_INVERSE_OF {
+            return Err(KernelError::malformed(
+                "encoded inverse-property cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 1)?;
+        self.named_object_property_iri(self.field_node(start)?, maximum)
+    }
+
+    fn object_property_expression_iri(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<&'a str, KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => self.named_object_property_iri(node_id, maximum),
+            TAG_OBJECT_INVERSE_OF => self.object_inverse_iri(node_id, maximum),
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native slice supports only named or inverse object properties here",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded object-property expression tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn object_property_assertion_parts(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(&'a str, &'a str, &'a str), KernelError> {
+        if self.node_tag(node_id)? != TAG_OBJECT_PROPERTY_ASSERTION {
+            return Err(KernelError::malformed(
+                "encoded object-property assertion cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 4)?;
+        let property_id = self.field_node(start)?;
+        let relation = match self.node_tag(property_id)? {
+            TAG_ENTITY => self.named_object_property_iri(property_id, maximum)?,
+            TAG_OBJECT_INVERSE_OF => {
+                self.object_inverse_iri(property_id, maximum)?;
+                return Err(KernelError::reference_failure(
+                    "the pinned mOWL profile fails on inverse object-property assertions",
+                ));
+            }
+            _ => {
+                return Err(KernelError::unsupported(
+                    "direct native slice requires a named ObjectPropertyAssertion property",
+                ));
+            }
+        };
+        let source = self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
+        let destination = self.named_individual_iri(self.field_node(start + 2)?, maximum)?;
+        self.empty_annotation_set(start + 3)?;
+        Ok((source, relation, destination))
+    }
+
+    fn validate_negative_object_property_assertion(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION {
+            return Err(KernelError::malformed(
+                "encoded negative object-property assertion cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 4)?;
+        self.object_property_expression_iri(self.field_node(start)?, maximum)?;
+        self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
+        self.named_individual_iri(self.field_node(start + 2)?, maximum)?;
+        self.empty_annotation_set(start + 3)?;
+        Ok(())
     }
 
     fn restriction_parts(
@@ -805,6 +895,9 @@ impl<'a> DirectColumns<'a> {
                     let (_kind, iri_id) = self.entity(node_id)?;
                     self.iri(iri_id, maximum_iri)?;
                 }
+                TAG_OBJECT_INVERSE_OF => {
+                    self.object_inverse_iri(node_id, maximum_iri)?;
+                }
                 TAG_DECLARATION => {
                     let start = self.exact_fields(node_id, 2)?;
                     self.entity(self.field_node(start)?)?;
@@ -830,6 +923,12 @@ impl<'a> DirectColumns<'a> {
                 }
                 TAG_CLASS_ASSERTION => {
                     self.class_assertion_pair(node_id, maximum_iri)?;
+                }
+                TAG_OBJECT_PROPERTY_ASSERTION => {
+                    self.object_property_assertion_parts(node_id, maximum_iri)?;
+                }
+                TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
+                    self.validate_negative_object_property_assertion(node_id, maximum_iri)?;
                 }
                 tag if SCHEMA_TAGS.contains(&tag) => {
                     return Err(KernelError::unsupported(format!(
@@ -876,6 +975,12 @@ impl<'a> DirectColumns<'a> {
                     counts.object_property_ranges += 1;
                 }
                 (ROOT_AXIOM, TAG_CLASS_ASSERTION) => counts.class_assertions += 1,
+                (ROOT_AXIOM, TAG_OBJECT_PROPERTY_ASSERTION) => {
+                    counts.object_property_assertions += 1;
+                }
+                (ROOT_AXIOM, TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION) => {
+                    counts.negative_object_property_assertions += 1;
+                }
                 (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) | (ROOT_EXTENSION, TAG_SWRL_RULE) => {
                     return Err(KernelError::unsupported(
                         "direct native slice does not support ontology annotations or extensions",
@@ -1016,6 +1121,16 @@ pub(crate) fn compile_direct(
     } else {
         counts.class_assertions
     };
+    let object_assertion_edges = if asserted_taxonomy_only {
+        0
+    } else {
+        counts.object_property_assertions
+    };
+    let skipped_axioms = if asserted_taxonomy_only {
+        0
+    } else {
+        counts.negative_object_property_assertions
+    };
     let domain_range_edges = if asserted_taxonomy_only {
         0
     } else {
@@ -1025,6 +1140,7 @@ pub(crate) fn compile_direct(
         .checked_add(equivalent_edges)
         .and_then(|total| total.checked_add(restriction_edges))
         .and_then(|total| total.checked_add(class_assertion_edges))
+        .and_then(|total| total.checked_add(object_assertion_edges))
         .and_then(|total| total.checked_add(domain_range_edges))
         .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
     if projected > max_edges {
@@ -1117,6 +1233,21 @@ pub(crate) fn compile_direct(
             });
         }
 
+        for index in 0..columns.root_count() {
+            check_cancel(state, index)?;
+            let node_id = columns.root_id(index)?;
+            if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_ASSERTION {
+                continue;
+            }
+            let (source, relation, destination) =
+                columns.object_property_assertion_parts(node_id, max_iri_bytes)?;
+            edges.push(DirectEdge {
+                source: clone_text(source)?,
+                relation: clone_text(relation)?,
+                destination: clone_text(destination)?,
+            });
+        }
+
         let mut previous_property: Option<&str> = None;
         while let Some(property) =
             columns.next_paired_property(previous_property, max_iri_bytes, state)?
@@ -1172,6 +1303,9 @@ pub(crate) fn compile_direct(
         restriction_subclasses: counts.restriction_subclasses,
         equivalents: counts.equivalents,
         class_assertions: counts.class_assertions,
+        object_property_assertions: counts.object_property_assertions,
+        negative_object_property_assertions: counts.negative_object_property_assertions,
+        skipped_axioms,
         object_property_domains: counts.object_property_domains,
         object_property_ranges: counts.object_property_ranges,
         domain_range_edges,
@@ -1462,6 +1596,41 @@ mod tests {
         fixture
     }
 
+    fn named_object_assertion_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:i".as_slice(), b"urn:j", b"urn:p"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(3);
+        fixture.finish_node(TAG_ENTITY); // 4
+        for iri_id in [1_u64, 2] {
+            fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 5..=6
+        }
+        fixture.push_node_ref(4);
+        fixture.finish_node(TAG_OBJECT_INVERSE_OF); // 7
+
+        for (tag, property, source, destination) in [
+            (TAG_OBJECT_PROPERTY_ASSERTION, 4_u64, 5_u64, 6_u64),
+            (TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION, 4, 6, 5),
+            (TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION, 7, 5, 6),
+        ] {
+            fixture.push_node_ref(property);
+            fixture.push_node_ref(source);
+            fixture.push_node_ref(destination);
+            fixture.push_empty_set();
+            fixture.finish_node(tag); // 8..=10
+        }
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 3]);
+        for root_id in 8_u32..=10 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
     fn running_state() -> AtomicU8 {
         AtomicU8::new(STATE_RUNNING)
     }
@@ -1683,6 +1852,87 @@ mod tests {
             .iter()
             .all(|edge| { edge.relation == SUBCLASS_OF || edge.relation == SUPERCLASS_OF }));
         assert_eq!(stats.domain_range_edges, 0);
+    }
+
+    #[test]
+    fn named_object_assertions_emit_and_negative_inverse_assertions_are_silent() {
+        let fixture = named_object_assertion_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            true,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:i".into(),
+                relation: "urn:p".into(),
+                destination: "urn:j".into(),
+            }]
+        );
+        assert_eq!(stats.object_property_assertions, 1);
+        assert_eq!(stats.negative_object_property_assertions, 2);
+        assert_eq!(stats.skipped_axioms, 2);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.object_property_assertions, 1);
+        assert_eq!(stats.negative_object_property_assertions, 2);
+        assert_eq!(stats.skipped_axioms, 0);
+    }
+
+    #[test]
+    fn positive_inverse_object_assertion_preserves_reference_failure() {
+        let mut fixture = named_object_assertion_fixture();
+        let assertion_field =
+            read_usize(&fixture.node_field_offsets, 7, "offset").expect("assertion field offset");
+        let assertion_start = assertion_field * 8;
+        fixture.field_values[assertion_start..assertion_start + 8]
+            .copy_from_slice(&7_u64.to_le_bytes());
+        assert!(matches!(
+            compile_direct(
+                fixture.columns(),
+                false,
+                false,
+                false,
+                3,
+                1024,
+                &running_state(),
+            ),
+            Err(KernelError::ReferenceFailure(_))
+        ));
+
+        let mut malformed = named_object_assertion_fixture();
+        let inverse_field =
+            read_usize(&malformed.node_field_offsets, 6, "offset").expect("inverse field offset");
+        let start = inverse_field * 8;
+        malformed.field_values[start..start + 8].copy_from_slice(&5_u64.to_le_bytes());
+        assert!(matches!(
+            compile_direct(
+                malformed.columns(),
+                false,
+                false,
+                false,
+                3,
+                1024,
+                &running_state(),
+            ),
+            Err(KernelError::Malformed(_))
+        ));
     }
 
     #[test]

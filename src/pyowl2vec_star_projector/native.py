@@ -17,12 +17,13 @@ from .errors import (
     ProjectionError,
     ProjectionResourceError,
     SnapshotCompatibilityError,
+    UnsupportedAxiomShapeError,
 )
 from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 3
+ENCODED_DIRECT_KERNEL_VERSION = 4
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -68,6 +69,9 @@ class NativeEncodedDirectStatistics:
     restriction_subclasses: int
     equivalents: int
     class_assertions: int
+    object_property_assertions: int
+    negative_object_property_assertions: int
+    skipped_axioms: int
     object_property_domains: int
     object_property_ranges: int
     domain_range_edges: int
@@ -83,6 +87,9 @@ class NativeEncodedDirectStatistics:
             self.restriction_subclasses,
             self.equivalents,
             self.class_assertions,
+            self.object_property_assertions,
+            self.negative_object_property_assertions,
+            self.skipped_axioms,
             self.object_property_domains,
             self.object_property_ranges,
             self.domain_range_edges,
@@ -165,6 +172,14 @@ class NativeEncodedDirectCompiler:
             raise _resource_error(error) from error
         except self._module.EncodedDirectUnsupportedError as error:
             raise NativeEncodedDirectUnsupported(str(error)) from error
+        except self._module.EncodedDirectReferenceError as error:
+            raise UnsupportedAxiomShapeError(
+                str(error),
+                details={
+                    "constructor": "ObjectInverseOf",
+                    "reference_error": "java.lang.ClassCastException",
+                },
+            ) from error
         except self._module.EncodedDirectBufferError as error:
             raise SnapshotCompatibilityError(str(error)) from error
         except self._module.EncodedDirectCancelledError as error:
@@ -174,7 +189,7 @@ class NativeEncodedDirectCompiler:
         except Exception as error:
             raise _execution_error(error) from error
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 12:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 15:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
@@ -246,6 +261,7 @@ def prepare_native_encoded_direct(
         unsupported = getattr(module, "EncodedDirectUnsupportedError", None)
         buffer_error = getattr(module, "EncodedDirectBufferError", None)
         cancelled = getattr(module, "EncodedDirectCancelledError", None)
+        reference_error = getattr(module, "EncodedDirectReferenceError", None)
     except Exception as error:
         raise NativeBackendUnavailableError(
             "native encoded foundation metadata could not be read",
@@ -258,7 +274,7 @@ def prepare_native_encoded_direct(
         raise NativeBackendUnavailableError(
             "native encoded foundation buffer order is incompatible"
         )
-    exceptions = (unsupported, buffer_error, cancelled)
+    exceptions = (unsupported, buffer_error, cancelled, reference_error)
     if not callable(compiler) or not all(
         isinstance(value, type) and issubclass(value, Exception) for value in exceptions
     ):
