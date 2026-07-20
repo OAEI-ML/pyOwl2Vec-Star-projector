@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -204,6 +205,18 @@ def prepare_native_encoded_direct(
         raise SnapshotCompatibilityError("encoded lease descriptor digest is invalid") from error
     if len(descriptor_sha256) != 32:
         raise SnapshotCompatibilityError("encoded lease descriptor digest is invalid")
+    try:
+        descriptor = cast(Any, lease.encoded_view).descriptor
+    except Exception as error:
+        raise SnapshotCompatibilityError("encoded view descriptor is not readable") from error
+    if type(descriptor) is not bytes or not descriptor:
+        raise SnapshotCompatibilityError(
+            "encoded view descriptor must be nonempty exact immutable bytes"
+        )
+    if hashlib.sha256(descriptor).digest() != descriptor_sha256:
+        raise SnapshotCompatibilityError(
+            "encoded view descriptor digest differs from its validated lease"
+        )
 
     module = load_native_module()
     try:
