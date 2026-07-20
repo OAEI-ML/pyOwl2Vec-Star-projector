@@ -12,8 +12,19 @@ from typing import Any, cast
 import pyowl_core
 import pytest
 
-from pyowl2vec_star_projector import ProjectionResourceError, probe_native_backend
-from pyowl2vec_star_projector.compiler import iter_asserted_taxonomy
+from pyowl2vec_star_projector import (
+    Edge,
+    ProjectionOptions,
+    ProjectionResourceError,
+    Projector,
+    probe_native_backend,
+)
+from pyowl2vec_star_projector.compiler import (
+    RDF_TYPE,
+    SUBCLASS_OF,
+    SUPERCLASS_OF,
+    iter_asserted_taxonomy,
+)
 from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedStructuralLease,
@@ -105,6 +116,8 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.roots == 5
     assert statistics.declarations == 3
     assert statistics.subclasses == 2
+    assert statistics.equivalents == 0
+    assert statistics.class_assertions == 0
     assert statistics.edges == 4
     assert statistics.nodes > statistics.roots
     assert statistics.buffer_bytes == sum(value.nbytes for value in lease.buffers.values())
@@ -145,10 +158,89 @@ def test_many_axioms_cross_one_bounded_call_and_limit_failure_publishes_nothing(
     assert limited.state == "failed"
 
 
+@pytest.mark.parametrize("bidirectional", [False, True])
+def test_named_equivalence_and_class_assertion_match_python_oracle(
+    bidirectional: bool,
+) -> None:
+    view = _snapshot(
+        "Declaration(Class(:Z)) Declaration(Class(:AA)) Declaration(Class(:B)) "
+        "Declaration(Class(:Top)) Declaration(NamedIndividual(:i)) "
+        "SubClassOf(:Z :Top) EquivalentClasses(:Z :AA :B) ClassAssertion(:Z :i)"
+    )
+    lease = _lease(view)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=bidirectional,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+
+    compiler = prepare_native_encoded_direct(lease)
+    actual, statistics = compiler.compile_batch(
+        bidirectional=bidirectional,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected
+    assert actual[0] == Edge("urn:native-direct#Z", SUBCLASS_OF, "urn:native-direct#Top")
+    equivalent_index = 2 if bidirectional else 1
+    assert actual[equivalent_index] == Edge(
+        "urn:native-direct#AA",
+        SUBCLASS_OF,
+        "urn:native-direct#B",
+    )
+    if bidirectional:
+        assert actual[equivalent_index + 1] == Edge(
+            "urn:native-direct#B",
+            SUPERCLASS_OF,
+            "urn:native-direct#AA",
+        )
+    assert actual[-1] == Edge("urn:native-direct#i", RDF_TYPE, "urn:native-direct#Z")
+    assert statistics.roots == 8
+    assert statistics.declarations == 5
+    assert statistics.subclasses == 1
+    assert statistics.equivalents == 1
+    assert statistics.class_assertions == 1
+    assert statistics.edges == len(expected)
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_asserted_taxonomy_mode_preflights_and_suppresses_adjacent_axioms() -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i)"
+    )
+    lease = _lease(view)
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    compiler = prepare_native_encoded_direct(lease)
+    actual, statistics = compiler.compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert statistics.subclasses == 1
+    assert statistics.equivalents == 1
+    assert statistics.class_assertions == 1
+    assert statistics.edges == 2
+
+
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
-    constructor_lease = _lease(_snapshot("EquivalentClasses(:A :B)"))
+    constructor_lease = _lease(_snapshot("DisjointClasses(:A :B)"))
     compiler = prepare_native_encoded_direct(constructor_lease)
-    with pytest.raises(NativeEncodedDirectUnsupported, match="schema tag 62"):
+    with pytest.raises(NativeEncodedDirectUnsupported, match="schema tag 63"):
         compiler.compile_batch(
             bidirectional=False,
             max_edges=10,
@@ -175,6 +267,55 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
         prepare_native_encoded_direct(non_bytes)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "EquivalentClasses(:A ObjectIntersectionOf(:B :C))",
+        "ClassAssertion(:A _:anonymous)",
+        'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A :B)',
+    ],
+    ids=["complex-equivalent", "anonymous-individual", "annotated-equivalent"],
+)
+def test_valid_but_out_of_slice_class_axioms_are_transactionally_unsupported(body: str) -> None:
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
+    with pytest.raises(NativeEncodedDirectUnsupported):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_equivalent_set_corruption_and_mixed_edge_limit_fail_before_publication() -> None:
+    lease = _lease(_snapshot("EquivalentClasses(:Z :AA :B)"))
+    values = bytearray(lease.buffers["item_values"])
+    first = bytes(values[:8])
+    values[:8] = values[8:16]
+    values[8:16] = first
+    hostile = _replace_buffers(lease, {"item_values": memoryview(bytes(values))})
+    malformed = prepare_native_encoded_direct(hostile)
+    with pytest.raises(SnapshotCompatibilityError, match="sorted and unique"):
+        malformed.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed.state == "failed"
+
+    mixed = _lease(
+        _snapshot("SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :i)")
+    )
+    limited = prepare_native_encoded_direct(mixed)
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        limited.compile_batch(
+            bidirectional=True,
+            max_edges=4,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert limited.state == "failed"
+
+
 def test_descriptor_binding_and_hostile_supported_rows_fail_closed() -> None:
     lease = _lease(_snapshot("SubClassOf(:A :B)"))
     mismatched = replace(lease, descriptor_sha256="00" * 32)
@@ -195,7 +336,9 @@ def test_descriptor_binding_and_hostile_supported_rows_fail_closed() -> None:
 
 
 def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None:
-    view = _snapshot("SubClassOf(:A :B)")
+    view = _snapshot(
+        "SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :individual)"
+    )
     lease = _lease(view)
     exporter = cast(bytes, lease.buffers["scalar_bytes"].obj)
     before = sys.getrefcount(exporter)
@@ -209,7 +352,9 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
         pass
 
     def create() -> tuple[NativeEncodedDirectCompiler, weakref.ReferenceType[object]]:
-        view = _snapshot("SubClassOf(:A :B)")
+        view = _snapshot(
+            "SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :individual)"
+        )
         lease = _lease(view)
         owner = Owner()
         segment = SimpleNamespace(
@@ -247,7 +392,11 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
 
 
 def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:
-    lease = _lease(_snapshot("SubClassOf(:A :B)"))
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :individual)"
+        )
+    )
     compiler = prepare_native_encoded_direct(lease)
     module = load_native_module()
     kernel = compiler._kernel
@@ -265,7 +414,7 @@ def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:
     with pytest.raises(NativeEncodedDirectCancelled):
         compiler.compile_batch(
             bidirectional=False,
-            max_edges=1,
+            max_edges=3,
             max_iri_bytes=1024 * 1024,
         )
 

@@ -1,4 +1,4 @@
-//! No-copy compiler kernel for the first structural-columns v1 slice.
+//! No-copy compiler kernel for the private structural-columns v1 slice.
 //!
 //! This module deliberately contains no Python types.  The PyO3 boundary retains
 //! immutable `bytes` exporters and lends their slices here while the GIL is
@@ -46,10 +46,13 @@ const TAG_ENTITY: u16 = 2;
 const TAG_ANNOTATION: u16 = 5;
 const TAG_DECLARATION: u16 = 60;
 const TAG_SUB_CLASS_OF: u16 = 61;
+const TAG_EQUIVALENT_CLASSES: u16 = 62;
+const TAG_CLASS_ASSERTION: u16 = 112;
 const TAG_SWRL_RULE: u16 = 148;
 
 const SUBCLASS_OF: &str = "http://subclassof";
 const SUPERCLASS_OF: &str = "http://superclassof";
+const RDF_TYPE: &str = "http://type";
 
 const ENTITY_KINDS: [&[u8]; 6] = [
     b"class",
@@ -102,6 +105,8 @@ pub(crate) struct DirectCompileStats {
     pub(crate) nodes: usize,
     pub(crate) declarations: usize,
     pub(crate) subclasses: usize,
+    pub(crate) equivalents: usize,
+    pub(crate) class_assertions: usize,
     pub(crate) edges: usize,
     pub(crate) buffer_bytes: usize,
 }
@@ -258,6 +263,53 @@ impl<'a> DirectColumns<'a> {
         self.checked_node_id(self.field_value(index)?)
     }
 
+    fn item_node(self, index: usize) -> Result<usize, KernelError> {
+        if self
+            .item_kinds
+            .get(index)
+            .copied()
+            .ok_or_else(|| KernelError::malformed("item kind index is out of range"))?
+            != COMPONENT_NODE
+            || read_usize(self.item_lengths, index, "item_lengths")? != 0
+        {
+            return Err(KernelError::malformed(
+                "encoded canonical-set item is not a node reference",
+            ));
+        }
+        self.checked_node_id(read_usize(self.item_values, index, "item_values")?)
+    }
+
+    fn node_set_range(self, index: usize, minimum: usize) -> Result<(usize, usize), KernelError> {
+        if self.field_kind(index)? != COMPONENT_SET {
+            return Err(KernelError::malformed(
+                "encoded collection field is not a canonical set",
+            ));
+        }
+        let start = self.field_value(index)?;
+        let length = self.field_length(index)?;
+        if start > self.item_count() || length > self.item_count().saturating_sub(start) {
+            return Err(KernelError::malformed(
+                "encoded canonical-set range is out of bounds",
+            ));
+        }
+        if length < minimum {
+            return Err(KernelError::malformed(format!(
+                "encoded canonical set has {length} items; expected at least {minimum}",
+            )));
+        }
+        let mut previous = 0_usize;
+        for item_index in start..start + length {
+            let node_id = self.item_node(item_index)?;
+            if node_id <= previous {
+                return Err(KernelError::malformed(
+                    "encoded canonical-set items are not sorted and unique",
+                ));
+            }
+            previous = node_id;
+        }
+        Ok((start, length))
+    }
+
     fn scalar_payload(self, index: usize, kind: u8) -> Result<&'a [u8], KernelError> {
         if self.field_kind(index)? != kind {
             return Err(KernelError::malformed(
@@ -330,20 +382,85 @@ impl<'a> DirectColumns<'a> {
         if tag != TAG_ENTITY {
             if SCHEMA_TAGS.contains(&tag) {
                 return Err(KernelError::unsupported(
-                    "direct native slice supports only named SubClassOf operands",
+                    "direct native slice supports only named class expressions",
                 ));
             }
             return Err(KernelError::malformed(
-                "encoded SubClassOf operand has an unknown node tag",
+                "encoded class expression has an unknown node tag",
             ));
         }
         let (kind, iri_id) = self.entity(node_id)?;
         if kind != b"class" {
             return Err(KernelError::malformed(
-                "encoded SubClassOf entity operand is not a class",
+                "encoded class expression entity is not a class",
             ));
         }
         self.iri(iri_id, maximum)
+    }
+
+    fn named_individual_iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
+        let tag = self.node_tag(node_id)?;
+        if tag != TAG_ENTITY {
+            if SCHEMA_TAGS.contains(&tag) {
+                return Err(KernelError::unsupported(
+                    "direct native slice supports only named individuals in ClassAssertion",
+                ));
+            }
+            return Err(KernelError::malformed(
+                "encoded ClassAssertion individual has an unknown node tag",
+            ));
+        }
+        let (kind, iri_id) = self.entity(node_id)?;
+        if kind != b"named_individual" {
+            return Err(KernelError::malformed(
+                "encoded ClassAssertion entity is not a named individual",
+            ));
+        }
+        self.iri(iri_id, maximum)
+    }
+
+    fn equivalent_pair(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(&'a str, &'a str), KernelError> {
+        let start = self.exact_fields(node_id, 2)?;
+        let (item_start, length) = self.node_set_range(start, 2)?;
+        let mut first: Option<&str> = None;
+        let mut second: Option<&str> = None;
+        for item_index in item_start..item_start + length {
+            let iri = self.named_class_iri(self.item_node(item_index)?, maximum)?;
+            match first {
+                None => first = Some(iri),
+                Some(current) if iri.as_bytes() < current.as_bytes() => {
+                    second = first;
+                    first = Some(iri);
+                }
+                _ if second.is_none_or(|current| iri.as_bytes() < current.as_bytes()) => {
+                    second = Some(iri);
+                }
+                _ => {}
+            }
+        }
+        self.empty_annotation_set(start + 1)?;
+        match (first, second) {
+            (Some(first), Some(second)) => Ok((first, second)),
+            _ => Err(KernelError::malformed(
+                "encoded EquivalentClasses has too few named expressions",
+            )),
+        }
+    }
+
+    fn class_assertion_pair(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(&'a str, &'a str), KernelError> {
+        let start = self.exact_fields(node_id, 3)?;
+        let class = self.named_class_iri(self.field_node(start)?, maximum)?;
+        let individual = self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
+        self.empty_annotation_set(start + 2)?;
+        Ok((individual, class))
     }
 
     fn validate_generic(self, state: &AtomicU8) -> Result<(), KernelError> {
@@ -435,12 +552,23 @@ impl<'a> DirectColumns<'a> {
                     ));
                 }
                 let end = item_cursor + length;
+                let mut previous_set_node = 0_usize;
                 while item_cursor < end {
                     let item_kind = self.item_kinds[item_cursor];
                     if kind == COMPONENT_SET && item_kind != COMPONENT_NODE {
                         return Err(KernelError::malformed(
                             "encoded canonical-set item is not a node reference",
                         ));
+                    }
+                    if kind == COMPONENT_SET {
+                        let node_id = read_usize(self.item_values, item_cursor, "item_values")?;
+                        self.checked_node_id(node_id)?;
+                        if node_id <= previous_set_node {
+                            return Err(KernelError::malformed(
+                                "encoded canonical-set items are not sorted and unique",
+                            ));
+                        }
+                        previous_set_node = node_id;
                     }
                     scalar_cursor = self.validate_leaf(
                         item_kind,
@@ -532,6 +660,12 @@ impl<'a> DirectColumns<'a> {
                     self.named_class_iri(self.field_node(start + 1)?, maximum_iri)?;
                     self.empty_annotation_set(start + 2)?;
                 }
+                TAG_EQUIVALENT_CLASSES => {
+                    self.equivalent_pair(node_id, maximum_iri)?;
+                }
+                TAG_CLASS_ASSERTION => {
+                    self.class_assertion_pair(node_id, maximum_iri)?;
+                }
                 tag if SCHEMA_TAGS.contains(&tag) => {
                     return Err(KernelError::unsupported(format!(
                         "direct native slice does not support schema tag {tag}",
@@ -547,9 +681,11 @@ impl<'a> DirectColumns<'a> {
         Ok(())
     }
 
-    fn classify_roots(self, state: &AtomicU8) -> Result<(usize, usize), KernelError> {
+    fn classify_roots(self, state: &AtomicU8) -> Result<(usize, usize, usize, usize), KernelError> {
         let mut declarations = 0_usize;
         let mut subclasses = 0_usize;
+        let mut equivalents = 0_usize;
+        let mut class_assertions = 0_usize;
         for index in 0..self.root_count() {
             check_cancel(state, index)?;
             let kind = self.root_kind(index)?;
@@ -558,9 +694,11 @@ impl<'a> DirectColumns<'a> {
             match (kind, tag) {
                 (ROOT_AXIOM, TAG_DECLARATION) => declarations += 1,
                 (ROOT_AXIOM, TAG_SUB_CLASS_OF) => subclasses += 1,
+                (ROOT_AXIOM, TAG_EQUIVALENT_CLASSES) => equivalents += 1,
+                (ROOT_AXIOM, TAG_CLASS_ASSERTION) => class_assertions += 1,
                 (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) | (ROOT_EXTENSION, TAG_SWRL_RULE) => {
                     return Err(KernelError::unsupported(
-                        "direct native slice supports only Declaration and SubClassOf roots",
+                        "direct native slice does not support ontology annotations or extensions",
                     ));
                 }
                 (ROOT_AXIOM, known) if SCHEMA_TAGS.contains(&known) => {
@@ -575,13 +713,14 @@ impl<'a> DirectColumns<'a> {
                 }
             }
         }
-        Ok((declarations, subclasses))
+        Ok((declarations, subclasses, equivalents, class_assertions))
     }
 }
 
 pub(crate) fn compile_direct(
     columns: DirectColumns<'_>,
     bidirectional: bool,
+    asserted_taxonomy_only: bool,
     max_edges: usize,
     max_iri_bytes: usize,
     state: &AtomicU8,
@@ -589,10 +728,26 @@ pub(crate) fn compile_direct(
     check_cancel(state, 0)?;
     columns.validate_generic(state)?;
     columns.validate_supported_nodes(max_iri_bytes, state)?;
-    let (declarations, subclasses) = columns.classify_roots(state)?;
+    let (declarations, subclasses, equivalents, class_assertions) =
+        columns.classify_roots(state)?;
+    let buffer_bytes = columns.buffer_bytes()?;
     let directions = 1_usize + usize::from(bidirectional);
-    let projected = subclasses
+    let taxonomy_axioms = subclasses
+        .checked_add(if asserted_taxonomy_only {
+            0
+        } else {
+            equivalents
+        })
+        .ok_or_else(|| KernelError::resource("encoded taxonomy edge-count overflow"))?;
+    let taxonomy_edges = taxonomy_axioms
         .checked_mul(directions)
+        .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+    let projected = taxonomy_edges
+        .checked_add(if asserted_taxonomy_only {
+            0
+        } else {
+            class_assertions
+        })
         .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
     if projected > max_edges {
         return Err(KernelError::resource(format!(
@@ -628,14 +783,56 @@ pub(crate) fn compile_direct(
             });
         }
     }
+
+    // The reference compiler emits the class-axiom categories explicitly:
+    // asserted subclasses, equivalents, then ABox class assertions.  Separate
+    // bounded scans preserve that order even for hostile-but-monotone root IDs.
+    if !asserted_taxonomy_only {
+        for index in 0..columns.root_count() {
+            check_cancel(state, index)?;
+            let node_id = columns.root_id(index)?;
+            if columns.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
+                continue;
+            }
+            let (source, destination) = columns.equivalent_pair(node_id, max_iri_bytes)?;
+            edges.push(DirectEdge {
+                source: clone_text(source)?,
+                relation: clone_text(SUBCLASS_OF)?,
+                destination: clone_text(destination)?,
+            });
+            if bidirectional {
+                edges.push(DirectEdge {
+                    source: clone_text(destination)?,
+                    relation: clone_text(SUPERCLASS_OF)?,
+                    destination: clone_text(source)?,
+                });
+            }
+        }
+
+        for index in 0..columns.root_count() {
+            check_cancel(state, index)?;
+            let node_id = columns.root_id(index)?;
+            if columns.node_tag(node_id)? != TAG_CLASS_ASSERTION {
+                continue;
+            }
+            let (individual, class) = columns.class_assertion_pair(node_id, max_iri_bytes)?;
+            edges.push(DirectEdge {
+                source: clone_text(individual)?,
+                relation: clone_text(RDF_TYPE)?,
+                destination: clone_text(class)?,
+            });
+        }
+    }
     check_cancel(state, columns.root_count())?;
     let stats = DirectCompileStats {
         roots: columns.root_count(),
         nodes: columns.node_count(),
         declarations,
         subclasses,
+        equivalents,
+        class_assertions,
         edges: edges.len(),
-        buffer_bytes: columns.buffer_bytes()?,
+        buffer_bytes,
     };
     Ok((edges, stats))
 }
@@ -731,8 +928,22 @@ mod tests {
 
         fn push_empty_set(&mut self) {
             self.field_kinds.push(COMPONENT_SET);
-            self.field_values.extend_from_slice(&0_u64.to_le_bytes());
+            self.field_values
+                .extend_from_slice(&(self.item_kinds.len() as u64).to_le_bytes());
             self.field_lengths.extend_from_slice(&0_u64.to_le_bytes());
+        }
+
+        fn push_node_set(&mut self, node_ids: &[u64]) {
+            self.field_kinds.push(COMPONENT_SET);
+            self.field_values
+                .extend_from_slice(&(self.item_kinds.len() as u64).to_le_bytes());
+            self.field_lengths
+                .extend_from_slice(&(node_ids.len() as u64).to_le_bytes());
+            for node_id in node_ids {
+                self.item_kinds.push(COMPONENT_NODE);
+                self.item_values.extend_from_slice(&node_id.to_le_bytes());
+                self.item_lengths.extend_from_slice(&0_u64.to_le_bytes());
+            }
         }
 
         fn finish_node(&mut self, tag: u16) {
@@ -789,6 +1000,43 @@ mod tests {
         fixture
     }
 
+    fn named_class_axiom_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:A".as_slice(), b"urn:B", b"urn:Z", b"urn:i", b"urn:AA"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=5
+        }
+        for iri_id in [1_u64, 2, 3, 5] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 6..=9
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+        fixture.push_node_ref(4);
+        fixture.finish_node(TAG_ENTITY); // 10
+
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DECLARATION); // 11
+        fixture.push_node_ref(8);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 12
+        fixture.push_node_set(&[7, 8, 9]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_EQUIVALENT_CLASSES); // 13
+        fixture.push_node_ref(6);
+        fixture.push_node_ref(10);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 14
+
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 4]);
+        for root_id in [11_u32, 12, 13, 14] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
     fn running_state() -> AtomicU8 {
         AtomicU8::new(STATE_RUNNING)
     }
@@ -797,7 +1045,7 @@ mod tests {
     fn declarations_are_silent_and_named_subclasses_compile() {
         let fixture = named_subclass_fixture();
         let (edges, stats) =
-            compile_direct(fixture.columns(), false, 4, 1024, &running_state()).unwrap();
+            compile_direct(fixture.columns(), false, false, 4, 1024, &running_state()).unwrap();
         assert_eq!(
             edges,
             vec![DirectEdge {
@@ -816,12 +1064,66 @@ mod tests {
     fn bidirectional_projection_is_one_bounded_batch() {
         let fixture = named_subclass_fixture();
         let (edges, stats) =
-            compile_direct(fixture.columns(), true, 2, 1024, &running_state()).unwrap();
+            compile_direct(fixture.columns(), true, false, 2, 1024, &running_state()).unwrap();
         assert_eq!(edges.len(), 2);
         assert_eq!(edges[1].relation, SUPERCLASS_OF);
         assert_eq!(stats.edges, 2);
-        let error = compile_direct(fixture.columns(), true, 1, 1024, &running_state()).unwrap_err();
+        let error =
+            compile_direct(fixture.columns(), true, false, 1, 1024, &running_state()).unwrap_err();
         assert!(matches!(error, KernelError::Resource(_)));
+    }
+
+    #[test]
+    fn named_equivalents_and_class_assertions_follow_reference_order() {
+        let fixture = named_class_axiom_fixture();
+        let (edges, stats) =
+            compile_direct(fixture.columns(), true, false, 5, 1024, &running_state()).unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:Z".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:A".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: SUPERCLASS_OF.into(),
+                    destination: "urn:Z".into(),
+                },
+                DirectEdge {
+                    source: "urn:AA".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUPERCLASS_OF.into(),
+                    destination: "urn:AA".into(),
+                },
+                DirectEdge {
+                    source: "urn:i".into(),
+                    relation: RDF_TYPE.into(),
+                    destination: "urn:A".into(),
+                },
+            ]
+        );
+        assert_eq!(stats.declarations, 1);
+        assert_eq!(stats.subclasses, 1);
+        assert_eq!(stats.equivalents, 1);
+        assert_eq!(stats.class_assertions, 1);
+        assert_eq!(stats.edges, 5);
+    }
+
+    #[test]
+    fn asserted_taxonomy_mode_preflights_but_suppresses_adjacent_axioms() {
+        let fixture = named_class_axiom_fixture();
+        let (edges, stats) =
+            compile_direct(fixture.columns(), false, true, 1, 1024, &running_state()).unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].source, "urn:Z");
+        assert_eq!(stats.equivalents, 1);
+        assert_eq!(stats.class_assertions, 1);
     }
 
     #[test]
@@ -829,15 +1131,33 @@ mod tests {
         let mut malformed = named_subclass_fixture();
         malformed.root_ids[0..4].copy_from_slice(&99_u32.to_le_bytes());
         assert!(matches!(
-            compile_direct(malformed.columns(), false, 4, 1024, &running_state()),
+            compile_direct(malformed.columns(), false, false, 4, 1024, &running_state()),
             Err(KernelError::Malformed(_))
         ));
 
         let mut unsupported = named_subclass_fixture();
-        unsupported.node_tags[10..12].copy_from_slice(&62_u16.to_le_bytes());
+        unsupported.node_tags[10..12].copy_from_slice(&63_u16.to_le_bytes());
         assert!(matches!(
-            compile_direct(unsupported.columns(), false, 4, 1024, &running_state()),
+            compile_direct(
+                unsupported.columns(),
+                false,
+                false,
+                4,
+                1024,
+                &running_state()
+            ),
             Err(KernelError::Unsupported(_))
+        ));
+    }
+
+    #[test]
+    fn malformed_equivalent_set_is_rejected_during_preflight() {
+        let mut fixture = named_class_axiom_fixture();
+        fixture.item_values[0..8].copy_from_slice(&8_u64.to_le_bytes());
+        fixture.item_values[8..16].copy_from_slice(&7_u64.to_le_bytes());
+        assert!(matches!(
+            compile_direct(fixture.columns(), false, false, 4, 1024, &running_state()),
+            Err(KernelError::Malformed(_))
         ));
     }
 
@@ -846,7 +1166,7 @@ mod tests {
         let fixture = named_subclass_fixture();
         let state = AtomicU8::new(STATE_CANCELLED);
         assert_eq!(
-            compile_direct(fixture.columns(), false, 4, 1024, &state),
+            compile_direct(fixture.columns(), false, false, 4, 1024, &state),
             Err(KernelError::Cancelled)
         );
     }

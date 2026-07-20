@@ -2,11 +2,11 @@
 //!
 //! The established engine receives owned edge batches from Python and applies
 //! exact multiplicity/order policy.  P7 additionally owns a deliberately narrow
-//! structural-columns v1 compiler for direct named `SubClassOf` axioms.  That
-//! private compiler retains the public view and immutable `bytes` exporters,
-//! validates the whole slice, and borrows them only during a GIL-released call.
-//! The advertised feature ledger remains unchanged until the complete compiler
-//! and acceptance matrix exist.
+//! structural-columns v1 compiler for a small family of unannotated named class
+//! axioms.  That private compiler retains the public view and immutable `bytes`
+//! exporters, validates the whole slice, and borrows them only during a
+//! GIL-released call.  The advertised feature ledger remains unchanged until
+//! the complete compiler and acceptance matrix exist.
 
 #![forbid(unsafe_code)]
 
@@ -27,7 +27,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyMapping, PyMemoryView, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 1;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 2;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -43,7 +43,7 @@ create_exception!(_native, EncodedDirectBufferError, PyValueError);
 create_exception!(_native, EncodedDirectCancelledError, PyRuntimeError);
 
 type EdgeTuple = (String, String, String);
-type EncodedDirectStatsTuple = (usize, usize, usize, usize, usize, usize);
+type EncodedDirectStatsTuple = (usize, usize, usize, usize, usize, usize, usize, usize);
 type EncodedDirectBatch = (Vec<EdgeTuple>, EncodedDirectStatsTuple);
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -359,7 +359,7 @@ impl Drop for EdgeBatchProcessor {
     }
 }
 
-/// One-shot private compiler for the first honest P7 Rust slice.
+/// One-shot private compiler for the current honest P7 Rust slice.
 ///
 /// The object retains both the encoded view/owner and an owned reference to
 /// every immutable bytes exporter.  `compile_batch` is consequently able to
@@ -450,13 +450,19 @@ impl EncodedDirectCompiler {
     }
 
     /// Compile the complete supported view into one caller-bounded coarse batch.
-    #[pyo3(signature = (bidirectional, max_edges, max_iri_bytes))]
+    #[pyo3(signature = (
+        bidirectional,
+        max_edges,
+        max_iri_bytes,
+        asserted_taxonomy_only=false,
+    ))]
     fn compile_batch(
         &self,
         py: Python<'_>,
         bidirectional: bool,
         max_edges: usize,
         max_iri_bytes: usize,
+        asserted_taxonomy_only: bool,
     ) -> PyResult<EncodedDirectBatch> {
         if max_edges == 0 {
             return Err(PyValueError::new_err("max_edges must be positive"));
@@ -473,6 +479,7 @@ impl EncodedDirectCompiler {
                 compile_direct(
                     columns,
                     bidirectional,
+                    asserted_taxonomy_only,
                     max_edges,
                     max_iri_bytes,
                     &self.state,
@@ -496,6 +503,8 @@ impl EncodedDirectCompiler {
                         stats.nodes,
                         stats.declarations,
                         stats.subclasses,
+                        stats.equivalents,
+                        stats.class_assertions,
                         stats.edges,
                         stats.buffer_bytes,
                     ),

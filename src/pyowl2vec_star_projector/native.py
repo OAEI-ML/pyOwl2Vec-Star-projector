@@ -22,7 +22,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 1
+ENCODED_DIRECT_KERNEL_VERSION = 2
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -65,6 +65,8 @@ class NativeEncodedDirectStatistics:
     nodes: int
     declarations: int
     subclasses: int
+    equivalents: int
+    class_assertions: int
     edges: int
     buffer_bytes: int
 
@@ -74,6 +76,8 @@ class NativeEncodedDirectStatistics:
             self.nodes,
             self.declarations,
             self.subclasses,
+            self.equivalents,
+            self.class_assertions,
             self.edges,
             self.buffer_bytes,
         ):
@@ -128,9 +132,12 @@ class NativeEncodedDirectCompiler:
         bidirectional: bool,
         max_edges: int,
         max_iri_bytes: int,
+        asserted_taxonomy_only: bool = False,
     ) -> tuple[list[Edge], NativeEncodedDirectStatistics]:
         if type(bidirectional) is not bool:
             raise TypeError("bidirectional must be bool")
+        if type(asserted_taxonomy_only) is not bool:
+            raise TypeError("asserted_taxonomy_only must be bool")
         if type(max_edges) is not int or max_edges < 1:
             raise ValueError("max_edges must be a positive int")
         if type(max_iri_bytes) is not int or max_iri_bytes < 1:
@@ -140,6 +147,7 @@ class NativeEncodedDirectCompiler:
                 bidirectional,
                 max_edges,
                 max_iri_bytes,
+                asserted_taxonomy_only,
             )
         except MemoryError as error:
             raise _resource_error(error) from error
@@ -154,7 +162,7 @@ class NativeEncodedDirectCompiler:
         except Exception as error:
             raise _execution_error(error) from error
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 6:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 8:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
