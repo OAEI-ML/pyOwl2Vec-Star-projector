@@ -182,6 +182,45 @@ def select_ingestion(
     return EncodedNegotiation("encoded-native", lease=lease)
 
 
+def _acquire_root_encoded_lease(
+    source_view: object,
+    closure_lease: EncodedStructuralLease,
+) -> EncodedStructuralLease | None:
+    """Acquire the same schema at public root scope for annotation provenance."""
+
+    if closure_lease.owner is not source_view:
+        raise SnapshotCompatibilityError("encoded root-scope request lost the exact closure owner")
+    encoded_type = type(closure_lease.encoded_view)
+    root_scope = getattr(type(closure_lease.scope), "ROOT", _MISSING)
+    if root_scope is _MISSING or root_scope is closure_lease.scope:
+        raise SnapshotCompatibilityError(
+            "core encoded scope does not expose a distinct public root selection"
+        )
+    factory = getattr(source_view, "view", None)
+    if not callable(factory):
+        raise SnapshotCompatibilityError(
+            "core encoded owner cannot publish a root-scoped structural view"
+        )
+    try:
+        encoded = factory(
+            encoded_type,
+            schema_version=closure_lease.schema_version,
+            scope=root_scope,
+        )
+    except MemoryError:
+        raise
+    except ValueError:
+        # Some bounded view families publicly support closure selection only.
+        # Preserve their scalar root-scope behavior through one-shot fallback.
+        return None
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "core failed to publish root-scoped encoded annotation provenance",
+            details={"cause": type(error).__name__},
+        ) from error
+    return _validate_encoded_view(source_view, encoded, encoded_type, root_scope)
+
+
 def _advertised_schema_version(view: object) -> int | None:
     capabilities = getattr(view, "capabilities", None)
     schemas = getattr(capabilities, "encoded_view_schemas", None)

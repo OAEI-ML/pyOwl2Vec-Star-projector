@@ -27,17 +27,21 @@ individuals, and structurally validated literals.
 Named ``SubAnnotationPropertyOf`` axioms also use a bounded skipped path.
 Named-property/IRI ``AnnotationPropertyDomain`` axioms follow the same bounded skipped path.
 ``AnnotationPropertyRange`` uses the symmetric named-property/IRI skipped path.
+Structurally validated ontology ``Annotation`` roots are silent, non-axiom metadata.  They emit no
+edge or diagnostic, cannot mutate role state, and their anonymous values stay outside the axiom
+blank-ID pool.
 Structurally validated ``SWRLRule`` extension roots are ignored silently, matching
 the scalar projector: the compiler validates variables and atoms but does not
 execute rules or report them as skipped axioms.  Class and data-range predicates
 outside the bounded expression envelope retain whole-operation scalar fallback.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
-Selected class ``AnnotationAssertion`` edges are compiled when a single-document
-closure proves the pinned root-only lookup semantics.  It preflights the
-complete encoded view before yielding any edge.  A well-formed view outside
-that subset selects the scalar compiler for the whole operation; malformed rows
-fail closed.
+Selected class ``AnnotationAssertion`` edges are compiled when a single-document closure proves
+the pinned root-only lookup semantics.  A canonical direct multi-document closure uses a second
+fully validated, owner-retained public root-scoped encoded view to select those roots; unavailable
+or segmented root provenance retains whole-operation scalar fallback.  The compiler preflights
+the complete encoded view before yielding any edge.  A well-formed view outside that subset
+selects the scalar compiler for the whole operation; malformed rows fail closed.
 """
 
 from __future__ import annotations
@@ -69,6 +73,7 @@ from .encoded import (
     ENCODED_BUFFER_WIDTHS,
     EncodedNegotiation,
     EncodedStructuralLease,
+    _acquire_root_encoded_lease,
     _validate_encoded_view,
 )
 from .errors import SnapshotCompatibilityError
@@ -144,6 +149,7 @@ _POSTINGS_ALL = 0
 _POSTINGS_INCLUDE = 1
 _POSTINGS_EXCLUDE = 2
 
+_ROOT_ONTOLOGY_ANNOTATION = 1
 _ROOT_AXIOM = 2
 _ROOT_EXTENSION = 3
 _COMPONENT_NONE = 0
@@ -294,6 +300,7 @@ class EncodedSubsetCounters:
 
     roots_inspected: int = 0
     nodes_inspected: int = 0
+    ontology_annotations: int = 0
     declaration_axioms: int = 0
     subclass_axioms: int = 0
     restriction_subclass_axioms: int = 0
@@ -345,6 +352,10 @@ class EncodedSubsetCounters:
     delta_roots_inspected: int = 0
     composite_member_segments: int = 0
     bridge_roots_inspected: int = 0
+    root_provenance_roots_inspected: int = 0
+    root_provenance_nodes_inspected: int = 0
+    root_provenance_referenced_segments: int = 0
+    root_provenance_selected_roots: int = 0
     selected_roots: int = 0
     deduplicated_roots: int = 0
     canonical_bytes_compared: int = 0
@@ -356,6 +367,7 @@ class EncodedSubsetCounters:
         for value in (
             self.roots_inspected,
             self.nodes_inspected,
+            self.ontology_annotations,
             self.declaration_axioms,
             self.subclass_axioms,
             self.restriction_subclass_axioms,
@@ -407,6 +419,10 @@ class EncodedSubsetCounters:
             self.delta_roots_inspected,
             self.composite_member_segments,
             self.bridge_roots_inspected,
+            self.root_provenance_roots_inspected,
+            self.root_provenance_nodes_inspected,
+            self.root_provenance_referenced_segments,
+            self.root_provenance_selected_roots,
             self.selected_roots,
             self.deduplicated_roots,
             self.canonical_bytes_compared,
@@ -422,6 +438,7 @@ class EncodedSubsetCounters:
 class _MutableCounters:
     roots_inspected: int = 0
     nodes_inspected: int = 0
+    ontology_annotations: int = 0
     declaration_axioms: int = 0
     subclass_axioms: int = 0
     restriction_subclass_axioms: int = 0
@@ -473,6 +490,10 @@ class _MutableCounters:
     delta_roots_inspected: int = 0
     composite_member_segments: int = 0
     bridge_roots_inspected: int = 0
+    root_provenance_roots_inspected: int = 0
+    root_provenance_nodes_inspected: int = 0
+    root_provenance_referenced_segments: int = 0
+    root_provenance_selected_roots: int = 0
     selected_roots: int = 0
     deduplicated_roots: int = 0
     canonical_bytes_compared: int = 0
@@ -484,6 +505,7 @@ class _MutableCounters:
         return EncodedSubsetCounters(
             roots_inspected=self.roots_inspected,
             nodes_inspected=self.nodes_inspected,
+            ontology_annotations=self.ontology_annotations,
             declaration_axioms=self.declaration_axioms,
             subclass_axioms=self.subclass_axioms,
             restriction_subclass_axioms=self.restriction_subclass_axioms,
@@ -539,6 +561,10 @@ class _MutableCounters:
             delta_roots_inspected=self.delta_roots_inspected,
             composite_member_segments=self.composite_member_segments,
             bridge_roots_inspected=self.bridge_roots_inspected,
+            root_provenance_roots_inspected=self.root_provenance_roots_inspected,
+            root_provenance_nodes_inspected=self.root_provenance_nodes_inspected,
+            root_provenance_referenced_segments=self.root_provenance_referenced_segments,
+            root_provenance_selected_roots=self.root_provenance_selected_roots,
             selected_roots=self.selected_roots,
             deduplicated_roots=self.deduplicated_roots,
             canonical_bytes_compared=self.canonical_bytes_compared,
@@ -673,8 +699,10 @@ class EncodedSubsetCompilation:
     _role_axioms: tuple[_EncodedRoleAxiom, ...]
     _anonymous_ids: dict[_CanonicalCursor, dict[int, str]]
     _class_iris: frozenset[str]
+    _annotation_roots: tuple[_EncodedRootRef, ...]
     _counters: _MutableCounters
     _retained_leases: tuple[EncodedStructuralLease, ...] = ()
+    _annotation_provenance_leases: tuple[EncodedStructuralLease, ...] = ()
     _ignored_shapes: dict[str, int] = field(default_factory=dict)
     _skipped_axioms: dict[str, int] = field(default_factory=dict)
     _non_string_literal_renderings: int = 0
@@ -824,11 +852,9 @@ class EncodedSubsetCompilation:
             return
 
         if self.options.include_literals:
-            for root in self._roots:
+            for root in self._annotation_roots:
                 columns = root.columns
                 root_id = root.node_id
-                if columns.node_tag(root_id) != _TAG_ANNOTATION_ASSERTION:
-                    continue
                 edge, non_string_literal = columns.annotation_assertion_edge(
                     root_id,
                     self._class_iris,
@@ -966,6 +992,13 @@ class _EncodedColumns:
         root_id = self.root_id(root_index)
         counters = inspection.counters
         tag = self.node_tag(root_id)
+        if root_kind == _ROOT_ONTOLOGY_ANNOTATION:
+            if tag != _TAG_ANNOTATION:
+                raise SnapshotCompatibilityError(
+                    "encoded subset ontology-annotation root is not an Annotation"
+                )
+            counters.ontology_annotations += 1
+            return
         if root_kind == _ROOT_EXTENSION:
             if tag != _TAG_SWRL_RULE:
                 raise SnapshotCompatibilityError("encoded subset extension root is not an SWRLRule")
@@ -977,6 +1010,10 @@ class _EncodedColumns:
         if tag == _TAG_SWRL_RULE:
             raise SnapshotCompatibilityError(
                 "encoded subset SWRLRule does not use the extension root kind"
+            )
+        if tag == _TAG_ANNOTATION:
+            raise SnapshotCompatibilityError(
+                "encoded subset Annotation does not use the ontology-annotation root kind"
             )
         if tag == _TAG_DECLARATION:
             counters.declaration_axioms += 1
@@ -3465,6 +3502,83 @@ def _class_iris(
     return frozenset(result)
 
 
+def _annotation_assertion_roots(
+    roots: tuple[_EncodedRootRef, ...],
+) -> tuple[_EncodedRootRef, ...]:
+    return tuple(
+        root
+        for root in roots
+        if root.root_kind == _ROOT_AXIOM
+        and root.columns.node_tag(root.node_id) == _TAG_ANNOTATION_ASSERTION
+    )
+
+
+def _resolve_auxiliary_roots(
+    lease: EncodedStructuralLease,
+    comparator: _CanonicalComparator,
+) -> tuple[
+    tuple[_EncodedRootRef, ...],
+    tuple[EncodedStructuralLease, ...],
+    _Inspection,
+    _SegmentResolutionState,
+]:
+    """Resolve one secondary encoded selection without reconstructing core values."""
+
+    resolution = _SegmentResolutionState(lease)
+    try:
+        resolved_groups = _resolve_segment_groups(lease, resolution)
+    except RecursionError as error:
+        raise SnapshotCompatibilityError(
+            "encoded root-provenance segment graph exceeds the safe recursion depth"
+        ) from error
+    inspection = _merge_unclassified_inspections(tuple(resolution.inspections.values()))
+    retained = tuple(resolution.leases.values())
+    if resolution.fallback_reason is not None:
+        return (), retained, inspection, resolution
+
+    prepared_groups: list[tuple[_EncodedRootRef, ...]] = []
+    for group in resolved_groups:
+        columns = _EncodedColumns(group.lease, root_indices=group.root_indices)
+        cursor = _CanonicalCursor(columns, group.scope_map)
+        prepared_groups.append(_root_group(columns, cursor))
+    roots, _deduplicated = _merge_root_groups(tuple(prepared_groups), comparator)
+    for root in roots:
+        root.columns.inspect_root(root.root_index, inspection)
+    return roots, retained, inspection, resolution
+
+
+def _intersect_root_annotation_assertions(
+    closure_roots: tuple[_EncodedRootRef, ...],
+    root_roots: tuple[_EncodedRootRef, ...],
+    comparator: _CanonicalComparator,
+) -> tuple[_EncodedRootRef, ...]:
+    """Select closure identities proven to occur in the root document."""
+
+    closure_annotations = _annotation_assertion_roots(closure_roots)
+    root_annotations = _annotation_assertion_roots(root_roots)
+    selected: list[_EncodedRootRef] = []
+    closure_index = 0
+    for root_annotation in root_annotations:
+        while closure_index < len(closure_annotations):
+            closure_annotation = closure_annotations[closure_index]
+            comparison = comparator.compare_roots(closure_annotation, root_annotation)
+            if comparison < 0:
+                closure_index += 1
+                continue
+            if comparison == 0:
+                selected.append(closure_annotation)
+                closure_index += 1
+                break
+            raise SnapshotCompatibilityError(
+                "encoded root annotation assertion is absent from the closure selection"
+            )
+        else:
+            raise SnapshotCompatibilityError(
+                "encoded root annotation assertion is absent from the closure selection"
+            )
+    return tuple(selected)
+
+
 def prepare_encoded_subset_compilation(
     view: object,
     options: ProjectionOptions,
@@ -3682,18 +3796,76 @@ def prepare_encoded_subset_compilation(
         counters.scalar_fallbacks = 1
         reason = f"{inspection.fallback_reason}; selected whole-operation scalar compiler"
         return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+
+    annotation_roots: tuple[_EncodedRootRef, ...] = ()
+    annotation_provenance_leases: tuple[EncodedStructuralLease, ...] = ()
     if (
         counters.annotation_assertion_axioms
         and options.include_literals
         and not asserted_taxonomy_only
-        and not _single_document_closure(view)
     ):
-        counters.scalar_fallbacks = 1
-        reason = (
-            "encoded subset cannot prove root-only annotation provenance for a "
-            "multi-document closure; selected whole-operation scalar compiler"
-        )
-        return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+        document_count = _closure_document_count(view)
+        if document_count == 1:
+            annotation_roots = _annotation_assertion_roots(roots)
+        elif document_count is None:
+            counters.scalar_fallbacks = 1
+            reason = (
+                "encoded subset cannot prove root-only annotation provenance without a "
+                "public import manifest; selected whole-operation scalar compiler"
+            )
+            return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+        else:
+            if not is_direct:
+                counters.scalar_fallbacks = 1
+                reason = (
+                    "encoded subset cannot prove scalar root-annotation behavior for a "
+                    "segmented multi-document closure; selected whole-operation scalar compiler"
+                )
+                return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+            root_lease = _acquire_root_encoded_lease(view, lease)
+            if root_lease is None:
+                counters.scalar_fallbacks = 1
+                reason = (
+                    "core view does not support root-scoped encoded annotation provenance; "
+                    "selected whole-operation scalar compiler"
+                )
+                return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+            root_segments = root_lease.segments
+            if (
+                type(root_segments) is not tuple
+                or len(root_segments) != 1
+                or getattr(root_segments[0], "role", None) != _SEGMENT_DIRECT
+            ):
+                counters.scalar_fallbacks = 1
+                reason = (
+                    "root-scoped encoded annotation provenance is segmented; "
+                    "selected whole-operation scalar compiler"
+                )
+                return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+            (
+                root_roots,
+                annotation_provenance_leases,
+                root_inspection,
+                root_resolution,
+            ) = _resolve_auxiliary_roots(root_lease, comparator)
+            counters.root_provenance_roots_inspected = root_inspection.counters.roots_inspected
+            counters.root_provenance_nodes_inspected = root_inspection.counters.nodes_inspected
+            counters.root_provenance_referenced_segments = root_resolution.referenced_segments
+            counters.root_provenance_selected_roots = len(root_roots)
+            counters.scalar_bytes_checked += root_inspection.counters.scalar_bytes_checked
+            root_fallback = root_resolution.fallback_reason or root_inspection.fallback_reason
+            if root_fallback is not None:
+                counters.scalar_fallbacks = 1
+                reason = (
+                    f"{root_fallback} while selecting root annotation provenance; "
+                    "selected whole-operation scalar compiler"
+                )
+                return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+            annotation_roots = _intersect_root_annotation_assertions(
+                roots,
+                root_roots,
+                comparator,
+            )
 
     domains, ranges, ignored_shapes = (
         ({}, {}, {}) if asserted_taxonomy_only else _domain_range_index(roots)
@@ -3732,8 +3904,10 @@ def prepare_encoded_subset_compilation(
         _role_axioms=role_axioms,
         _anonymous_ids=anonymous_ids,
         _class_iris=class_iris,
+        _annotation_roots=annotation_roots,
         _counters=counters,
         _retained_leases=retained_leases,
+        _annotation_provenance_leases=annotation_provenance_leases,
         _ignored_shapes=ignored_shapes,
         _skipped_axioms=skipped_axioms,
         statistics=CompileStatistics(
@@ -3744,10 +3918,12 @@ def prepare_encoded_subset_compilation(
     return compilation, ingestion, compilation.counters
 
 
-def _single_document_closure(view: object) -> bool:
+def _closure_document_count(view: object) -> int | None:
     manifest = getattr(view, "import_manifest", None)
     documents = getattr(manifest, "documents", None)
-    return type(documents) is tuple and len(documents) == 1
+    if type(documents) is not tuple or not documents:
+        return None
+    return len(documents)
 
 
 def _owner_limit(owner: object, name: str, default: int) -> int:

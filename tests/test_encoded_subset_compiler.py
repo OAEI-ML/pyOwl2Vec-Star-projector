@@ -26,6 +26,7 @@ from pyowl_core.model import AnonymousIndividual, ObjectPropertyAssertion
 
 from pyowl2vec_star_projector import Edge, ProjectionOptions, Projector
 from pyowl2vec_star_projector import api as api_module
+from pyowl2vec_star_projector import encoded_compiler as encoded_compiler_module
 from pyowl2vec_star_projector.backend import BackendSelection
 from pyowl2vec_star_projector.compiler import (
     RDF_TYPE,
@@ -128,6 +129,20 @@ def _lease(
         encoded,
         pyowl_core.EncodedStructuralView,
         pyowl_core.AxiomScope.CLOSURE,
+    )
+
+
+def _root_lease(view: object) -> EncodedStructuralLease:
+    encoded = view.view(  # type: ignore[attr-defined]
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.ROOT,
+    )
+    return _validate_encoded_view(
+        view,
+        encoded,
+        pyowl_core.EncodedStructuralView,
+        pyowl_core.AxiomScope.ROOT,
     )
 
 
@@ -2791,14 +2806,216 @@ def test_annotation_oracle_fixture_matches_scalar_without_structural_traversal()
                 assert projector.last_report.provenance.counts.warnings == 0
 
 
-def test_imported_annotation_provenance_falls_back_only_when_observable() -> None:
+def test_ontology_annotations_are_silent_and_excluded_from_blank_ids() -> None:
+    view = _snapshot(
+        "Annotation(Annotation(<urn:nested> _:ontologyNested) <urn:meta> _:ontology) "
+        'Annotation(<urn:meta> "literal") ObjectPropertyAssertion(:p _:axiom :i)'
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(backend="python", duplicates="unique", order="canonical"),
+        ProjectionOptions(
+            backend="python",
+            compatibility_state="scala-instance",
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("ontology annotations crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+            assert (
+                actual == scalar_edges == [Edge("_:genid2147483648", "urn:slice#p", "urn:slice#i")]
+            )
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert projector.last_report.provenance.counts.skipped_axioms == 0
+            assert projector.last_report.provenance.counts.ignored_shapes == 0
+            assert projector.last_report.diagnostics == ()
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 3
+            assert counters.ontology_annotations == 2
+            assert counters.object_property_assertion_axioms == 1
+            assert counters.annotation_nodes == 3
+            assert counters.anonymous_individuals == 3
+            assert counters.literal_nodes == 1
+            assert counters.scalar_fallbacks == 0
+
+
+def test_ontology_annotations_do_not_mutate_scala_instance_role_state() -> None:
+    annotations = _snapshot('Annotation(Annotation(<urn:nested> "value") <urn:shared> _:ontology)')
+    domain_range = _snapshot("ObjectPropertyDomain(:shared :D) ObjectPropertyRange(:shared :R)")
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(annotations, options=options) == []
+    assert scalar.last_report is not None
+    first_scalar_report = scalar.last_report.to_dict()
+    expected = scalar.project(domain_range, options=options)
+    assert scalar.last_report is not None
+    second_scalar_report = scalar.last_report.to_dict()
+
+    projector = Projector()
+    with (
+        _forced_encoded(_lease(annotations)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("ontology annotation lifecycle crossed scalar"),
+        ),
+    ):
+        assert (
+            projector.project(
+                annotations,
+                options=replace(options, backend="native"),
+            )
+            == []
+        )
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        first_scalar_report
+    )
+    first_counters = projector.last_encoded_counters
+    assert first_counters is not None
+    assert first_counters.ontology_annotations == 1
+    assert first_counters.scalar_fallbacks == 0
+
+    with (
+        _forced_encoded(_lease(domain_range)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("ontology annotation follow-on crossed scalar"),
+        ),
+    ):
+        actual = projector.project(
+            domain_range,
+            options=replace(options, backend="native"),
+        )
+    assert actual == expected == [Edge("urn:slice#D", "urn:slice#shared", "urn:slice#R")]
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        second_scalar_report
+    )
+    assert projector.last_report.provenance.invocation_count == 2
+
+
+def test_segmented_ontology_annotations_preserve_edges_blanks_and_leases() -> None:
+    source_body = (
+        "Annotation(<urn:meta> _:sourceOntology) ObjectPropertyDomain(:p :D) "
+        "ObjectPropertyAssertion(:u _:edge :i)"
+    )
+    delta_body = (
+        'Annotation(Annotation(<urn:nested> "delta") <urn:meta> _:deltaOntology) '
+        "ObjectPropertyRange(:p :R) SubObjectPropertyOf(:child :p)"
+    )
+    source = _snapshot(source_body)
+    delta = _snapshot(delta_body)
+    overlay = _snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(
+        backend="python",
+        include_literals=False,
+        duplicates="unique",
+        order="canonical",
+    )
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("segmented ontology annotations crossed scalar"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected
+        assert set(actual) == {
+            Edge("_:genid2147483648", "urn:slice#u", "urn:slice#i"),
+            Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+            Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        }
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        assert projector.last_report.provenance.counts.skipped_axioms == 0
+        assert projector.last_report.provenance.counts.ignored_shapes == 0
+        assert projector.last_report.diagnostics == ()
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.ontology_annotations == 2
+        assert counters.annotation_nodes == 3
+        assert counters.anonymous_individuals == 3
+        assert counters.root_provenance_roots_inspected == 0
+        assert counters.scalar_fallbacks == 0
+        assert counters.raw_edges == 3
+        assert counters.edge_batches == 1
+
+
+def test_imported_annotation_provenance_uses_root_encoded_selection() -> None:
     root = (
         b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
+        b"Annotation(<urn:ontology> _:rootOntology) "
         b"Declaration(Class(:A)) "
-        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root") '
+        b"ObjectPropertyAssertion(:p _:axiom :i))"
     )
     leaf = (
-        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> Declaration(Class(:L)) "
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> "
+        b"Annotation(<urn:ontology> _:leafOntology) Declaration(Class(:L)) "
         b"SubClassOf(:L <urn:root#A>) "
         b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :L "leaf"))'
     )
@@ -2835,12 +3052,24 @@ def test_imported_annotation_provenance_falls_back_only_when_observable() -> Non
     scalar = Projector()
     visible_expected = scalar.project(view, options=visible_options)
     assert scalar.last_report is not None
+    prepared, prepared_negotiation, prepared_counters = prepare_encoded_subset_compilation(
+        view,
+        replace(visible_options, backend="native"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert prepared_negotiation.path == "encoded-native"
+    assert prepared_counters is not None
+    assert len(prepared._annotation_provenance_leases) == 1
+    assert prepared._annotation_provenance_leases[0].owner is view
+    assert prepared._annotation_provenance_leases[0].scope is pyowl_core.AxiomScope.ROOT
     with (
         _forced_encoded(lease),
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            wraps=scalar_compilation,
+            side_effect=AssertionError("root annotation provenance crossed scalar traversal"),
         ) as scalar_prepare,
     ):
         visible_projector = Projector()
@@ -2852,20 +3081,177 @@ def test_imported_annotation_provenance_falls_back_only_when_observable() -> Non
     assert visible_actual == visible_expected
     assert {edge.destination for edge in visible_actual} >= {"urn:root#A", "root"}
     assert "leaf" not in {edge.destination for edge in visible_actual}
-    assert scalar_prepare.call_count == 1
+    assert Edge("_:genid2147483648", "urn:root#p", "urn:root#i") in visible_actual
+    assert scalar_prepare.call_count == 0
     assert visible_projector.last_report is not None
     assert _semantic_report(visible_projector.last_report.to_dict()) == _semantic_report(
         scalar.last_report.to_dict()
     )
     ingestion = visible_projector.last_report.provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert "root-only annotation provenance" in (ingestion.reason or "")
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
     counters = visible_projector.last_encoded_counters
     assert counters is not None
     assert counters.annotation_assertion_axioms == 2
+    assert counters.ontology_annotations == 2
+    assert counters.anonymous_individuals == 3
+    assert counters.root_provenance_roots_inspected == 4
+    assert counters.root_provenance_nodes_inspected > 0
+    assert counters.root_provenance_referenced_segments == 0
+    assert counters.root_provenance_selected_roots == 4
+    assert counters.scalar_fallbacks == 0
+    assert counters.edge_batches == 1
+    assert counters.raw_edges == 3
+
+
+@pytest.mark.parametrize("root_mode", ["unavailable", "segmented"])
+def test_imported_annotation_provenance_falls_back_once_for_unsupported_root_selection(
+    root_mode: str,
+) -> None:
+    root = (
+        b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
+        b"Annotation(<urn:ontology> _:rootOntology) Declaration(Class(:A)) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
+    )
+    leaf = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> "
+        b"Annotation(<urn:ontology> _:leafOntology) Declaration(Class(:L)) "
+        b"SubClassOf(:L <urn:root#A>) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :L "leaf"))'
+    )
+    view = pyowl_core.load_snapshot(
+        root,
+        options=LoadOptions(
+            imports=ImportPolicy.RESOLVE_LOCAL,
+            backend=BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
+    )
+    closure_lease = _lease(view)
+    direct_root = _root_lease(view)
+    empty_root = _root_lease(_snapshot(""))
+    segment = _SegmentFixture(
+        2,
+        view,
+        direct_root.encoded_view,
+        0,
+        memoryview(b""),
+    )
+    top_encoded = replace(
+        direct_root.encoded_view,
+        buffers=empty_root.buffers,
+        segments=(segment,),
+    )
+    segmented_root = replace(
+        direct_root,
+        encoded_view=top_encoded,
+        buffers=empty_root.buffers,
+        segments=(segment,),
+    )
+    options = ProjectionOptions(backend="python", include_literals=True, order="encounter")
+    scalar = Projector()
+    expected = scalar.project(view, options=options)
+    assert scalar.last_report is not None
+    scalar_report = scalar.last_report.to_dict()
+    root_result = None if root_mode == "unavailable" else segmented_root
+    expected_reason = (
+        "does not support root-scoped encoded annotation provenance"
+        if root_mode == "unavailable"
+        else "root-scoped encoded annotation provenance is segmented"
+    )
+
+    with patch.object(
+        encoded_compiler_module,
+        "_acquire_root_encoded_lease",
+        return_value=root_result,
+    ):
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=closure_lease),
+            batch_edges=1,
+        )
+        assert prepared is None
+        assert negotiation.path == "scalar-native"
+        assert expected_reason in (negotiation.reason or "")
+        assert initial is not None
+        assert initial.scalar_fallbacks == 1
+        assert initial.edge_batches == initial.raw_edges == 0
+
+        with (
+            _forced_encoded(closure_lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                wraps=scalar_compilation,
+            ) as scalar_prepare,
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+    assert actual == expected
+    assert scalar_prepare.call_count == 1
+    assert "leaf" not in {edge.destination for edge in actual}
+    assert Edge("urn:root#A", "rdfs:label", "root") in actual
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+    assert projector.last_report.provenance.ingestion.path == "scalar-native"
+    assert expected_reason in (projector.last_report.provenance.ingestion.reason or "")
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.ontology_annotations == 2
+    assert counters.annotation_assertion_axioms == 2
+    assert counters.root_provenance_roots_inspected == 0
+    assert counters.root_provenance_referenced_segments == 0
+    assert counters.root_provenance_selected_roots == 0
     assert counters.scalar_fallbacks == 1
-    assert counters.edge_batches == 0
-    assert counters.raw_edges == 0
+    assert counters.edge_batches == counters.raw_edges == 0
+
+
+def test_composite_annotation_provenance_preserves_scalar_failure() -> None:
+    left = _snapshot(
+        "Declaration(Class(:A)) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "left")'
+    )
+    right = _snapshot(
+        "Declaration(Class(:B)) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :B "right")'
+    )
+    view = compose_views(left, right)
+    assert not hasattr(view, "import_manifest")
+    lease = _semantic_composite_lease(view, (_lease(left), _lease(right)))
+    options = ProjectionOptions(backend="native", include_literals=True, order="encounter")
+
+    prepared, negotiation, counters = prepare_encoded_subset_compilation(
+        view,
+        options,
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is None
+    assert negotiation.path == "scalar-native"
+    assert "without a public import manifest" in (negotiation.reason or "")
+    assert counters is not None
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == counters.raw_edges == 0
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            wraps=scalar_compilation,
+        ) as scalar_prepare,
+    ):
+        projector = Projector()
+        with pytest.raises(ValueError, match="CLOSURE scope only"):
+            projector.project(view, options=options)
+
+    assert scalar_prepare.call_count == 1
+    assert projector.last_encoded_counters is not None
+    assert projector.last_encoded_counters.scalar_fallbacks == 1
+    assert projector.last_encoded_counters.edge_batches == 0
+    assert projector.last_encoded_counters.raw_edges == 0
 
 
 def test_domain_range_slice_preserves_scala_instance_role_expansion() -> None:
@@ -13841,6 +14227,116 @@ def test_disjoint_union_corruption_fails_before_output(corruption: str) -> None:
             view,
             ProjectionOptions(backend="native"),
             EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["root-kind", "wrong-root", "root-reference", "annotation-arity"],
+)
+def test_ontology_annotation_root_corruption_fails_before_output(corruption: str) -> None:
+    view = _snapshot(
+        'Annotation(Annotation(<urn:nested> "inner") <urn:meta> _:ontology) '
+        "ObjectPropertyAssertion(:p :i :j) Declaration(NamedIndividual(:Wrong))"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    root_index = next(index for index in range(columns.root_count) if columns.root_kind(index) == 1)
+    annotation_id = columns.root_id(root_index)
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_individual_iri(node_id) == "urn:slice#Wrong"
+    )
+    buffers = dict(lease.buffers)
+    if corruption == "root-kind":
+        kinds = bytearray(buffers["root_kinds"])
+        kinds[root_index] = 2
+        buffers["root_kinds"] = memoryview(bytes(kinds))
+    elif corruption in {"wrong-root", "root-reference"}:
+        root_ids = bytearray(buffers["root_ids"])
+        replacement = wrong_id if corruption == "wrong-root" else columns.node_count + 1
+        offset = root_index * 4
+        root_ids[offset : offset + 4] = replacement.to_bytes(4, "little")
+        buffers["root_ids"] = memoryview(bytes(root_ids))
+    else:
+        offsets = bytearray(buffers["node_field_offsets"])
+        end_offset = annotation_id * 8
+        end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+        offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"ontology-annotation root|ontology-annotation root kind|node reference|arity",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize("corruption", ["root-kind", "root-reference", "annotation-arity"])
+def test_root_annotation_provenance_corruption_fails_before_output(corruption: str) -> None:
+    root = (
+        b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
+        b"Annotation(<urn:ontology> _:rootOntology) Declaration(Class(:A)) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
+    )
+    leaf = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> Declaration(Class(:L)) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :L "leaf"))'
+    )
+    view = pyowl_core.load_snapshot(
+        root,
+        options=LoadOptions(
+            imports=ImportPolicy.RESOLVE_LOCAL,
+            backend=BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
+    )
+    closure_lease = _lease(view)
+    root_lease = _root_lease(view)
+    columns = _EncodedColumns(root_lease)
+    root_index = next(index for index in range(columns.root_count) if columns.root_kind(index) == 1)
+    annotation_id = columns.root_id(root_index)
+    buffers = dict(root_lease.buffers)
+    if corruption == "root-kind":
+        kinds = bytearray(buffers["root_kinds"])
+        kinds[root_index] = 2
+        buffers["root_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "root-reference":
+        root_ids = bytearray(buffers["root_ids"])
+        offset = root_index * 4
+        root_ids[offset : offset + 4] = (columns.node_count + 1).to_bytes(4, "little")
+        buffers["root_ids"] = memoryview(bytes(root_ids))
+    else:
+        offsets = bytearray(buffers["node_field_offsets"])
+        end_offset = annotation_id * 8
+        end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+        offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile_root = replace(root_lease, buffers=MappingProxyType(buffers))
+
+    with (
+        patch.object(
+            encoded_compiler_module,
+            "_acquire_root_encoded_lease",
+            return_value=hostile_root,
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match=r"ontology-annotation root kind|node reference|arity",
+        ),
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native", include_literals=True),
+            EncodedNegotiation("encoded-native", lease=closure_lease),
             batch_edges=1,
         )
 

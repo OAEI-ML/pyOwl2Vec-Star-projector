@@ -51,9 +51,17 @@ does not expose or reinterpret their document scope and local key. For a single-
 the slice also emits allowlisted class `AnnotationAssertion` edges in the pinned category order,
 including raw string/plain values, IRI and anonymous values, malformed non-string rendering, and
 the matching grouped diagnostics. With `include_literals=False` the same annotation rows are
-preflighted but unobserved. An annotation-bearing multi-document closure selects whole-operation
-scalar compilation when `include_literals=True`, because schema v1 closure columns do not identify
-which assertion roots belong to the root ontology. Named-subject `SubClassOf` axioms over
+preflighted but unobserved. Structurally valid ontology `Annotation` roots are always silent:
+they emit no edge or diagnostic, cannot mutate role state, and anonymous values reachable only
+from those roots do not participate in scalar-compatible blank-ID assignment.
+
+For a canonical direct multi-document closure with visible annotation assertions, the compiler
+requests and retains a second public `EncodedStructuralView` at `AxiomScope.ROOT`, fully validates
+its direct columns, and intersects its annotation-assertion identities with the closure roots.
+Class-signature membership and blank IDs still come from the closure. Missing public manifest
+metadata, unavailable root scope, or segmented closure/root provenance selects one
+whole-operation scalar fallback before output; malformed auxiliary columns fail closed.
+Named-subject `SubClassOf` axioms over
 named-property/named-filler some, all, minimum, and maximum restrictions use the same role
 expansion as domain/range edges. A one-level `ObjectInverseOf` property expression in those
 restrictions reproduces the scalar helper's historical behavior by projecting through the
@@ -177,7 +185,8 @@ Malformed posting bounds/layout, scope rows, owner links, base/delta/member/brid
 tokens, recursive cycles, local-root order, empty-local claims, or referenced columns fail closed.
 Any other valid constructor or unsupported shape in the declaration/logical-axiom families also
 selects scalar-native compilation for the complete operation before edge output. Test-visible
-counters cover inspected roots/nodes/scalar bytes,
+counters cover inspected roots/nodes/scalar bytes, silent ontology annotations, auxiliary
+root-provenance roots/nodes,
 supported axiom kinds, referenced/member segments, posting/scope rows,
 source/delta/bridge/selected and deduplicated roots, canonical bytes compared, batches, raw edges,
 and scalar fallbacks. This slice is intentionally absent from the native feature ledger; it does

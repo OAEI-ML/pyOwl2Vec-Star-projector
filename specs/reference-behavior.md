@@ -151,6 +151,11 @@ Despite its name, `include_literals=True` enables selected annotations on classe
 IRI-valued annotation. It does not visit ontology, individual, object-property, or data-property
 annotations, and it does not enable data-property assertions.
 
+Ontology-level `Annotation` roots are not axioms and are never visited by the pinned projector,
+even when literals are enabled. They emit no edge or diagnostic, cannot affect role state, and
+anonymous values reachable only from ontology annotations do not enter generated blank-ID
+assignment.
+
 The class-signature loop includes the imports closure, but `EntitySearcher.getAnnotations` is
 called against the root ontology rather than each declaring ontology. Consequently, an annotation
 assertion present only in an imported document is not emitted, even though its class participates
