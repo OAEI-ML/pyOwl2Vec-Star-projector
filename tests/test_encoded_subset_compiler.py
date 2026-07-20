@@ -533,6 +533,82 @@ def test_named_subclass_restrictions_match_scalar_options_and_role_expansion() -
                 )
 
 
+def test_named_aggregate_equivalence_matches_scalar_operand_order_and_roles() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "EquivalentClasses(:A ObjectIntersectionOf(:C :B "
+        "ObjectSomeValuesFrom(:p :D) ObjectAllValuesFrom(:p :E) "
+        "ObjectMinCardinality(2 :p :F) ObjectMaxCardinality(3 :p :G))) "
+        "EquivalentClasses(:Z ObjectUnionOf(:Y :X ObjectSomeValuesFrom(:p :W)))"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            only_taxonomy=True,
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded aggregate slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=4,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 4
+            assert counters.equivalent_axioms == 2
+            assert counters.aggregate_equivalent_axioms == 2
+            assert counters.sub_object_property_axioms == 1
+            assert counters.inverse_object_property_axioms == 1
+            assert counters.raw_edges == len(actual)
+            assert counters.edge_batches == (len(actual) + 3) // 4
+            assert counters.scalar_fallbacks == 0
+            if options.only_taxonomy:
+                assert len(actual) == 4
+            elif options.bidirectional_taxonomy:
+                assert len(actual) == 23
+            else:
+                assert len(actual) == 19
+                assert actual[:2] == [
+                    Edge("urn:slice#A", SUBCLASS_OF, "urn:slice#B"),
+                    Edge("urn:slice#A", SUBCLASS_OF, "urn:slice#C"),
+                ]
+                assert Edge("urn:slice#D", "urn:slice#pinv", "urn:slice#A") in actual
+
+
 def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -> None:
     view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))")
     lease = _lease(view)
@@ -588,6 +664,8 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
         'SubClassOf(Annotation(<urn:a> "x") :A ObjectSomeValuesFrom(:p :B))',
+        "EquivalentClasses(:A :B ObjectIntersectionOf(:C :D))",
+        "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -687,7 +765,8 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i) "
         "ObjectPropertyAssertion(:p :i :j) ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
-        "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D))"
+        "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
+        "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D)))"
     )
     lease = _lease(view)
     expected = Projector().project_taxonomy(
@@ -723,7 +802,8 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters is not None
     assert counters.subclass_axioms == 2
     assert counters.restriction_subclass_axioms == 1
-    assert counters.equivalent_axioms == 1
+    assert counters.equivalent_axioms == 2
+    assert counters.aggregate_equivalent_axioms == 1
     assert counters.class_assertion_axioms == 1
     assert counters.sub_object_property_axioms == 1
     assert counters.inverse_object_property_axioms == 1
@@ -867,6 +947,37 @@ def test_restriction_arity_corruption_fails_before_edge_output(
             batch_edges=1,
         )
     assert raised.value.details["expected_arity"] == arity
+
+
+@pytest.mark.parametrize("tag", [30, 31])
+def test_aggregate_expression_arity_corruption_fails_before_edge_output(tag: int) -> None:
+    view = _snapshot(
+        "EquivalentClasses(:A ObjectIntersectionOf(:B :C)) "
+        "EquivalentClasses(:D ObjectUnionOf(:E :F))"
+    )
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    node_id = next(
+        index
+        for index in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == tag
+    )
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = node_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match="arity") as raised:
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+    assert raised.value.details["expected_arity"] == 1
 
 
 @pytest.mark.parametrize("corruption", ["integer-kind", "integer-minimal"])

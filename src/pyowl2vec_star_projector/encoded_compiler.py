@@ -4,7 +4,8 @@ The slice is intentionally narrow: one canonical direct segment containing
 declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
 axioms, simple named ABox assertions, and named object-property domain/range
 and role axioms, plus named-property/named-filler ``SubClassOf`` restrictions,
-all with empty annotation sets.  It preflights the complete encoded view before
+and named/aggregate ``EquivalentClasses`` pairs over the same operands, all
+with empty annotation sets.  It preflights the complete encoded view before
 yielding any edge.  A well-formed view outside that subset selects the scalar
 compiler for the whole operation; malformed rows fail closed.
 """
@@ -32,6 +33,8 @@ from .options import ProjectionOptions
 
 _TAG_IRI = 1
 _TAG_ENTITY = 2
+_TAG_OBJECT_INTERSECTION_OF = 30
+_TAG_OBJECT_UNION_OF = 31
 _TAG_OBJECT_SOME_VALUES_FROM = 34
 _TAG_OBJECT_ALL_VALUES_FROM = 35
 _TAG_OBJECT_MIN_CARDINALITY = 38
@@ -62,6 +65,13 @@ _RESTRICTION_TAGS = frozenset(
         _TAG_OBJECT_MAX_CARDINALITY,
     }
 )
+_AGGREGATE_TAGS = frozenset({_TAG_OBJECT_INTERSECTION_OF, _TAG_OBJECT_UNION_OF})
+_EXPRESSION_ORDER = {
+    _TAG_OBJECT_SOME_VALUES_FROM: 3005,
+    _TAG_OBJECT_ALL_VALUES_FROM: 3006,
+    _TAG_OBJECT_MIN_CARDINALITY: 3008,
+    _TAG_OBJECT_MAX_CARDINALITY: 3010,
+}
 
 _SCHEMA_TAGS = frozenset(
     {
@@ -166,6 +176,7 @@ class EncodedSubsetCounters:
     subclass_axioms: int = 0
     restriction_subclass_axioms: int = 0
     equivalent_axioms: int = 0
+    aggregate_equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
     inverse_object_property_axioms: int = 0
@@ -185,6 +196,7 @@ class EncodedSubsetCounters:
             self.subclass_axioms,
             self.restriction_subclass_axioms,
             self.equivalent_axioms,
+            self.aggregate_equivalent_axioms,
             self.class_assertion_axioms,
             self.sub_object_property_axioms,
             self.inverse_object_property_axioms,
@@ -208,6 +220,7 @@ class _MutableCounters:
     subclass_axioms: int = 0
     restriction_subclass_axioms: int = 0
     equivalent_axioms: int = 0
+    aggregate_equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
     inverse_object_property_axioms: int = 0
@@ -227,6 +240,7 @@ class _MutableCounters:
             subclass_axioms=self.subclass_axioms,
             restriction_subclass_axioms=self.restriction_subclass_axioms,
             equivalent_axioms=self.equivalent_axioms,
+            aggregate_equivalent_axioms=self.aggregate_equivalent_axioms,
             class_assertion_axioms=self.class_assertion_axioms,
             sub_object_property_axioms=self.sub_object_property_axioms,
             inverse_object_property_axioms=self.inverse_object_property_axioms,
@@ -257,6 +271,14 @@ class _EncodedRoleAxiom:
     first: str
     second: str
     owlapi_hash: int
+
+
+@dataclass(frozen=True, slots=True)
+class _EquivalentOperand:
+    tag: int
+    node_id: int
+    first: str
+    second: str | None = None
 
 
 @dataclass(slots=True)
@@ -345,10 +367,25 @@ class EncodedSubsetCompilation:
             }:
                 continue
             if tag == _TAG_EQUIVALENT_CLASSES:
-                source, destination = self._columns.equivalent_iris(root_id)
-                yield Edge(source, SUBCLASS_OF, destination)
-                if self.options.bidirectional_taxonomy:
-                    yield Edge(destination, SUPERCLASS_OF, source)
+                aggregate = self._columns.equivalent_aggregate(root_id)
+                if aggregate is None:
+                    source, destination = self._columns.equivalent_iris(root_id)
+                    yield Edge(source, SUBCLASS_OF, destination)
+                    if self.options.bidirectional_taxonomy:
+                        yield Edge(destination, SUPERCLASS_OF, source)
+                else:
+                    subject, operands = aggregate
+                    for operand in operands:
+                        if operand.second is None:
+                            yield Edge(subject, SUBCLASS_OF, operand.first)
+                            if self.options.bidirectional_taxonomy:
+                                yield Edge(operand.first, SUPERCLASS_OF, subject)
+                        elif not self.options.only_taxonomy:
+                            yield from self._iter_role_edges(
+                                subject,
+                                operand.first,
+                                operand.second,
+                            )
                 continue
             if tag == _TAG_CLASS_ASSERTION:
                 individual, class_iri = self._columns.class_assertion_iris(root_id)
@@ -451,6 +488,8 @@ class _EncodedColumns:
                     counters.restriction_subclass_axioms += 1
             elif tag == _TAG_EQUIVALENT_CLASSES:
                 counters.equivalent_axioms += 1
+                if self._equivalent_aggregate_id(root_id) is not None:
+                    counters.aggregate_equivalent_axioms += 1
             elif tag == _TAG_SUB_OBJECT_PROPERTY_OF:
                 counters.sub_object_property_axioms += 1
             elif tag == _TAG_INVERSE_OBJECT_PROPERTIES:
@@ -562,6 +601,72 @@ class _EncodedColumns:
                 "encoded subset EquivalentClasses lost its required expressions"
             )
         return first[1], second[1]
+
+    def equivalent_aggregate(
+        self,
+        node_id: int,
+    ) -> tuple[str, tuple[_EquivalentOperand, ...]] | None:
+        aggregate_id = self._equivalent_aggregate_id(node_id)
+        if aggregate_id is None:
+            return None
+        start = self._exact_fields(node_id, 2)
+        item_start, length = self._node_set_range(start, minimum=2)
+        subject: str | None = None
+        for item_index in range(item_start, item_start + length):
+            item_id = self._item_node(item_index)
+            if self.node_tag(item_id) == _TAG_ENTITY:
+                subject = self._named_class_iri(item_id)
+                if subject is not None:
+                    break
+        if subject is None:  # pragma: no cover - guarded by preflight
+            raise SnapshotCompatibilityError(
+                "encoded subset aggregate EquivalentClasses lost its named class"
+            )
+        return subject, self._aggregate_operands(aggregate_id)
+
+    def _equivalent_aggregate_id(self, node_id: int) -> int | None:
+        if self.node_tag(node_id) != _TAG_EQUIVALENT_CLASSES:
+            raise SnapshotCompatibilityError(
+                "encoded subset batch cursor does not reference EquivalentClasses"
+            )
+        start = self._exact_fields(node_id, 2)
+        item_start, length = self._node_set_range(start, minimum=2)
+        aggregate_id: int | None = None
+        for item_index in range(item_start, item_start + length):
+            item_id = self._item_node(item_index)
+            if self.node_tag(item_id) in _AGGREGATE_TAGS:
+                aggregate_id = item_id
+        return aggregate_id
+
+    def _aggregate_operands(self, node_id: int) -> tuple[_EquivalentOperand, ...]:
+        if self.node_tag(node_id) not in _AGGREGATE_TAGS:
+            raise SnapshotCompatibilityError(
+                "encoded subset batch cursor does not reference an aggregate expression"
+            )
+        start = self._exact_fields(node_id, 1)
+        item_start, length = self._node_set_range(start, minimum=2)
+        operands: list[_EquivalentOperand] = []
+        for item_index in range(item_start, item_start + length):
+            item_id = self._item_node(item_index)
+            tag = self.node_tag(item_id)
+            if tag == _TAG_ENTITY:
+                iri = self._named_class_iri(item_id)
+                if iri is None:  # pragma: no cover - guarded by preflight
+                    raise SnapshotCompatibilityError(
+                        "encoded subset aggregate operand changed after preflight"
+                    )
+                operands.append(_EquivalentOperand(tag, item_id, iri))
+            else:
+                relation, destination = self._restriction_iris(item_id)
+                operands.append(_EquivalentOperand(tag, item_id, relation, destination))
+
+        def order_key(operand: _EquivalentOperand) -> tuple[int, bytes]:
+            if operand.tag == _TAG_ENTITY:
+                return 1001, operand.first.encode("utf-8")
+            return _EXPRESSION_ORDER[operand.tag], operand.node_id.to_bytes(4, "big")
+
+        operands.sort(key=order_key)
+        return tuple(operands)
 
     def class_assertion_iris(self, node_id: int) -> tuple[str, str]:
         if self.node_tag(node_id) != _TAG_CLASS_ASSERTION:
@@ -688,6 +793,20 @@ class _EncodedColumns:
             _kind, _iri_id, checked = self._entity(node_id)
             inspection.counters.scalar_bytes_checked += checked
             return
+        if tag in _AGGREGATE_TAGS:
+            start = self._exact_fields(node_id, 1)
+            item_start, length = self._node_set_range(start, minimum=2)
+            supported = True
+            for item_index in range(item_start, item_start + length):
+                item_id = self._item_node(item_index)
+                item_tag = self.node_tag(item_id)
+                if not self._is_named_class(item_id) and item_tag not in _RESTRICTION_TAGS:
+                    supported = False
+            if not supported:
+                inspection.fallback(
+                    "encoded subset aggregate expressions require named or restriction operands"
+                )
+            return
         if tag in _RESTRICTION_TAGS:
             if tag in {_TAG_OBJECT_SOME_VALUES_FROM, _TAG_OBJECT_ALL_VALUES_FROM}:
                 start = self._exact_fields(node_id, 2)
@@ -736,12 +855,26 @@ class _EncodedColumns:
         if tag == _TAG_EQUIVALENT_CLASSES:
             start = self._exact_fields(node_id, 2)
             item_start, length = self._node_set_range(start, minimum=2)
-            all_named = True
+            named_count = 0
+            aggregate_count = 0
+            other_count = 0
             for item_index in range(item_start, item_start + length):
-                if not self._is_named_class(self._item_node(item_index)):
-                    all_named = False
-            if not all_named:
-                inspection.fallback("encoded subset requires named classes in EquivalentClasses")
+                item_id = self._item_node(item_index)
+                if self._is_named_class(item_id):
+                    named_count += 1
+                elif self.node_tag(item_id) in _AGGREGATE_TAGS:
+                    aggregate_count += 1
+                else:
+                    other_count += 1
+            all_named = named_count == length
+            named_aggregate_pair = (
+                length == 2 and named_count == 1 and aggregate_count == 1 and other_count == 0
+            )
+            if not all_named and not named_aggregate_pair:
+                inspection.fallback(
+                    "encoded subset requires named classes or one named/aggregate "
+                    "EquivalentClasses pair"
+                )
             if not self._empty_annotation_set(start + 1):
                 inspection.fallback(
                     "encoded subset does not yet support annotated EquivalentClasses axioms"
