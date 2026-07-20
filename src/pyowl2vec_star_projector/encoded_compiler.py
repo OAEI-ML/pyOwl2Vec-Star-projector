@@ -1,13 +1,14 @@
 """Bounded encoded-column to projector-edge compiler slice.
 
 The slice is intentionally narrow: one canonical direct segment, or one
-overlay-base segment referencing a canonical direct source, containing
-declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
-axioms, named ``ClassAssertion`` axioms, direct ``ObjectPropertyAssertion``
-axioms over named or anonymous individuals, and named object-property
-domain/range and role axioms, plus named-property/named-filler ``SubClassOf``
-restrictions, and named/aggregate ``EquivalentClasses`` pairs over the same
-operands, with empty annotation sets on those declaration/logical axioms.
+overlay-base segment referencing a canonical direct source and optionally
+followed by one top-local delta segment, containing declarations, simple
+named-class ``SubClassOf`` and ``EquivalentClasses`` axioms, named
+``ClassAssertion`` axioms, direct ``ObjectPropertyAssertion`` axioms over named
+or anonymous individuals, and named object-property domain/range and role
+axioms, plus named-property/named-filler ``SubClassOf`` restrictions, and
+named/aggregate ``EquivalentClasses`` pairs over the same operands, with empty
+annotation sets on those declaration/logical axioms.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
 closure proves the pinned root-only lookup semantics.  It preflights the
 complete encoded view before yielding any edge.  A well-formed view outside
@@ -73,6 +74,7 @@ _TAG_ANNOTATION_ASSERTION = 120
 
 _SEGMENT_DIRECT = 1
 _SEGMENT_OVERLAY_BASE = 2
+_SEGMENT_OVERLAY_DELTA = 3
 _POSTINGS_ALL = 0
 _POSTINGS_EXCLUDE = 2
 
@@ -84,6 +86,7 @@ _COMPONENT_BYTES = 3
 _COMPONENT_INTEGER = 4
 _COMPONENT_ENUM = 5
 _COMPONENT_SET = 6
+_COMPONENT_SEQUENCE = 7
 _DEFAULT_MAX_IRI_BYTES = 1024 * 1024
 _DEFAULT_MAX_LITERAL_BYTES = 64 * 1024**2
 
@@ -230,7 +233,10 @@ class EncodedSubsetCounters:
     posting_rows_inspected: int = 0
     scope_map_rows_inspected: int = 0
     source_roots_inspected: int = 0
+    delta_roots_inspected: int = 0
     selected_roots: int = 0
+    deduplicated_roots: int = 0
+    canonical_bytes_compared: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
     scalar_fallbacks: int = 0
@@ -259,7 +265,10 @@ class EncodedSubsetCounters:
             self.posting_rows_inspected,
             self.scope_map_rows_inspected,
             self.source_roots_inspected,
+            self.delta_roots_inspected,
             self.selected_roots,
+            self.deduplicated_roots,
+            self.canonical_bytes_compared,
             self.edge_batches,
             self.raw_edges,
             self.scalar_fallbacks,
@@ -292,7 +301,10 @@ class _MutableCounters:
     posting_rows_inspected: int = 0
     scope_map_rows_inspected: int = 0
     source_roots_inspected: int = 0
+    delta_roots_inspected: int = 0
     selected_roots: int = 0
+    deduplicated_roots: int = 0
+    canonical_bytes_compared: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
     scalar_fallbacks: int = 0
@@ -321,7 +333,10 @@ class _MutableCounters:
             posting_rows_inspected=self.posting_rows_inspected,
             scope_map_rows_inspected=self.scope_map_rows_inspected,
             source_roots_inspected=self.source_roots_inspected,
+            delta_roots_inspected=self.delta_roots_inspected,
             selected_roots=self.selected_roots,
+            deduplicated_roots=self.deduplicated_roots,
+            canonical_bytes_compared=self.canonical_bytes_compared,
             edge_batches=self.edge_batches,
             raw_edges=self.raw_edges,
             scalar_fallbacks=self.scalar_fallbacks,
@@ -345,6 +360,29 @@ class _EncodedRoleAxiom:
     first: str
     second: str
     owlapi_hash: int
+    canonical_order: int
+
+
+@dataclass(frozen=True, slots=True)
+class _EncodedRootRef:
+    columns: _EncodedColumns
+    cursor: _CanonicalCursor
+    root_index: int
+
+    @property
+    def node_id(self) -> int:
+        return self.columns.root_id(self.root_index)
+
+    @property
+    def root_kind(self) -> int:
+        return self.columns.root_kind(self.root_index)
+
+
+@dataclass(frozen=True, slots=True)
+class _EncodedNodeRef:
+    columns: _EncodedColumns
+    cursor: _CanonicalCursor
+    node_id: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,11 +403,11 @@ class EncodedSubsetCompilation:
     batch_edges: int
     asserted_taxonomy_only: bool
     role_state: RoleState
-    _columns: _EncodedColumns
+    _roots: tuple[_EncodedRootRef, ...]
     _domains: dict[str, tuple[str, ...]]
     _ranges: dict[str, tuple[str, ...]]
     _role_axioms: tuple[_EncodedRoleAxiom, ...]
-    _anonymous_ids: dict[int, str]
+    _anonymous_ids: dict[_EncodedColumns, dict[int, str]]
     _class_iris: frozenset[str]
     _counters: _MutableCounters
     _retained_leases: tuple[EncodedStructuralLease, ...] = ()
@@ -446,13 +484,14 @@ class EncodedSubsetCompilation:
         # The pinned Scala profile concatenates TBox, selected annotations,
         # ABox, then domain/range categories.  Schema tag order puts
         # AnnotationAssertion after ABox, so keep explicit bounded passes.
-        for root_index in self._columns.iter_root_indices():
-            root_id = self._columns.root_id(root_index)
-            tag = self._columns.node_tag(root_id)
+        for root in self._roots:
+            columns = root.columns
+            root_id = root.node_id
+            tag = columns.node_tag(root_id)
             if tag == _TAG_SUB_CLASS_OF:
-                restriction = self._columns.restriction_subclass_iris(root_id)
+                restriction = columns.restriction_subclass_iris(root_id)
                 if restriction is None:
-                    source, destination = self._columns.subclass_iris(root_id)
+                    source, destination = columns.subclass_iris(root_id)
                     yield Edge(source, SUBCLASS_OF, destination)
                     if self.options.bidirectional_taxonomy:
                         yield Edge(destination, SUPERCLASS_OF, source)
@@ -462,9 +501,9 @@ class EncodedSubsetCompilation:
             if self.asserted_taxonomy_only:
                 continue
             if tag == _TAG_EQUIVALENT_CLASSES:
-                aggregate = self._columns.equivalent_aggregate(root_id)
+                aggregate = columns.equivalent_aggregate(root_id)
                 if aggregate is None:
-                    source, destination = self._columns.equivalent_iris(root_id)
+                    source, destination = columns.equivalent_iris(root_id)
                     yield Edge(source, SUBCLASS_OF, destination)
                     if self.options.bidirectional_taxonomy:
                         yield Edge(destination, SUPERCLASS_OF, source)
@@ -485,14 +524,15 @@ class EncodedSubsetCompilation:
             return
 
         if self.options.include_literals:
-            for root_index in self._columns.iter_root_indices():
-                root_id = self._columns.root_id(root_index)
-                if self._columns.node_tag(root_id) != _TAG_ANNOTATION_ASSERTION:
+            for root in self._roots:
+                columns = root.columns
+                root_id = root.node_id
+                if columns.node_tag(root_id) != _TAG_ANNOTATION_ASSERTION:
                     continue
-                edge, non_string_literal = self._columns.annotation_assertion_edge(
+                edge, non_string_literal = columns.annotation_assertion_edge(
                     root_id,
                     self._class_iris,
-                    self._anonymous_ids,
+                    self._anonymous_ids[columns],
                 )
                 if edge is None:
                     self.statistics.ignored_shapes += 1
@@ -502,17 +542,18 @@ class EncodedSubsetCompilation:
                     self._non_string_literal_renderings += 1
                 yield edge
 
-        for root_index in self._columns.iter_root_indices():
-            root_id = self._columns.root_id(root_index)
-            tag = self._columns.node_tag(root_id)
+        for root in self._roots:
+            columns = root.columns
+            root_id = root.node_id
+            tag = columns.node_tag(root_id)
             if tag == _TAG_CLASS_ASSERTION:
-                individual, class_iri = self._columns.class_assertion_iris(root_id)
+                individual, class_iri = columns.class_assertion_iris(root_id)
                 yield Edge(individual, RDF_TYPE, class_iri)
                 continue
             if tag == _TAG_OBJECT_PROPERTY_ASSERTION:
-                source, relation, destination = self._columns.object_property_assertion_iris(
+                source, relation, destination = columns.object_property_assertion_iris(
                     root_id,
-                    self._anonymous_ids,
+                    self._anonymous_ids[columns],
                 )
                 yield Edge(source, relation, destination)
         yield from self._iter_domain_range_edges()
@@ -594,7 +635,7 @@ class _EncodedColumns:
     def iter_root_indices(self) -> Iterator[int]:
         return iter(self._root_indices)
 
-    def inspect(self) -> _Inspection:
+    def inspect(self, *, classify_roots: bool = True) -> _Inspection:
         counters = _MutableCounters(
             roots_inspected=self.root_count,
             nodes_inspected=self.node_count,
@@ -612,46 +653,54 @@ class _EncodedColumns:
                     "encoded subset roots are not canonical and unique"
                 )
             previous_root = root_key
-        for root_index in self._root_indices:
-            root_kind = self._read("root_kinds", root_index, 1)
-            root_id = self.root_id(root_index)
-            if root_kind != _ROOT_AXIOM:
-                inspection.fallback("encoded subset supports axiom roots only")
-                continue
-            tag = self.node_tag(root_id)
-            if tag == _TAG_DECLARATION:
-                counters.declaration_axioms += 1
-            elif tag == _TAG_SUB_CLASS_OF:
-                counters.subclass_axioms += 1
-                start = self._exact_fields(root_id, 3)
-                sub_tag = self.node_tag(self._field_node(start))
-                super_tag = self.node_tag(self._field_node(start + 1))
-                if sub_tag in _RESTRICTION_TAGS or super_tag in _RESTRICTION_TAGS:
-                    counters.restriction_subclass_axioms += 1
-            elif tag == _TAG_EQUIVALENT_CLASSES:
-                counters.equivalent_axioms += 1
-                if self._equivalent_aggregate_id(root_id) is not None:
-                    counters.aggregate_equivalent_axioms += 1
-            elif tag == _TAG_SUB_OBJECT_PROPERTY_OF:
-                counters.sub_object_property_axioms += 1
-            elif tag == _TAG_INVERSE_OBJECT_PROPERTIES:
-                counters.inverse_object_property_axioms += 1
-            elif tag == _TAG_OBJECT_PROPERTY_DOMAIN:
-                counters.object_property_domain_axioms += 1
-            elif tag == _TAG_OBJECT_PROPERTY_RANGE:
-                counters.object_property_range_axioms += 1
-            elif tag == _TAG_CLASS_ASSERTION:
-                counters.class_assertion_axioms += 1
-            elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
-                counters.object_property_assertion_axioms += 1
-            elif tag == _TAG_ANNOTATION_ASSERTION:
-                counters.annotation_assertion_axioms += 1
-            else:
-                inspection.fallback("encoded subset root is outside the executable axiom slice")
+        if classify_roots:
+            for root_index in self._root_indices:
+                self.inspect_root(root_index, inspection)
         return inspection
+
+    def inspect_root(self, root_index: int, inspection: _Inspection) -> None:
+        root_kind = self.root_kind(root_index)
+        root_id = self.root_id(root_index)
+        counters = inspection.counters
+        if root_kind != _ROOT_AXIOM:
+            inspection.fallback("encoded subset supports axiom roots only")
+            return
+        tag = self.node_tag(root_id)
+        if tag == _TAG_DECLARATION:
+            counters.declaration_axioms += 1
+        elif tag == _TAG_SUB_CLASS_OF:
+            counters.subclass_axioms += 1
+            start = self._exact_fields(root_id, 3)
+            sub_tag = self.node_tag(self._field_node(start))
+            super_tag = self.node_tag(self._field_node(start + 1))
+            if sub_tag in _RESTRICTION_TAGS or super_tag in _RESTRICTION_TAGS:
+                counters.restriction_subclass_axioms += 1
+        elif tag == _TAG_EQUIVALENT_CLASSES:
+            counters.equivalent_axioms += 1
+            if self._equivalent_aggregate_id(root_id) is not None:
+                counters.aggregate_equivalent_axioms += 1
+        elif tag == _TAG_SUB_OBJECT_PROPERTY_OF:
+            counters.sub_object_property_axioms += 1
+        elif tag == _TAG_INVERSE_OBJECT_PROPERTIES:
+            counters.inverse_object_property_axioms += 1
+        elif tag == _TAG_OBJECT_PROPERTY_DOMAIN:
+            counters.object_property_domain_axioms += 1
+        elif tag == _TAG_OBJECT_PROPERTY_RANGE:
+            counters.object_property_range_axioms += 1
+        elif tag == _TAG_CLASS_ASSERTION:
+            counters.class_assertion_axioms += 1
+        elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
+            counters.object_property_assertion_axioms += 1
+        elif tag == _TAG_ANNOTATION_ASSERTION:
+            counters.annotation_assertion_axioms += 1
+        else:
+            inspection.fallback("encoded subset root is outside the executable axiom slice")
 
     def root_id(self, index: int) -> int:
         return self._node_id(self._read("root_ids", index, 4))
+
+    def root_kind(self, index: int) -> int:
+        return self._read("root_kinds", index, 1)
 
     def node_tag(self, node_id: int) -> int:
         self._node_id(node_id)
@@ -913,19 +962,6 @@ class _EncodedColumns:
                 result.add(iri)
         return frozenset(result)
 
-    def anonymous_ids(
-        self,
-        reachable: frozenset[int] | None = None,
-    ) -> dict[int, str]:
-        result: dict[int, str] = {}
-        next_identifier = 2_147_483_648
-        selected = range(1, self.node_count + 1) if reachable is None else sorted(reachable)
-        for node_id in selected:
-            if self.node_tag(node_id) == _TAG_ANONYMOUS_INDIVIDUAL:
-                result[node_id] = f"_:genid{next_identifier}"
-                next_identifier += 1
-        return result
-
     def anonymous_scopes(
         self,
         reachable: frozenset[int],
@@ -988,53 +1024,6 @@ class _EncodedColumns:
 
     def range_iris(self, node_id: int) -> tuple[str, str]:
         return self._property_class_iris(node_id, _TAG_OBJECT_PROPERTY_RANGE)
-
-    def domain_range_index(
-        self,
-    ) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]]]:
-        domains: dict[str, list[str]] = {}
-        ranges: dict[str, list[str]] = {}
-        for root_index in self._root_indices:
-            root_id = self.root_id(root_index)
-            tag = self.node_tag(root_id)
-            if tag == _TAG_OBJECT_PROPERTY_DOMAIN:
-                property_iri, class_iri = self.domain_iris(root_id)
-                domains.setdefault(property_iri, []).append(class_iri)
-            elif tag == _TAG_OBJECT_PROPERTY_RANGE:
-                property_iri, class_iri = self.range_iris(root_id)
-                ranges.setdefault(property_iri, []).append(class_iri)
-        return (
-            {key: tuple(values) for key, values in domains.items()},
-            {key: tuple(values) for key, values in ranges.items()},
-        )
-
-    def role_axioms(self) -> tuple[_EncodedRoleAxiom, ...]:
-        rows: list[_EncodedRoleAxiom] = []
-        for root_index in self._root_indices:
-            node_id = self.root_id(root_index)
-            tag = self.node_tag(node_id)
-            if tag not in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
-                continue
-            first, second = self._property_pair_iris(node_id, tag)
-            first_hash = _combine(4153, _owlapi_iri_hash(first))
-            second_hash = _combine(4153, _owlapi_iri_hash(second))
-            owlapi_hash = (
-                _combine(1823, first_hash, second_hash, 0)
-                if tag == _TAG_SUB_OBJECT_PROPERTY_OF
-                else _combine(1229, _int32(first_hash + second_hash), 0)
-            )
-            rows.append(_EncodedRoleAxiom(tag, node_id, first, second, owlapi_hash))
-        capacity = 16
-        while len(rows) > int(capacity * 0.75):
-            capacity *= 2
-
-        def order_key(row: _EncodedRoleAxiom) -> tuple[int, int, int]:
-            unsigned = row.owlapi_hash & 0xFFFFFFFF
-            spread = unsigned ^ (unsigned >> 16)
-            return spread & (capacity - 1), spread, row.node_id
-
-        rows.sort(key=order_key)
-        return tuple(rows)
 
     def _property_pair_iris(self, node_id: int, expected_tag: int) -> tuple[str, str]:
         if self.node_tag(node_id) != expected_tag:
@@ -1532,6 +1521,371 @@ class _EncodedColumns:
         return int.from_bytes(value[offset:end], "little")
 
 
+def _encode_varint(value: int) -> bytes:
+    if type(value) is not int or value < 0:
+        raise SnapshotCompatibilityError(
+            "encoded subset canonical cursor received an invalid unsigned integer"
+        )
+    result = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        result.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(result)
+
+
+class _CanonicalCursor:
+    """Stream exact canonical-model bytes from one borrowed column table.
+
+    Lengths are memoized, while bytes are yielded incrementally.  This keeps
+    cross-segment comparisons bounded by graph depth and the dense length map,
+    without reconstructing OWL objects or an ontology-sized canonical arena.
+    """
+
+    def __init__(
+        self,
+        columns: _EncodedColumns,
+        scope_map: Mapping[bytes, bytes],
+    ) -> None:
+        self.columns = columns
+        self._scope_map = scope_map
+        self._lengths: dict[int, int] = {}
+
+    def node_length(self, node_id: int) -> int:
+        try:
+            return self._node_length(node_id, set())
+        except RecursionError as error:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor exceeds the safe graph depth"
+            ) from error
+
+    def _node_length(self, node_id: int, active: set[int]) -> int:
+        cached = self._lengths.get(node_id)
+        if cached is not None:
+            return cached
+        self.columns.node_tag(node_id)
+        if node_id in active:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor found a cyclic node graph"
+            )
+        active.add(node_id)
+        try:
+            result = len(_encode_varint(self.columns.node_tag(node_id)))
+            start, end = self.columns._field_range(node_id)
+            for field_index in range(start, end):
+                result += self._component_length(
+                    node_id,
+                    field_index,
+                    active,
+                )
+            self._lengths[node_id] = result
+            return result
+        finally:
+            active.remove(node_id)
+
+    def _component_length(
+        self,
+        owner_node_id: int | None,
+        index: int,
+        active: set[int],
+        *,
+        item: bool = False,
+    ) -> int:
+        prefix = "item" if item else "field"
+        kind = self.columns._read(f"{prefix}_kinds", index, 1)
+        value = self.columns._read(f"{prefix}_values", index, 8)
+        length = self.columns._read(f"{prefix}_lengths", index, 8)
+        if kind == _COMPONENT_NONE:
+            if value or length:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical cursor found a noncanonical none component"
+                )
+            return 1
+        if kind == _COMPONENT_NODE:
+            if length:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical cursor found a sized node component"
+                )
+            child_length = self._node_length(self.columns._node_id(value), active)
+            return 1 + len(_encode_varint(child_length)) + child_length
+        if kind in {_COMPONENT_TEXT, _COMPONENT_BYTES, _COMPONENT_ENUM}:
+            payload = self._scalar_payload(owner_node_id, index, kind, item=item)
+            return 1 + len(_encode_varint(payload.nbytes)) + payload.nbytes
+        if kind == _COMPONENT_INTEGER:
+            payload = self._scalar_payload(owner_node_id, index, kind, item=item)
+            if not payload.nbytes or (payload.nbytes > 1 and payload[-1] == 0):
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical cursor found a nonminimal integer"
+                )
+            return 1 + len(_encode_varint(int.from_bytes(payload, "little")))
+        if kind not in {_COMPONENT_SET, _COMPONENT_SEQUENCE} or item:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor found an invalid component kind"
+            )
+        if value > self.columns.item_count or length > self.columns.item_count - value:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor collection is out of bounds"
+            )
+        result = 1 + len(_encode_varint(length))
+        for item_index in range(value, value + length):
+            if kind == _COMPONENT_SET:
+                child_id = self.columns._item_node(item_index)
+                child_length = self._node_length(child_id, active)
+                result += len(_encode_varint(child_length)) + child_length
+            else:
+                result += self._component_length(
+                    None,
+                    item_index,
+                    active,
+                    item=True,
+                )
+        return result
+
+    def _scalar_payload(
+        self,
+        owner_node_id: int | None,
+        index: int,
+        expected_kind: int,
+        *,
+        item: bool,
+    ) -> memoryview:
+        prefix = "item" if item else "field"
+        if self.columns._read(f"{prefix}_kinds", index, 1) != expected_kind:
+            raise SnapshotCompatibilityError("encoded subset canonical cursor scalar kind changed")
+        offset = self.columns._read(f"{prefix}_values", index, 8)
+        length = self.columns._read(f"{prefix}_lengths", index, 8)
+        arena = self.columns._buffers["scalar_bytes"]
+        if offset > arena.nbytes or length > arena.nbytes - offset:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor scalar is out of bounds"
+            )
+        payload = arena[offset : offset + length]
+        if (
+            not item
+            and owner_node_id is not None
+            and expected_kind == _COMPONENT_BYTES
+            and self.columns.node_tag(owner_node_id) == _TAG_ANONYMOUS_INDIVIDUAL
+        ):
+            start, _end = self.columns._field_range(owner_node_id)
+            if index == start:
+                replacement = self._scope_map.get(bytes(payload))
+                if replacement is not None:
+                    return memoryview(replacement)
+        return payload
+
+    def iter_node_bytes(self, node_id: int) -> Iterator[int]:
+        self.node_length(node_id)
+        return self._iter_node_bytes(node_id, set())
+
+    def _iter_node_bytes(self, node_id: int, active: set[int]) -> Iterator[int]:
+        if node_id in active:  # pragma: no cover - length preflight rejects cycles
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor found a cyclic node graph"
+            )
+        active.add(node_id)
+        try:
+            yield from _encode_varint(self.columns.node_tag(node_id))
+            start, end = self.columns._field_range(node_id)
+            for field_index in range(start, end):
+                yield from self._iter_component_bytes(
+                    node_id,
+                    field_index,
+                    active,
+                )
+        finally:
+            active.remove(node_id)
+
+    def _iter_component_bytes(
+        self,
+        owner_node_id: int | None,
+        index: int,
+        active: set[int],
+        *,
+        item: bool = False,
+    ) -> Iterator[int]:
+        prefix = "item" if item else "field"
+        kind = self.columns._read(f"{prefix}_kinds", index, 1)
+        value = self.columns._read(f"{prefix}_values", index, 8)
+        length = self.columns._read(f"{prefix}_lengths", index, 8)
+        yield kind
+        if kind == _COMPONENT_NONE:
+            return
+        if kind == _COMPONENT_NODE:
+            child_id = self.columns._node_id(value)
+            yield from _encode_varint(self.node_length(child_id))
+            yield from self._iter_node_bytes(child_id, active)
+            return
+        if kind in {_COMPONENT_TEXT, _COMPONENT_BYTES, _COMPONENT_ENUM}:
+            payload = self._scalar_payload(owner_node_id, index, kind, item=item)
+            yield from _encode_varint(payload.nbytes)
+            yield from payload
+            return
+        if kind == _COMPONENT_INTEGER:
+            payload = self._scalar_payload(owner_node_id, index, kind, item=item)
+            yield from _encode_varint(int.from_bytes(payload, "little"))
+            return
+        if kind not in {_COMPONENT_SET, _COMPONENT_SEQUENCE} or item:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor found an invalid component kind"
+            )
+        yield from _encode_varint(length)
+        for item_index in range(value, value + length):
+            if kind == _COMPONENT_SET:
+                child_id = self.columns._item_node(item_index)
+                yield from _encode_varint(self.node_length(child_id))
+                yield from self._iter_node_bytes(child_id, active)
+            else:
+                yield from self._iter_component_bytes(
+                    None,
+                    item_index,
+                    active,
+                    item=True,
+                )
+
+
+@dataclass(slots=True)
+class _CanonicalComparator:
+    bytes_compared: int = 0
+
+    def compare_nodes(self, left: _EncodedNodeRef, right: _EncodedNodeRef) -> int:
+        if left.cursor is right.cursor and left.node_id == right.node_id:
+            return 0
+        left_bytes = left.cursor.iter_node_bytes(left.node_id)
+        right_bytes = right.cursor.iter_node_bytes(right.node_id)
+        while True:
+            try:
+                left_byte = next(left_bytes)
+                left_done = False
+            except StopIteration:
+                left_byte = -1
+                left_done = True
+            try:
+                right_byte = next(right_bytes)
+                right_done = False
+            except StopIteration:
+                right_byte = -1
+                right_done = True
+            if left_done or right_done:
+                if left_done and right_done:
+                    return 0
+                return -1 if left_done else 1
+            self.bytes_compared += 1
+            if left_byte != right_byte:
+                return -1 if left_byte < right_byte else 1
+
+    def compare_roots(self, left: _EncodedRootRef, right: _EncodedRootRef) -> int:
+        if left.root_kind != right.root_kind:
+            return -1 if left.root_kind < right.root_kind else 1
+        return self.compare_nodes(
+            _EncodedNodeRef(left.columns, left.cursor, left.node_id),
+            _EncodedNodeRef(right.columns, right.cursor, right.node_id),
+        )
+
+
+def _root_group(
+    columns: _EncodedColumns,
+    cursor: _CanonicalCursor,
+) -> tuple[_EncodedRootRef, ...]:
+    return tuple(
+        _EncodedRootRef(columns, cursor, root_index) for root_index in columns.iter_root_indices()
+    )
+
+
+def _merge_root_groups(
+    groups: tuple[tuple[_EncodedRootRef, ...], ...],
+    comparator: _CanonicalComparator,
+) -> tuple[tuple[_EncodedRootRef, ...], int]:
+    """Merge canonical root cursors and structurally deduplicate equal roots."""
+
+    for group in groups:
+        for index in range(1, len(group)):
+            if comparator.compare_roots(group[index - 1], group[index]) >= 0:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical root group is not strictly sorted and unique"
+                )
+    positions = [0] * len(groups)
+    merged: list[_EncodedRootRef] = []
+    deduplicated = 0
+    while True:
+        active = [index for index, group in enumerate(groups) if positions[index] < len(group)]
+        if not active:
+            return tuple(merged), deduplicated
+        selected = active[0]
+        for candidate in active[1:]:
+            if (
+                comparator.compare_roots(
+                    groups[candidate][positions[candidate]],
+                    groups[selected][positions[selected]],
+                )
+                < 0
+            ):
+                selected = candidate
+        selected_root = groups[selected][positions[selected]]
+        merged.append(selected_root)
+        for candidate in active:
+            if candidate == selected:
+                positions[candidate] += 1
+                continue
+            if (
+                comparator.compare_roots(
+                    groups[candidate][positions[candidate]],
+                    selected_root,
+                )
+                == 0
+            ):
+                positions[candidate] += 1
+                deduplicated += 1
+
+
+def _merge_node_groups(
+    groups: tuple[tuple[_EncodedNodeRef, ...], ...],
+    comparator: _CanonicalComparator,
+) -> tuple[tuple[tuple[_EncodedNodeRef, ...], str], ...]:
+    """Assign one scalar-compatible blank ID to each structural identity."""
+
+    for group in groups:
+        for index in range(1, len(group)):
+            if comparator.compare_nodes(group[index - 1], group[index]) >= 0:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical node group is not strictly sorted and unique"
+                )
+    positions = [0] * len(groups)
+    merged: list[tuple[tuple[_EncodedNodeRef, ...], str]] = []
+    next_identifier = 2_147_483_648
+    while True:
+        active = [index for index, group in enumerate(groups) if positions[index] < len(group)]
+        if not active:
+            return tuple(merged)
+        selected = active[0]
+        for candidate in active[1:]:
+            if (
+                comparator.compare_nodes(
+                    groups[candidate][positions[candidate]],
+                    groups[selected][positions[selected]],
+                )
+                < 0
+            ):
+                selected = candidate
+        selected_node = groups[selected][positions[selected]]
+        identities = [selected_node]
+        positions[selected] += 1
+        for candidate in active:
+            if candidate == selected:
+                continue
+            candidate_node = groups[candidate][positions[candidate]]
+            if comparator.compare_nodes(candidate_node, selected_node) == 0:
+                positions[candidate] += 1
+                identities.append(candidate_node)
+        merged.append(
+            (
+                tuple(identities),
+                f"_:genid{next_identifier}",
+            )
+        )
+        next_identifier += 1
+
+
 def _borrowed_segment_bytes(segment: object, name: str, width: int) -> memoryview:
     try:
         value = getattr(segment, name)
@@ -1592,6 +1946,41 @@ def _validate_empty_overlay_columns(lease: EncodedStructuralLease) -> None:
                 "encoded subset overlay without delta has nonempty local columns",
                 details={"buffer": name},
             )
+
+
+def _validate_overlay_delta_segment(
+    lease: EncodedStructuralLease,
+    segment: object,
+) -> None:
+    try:
+        typed_segment = cast(_OverlayBaseSegmentLike, segment)
+        role = typed_segment.role
+        source = typed_segment.source
+        owner = typed_segment.owner
+        posting_mode = typed_segment.posting_mode
+        member_token = typed_segment.member_token
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "encoded subset overlay delta metadata is not readable"
+        ) from error
+    if (
+        type(role) is not int
+        or role != _SEGMENT_OVERLAY_DELTA
+        or owner is not lease.owner
+        or source is not None
+        or type(posting_mode) is not int
+        or posting_mode != _POSTINGS_ALL
+        or member_token is not None
+    ):
+        raise SnapshotCompatibilityError("encoded subset overlay delta metadata is invalid")
+    postings = _borrowed_segment_bytes(segment, "root_ids", 4)
+    scope_map = _borrowed_segment_bytes(segment, "anonymous_scope_map", 64)
+    if postings.nbytes or scope_map.nbytes:
+        raise SnapshotCompatibilityError(
+            "encoded subset overlay delta has unexpected postings or scope mappings"
+        )
+    if not lease.buffers["root_kinds"].nbytes:
+        raise SnapshotCompatibilityError("encoded subset overlay delta has no local roots")
 
 
 def _overlay_base_source(
@@ -1714,6 +2103,113 @@ def _scope_remap_preserves_order(
     return True
 
 
+def _merge_unclassified_inspections(
+    inspections: tuple[_Inspection, ...],
+) -> _Inspection:
+    counters = _MutableCounters(
+        roots_inspected=sum(item.counters.roots_inspected for item in inspections),
+        nodes_inspected=sum(item.counters.nodes_inspected for item in inspections),
+        anonymous_individuals=sum(item.counters.anonymous_individuals for item in inspections),
+        literal_nodes=sum(item.counters.literal_nodes for item in inspections),
+        annotation_nodes=sum(item.counters.annotation_nodes for item in inspections),
+        scalar_bytes_checked=sum(item.counters.scalar_bytes_checked for item in inspections),
+    )
+    result = _Inspection(counters)
+    for inspection in inspections:
+        if inspection.fallback_reason is not None:
+            result.fallback(inspection.fallback_reason)
+    return result
+
+
+def _domain_range_index(
+    roots: tuple[_EncodedRootRef, ...],
+) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]]]:
+    domains: dict[str, list[str]] = {}
+    ranges: dict[str, list[str]] = {}
+    for root in roots:
+        tag = root.columns.node_tag(root.node_id)
+        if tag == _TAG_OBJECT_PROPERTY_DOMAIN:
+            property_iri, class_iri = root.columns.domain_iris(root.node_id)
+            domains.setdefault(property_iri, []).append(class_iri)
+        elif tag == _TAG_OBJECT_PROPERTY_RANGE:
+            property_iri, class_iri = root.columns.range_iris(root.node_id)
+            ranges.setdefault(property_iri, []).append(class_iri)
+    return (
+        {key: tuple(values) for key, values in domains.items()},
+        {key: tuple(values) for key, values in ranges.items()},
+    )
+
+
+def _role_axioms(roots: tuple[_EncodedRootRef, ...]) -> tuple[_EncodedRoleAxiom, ...]:
+    rows: list[_EncodedRoleAxiom] = []
+    for canonical_order, root in enumerate(roots):
+        tag = root.columns.node_tag(root.node_id)
+        if tag not in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
+            continue
+        first, second = root.columns._property_pair_iris(root.node_id, tag)
+        first_hash = _combine(4153, _owlapi_iri_hash(first))
+        second_hash = _combine(4153, _owlapi_iri_hash(second))
+        owlapi_hash = (
+            _combine(1823, first_hash, second_hash, 0)
+            if tag == _TAG_SUB_OBJECT_PROPERTY_OF
+            else _combine(1229, _int32(first_hash + second_hash), 0)
+        )
+        rows.append(
+            _EncodedRoleAxiom(
+                tag,
+                root.node_id,
+                first,
+                second,
+                owlapi_hash,
+                canonical_order,
+            )
+        )
+    capacity = 16
+    while len(rows) > int(capacity * 0.75):
+        capacity *= 2
+
+    def order_key(row: _EncodedRoleAxiom) -> tuple[int, int, int]:
+        unsigned = row.owlapi_hash & 0xFFFFFFFF
+        spread = unsigned ^ (unsigned >> 16)
+        return spread & (capacity - 1), spread, row.canonical_order
+
+    rows.sort(key=order_key)
+    return tuple(rows)
+
+
+def _anonymous_id_maps(
+    groups: tuple[
+        tuple[_EncodedColumns, _CanonicalCursor, frozenset[int]],
+        ...,
+    ],
+    comparator: _CanonicalComparator,
+) -> dict[_EncodedColumns, dict[int, str]]:
+    node_groups: list[tuple[_EncodedNodeRef, ...]] = []
+    result: dict[_EncodedColumns, dict[int, str]] = {}
+    for columns, cursor, reachable in groups:
+        result[columns] = {}
+        node_groups.append(
+            tuple(
+                _EncodedNodeRef(columns, cursor, node_id)
+                for node_id in sorted(reachable)
+                if columns.node_tag(node_id) == _TAG_ANONYMOUS_INDIVIDUAL
+            )
+        )
+    for identities, blank_id in _merge_node_groups(tuple(node_groups), comparator):
+        for identity in identities:
+            result[identity.columns][identity.node_id] = blank_id
+    return result
+
+
+def _class_iris(
+    groups: tuple[tuple[_EncodedColumns, frozenset[int]], ...],
+) -> frozenset[str]:
+    result: set[str] = set()
+    for columns, reachable in groups:
+        result.update(columns.class_iris(reachable))
+    return frozenset(result)
+
+
 def prepare_encoded_subset_compilation(
     view: object,
     options: ProjectionOptions,
@@ -1752,11 +2248,25 @@ def prepare_encoded_subset_compilation(
     if type(first_role) is not int or first_role not in {1, 2, 3, 4, 5}:
         raise SnapshotCompatibilityError("encoded subset segment role is invalid")
 
-    scope_map: Mapping[bytes, bytes] = MappingProxyType({})
+    empty_scope_map: Mapping[bytes, bytes] = MappingProxyType({})
+    comparator = _CanonicalComparator()
     retained_leases: tuple[EncodedStructuralLease, ...] = ()
-    is_overlay_base = len(segments) == 1 and first_role == _SEGMENT_OVERLAY_BASE
+    is_direct = len(segments) == 1 and first_role == _SEGMENT_DIRECT
+    is_overlay_base = first_role == _SEGMENT_OVERLAY_BASE and len(segments) in {1, 2}
+    has_overlay_delta = is_overlay_base and len(segments) == 2
+    column_groups: tuple[
+        tuple[_EncodedColumns, _CanonicalCursor, frozenset[int]],
+        ...,
+    ]
+
     if is_overlay_base:
-        _validate_empty_overlay_columns(lease)
+        if has_overlay_delta:
+            second_role = getattr(segments[1], "role", None)
+            if type(second_role) is not int or second_role != _SEGMENT_OVERLAY_DELTA:
+                raise SnapshotCompatibilityError("encoded subset overlay delta role is invalid")
+            _validate_overlay_delta_segment(lease, segments[1])
+        else:
+            _validate_empty_overlay_columns(lease)
         try:
             (
                 source_lease,
@@ -1769,42 +2279,86 @@ def prepare_encoded_subset_compilation(
             counters = _MutableCounters(referenced_segments=1, scalar_fallbacks=1)
             reason = f"{fallback}; selected whole-operation scalar compiler"
             return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
-        columns = _EncodedColumns(source_lease, root_indices=selected_roots)
-        retained_leases = (source_lease,)
-    else:
-        columns = _EncodedColumns(lease)
 
-    inspection = columns.inspect()
-    counters = inspection.counters
-    if is_overlay_base:
+        source_columns = _EncodedColumns(source_lease, root_indices=selected_roots)
+        source_cursor = _CanonicalCursor(source_columns, scope_map)
+        source_reachable = source_columns.reachable_node_ids()
+        source_inspection = source_columns.inspect(classify_roots=False)
+        retained_leases = (source_lease,)
+        root_groups: tuple[tuple[_EncodedRootRef, ...], ...] = (
+            _root_group(source_columns, source_cursor),
+        )
+        inspections: tuple[_Inspection, ...] = (source_inspection,)
+        column_groups = ((source_columns, source_cursor, source_reachable),)
+        delta_root_count = 0
+        if has_overlay_delta:
+            delta_columns = _EncodedColumns(lease)
+            delta_cursor = _CanonicalCursor(delta_columns, empty_scope_map)
+            delta_reachable = delta_columns.reachable_node_ids()
+            delta_inspection = delta_columns.inspect(classify_roots=False)
+            root_groups = (*root_groups, _root_group(delta_columns, delta_cursor))
+            inspections = (*inspections, delta_inspection)
+            column_groups = (
+                *column_groups,
+                (delta_columns, delta_cursor, delta_reachable),
+            )
+            delta_root_count = delta_columns.root_count
+        inspection = _merge_unclassified_inspections(inspections)
+        if not _scope_remap_preserves_order(
+            source_columns,
+            source_reachable,
+            scope_map,
+        ):
+            counters = inspection.counters
+            counters.referenced_segments = 1
+            counters.posting_rows_inspected = posting_rows
+            counters.scope_map_rows_inspected = scope_map_rows
+            counters.source_roots_inspected = source_columns.root_count
+            counters.delta_roots_inspected = delta_root_count
+            counters.selected_roots = source_columns.selected_root_count + delta_root_count
+            counters.scalar_fallbacks = 1
+            reason = (
+                "encoded overlay anonymous scope remap does not preserve canonical order; "
+                "selected whole-operation scalar compiler"
+            )
+            return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+
+        roots, deduplicated_roots = _merge_root_groups(root_groups, comparator)
+        for root in roots:
+            root.columns.inspect_root(root.root_index, inspection)
+        counters = inspection.counters
         counters.referenced_segments = 1
         counters.posting_rows_inspected = posting_rows
         counters.scope_map_rows_inspected = scope_map_rows
-        counters.source_roots_inspected = columns.root_count
-        counters.selected_roots = columns.selected_root_count
-    elif len(segments) != 1 or first_role != _SEGMENT_DIRECT:
+        counters.source_roots_inspected = source_columns.root_count
+        counters.delta_roots_inspected = delta_root_count
+        counters.selected_roots = len(roots)
+        counters.deduplicated_roots = deduplicated_roots
+        counters.canonical_bytes_compared = comparator.bytes_compared
+    elif is_direct:
+        columns = _EncodedColumns(lease)
+        cursor = _CanonicalCursor(columns, empty_scope_map)
+        reachable = columns.reachable_node_ids()
+        inspection = columns.inspect(classify_roots=False)
+        roots = _root_group(columns, cursor)
+        for root in roots:
+            columns.inspect_root(root.root_index, inspection)
+        counters = inspection.counters
+        column_groups = ((columns, cursor, reachable),)
+    else:
+        columns = _EncodedColumns(lease)
+        inspection = columns.inspect()
+        counters = inspection.counters
         counters.scalar_fallbacks = 1
         reason = (
-            "encoded compiler slice supports direct segments and one referenced-direct "
-            "overlay base only"
+            "encoded compiler slice supports direct segments and referenced-direct "
+            "overlay base/delta segments only"
         )
         return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
 
     if inspection.fallback_reason is not None:
         counters.scalar_fallbacks = 1
         reason = f"{inspection.fallback_reason}; selected whole-operation scalar compiler"
-        return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
-    reachable = columns.reachable_node_ids()
-    if is_overlay_base and not _scope_remap_preserves_order(
-        columns,
-        reachable,
-        scope_map,
-    ):
-        counters.scalar_fallbacks = 1
-        reason = (
-            "encoded overlay anonymous scope remap does not preserve canonical order; "
-            "selected whole-operation scalar compiler"
-        )
         return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
     if (
         counters.annotation_assertion_axioms
@@ -1819,16 +2373,21 @@ def prepare_encoded_subset_compilation(
         )
         return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
 
-    domains, ranges = ({}, {}) if asserted_taxonomy_only else columns.domain_range_index()
-    role_axioms = () if asserted_taxonomy_only else columns.role_axioms()
-    anonymous_ids = {} if asserted_taxonomy_only else columns.anonymous_ids(reachable)
+    domains, ranges = ({}, {}) if asserted_taxonomy_only else _domain_range_index(roots)
+    role_axioms = () if asserted_taxonomy_only else _role_axioms(roots)
+    anonymous_ids = (
+        {columns: {} for columns, _cursor, _reachable in column_groups}
+        if asserted_taxonomy_only
+        else _anonymous_id_maps(column_groups, comparator)
+    )
     class_iris = (
-        columns.class_iris(reachable)
+        _class_iris(tuple((columns, reachable) for columns, _cursor, reachable in column_groups))
         if options.include_literals
         and counters.annotation_assertion_axioms
         and not asserted_taxonomy_only
         else frozenset()
     )
+    counters.canonical_bytes_compared = comparator.bytes_compared
     ignored_restrictions = (
         counters.restriction_subclass_axioms
         if options.only_taxonomy and not asserted_taxonomy_only
@@ -1841,7 +2400,7 @@ def prepare_encoded_subset_compilation(
         batch_edges=batch_edges,
         asserted_taxonomy_only=asserted_taxonomy_only,
         role_state=RoleState.empty() if role_state is None else role_state,
-        _columns=columns,
+        _roots=roots,
         _domains=domains,
         _ranges=ranges,
         _role_axioms=role_axioms,
