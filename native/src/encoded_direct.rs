@@ -47,6 +47,8 @@ const TAG_LITERAL: u16 = 4;
 const TAG_ANNOTATION: u16 = 5;
 const TAG_OBJECT_INVERSE_OF: u16 = 10;
 const TAG_OBJECT_PROPERTY_CHAIN: u16 = 11;
+const TAG_OBJECT_INTERSECTION_OF: u16 = 30;
+const TAG_OBJECT_UNION_OF: u16 = 31;
 const TAG_OBJECT_SOME_VALUES_FROM: u16 = 34;
 const TAG_OBJECT_ALL_VALUES_FROM: u16 = 35;
 const TAG_OBJECT_MIN_CARDINALITY: u16 = 38;
@@ -144,6 +146,7 @@ pub(crate) struct DirectCompileStats {
     pub(crate) subclasses: usize,
     pub(crate) restriction_subclasses: usize,
     pub(crate) equivalents: usize,
+    pub(crate) aggregate_equivalents: usize,
     pub(crate) class_assertions: usize,
     pub(crate) object_property_assertions: usize,
     pub(crate) negative_object_property_assertions: usize,
@@ -189,12 +192,39 @@ enum SubclassProjection<'a> {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EquivalentProjection<'a> {
+    Pair {
+        source: &'a str,
+        destination: &'a str,
+    },
+    Aggregate {
+        source: &'a str,
+        expression_id: usize,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct EquivalentEdgeCounts {
+    edges: usize,
+    base_role_edges: usize,
+    expanded_role_edges: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct EquivalentEmitOptions {
+    bidirectional: bool,
+    only_taxonomy: bool,
+    maximum_iri: usize,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct RootCounts {
     declarations: usize,
     subclasses: usize,
     restriction_subclasses: usize,
     equivalents: usize,
+    aggregate_equivalents: usize,
     class_assertions: usize,
     object_property_assertions: usize,
     negative_object_property_assertions: usize,
@@ -1182,34 +1212,156 @@ impl<'a> DirectColumns<'a> {
         Ok((property, class))
     }
 
-    fn equivalent_pair(
+    fn validate_aggregate_expression(
         self,
         node_id: usize,
         maximum: usize,
-    ) -> Result<(&'a str, &'a str), KernelError> {
+    ) -> Result<(), KernelError> {
+        if !is_aggregate_tag(self.node_tag(node_id)?) {
+            return Err(KernelError::malformed(
+                "encoded aggregate cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 1)?;
+        let (item_start, length) = self.node_set_range(start, 2)?;
+        for item_index in item_start..item_start + length {
+            let operand_id = self.item_node(item_index)?;
+            match self.node_tag(operand_id)? {
+                TAG_ENTITY => {
+                    self.named_class_iri(operand_id, maximum)?;
+                }
+                tag if is_restriction_tag(tag) => {
+                    self.restriction_parts(operand_id, maximum)?;
+                }
+                tag if SCHEMA_TAGS.contains(&tag) => {
+                    return Err(KernelError::unsupported(
+                        "direct native aggregate operands must be named classes or supported restrictions",
+                    ));
+                }
+                tag => {
+                    return Err(KernelError::malformed(format!(
+                        "encoded aggregate operand tag {tag} is outside structural-columns v1",
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn class_expression_rank(self, node_id: usize, maximum: usize) -> Result<u16, KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => {
+                self.named_class_iri(node_id, maximum)?;
+                Ok(1001)
+            }
+            TAG_OBJECT_INTERSECTION_OF => {
+                self.validate_aggregate_expression(node_id, maximum)?;
+                Ok(3001)
+            }
+            TAG_OBJECT_UNION_OF => {
+                self.validate_aggregate_expression(node_id, maximum)?;
+                Ok(3002)
+            }
+            TAG_OBJECT_SOME_VALUES_FROM => {
+                self.restriction_parts(node_id, maximum)?;
+                Ok(3005)
+            }
+            TAG_OBJECT_ALL_VALUES_FROM => {
+                self.restriction_parts(node_id, maximum)?;
+                Ok(3006)
+            }
+            TAG_OBJECT_MIN_CARDINALITY => {
+                self.restriction_parts(node_id, maximum)?;
+                Ok(3008)
+            }
+            TAG_OBJECT_MAX_CARDINALITY => {
+                self.restriction_parts(node_id, maximum)?;
+                Ok(3010)
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native EquivalentClasses requires named, aggregate, or supported restriction expressions",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded class-expression tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn expression_precedes(
+        self,
+        left_id: usize,
+        right_id: usize,
+        maximum: usize,
+    ) -> Result<bool, KernelError> {
+        let left_rank = self.class_expression_rank(left_id, maximum)?;
+        let right_rank = self.class_expression_rank(right_id, maximum)?;
+        if left_rank != right_rank {
+            return Ok(left_rank < right_rank);
+        }
+        if left_rank == 1001 {
+            let left = self.named_class_iri(left_id, maximum)?;
+            let right = self.named_class_iri(right_id, maximum)?;
+            return Ok((left.as_bytes(), left_id) < (right.as_bytes(), right_id));
+        }
+        Ok(left_id < right_id)
+    }
+
+    fn equivalent_projection(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<EquivalentProjection<'a>, KernelError> {
+        if self.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
+            return Err(KernelError::malformed(
+                "encoded equivalent cursor has the wrong constructor tag",
+            ));
+        }
         let start = self.exact_fields(node_id, 2)?;
         let (item_start, length) = self.node_set_range(start, 2)?;
-        let mut first: Option<&str> = None;
-        let mut second: Option<&str> = None;
+        let mut first_id: Option<usize> = None;
+        let mut second_id: Option<usize> = None;
         for item_index in item_start..item_start + length {
-            let iri = self.named_class_iri(self.item_node(item_index)?, maximum)?;
-            match first {
-                None => first = Some(iri),
-                Some(current) if iri.as_bytes() < current.as_bytes() => {
-                    second = first;
-                    first = Some(iri);
+            let expression_id = self.item_node(item_index)?;
+            self.class_expression_rank(expression_id, maximum)?;
+            match first_id {
+                None => first_id = Some(expression_id),
+                Some(current) if self.expression_precedes(expression_id, current, maximum)? => {
+                    second_id = first_id;
+                    first_id = Some(expression_id);
                 }
-                _ if second.is_none_or(|current| iri.as_bytes() < current.as_bytes()) => {
-                    second = Some(iri);
+                _ if match second_id {
+                    None => true,
+                    Some(current) => self.expression_precedes(expression_id, current, maximum)?,
+                } =>
+                {
+                    second_id = Some(expression_id);
                 }
                 _ => {}
             }
         }
         self.empty_annotation_set(start + 1)?;
-        match (first, second) {
-            (Some(first), Some(second)) => Ok((first, second)),
-            _ => Err(KernelError::malformed(
-                "encoded EquivalentClasses has too few named expressions",
+        let (Some(first_id), Some(second_id)) = (first_id, second_id) else {
+            return Err(KernelError::malformed(
+                "encoded EquivalentClasses has too few expressions",
+            ));
+        };
+        if self.node_tag(first_id)? != TAG_ENTITY {
+            return Err(KernelError::unsupported(
+                "direct native EquivalentClasses requires a leading named class",
+            ));
+        }
+        let source = self.named_class_iri(first_id, maximum)?;
+        match self.node_tag(second_id)? {
+            TAG_ENTITY => Ok(EquivalentProjection::Pair {
+                source,
+                destination: self.named_class_iri(second_id, maximum)?,
+            }),
+            tag if is_aggregate_tag(tag) => Ok(EquivalentProjection::Aggregate {
+                source,
+                expression_id: second_id,
+            }),
+            _ => Err(KernelError::unsupported(
+                "direct native EquivalentClasses does not project a selected restriction expression",
             )),
         }
     }
@@ -1418,6 +1570,9 @@ impl<'a> DirectColumns<'a> {
                 TAG_OBJECT_INVERSE_OF => {
                     self.object_inverse_iri(node_id, maximum_iri)?;
                 }
+                TAG_OBJECT_INTERSECTION_OF | TAG_OBJECT_UNION_OF => {
+                    self.validate_aggregate_expression(node_id, maximum_iri)?;
+                }
                 TAG_DECLARATION => {
                     let start = self.exact_fields(node_id, 2)?;
                     self.entity(self.field_node(start)?)?;
@@ -1433,7 +1588,7 @@ impl<'a> DirectColumns<'a> {
                     self.subclass_projection(node_id, maximum_iri)?;
                 }
                 TAG_EQUIVALENT_CLASSES => {
-                    self.equivalent_pair(node_id, maximum_iri)?;
+                    self.equivalent_projection(node_id, maximum_iri)?;
                 }
                 TAG_SUB_OBJECT_PROPERTY_OF | TAG_INVERSE_OBJECT_PROPERTIES => {
                     self.role_axiom_parts(node_id, self.node_tag(node_id)?, maximum_iri)?;
@@ -1533,7 +1688,15 @@ impl<'a> DirectColumns<'a> {
                         counts.restriction_subclasses += 1;
                     }
                 }
-                (ROOT_AXIOM, TAG_EQUIVALENT_CLASSES) => counts.equivalents += 1,
+                (ROOT_AXIOM, TAG_EQUIVALENT_CLASSES) => {
+                    counts.equivalents += 1;
+                    if matches!(
+                        self.equivalent_projection(node_id, maximum_iri)?,
+                        EquivalentProjection::Aggregate { .. }
+                    ) {
+                        counts.aggregate_equivalents += 1;
+                    }
+                }
                 (ROOT_AXIOM, TAG_SUB_OBJECT_PROPERTY_OF) => {
                     counts.sub_object_properties += 1;
                 }
@@ -1691,6 +1854,171 @@ impl<'a> DirectColumns<'a> {
         Ok(role_state)
     }
 
+    fn aggregate_operand_range(self, node_id: usize) -> Result<(usize, usize), KernelError> {
+        if !is_aggregate_tag(self.node_tag(node_id)?) {
+            return Err(KernelError::malformed(
+                "encoded aggregate cursor has the wrong constructor tag",
+            ));
+        }
+        self.node_set_range(self.exact_fields(node_id, 1)?, 2)
+    }
+
+    fn equivalent_edge_counts(
+        self,
+        role_state: &RoleState<'a>,
+        directions: usize,
+        only_taxonomy: bool,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<EquivalentEdgeCounts, KernelError> {
+        let mut counts = EquivalentEdgeCounts::default();
+        for root_index in 0..self.root_count() {
+            check_cancel(state, root_index)?;
+            let node_id = self.root_id(root_index)?;
+            if self.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
+                continue;
+            }
+            match self.equivalent_projection(node_id, maximum_iri)? {
+                EquivalentProjection::Pair { .. } => {
+                    counts.edges = counts.edges.checked_add(directions).ok_or_else(|| {
+                        KernelError::resource("encoded equivalent edge-count overflow")
+                    })?;
+                }
+                EquivalentProjection::Aggregate { expression_id, .. } => {
+                    let (item_start, length) = self.aggregate_operand_range(expression_id)?;
+                    for item_index in item_start..item_start + length {
+                        check_cancel(state, item_index)?;
+                        let operand_id = self.item_node(item_index)?;
+                        match self.node_tag(operand_id)? {
+                            TAG_ENTITY => {
+                                self.named_class_iri(operand_id, maximum_iri)?;
+                                counts.edges =
+                                    counts.edges.checked_add(directions).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded aggregate taxonomy edge-count overflow",
+                                        )
+                                    })?;
+                            }
+                            tag if is_restriction_tag(tag) && !only_taxonomy => {
+                                let (relation, _destination) =
+                                    self.restriction_parts(operand_id, maximum_iri)?;
+                                let expanded = role_state.edge_count(relation)?;
+                                counts.edges =
+                                    counts.edges.checked_add(expanded).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded aggregate restriction edge-count overflow",
+                                        )
+                                    })?;
+                                counts.base_role_edges =
+                                    counts.base_role_edges.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded aggregate base-role count overflow",
+                                        )
+                                    })?;
+                                counts.expanded_role_edges = counts
+                                    .expanded_role_edges
+                                    .checked_add(expanded)
+                                    .ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded aggregate expanded-role count overflow",
+                                        )
+                                    })?;
+                            }
+                            tag if is_restriction_tag(tag) => {}
+                            _ => {
+                                return Err(KernelError::malformed(
+                                    "encoded aggregate operand changed after successful preflight",
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(counts)
+    }
+
+    fn next_named_aggregate_operand(
+        self,
+        expression_id: usize,
+        after: Option<(&'a str, usize)>,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<Option<(&'a str, usize)>, KernelError> {
+        let (item_start, length) = self.aggregate_operand_range(expression_id)?;
+        let mut next: Option<(&str, usize)> = None;
+        for item_index in item_start..item_start + length {
+            check_cancel(state, item_index)?;
+            let operand_id = self.item_node(item_index)?;
+            if self.node_tag(operand_id)? != TAG_ENTITY {
+                continue;
+            }
+            let iri = self.named_class_iri(operand_id, maximum_iri)?;
+            let key = (iri.as_bytes(), operand_id);
+            if after
+                .is_some_and(|(previous, previous_id)| key <= (previous.as_bytes(), previous_id))
+                || next.is_some_and(|(current, current_id)| key >= (current.as_bytes(), current_id))
+            {
+                continue;
+            }
+            next = Some((iri, operand_id));
+        }
+        Ok(next)
+    }
+
+    fn push_equivalent_projection(
+        self,
+        edges: &mut Vec<DirectEdge>,
+        projection: EquivalentProjection<'a>,
+        role_state: &RoleState<'a>,
+        options: EquivalentEmitOptions,
+        state: &AtomicU8,
+    ) -> Result<(), KernelError> {
+        match projection {
+            EquivalentProjection::Pair {
+                source,
+                destination,
+            } => push_taxonomy_edges(edges, source, destination, options.bidirectional),
+            EquivalentProjection::Aggregate {
+                source,
+                expression_id,
+            } => {
+                let mut previous: Option<(&str, usize)> = None;
+                while let Some((destination, node_id)) = self.next_named_aggregate_operand(
+                    expression_id,
+                    previous,
+                    options.maximum_iri,
+                    state,
+                )? {
+                    push_taxonomy_edges(edges, source, destination, options.bidirectional)?;
+                    previous = Some((destination, node_id));
+                }
+                if options.only_taxonomy {
+                    return Ok(());
+                }
+                let (item_start, length) = self.aggregate_operand_range(expression_id)?;
+                for tag in [
+                    TAG_OBJECT_SOME_VALUES_FROM,
+                    TAG_OBJECT_ALL_VALUES_FROM,
+                    TAG_OBJECT_MIN_CARDINALITY,
+                    TAG_OBJECT_MAX_CARDINALITY,
+                ] {
+                    for item_index in item_start..item_start + length {
+                        check_cancel(state, item_index)?;
+                        let operand_id = self.item_node(item_index)?;
+                        if self.node_tag(operand_id)? != tag {
+                            continue;
+                        }
+                        let (relation, destination) =
+                            self.restriction_parts(operand_id, options.maximum_iri)?;
+                        push_role_edges(edges, role_state, source, relation, destination)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
     fn restriction_role_edge_count(
         self,
         role_state: &RoleState<'a>,
@@ -1831,15 +2159,18 @@ pub(crate) fn compile_direct(
     let direct_taxonomy_edges = direct_subclasses
         .checked_mul(directions)
         .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
-    let equivalent_edges = if asserted_taxonomy_only {
-        0
+    let equivalent_counts = if asserted_taxonomy_only {
+        EquivalentEdgeCounts::default()
     } else {
-        counts
-            .equivalents
-            .checked_mul(directions)
-            .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?
+        columns.equivalent_edge_counts(
+            &role_state,
+            directions,
+            only_taxonomy,
+            max_iri_bytes,
+            state,
+        )?
     };
-    let restriction_edges = if asserted_taxonomy_only || only_taxonomy {
+    let subclass_restriction_edges = if asserted_taxonomy_only || only_taxonomy {
         0
     } else {
         columns.restriction_role_edge_count(&role_state, max_iri_bytes, state)?
@@ -1873,10 +2204,12 @@ pub(crate) fn compile_direct(
             } else {
                 counts.restriction_subclasses
             })
+            .and_then(|count| count.checked_add(equivalent_counts.base_role_edges))
             .ok_or_else(|| KernelError::resource("encoded base role-edge count overflow"))?
     };
-    let expanded_role_edges = restriction_edges
+    let expanded_role_edges = subclass_restriction_edges
         .checked_add(expanded_domain_range_edges)
+        .and_then(|count| count.checked_add(equivalent_counts.expanded_role_edges))
         .ok_or_else(|| KernelError::resource("encoded expanded role-edge count overflow"))?;
     let role_expansion_edges = expanded_role_edges
         .checked_sub(base_role_edges)
@@ -1884,8 +2217,8 @@ pub(crate) fn compile_direct(
             KernelError::malformed("encoded role-expansion counters are inconsistent")
         })?;
     let projected = direct_taxonomy_edges
-        .checked_add(equivalent_edges)
-        .and_then(|total| total.checked_add(restriction_edges))
+        .checked_add(equivalent_counts.edges)
+        .and_then(|total| total.checked_add(subclass_restriction_edges))
         .and_then(|total| total.checked_add(class_assertion_edges))
         .and_then(|total| total.checked_add(object_assertion_edges))
         .and_then(|total| total.checked_add(expanded_domain_range_edges))
@@ -1947,19 +2280,18 @@ pub(crate) fn compile_direct(
             if columns.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
                 continue;
             }
-            let (source, destination) = columns.equivalent_pair(node_id, max_iri_bytes)?;
-            edges.push(DirectEdge {
-                source: clone_text(source)?,
-                relation: clone_text(SUBCLASS_OF)?,
-                destination: clone_text(destination)?,
-            });
-            if bidirectional {
-                edges.push(DirectEdge {
-                    source: clone_text(destination)?,
-                    relation: clone_text(SUPERCLASS_OF)?,
-                    destination: clone_text(source)?,
-                });
-            }
+            let projection = columns.equivalent_projection(node_id, max_iri_bytes)?;
+            columns.push_equivalent_projection(
+                &mut edges,
+                projection,
+                &role_state,
+                EquivalentEmitOptions {
+                    bidirectional,
+                    only_taxonomy,
+                    maximum_iri: max_iri_bytes,
+                },
+                state,
+            )?;
         }
 
         for index in 0..columns.root_count() {
@@ -2041,6 +2373,7 @@ pub(crate) fn compile_direct(
         subclasses: counts.subclasses,
         restriction_subclasses: counts.restriction_subclasses,
         equivalents: counts.equivalents,
+        aggregate_equivalents: counts.aggregate_equivalents,
         class_assertions: counts.class_assertions,
         object_property_assertions: counts.object_property_assertions,
         negative_object_property_assertions: counts.negative_object_property_assertions,
@@ -2083,6 +2416,10 @@ fn is_restriction_tag(tag: u16) -> bool {
         TAG_OBJECT_MAX_CARDINALITY,
     ]
     .contains(&tag)
+}
+
+fn is_aggregate_tag(tag: u16) -> bool {
+    [TAG_OBJECT_INTERSECTION_OF, TAG_OBJECT_UNION_OF].contains(&tag)
 }
 
 fn is_object_property_characteristic(tag: u16) -> bool {
@@ -2147,6 +2484,27 @@ fn push_role_edges(
         edges.push(DirectEdge {
             source: clone_text(destination)?,
             relation: clone_text(inverse)?,
+            destination: clone_text(source)?,
+        });
+    }
+    Ok(())
+}
+
+fn push_taxonomy_edges(
+    edges: &mut Vec<DirectEdge>,
+    source: &str,
+    destination: &str,
+    bidirectional: bool,
+) -> Result<(), KernelError> {
+    edges.push(DirectEdge {
+        source: clone_text(source)?,
+        relation: clone_text(SUBCLASS_OF)?,
+        destination: clone_text(destination)?,
+    });
+    if bidirectional {
+        edges.push(DirectEdge {
+            source: clone_text(destination)?,
+            relation: clone_text(SUPERCLASS_OF)?,
             destination: clone_text(source)?,
         });
     }
@@ -2541,6 +2899,18 @@ mod tests {
         for root_id in 17_u32..=30 {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
+        fixture
+    }
+
+    fn named_aggregate_role_fixture() -> Fixture {
+        let mut fixture = named_role_axiom_fixture();
+        fixture.push_node_set(&[9, 16]);
+        fixture.finish_node(TAG_OBJECT_INTERSECTION_OF); // 31
+        fixture.push_node_set(&[8, 31]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_EQUIVALENT_CLASSES); // 32
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&32_u32.to_le_bytes());
         fixture
     }
 
@@ -3013,6 +3383,78 @@ mod tests {
         .unwrap();
         assert!(asserted.is_empty());
         assert_eq!(stats.skipped_axioms, 0);
+        assert_eq!(stats.role_expansion_edges, 0);
+    }
+
+    #[test]
+    fn aggregate_equivalence_emits_named_and_role_expanded_operands() {
+        let fixture = named_aggregate_role_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            10,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 10);
+        assert_eq!(stats.equivalents, 1);
+        assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.role_expansion_edges, 6);
+        assert_eq!(
+            &edges[3..7],
+            &[
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:B".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:A".into(),
+                },
+            ]
+        );
+
+        let (only_taxonomy, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            true,
+            4,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(only_taxonomy.len(), 4);
+        assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.role_expansion_edges, 2);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.aggregate_equivalents, 1);
         assert_eq!(stats.role_expansion_edges, 0);
     }
 

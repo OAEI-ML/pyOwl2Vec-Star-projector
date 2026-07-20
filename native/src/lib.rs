@@ -2,8 +2,8 @@
 //!
 //! The established engine receives owned edge batches from Python and applies
 //! exact multiplicity/order policy.  P7 additionally owns a deliberately narrow
-//! structural-columns v1 compiler for a small family of unannotated named class
-//! and object-property axioms.  That private compiler retains the public view
+//! structural-columns v1 compiler for a bounded family of unannotated class,
+//! role, ABox, and skipped data-property axioms.  That private compiler retains the public view
 //! and immutable `bytes` exporters, validates the whole slice, and borrows them
 //! only during a GIL-released call.  The advertised feature ledger remains
 //! unchanged until the complete compiler and acceptance matrix exist.
@@ -27,7 +27,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyMapping, PyMemoryView, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 6;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 7;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -508,6 +508,7 @@ impl EncodedDirectCompiler {
                         stats.subclasses,
                         stats.restriction_subclasses,
                         stats.equivalents,
+                        stats.aggregate_equivalents,
                         stats.class_assertions,
                         stats.object_property_assertions,
                         stats.negative_object_property_assertions,

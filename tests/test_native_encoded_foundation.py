@@ -121,6 +121,7 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.subclasses == 2
     assert statistics.restriction_subclasses == 0
     assert statistics.equivalents == 0
+    assert statistics.aggregate_equivalents == 0
     assert statistics.class_assertions == 0
     assert statistics.object_property_assertions == 0
     assert statistics.negative_object_property_assertions == 0
@@ -238,6 +239,99 @@ def test_named_equivalence_and_class_assertion_match_python_oracle(
     assert statistics.class_assertions == 1
     assert statistics.edges == len(expected)
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize(
+    ("bidirectional", "only_taxonomy"),
+    [(False, False), (True, False), (False, True)],
+    ids=["forward", "bidirectional", "only-taxonomy"],
+)
+def test_named_aggregate_equivalents_match_operand_order_roles_and_duplicates(
+    bidirectional: bool,
+    only_taxonomy: bool,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "EquivalentClasses(:A ObjectIntersectionOf(:C :B "
+        "ObjectSomeValuesFrom(:p :D) ObjectAllValuesFrom(:p :E) "
+        "ObjectMinCardinality(2 :p :F) ObjectMinCardinality(7 :p :F) "
+        "ObjectMaxCardinality(3 :p :G))) "
+        "EquivalentClasses(:Z ObjectUnionOf(:Y :X ObjectSomeValuesFrom(:p :W))) "
+        "EquivalentClasses(:MixA :MixB ObjectIntersectionOf(:LaterA :LaterB)) "
+        "EquivalentClasses(:Lead ObjectIntersectionOf(:IB :IA) ObjectUnionOf(:UB :UA))"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=bidirectional,
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=bidirectional,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert statistics.roots == 6
+    assert statistics.equivalents == 4
+    assert statistics.aggregate_equivalents == 3
+    assert statistics.role_expansion_edges == (0 if only_taxonomy else 12)
+    assert statistics.edges == len(expected)
+    assert len(actual) == (7 if only_taxonomy else 32 if bidirectional else 25)
+    assert actual.count(
+        Edge("urn:native-direct#A", "urn:native-direct#p", "urn:native-direct#F")
+    ) == (0 if only_taxonomy else 2)
+    assert (
+        Edge(
+            "urn:native-direct#MixA",
+            SUBCLASS_OF,
+            "urn:native-direct#MixB",
+        )
+        in actual
+    )
+    assert not any("Later" in edge.source or "Later" in edge.destination for edge in actual)
+    assert (
+        Edge(
+            "urn:native-direct#Lead",
+            SUBCLASS_OF,
+            "urn:native-direct#IA",
+        )
+        in actual
+    )
+    assert not any("#U" in edge.destination for edge in actual)
+
+
+def test_asserted_taxonomy_preflights_and_suppresses_aggregate_equivalence() -> None:
+    view = _snapshot(
+        "SubClassOf(:TaxA :TaxB) EquivalentClasses(:A ObjectIntersectionOf("
+        ":C :B ObjectSomeValuesFrom(:p :D)))"
+    )
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert statistics.equivalents == statistics.aggregate_equivalents == 1
+    assert statistics.role_expansion_edges == 0
 
 
 def test_asserted_taxonomy_mode_preflights_and_suppresses_adjacent_axioms() -> None:
@@ -825,9 +919,9 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
 @pytest.mark.parametrize(
     "body",
     [
-        "EquivalentClasses(:A ObjectIntersectionOf(:B :C))",
+        "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectExactCardinality(1 :p :C)))",
         "ClassAssertion(:A _:anonymous)",
-        'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A :B)',
+        'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A ObjectIntersectionOf(:B :C))',
     ],
     ids=["complex-equivalent", "anonymous-individual", "annotated-equivalent"],
 )
@@ -867,6 +961,111 @@ def test_equivalent_set_corruption_and_mixed_edge_limit_fail_before_publication(
             max_iri_bytes=1024 * 1024,
         )
     assert limited.state == "failed"
+
+
+def test_hostile_aggregate_arity_and_wrong_kind_operand_fail_before_output() -> None:
+    arity_lease = _lease(_snapshot("EquivalentClasses(:A ObjectIntersectionOf(:B :C))"))
+    tags = arity_lease.buffers["node_tags"]
+    aggregate_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 30
+    )
+    offsets = bytearray(arity_lease.buffers["node_field_offsets"])
+    end_offset = aggregate_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    hostile_arity = _replace_buffers(
+        arity_lease,
+        {"node_field_offsets": memoryview(bytes(offsets))},
+    )
+    malformed_arity = prepare_native_encoded_direct(hostile_arity)
+    with pytest.raises(SnapshotCompatibilityError, match="arity"):
+        malformed_arity.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed_arity.state == "failed"
+
+    kind_lease = _lease(
+        _snapshot(
+            "EquivalentClasses(:A ObjectIntersectionOf(:B :C)) Declaration(ObjectProperty(:wrong))"
+        )
+    )
+    tags = kind_lease.buffers["node_tags"]
+    offsets = kind_lease.buffers["node_field_offsets"]
+    field_values = kind_lease.buffers["field_values"]
+    declaration_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 60
+    )
+    declaration_start = int.from_bytes(
+        offsets[(declaration_id - 1) * 8 : declaration_id * 8],
+        "little",
+    )
+    wrong_id = int.from_bytes(
+        field_values[declaration_start * 8 : (declaration_start + 1) * 8],
+        "little",
+    )
+    aggregate_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 30
+    )
+    aggregate_start = int.from_bytes(
+        offsets[(aggregate_id - 1) * 8 : aggregate_id * 8],
+        "little",
+    )
+    item_start = int.from_bytes(
+        field_values[aggregate_start * 8 : (aggregate_start + 1) * 8],
+        "little",
+    )
+    item_length = int.from_bytes(
+        kind_lease.buffers["field_lengths"][aggregate_start * 8 : (aggregate_start + 1) * 8],
+        "little",
+    )
+    item_values = bytearray(kind_lease.buffers["item_values"])
+    operands = [
+        int.from_bytes(item_values[index * 8 : (index + 1) * 8], "little")
+        for index in range(item_start, item_start + item_length)
+    ]
+    operands[-1] = wrong_id
+    operands.sort()
+    assert len(set(operands)) == item_length
+    for index, node_id in enumerate(operands, item_start):
+        item_values[index * 8 : (index + 1) * 8] = node_id.to_bytes(8, "little")
+    hostile_kind = _replace_buffers(
+        kind_lease,
+        {"item_values": memoryview(bytes(item_values))},
+    )
+    malformed_kind = prepare_native_encoded_direct(hostile_kind)
+    with pytest.raises(SnapshotCompatibilityError, match="not a class"):
+        malformed_kind.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed_kind.state == "failed"
+
+
+def test_aggregate_edge_limit_fails_before_prior_taxonomy_publication() -> None:
+    operands = " ".join(f":C{index:03d}" for index in range(250))
+    compiler = prepare_native_encoded_direct(
+        _lease(
+            _snapshot(
+                f"SubClassOf(:TaxA :TaxB) EquivalentClasses(:Lead ObjectIntersectionOf({operands}))"
+            )
+        )
+    )
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=250,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
 
 
 def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication() -> None:
