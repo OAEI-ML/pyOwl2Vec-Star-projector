@@ -104,6 +104,17 @@ def _skipped_logical_snapshot() -> object:
     )
 
 
+def _property_chain_snapshot() -> object:
+    unrelated = " ".join(f"SubObjectPropertyOf(:x{index} :y{index})" for index in range(9))
+    return _snapshot(
+        "SubObjectPropertyOf(:c0 :r) SubObjectPropertyOf(:c71 :r) "
+        f"{unrelated} "
+        "SubObjectPropertyOf(ObjectPropertyChain(:z ObjectInverseOf(:a) :m) :r) "
+        "SubObjectPropertyOf(ObjectPropertyChain(:m ObjectInverseOf(:a) :z) :r) "
+        "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -173,6 +184,7 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.object_property_assertions == 0
     assert statistics.negative_object_property_assertions == 0
     assert statistics.sub_object_properties == 0
+    assert statistics.object_property_chains == 0
     assert statistics.equivalent_object_properties == 0
     assert statistics.disjoint_object_properties == 0
     assert statistics.inverse_object_properties == 0
@@ -1724,6 +1736,158 @@ def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication()
     assert product.state == "failed"
 
 
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_ordered_inverse_property_chains_match_scalar_capacity_and_state_neutrality(
+    only_taxonomy: bool,
+) -> None:
+    view = _property_chain_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert actual == [
+        Edge("urn:native-direct#D", "urn:native-direct#r", "urn:native-direct#R"),
+        Edge("urn:native-direct#D", "urn:native-direct#c71", "urn:native-direct#R"),
+    ]
+    assert statistics.roots == 15
+    assert statistics.sub_object_properties == 13
+    assert statistics.object_property_chains == 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.domain_range_edges == 1
+    assert statistics.role_expansion_edges == 1
+
+
+def test_asserted_taxonomy_preflights_property_chains_without_role_leakage() -> None:
+    view = _property_chain_snapshot()
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == []
+    assert statistics.sub_object_properties == 13
+    assert statistics.object_property_chains == 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.domain_range_edges == 0
+    assert statistics.role_expansion_edges == 0
+
+
+def test_many_property_chains_cross_one_zero_output_bounded_call() -> None:
+    axioms = " ".join(
+        "SubObjectPropertyOf("
+        f"ObjectPropertyChain(:left{index:03d} ObjectInverseOf(:right{index:03d})) "
+        f":super{index:03d})"
+        for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(axioms)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == 250
+    assert statistics.sub_object_properties == 250
+    assert statistics.object_property_chains == 250
+    assert statistics.skipped_axioms == 0
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["sequence-kind", "item-kind", "wrong-item", "nested-chain"],
+)
+def test_hostile_property_chain_rows_fail_before_output(corruption: str) -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) "
+            "SubObjectPropertyOf(ObjectPropertyChain(:p ObjectInverseOf(:q)) :r) "
+            "Declaration(Class(:Wrong))"
+        )
+    )
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_nodes(tag: int) -> list[int]:
+        return [
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        ]
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    chain_id = tagged_nodes(11)[0]
+    chain_field = field_start(chain_id)
+    item_start = int.from_bytes(
+        buffers["field_values"][chain_field * 8 : (chain_field + 1) * 8],
+        "little",
+    )
+    replacements: dict[str, memoryview]
+    if corruption == "sequence-kind":
+        field_kinds = bytearray(buffers["field_kinds"])
+        field_kinds[chain_field] = 6
+        replacements = {"field_kinds": memoryview(bytes(field_kinds))}
+    elif corruption == "item-kind":
+        item_kinds = bytearray(buffers["item_kinds"])
+        item_kinds[item_start] = 2
+        replacements = {"item_kinds": memoryview(bytes(item_kinds))}
+    else:
+        item_values = bytearray(buffers["item_values"])
+        if corruption == "wrong-item":
+            declaration_field = field_start(tagged_nodes(60)[0])
+            replacement = int.from_bytes(
+                buffers["field_values"][
+                    declaration_field * 8 : (declaration_field + 1) * 8
+                ],
+                "little",
+            )
+        else:
+            assert corruption == "nested-chain"
+            replacement = chain_id
+        item_values[item_start * 8 : (item_start + 1) * 8] = replacement.to_bytes(
+            8,
+            "little",
+        )
+        replacements = {"item_values": memoryview(bytes(item_values))}
+    compiler = prepare_native_encoded_direct(_replace_buffers(lease, replacements))
+    with pytest.raises(
+        (SnapshotCompatibilityError, NativeEncodedDirectUnsupported),
+        match=(
+            r"ordered sequence|sorted and unique|collection item|component kind|"
+            r"scalar offset|object-property|named or inverse"
+        ),
+    ):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -1733,7 +1897,8 @@ def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication()
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
         'ObjectPropertyRange(Annotation(<urn:meta> "unsupported") :p :R)',
-        "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
+        'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") '
+        "ObjectPropertyChain(:p :q) :r)",
         'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") :p :q)',
         'InverseObjectProperties(Annotation(<urn:meta> "unsupported") :p :q)',
         'EquivalentObjectProperties(Annotation(<urn:meta> "unsupported") :p :q)',
@@ -1746,7 +1911,7 @@ def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication()
         "restriction-pair",
         "complex-domain",
         "annotated-range",
-        "property-chain",
+        "annotated-property-chain",
         "annotated-subproperty",
         "annotated-inverse",
         "annotated-equivalent",

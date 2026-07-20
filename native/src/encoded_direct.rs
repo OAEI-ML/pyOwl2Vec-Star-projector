@@ -207,6 +207,7 @@ pub(crate) struct DirectCompileStats {
     pub(crate) object_property_assertions: usize,
     pub(crate) negative_object_property_assertions: usize,
     pub(crate) sub_object_properties: usize,
+    pub(crate) object_property_chains: usize,
     pub(crate) equivalent_object_properties: usize,
     pub(crate) disjoint_object_properties: usize,
     pub(crate) inverse_object_properties: usize,
@@ -322,6 +323,7 @@ struct RootCounts {
     object_property_assertions: usize,
     negative_object_property_assertions: usize,
     sub_object_properties: usize,
+    object_property_chains: usize,
     equivalent_object_properties: usize,
     disjoint_object_properties: usize,
     inverse_object_properties: usize,
@@ -699,6 +701,34 @@ impl<'a> DirectColumns<'a> {
                 ));
             }
             previous = node_id;
+        }
+        Ok((start, length))
+    }
+
+    fn node_sequence_range(
+        self,
+        index: usize,
+        minimum: usize,
+    ) -> Result<(usize, usize), KernelError> {
+        if self.field_kind(index)? != COMPONENT_SEQUENCE {
+            return Err(KernelError::malformed(
+                "encoded collection field is not an ordered sequence",
+            ));
+        }
+        let start = self.field_value(index)?;
+        let length = self.field_length(index)?;
+        if start > self.item_count() || length > self.item_count().saturating_sub(start) {
+            return Err(KernelError::malformed(
+                "encoded ordered-sequence range is out of bounds",
+            ));
+        }
+        if length < minimum {
+            return Err(KernelError::malformed(format!(
+                "encoded ordered sequence has {length} items; expected at least {minimum}",
+            )));
+        }
+        for item_index in start..start + length {
+            self.item_node(item_index)?;
         }
         Ok((start, length))
     }
@@ -1332,6 +1362,47 @@ impl<'a> DirectColumns<'a> {
         })
     }
 
+    fn validate_object_property_chain(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_OBJECT_PROPERTY_CHAIN {
+            return Err(KernelError::malformed(
+                "encoded object-property-chain cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 1)?;
+        let (item_start, length) = self.node_sequence_range(start, 2)?;
+        for item_index in item_start..item_start + length {
+            self.object_property_expression(self.item_node(item_index)?, maximum)?;
+        }
+        Ok(())
+    }
+
+    fn validate_sub_object_property_of(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<bool, KernelError> {
+        if self.node_tag(node_id)? != TAG_SUB_OBJECT_PROPERTY_OF {
+            return Err(KernelError::malformed(
+                "encoded sub-object-property cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        let first_id = self.field_node(start)?;
+        let is_chain = self.node_tag(first_id)? == TAG_OBJECT_PROPERTY_CHAIN;
+        if is_chain {
+            self.validate_object_property_chain(first_id, maximum)?;
+        } else {
+            self.object_property_expression(first_id, maximum)?;
+        }
+        self.object_property_expression(self.field_node(start + 1)?, maximum)?;
+        self.empty_annotation_set(start + 2)?;
+        Ok(is_chain)
+    }
+
     fn role_axiom_parts(
         self,
         node_id: usize,
@@ -1346,13 +1417,6 @@ impl<'a> DirectColumns<'a> {
             ));
         }
         let start = self.exact_fields(node_id, 3)?;
-        if expected_tag == TAG_SUB_OBJECT_PROPERTY_OF
-            && self.node_tag(self.field_node(start)?)? == TAG_OBJECT_PROPERTY_CHAIN
-        {
-            return Err(KernelError::unsupported(
-                "direct native slice does not yet support object-property chains",
-            ));
-        }
         let first = self.object_property_expression(self.field_node(start)?, maximum)?;
         let second = self.object_property_expression(self.field_node(start + 1)?, maximum)?;
         self.empty_annotation_set(start + 2)?;
@@ -1930,6 +1994,9 @@ impl<'a> DirectColumns<'a> {
                 TAG_OBJECT_INVERSE_OF => {
                     self.object_inverse_iri(node_id, maximum_iri)?;
                 }
+                TAG_OBJECT_PROPERTY_CHAIN => {
+                    self.validate_object_property_chain(node_id, maximum_iri)?;
+                }
                 TAG_OBJECT_INTERSECTION_OF | TAG_OBJECT_UNION_OF => {
                     self.validate_aggregate_expression(node_id, maximum_iri)?;
                 }
@@ -1956,8 +2023,11 @@ impl<'a> DirectColumns<'a> {
                 TAG_DISJOINT_UNION => {
                     self.validate_disjoint_union(node_id, maximum_iri)?;
                 }
-                TAG_SUB_OBJECT_PROPERTY_OF | TAG_INVERSE_OBJECT_PROPERTIES => {
-                    self.role_axiom_parts(node_id, self.node_tag(node_id)?, maximum_iri)?;
+                TAG_SUB_OBJECT_PROPERTY_OF => {
+                    self.validate_sub_object_property_of(node_id, maximum_iri)?;
+                }
+                TAG_INVERSE_OBJECT_PROPERTIES => {
+                    self.role_axiom_parts(node_id, TAG_INVERSE_OBJECT_PROPERTIES, maximum_iri)?;
                 }
                 TAG_EQUIVALENT_OBJECT_PROPERTIES | TAG_DISJOINT_OBJECT_PROPERTIES => {
                     self.validate_object_property_set_axiom(
@@ -2080,6 +2150,9 @@ impl<'a> DirectColumns<'a> {
                 (ROOT_AXIOM, TAG_DISJOINT_UNION) => counts.disjoint_unions += 1,
                 (ROOT_AXIOM, TAG_SUB_OBJECT_PROPERTY_OF) => {
                     counts.sub_object_properties += 1;
+                    if self.validate_sub_object_property_of(node_id, maximum_iri)? {
+                        counts.object_property_chains += 1;
+                    }
                 }
                 (ROOT_AXIOM, TAG_EQUIVALENT_OBJECT_PROPERTIES) => {
                     counts.equivalent_object_properties += 1;
@@ -2196,6 +2269,11 @@ impl<'a> DirectColumns<'a> {
             if ![TAG_SUB_OBJECT_PROPERTY_OF, TAG_INVERSE_OBJECT_PROPERTIES].contains(&tag) {
                 continue;
             }
+            if tag == TAG_SUB_OBJECT_PROPERTY_OF
+                && self.validate_sub_object_property_of(node_id, maximum_iri)?
+            {
+                continue;
+            }
             let (first, second) = self.role_axiom_parts(node_id, tag, maximum_iri)?;
             let owlapi_hash = if tag == TAG_SUB_OBJECT_PROPERTY_OF {
                 combine_hash(1823, &[first.owlapi_hash, second.owlapi_hash, 0])
@@ -2214,7 +2292,12 @@ impl<'a> DirectColumns<'a> {
                 canonical_order,
             });
         }
-        if rows.len() != role_axiom_count {
+        if rows
+            .len()
+            .checked_add(counts.object_property_chains)
+            .ok_or_else(|| KernelError::resource("encoded role-row count overflow"))?
+            != role_axiom_count
+        {
             return Err(KernelError::malformed(
                 "encoded role-axiom count changed after successful preflight",
             ));
@@ -2233,7 +2316,10 @@ impl<'a> DirectColumns<'a> {
             )
         });
         let mut role_state = RoleState::with_capacity(
-            counts.sub_object_properties,
+            counts
+                .sub_object_properties
+                .checked_sub(counts.object_property_chains)
+                .ok_or_else(|| KernelError::malformed("encoded role counters are inconsistent"))?,
             counts.inverse_object_properties,
         )?;
         for (index, row) in rows.into_iter().enumerate() {
@@ -2829,6 +2915,7 @@ pub(crate) fn compile_direct_with_options(
         object_property_assertions: counts.object_property_assertions,
         negative_object_property_assertions: counts.negative_object_property_assertions,
         sub_object_properties: counts.sub_object_properties,
+        object_property_chains: counts.object_property_chains,
         equivalent_object_properties: counts.equivalent_object_properties,
         disjoint_object_properties: counts.disjoint_object_properties,
         inverse_object_properties: counts.inverse_object_properties,
@@ -3161,6 +3248,19 @@ mod tests {
             }
         }
 
+        fn push_node_sequence(&mut self, node_ids: &[u64]) {
+            self.field_kinds.push(COMPONENT_SEQUENCE);
+            self.field_values
+                .extend_from_slice(&(self.item_kinds.len() as u64).to_le_bytes());
+            self.field_lengths
+                .extend_from_slice(&(node_ids.len() as u64).to_le_bytes());
+            for node_id in node_ids {
+                self.item_kinds.push(COMPONENT_NODE);
+                self.item_values.extend_from_slice(&node_id.to_le_bytes());
+                self.item_lengths.extend_from_slice(&0_u64.to_le_bytes());
+            }
+        }
+
         fn finish_node(&mut self, tag: u16) {
             if self.node_field_offsets.is_empty() {
                 self.node_field_offsets
@@ -3444,6 +3544,19 @@ mod tests {
         fixture.push_node_set(&[8, 31]);
         fixture.push_empty_set();
         fixture.finish_node(TAG_EQUIVALENT_CLASSES); // 32
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&32_u32.to_le_bytes());
+        fixture
+    }
+
+    fn object_property_chain_fixture() -> Fixture {
+        let mut fixture = named_role_axiom_fixture();
+        fixture.push_node_sequence(&[15, 13]);
+        fixture.finish_node(TAG_OBJECT_PROPERTY_CHAIN); // 31
+        fixture.push_node_ref(31);
+        fixture.push_node_ref(12);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_OBJECT_PROPERTY_OF); // 32
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&32_u32.to_le_bytes());
         fixture
@@ -4044,6 +4157,44 @@ mod tests {
         assert!(asserted.is_empty());
         assert_eq!(stats.skipped_axioms, 0);
         assert_eq!(stats.role_expansion_edges, 0);
+    }
+
+    #[test]
+    fn ordered_inverse_property_chains_are_validated_but_do_not_mutate_roles() {
+        let fixture = object_property_chain_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            6,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 6);
+        assert_eq!(stats.sub_object_properties, 2);
+        assert_eq!(stats.object_property_chains, 1);
+        assert_eq!(stats.role_expansion_edges, 4);
+        assert_eq!(stats.skipped_axioms, 9);
+
+        let mut malformed = object_property_chain_fixture();
+        let chain_field =
+            read_usize(&malformed.node_field_offsets, 30, "offset").expect("chain field offset");
+        malformed.field_lengths[chain_field * 8..(chain_field + 1) * 8]
+            .copy_from_slice(&1_u64.to_le_bytes());
+        assert!(matches!(
+            compile_direct(
+                malformed.columns(),
+                false,
+                false,
+                false,
+                6,
+                1024,
+                &running_state(),
+            ),
+            Err(KernelError::Malformed(_))
+        ));
     }
 
     #[test]
