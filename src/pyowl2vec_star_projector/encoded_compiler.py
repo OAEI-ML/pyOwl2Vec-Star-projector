@@ -1,6 +1,7 @@
 """Bounded encoded-column to projector-edge compiler slice.
 
-The slice is intentionally narrow: one canonical direct segment containing
+The slice is intentionally narrow: one canonical direct segment, or one
+overlay-base segment referencing a canonical direct source, containing
 declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
 axioms, named ``ClassAssertion`` axioms, direct ``ObjectPropertyAssertion``
 axioms over named or anonymous individuals, and named object-property
@@ -16,8 +17,10 @@ fail closed.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Protocol, cast
 
 from pyowl_core.model import RDF_PLAIN_LITERAL_IRI, XSD_STRING_IRI
 
@@ -36,7 +39,12 @@ from .compiler import (
     _render_datatype,
 )
 from .diagnostics import ProjectionDiagnostic
-from .encoded import EncodedNegotiation, EncodedStructuralLease
+from .encoded import (
+    ENCODED_BUFFER_WIDTHS,
+    EncodedNegotiation,
+    EncodedStructuralLease,
+    _validate_encoded_view,
+)
 from .errors import SnapshotCompatibilityError
 from .model import Edge
 from .options import ProjectionOptions
@@ -62,6 +70,11 @@ _TAG_OBJECT_PROPERTY_RANGE = 75
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
+
+_SEGMENT_DIRECT = 1
+_SEGMENT_OVERLAY_BASE = 2
+_POSTINGS_ALL = 0
+_POSTINGS_EXCLUDE = 2
 
 _ROOT_AXIOM = 2
 _COMPONENT_NONE = 0
@@ -183,6 +196,14 @@ _ENTITY_KINDS = frozenset(
 _MAX_ENTITY_KIND_BYTES = max(map(len, _ENTITY_KINDS))
 
 
+class _OverlayBaseSegmentLike(Protocol):
+    role: object
+    source: object | None
+    owner: object
+    posting_mode: object
+    member_token: object
+
+
 @dataclass(frozen=True, slots=True)
 class EncodedSubsetCounters:
     """Test-visible bounded-work counters for the incomplete compiler slice."""
@@ -205,6 +226,11 @@ class EncodedSubsetCounters:
     literal_nodes: int = 0
     annotation_nodes: int = 0
     scalar_bytes_checked: int = 0
+    referenced_segments: int = 0
+    posting_rows_inspected: int = 0
+    scope_map_rows_inspected: int = 0
+    source_roots_inspected: int = 0
+    selected_roots: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
     scalar_fallbacks: int = 0
@@ -229,6 +255,11 @@ class EncodedSubsetCounters:
             self.literal_nodes,
             self.annotation_nodes,
             self.scalar_bytes_checked,
+            self.referenced_segments,
+            self.posting_rows_inspected,
+            self.scope_map_rows_inspected,
+            self.source_roots_inspected,
+            self.selected_roots,
             self.edge_batches,
             self.raw_edges,
             self.scalar_fallbacks,
@@ -257,6 +288,11 @@ class _MutableCounters:
     literal_nodes: int = 0
     annotation_nodes: int = 0
     scalar_bytes_checked: int = 0
+    referenced_segments: int = 0
+    posting_rows_inspected: int = 0
+    scope_map_rows_inspected: int = 0
+    source_roots_inspected: int = 0
+    selected_roots: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
     scalar_fallbacks: int = 0
@@ -281,6 +317,11 @@ class _MutableCounters:
             literal_nodes=self.literal_nodes,
             annotation_nodes=self.annotation_nodes,
             scalar_bytes_checked=self.scalar_bytes_checked,
+            referenced_segments=self.referenced_segments,
+            posting_rows_inspected=self.posting_rows_inspected,
+            scope_map_rows_inspected=self.scope_map_rows_inspected,
+            source_roots_inspected=self.source_roots_inspected,
+            selected_roots=self.selected_roots,
             edge_batches=self.edge_batches,
             raw_edges=self.raw_edges,
             scalar_fallbacks=self.scalar_fallbacks,
@@ -316,7 +357,7 @@ class _EquivalentOperand:
 
 @dataclass(slots=True)
 class EncodedSubsetCompilation:
-    """Prepared direct-view slice that emits only existing projector ``Edge`` IR."""
+    """Prepared encoded-view slice that emits only existing projector ``Edge`` IR."""
 
     view: object
     options: ProjectionOptions
@@ -331,6 +372,7 @@ class EncodedSubsetCompilation:
     _anonymous_ids: dict[int, str]
     _class_iris: frozenset[str]
     _counters: _MutableCounters
+    _retained_leases: tuple[EncodedStructuralLease, ...] = ()
     _ignored_restriction_subclasses: int = 0
     _ignored_annotation_assertions: int = 0
     _non_string_literal_renderings: int = 0
@@ -404,7 +446,7 @@ class EncodedSubsetCompilation:
         # The pinned Scala profile concatenates TBox, selected annotations,
         # ABox, then domain/range categories.  Schema tag order puts
         # AnnotationAssertion after ABox, so keep explicit bounded passes.
-        for root_index in range(self._columns.root_count):
+        for root_index in self._columns.iter_root_indices():
             root_id = self._columns.root_id(root_index)
             tag = self._columns.node_tag(root_id)
             if tag == _TAG_SUB_CLASS_OF:
@@ -443,7 +485,7 @@ class EncodedSubsetCompilation:
             return
 
         if self.options.include_literals:
-            for root_index in range(self._columns.root_count):
+            for root_index in self._columns.iter_root_indices():
                 root_id = self._columns.root_id(root_index)
                 if self._columns.node_tag(root_id) != _TAG_ANNOTATION_ASSERTION:
                     continue
@@ -460,7 +502,7 @@ class EncodedSubsetCompilation:
                     self._non_string_literal_renderings += 1
                 yield edge
 
-        for root_index in range(self._columns.root_count):
+        for root_index in self._columns.iter_root_indices():
             root_id = self._columns.root_id(root_index)
             tag = self._columns.node_tag(root_id)
             if tag == _TAG_CLASS_ASSERTION:
@@ -515,7 +557,12 @@ class EncodedSubsetCompilation:
 
 
 class _EncodedColumns:
-    def __init__(self, lease: EncodedStructuralLease) -> None:
+    def __init__(
+        self,
+        lease: EncodedStructuralLease,
+        *,
+        root_indices: tuple[int, ...] | None = None,
+    ) -> None:
         self._buffers = lease.buffers
         self._max_iri_bytes = _owner_limit(
             lease.owner,
@@ -531,6 +578,21 @@ class _EncodedColumns:
         self.node_count = self._buffers["node_tags"].nbytes // 2
         self.field_count = self._buffers["field_kinds"].nbytes
         self.item_count = self._buffers["item_kinds"].nbytes
+        self._root_indices = tuple(range(self.root_count)) if root_indices is None else root_indices
+        previous = -1
+        for index in self._root_indices:
+            if type(index) is not int or index <= previous or index >= self.root_count:
+                raise SnapshotCompatibilityError(
+                    "encoded subset selected roots are not sorted unique in-range indices"
+                )
+            previous = index
+
+    @property
+    def selected_root_count(self) -> int:
+        return len(self._root_indices)
+
+    def iter_root_indices(self) -> Iterator[int]:
+        return iter(self._root_indices)
 
     def inspect(self) -> _Inspection:
         counters = _MutableCounters(
@@ -550,6 +612,9 @@ class _EncodedColumns:
                     "encoded subset roots are not canonical and unique"
                 )
             previous_root = root_key
+        for root_index in self._root_indices:
+            root_kind = self._read("root_kinds", root_index, 1)
+            root_id = self.root_id(root_index)
             if root_kind != _ROOT_AXIOM:
                 inspection.fallback("encoded subset supports axiom roots only")
                 continue
@@ -818,22 +883,66 @@ class _EncodedColumns:
         )
         return Edge(subject, relation, destination), non_string_literal
 
-    def class_iris(self) -> frozenset[str]:
+    def reachable_node_ids(self) -> frozenset[int]:
+        """Return nodes reachable from the posting-selected root subset."""
+
+        reachable: set[int] = set()
+        pending = [self.root_id(index) for index in self._root_indices]
+        while pending:
+            node_id = pending.pop()
+            if node_id in reachable:
+                continue
+            reachable.add(node_id)
+            start, end = self._field_range(node_id)
+            for field_index in range(start, end):
+                kind = self._read("field_kinds", field_index, 1)
+                if kind == _COMPONENT_NODE:
+                    pending.append(self._field_node(field_index))
+                elif kind == _COMPONENT_SET:
+                    item_start, length = self._node_set_range(field_index)
+                    for item_index in range(item_start, item_start + length):
+                        pending.append(self._item_node(item_index))
+        return frozenset(reachable)
+
+    def class_iris(self, reachable: frozenset[int] | None = None) -> frozenset[str]:
         result: set[str] = set()
-        for node_id in range(1, self.node_count + 1):
+        selected = range(1, self.node_count + 1) if reachable is None else sorted(reachable)
+        for node_id in selected:
             iri = self._named_class_iri(node_id)
             if iri is not None:
                 result.add(iri)
         return frozenset(result)
 
-    def anonymous_ids(self) -> dict[int, str]:
+    def anonymous_ids(
+        self,
+        reachable: frozenset[int] | None = None,
+    ) -> dict[int, str]:
         result: dict[int, str] = {}
         next_identifier = 2_147_483_648
-        for node_id in range(1, self.node_count + 1):
+        selected = range(1, self.node_count + 1) if reachable is None else sorted(reachable)
+        for node_id in selected:
             if self.node_tag(node_id) == _TAG_ANONYMOUS_INDIVIDUAL:
                 result[node_id] = f"_:genid{next_identifier}"
                 next_identifier += 1
         return result
+
+    def anonymous_scopes(
+        self,
+        reachable: frozenset[int],
+    ) -> tuple[bytes, ...]:
+        """Return distinct source scopes in canonical anonymous-node order."""
+
+        scopes: list[bytes] = []
+        previous: bytes | None = None
+        for node_id in sorted(reachable):
+            if self.node_tag(node_id) != _TAG_ANONYMOUS_INDIVIDUAL:
+                continue
+            start = self._exact_fields(node_id, 2)
+            scope = bytes(self._scalar_payload(start, _COMPONENT_BYTES))
+            if scope != previous:
+                scopes.append(scope)
+                previous = scope
+        return tuple(scopes)
 
     def _individual_id(self, node_id: int, anonymous_ids: dict[int, str]) -> str | None:
         named = self._named_individual_iri(node_id)
@@ -885,7 +994,7 @@ class _EncodedColumns:
     ) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]]]:
         domains: dict[str, list[str]] = {}
         ranges: dict[str, list[str]] = {}
-        for root_index in range(self.root_count):
+        for root_index in self._root_indices:
             root_id = self.root_id(root_index)
             tag = self.node_tag(root_id)
             if tag == _TAG_OBJECT_PROPERTY_DOMAIN:
@@ -901,7 +1010,7 @@ class _EncodedColumns:
 
     def role_axioms(self) -> tuple[_EncodedRoleAxiom, ...]:
         rows: list[_EncodedRoleAxiom] = []
-        for root_index in range(self.root_count):
+        for root_index in self._root_indices:
             node_id = self.root_id(root_index)
             tag = self.node_tag(node_id)
             if tag not in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
@@ -1423,6 +1532,188 @@ class _EncodedColumns:
         return int.from_bytes(value[offset:end], "little")
 
 
+def _borrowed_segment_bytes(segment: object, name: str, width: int) -> memoryview:
+    try:
+        value = getattr(segment, name)
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "encoded subset segment metadata is not readable",
+            details={"buffer": name},
+        ) from error
+    if type(value) is not memoryview or not value.readonly:
+        raise SnapshotCompatibilityError(
+            "encoded subset segment buffer is not a readonly memoryview",
+            details={"buffer": name},
+        )
+    if (
+        value.format != "B"
+        or value.ndim != 1
+        or value.itemsize != 1
+        or not value.c_contiguous
+        or value.shape != (value.nbytes,)
+        or value.strides != (1,)
+        or value.nbytes % width
+    ):
+        raise SnapshotCompatibilityError(
+            "encoded subset segment buffer has an invalid fixed-width layout",
+            details={"buffer": name, "width": width},
+        )
+    return value
+
+
+def _validate_empty_overlay_columns(lease: EncodedStructuralLease) -> None:
+    if set(lease.buffers) != set(ENCODED_BUFFER_WIDTHS):
+        raise SnapshotCompatibilityError(
+            "encoded subset overlay local buffer set differs from schema 1"
+        )
+    for name, width in ENCODED_BUFFER_WIDTHS.items():
+        value = lease.buffers[name]
+        if type(value) is not memoryview or not value.readonly:
+            raise SnapshotCompatibilityError(
+                "encoded subset overlay local buffer is not readonly",
+                details={"buffer": name},
+            )
+        if (
+            value.format != "B"
+            or value.ndim != 1
+            or value.itemsize != 1
+            or not value.c_contiguous
+            or value.shape != (value.nbytes,)
+            or value.strides != (1,)
+            or value.nbytes % width
+        ):
+            raise SnapshotCompatibilityError(
+                "encoded subset overlay local buffer layout is invalid",
+                details={"buffer": name},
+            )
+        expected = 8 if name == "node_field_offsets" else 0
+        if value.nbytes != expected or (expected and bytes(value) != b"\x00" * expected):
+            raise SnapshotCompatibilityError(
+                "encoded subset overlay without delta has nonempty local columns",
+                details={"buffer": name},
+            )
+
+
+def _overlay_base_source(
+    lease: EncodedStructuralLease,
+    segment: object,
+) -> tuple[
+    EncodedStructuralLease,
+    tuple[int, ...],
+    Mapping[bytes, bytes],
+    int,
+    int,
+]:
+    """Validate one referenced-direct overlay base and resolve its postings."""
+
+    try:
+        typed_segment = cast(_OverlayBaseSegmentLike, segment)
+        role = typed_segment.role
+        source = typed_segment.source
+        owner = typed_segment.owner
+        posting_mode = typed_segment.posting_mode
+        member_token = typed_segment.member_token
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "encoded subset overlay base metadata is not readable"
+        ) from error
+    if type(role) is not int or role != _SEGMENT_OVERLAY_BASE:
+        raise SnapshotCompatibilityError("encoded subset overlay base role is invalid")
+    if source is lease.encoded_view:
+        raise SnapshotCompatibilityError(
+            "encoded subset overlay segment graph contains a direct cycle"
+        )
+    if source is None or owner is not getattr(source, "owner", None):
+        raise SnapshotCompatibilityError(
+            "encoded subset overlay base does not retain its referenced owner"
+        )
+    if type(posting_mode) is not int or posting_mode not in {
+        _POSTINGS_ALL,
+        _POSTINGS_EXCLUDE,
+    }:
+        raise SnapshotCompatibilityError("encoded subset overlay base posting mode is invalid")
+    if member_token is not None:
+        raise SnapshotCompatibilityError(
+            "encoded subset overlay base unexpectedly has a member token"
+        )
+
+    postings = _borrowed_segment_bytes(segment, "root_ids", 4)
+    raw_scope_map = _borrowed_segment_bytes(segment, "anonymous_scope_map", 64)
+    if posting_mode == _POSTINGS_ALL and postings.nbytes:
+        raise SnapshotCompatibilityError("encoded subset ALL overlay base requires empty postings")
+    if posting_mode == _POSTINGS_EXCLUDE and not postings.nbytes:
+        raise SnapshotCompatibilityError("encoded subset EXCLUDE overlay base requires postings")
+
+    scope_map: dict[bytes, bytes] = {}
+    previous_scope: bytes | None = None
+    for offset in range(0, raw_scope_map.nbytes, 64):
+        source_scope = bytes(raw_scope_map[offset : offset + 32])
+        target_scope = bytes(raw_scope_map[offset + 32 : offset + 64])
+        if source_scope == target_scope:
+            raise SnapshotCompatibilityError(
+                "encoded subset anonymous scope map contains an identity row"
+            )
+        if previous_scope is not None and source_scope <= previous_scope:
+            raise SnapshotCompatibilityError(
+                "encoded subset anonymous scope-map sources are not sorted unique"
+            )
+        scope_map[source_scope] = target_scope
+        previous_scope = source_scope
+
+    source_lease = _validate_encoded_view(
+        owner,
+        source,
+        type(lease.encoded_view),
+        lease.scope,
+    )
+    source_segments = source_lease.segments
+    if (
+        type(source_segments) is not tuple
+        or len(source_segments) != 1
+        or getattr(source_segments[0], "role", None) != _SEGMENT_DIRECT
+    ):
+        raise _ReferencedSegmentFallback(
+            "encoded compiler overlay slice requires a canonical direct source"
+        )
+    root_count = source_lease.buffers["root_kinds"].nbytes
+    excluded: set[int] = set()
+    previous_root_id = 0
+    for offset in range(0, postings.nbytes, 4):
+        root_id = int.from_bytes(postings[offset : offset + 4], "little")
+        if root_id <= previous_root_id or root_id > root_count:
+            raise SnapshotCompatibilityError(
+                "encoded subset overlay postings are not sorted unique in-range references"
+            )
+        excluded.add(root_id - 1)
+        previous_root_id = root_id
+    selected = tuple(index for index in range(root_count) if index not in excluded)
+    return (
+        source_lease,
+        selected,
+        MappingProxyType(scope_map),
+        postings.nbytes // 4,
+        raw_scope_map.nbytes // 64,
+    )
+
+
+class _ReferencedSegmentFallback(Exception):
+    """Internal signal for a valid referenced family outside this bounded slice."""
+
+
+def _scope_remap_preserves_order(
+    columns: _EncodedColumns,
+    reachable: frozenset[int],
+    scope_map: Mapping[bytes, bytes],
+) -> bool:
+    previous: bytes | None = None
+    for source_scope in columns.anonymous_scopes(reachable):
+        target_scope = scope_map.get(source_scope, source_scope)
+        if previous is not None and target_scope <= previous:
+            return False
+        previous = target_scope
+    return True
+
+
 def prepare_encoded_subset_compilation(
     view: object,
     options: ProjectionOptions,
@@ -1448,18 +1739,72 @@ def prepare_encoded_subset_compilation(
     if type(asserted_taxonomy_only) is not bool:
         raise TypeError("asserted_taxonomy_only must be bool")
 
-    columns = _EncodedColumns(lease)
+    if lease.owner is not view:
+        raise SnapshotCompatibilityError(
+            "encoded subset lease does not retain the exact compiled view"
+        )
+    segments = lease.segments
+    if type(segments) is not tuple or not segments:
+        raise SnapshotCompatibilityError(
+            "encoded subset segment manifest is not a nonempty exact tuple"
+        )
+    first_role = getattr(segments[0], "role", None)
+    if type(first_role) is not int or first_role not in {1, 2, 3, 4, 5}:
+        raise SnapshotCompatibilityError("encoded subset segment role is invalid")
+
+    scope_map: Mapping[bytes, bytes] = MappingProxyType({})
+    retained_leases: tuple[EncodedStructuralLease, ...] = ()
+    is_overlay_base = len(segments) == 1 and first_role == _SEGMENT_OVERLAY_BASE
+    if is_overlay_base:
+        _validate_empty_overlay_columns(lease)
+        try:
+            (
+                source_lease,
+                selected_roots,
+                scope_map,
+                posting_rows,
+                scope_map_rows,
+            ) = _overlay_base_source(lease, segments[0])
+        except _ReferencedSegmentFallback as fallback:
+            counters = _MutableCounters(referenced_segments=1, scalar_fallbacks=1)
+            reason = f"{fallback}; selected whole-operation scalar compiler"
+            return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+        columns = _EncodedColumns(source_lease, root_indices=selected_roots)
+        retained_leases = (source_lease,)
+    else:
+        columns = _EncodedColumns(lease)
+
     inspection = columns.inspect()
     counters = inspection.counters
-    segment = lease.segments[0] if len(lease.segments) == 1 else None
-    if segment is None or getattr(segment, "role", None) != 1:
+    if is_overlay_base:
+        counters.referenced_segments = 1
+        counters.posting_rows_inspected = posting_rows
+        counters.scope_map_rows_inspected = scope_map_rows
+        counters.source_roots_inspected = columns.root_count
+        counters.selected_roots = columns.selected_root_count
+    elif len(segments) != 1 or first_role != _SEGMENT_DIRECT:
         counters.scalar_fallbacks = 1
-        reason = "encoded compiler slice supports canonical direct segments only"
+        reason = (
+            "encoded compiler slice supports direct segments and one referenced-direct "
+            "overlay base only"
+        )
         return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
 
     if inspection.fallback_reason is not None:
         counters.scalar_fallbacks = 1
         reason = f"{inspection.fallback_reason}; selected whole-operation scalar compiler"
+        return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+    reachable = columns.reachable_node_ids()
+    if is_overlay_base and not _scope_remap_preserves_order(
+        columns,
+        reachable,
+        scope_map,
+    ):
+        counters.scalar_fallbacks = 1
+        reason = (
+            "encoded overlay anonymous scope remap does not preserve canonical order; "
+            "selected whole-operation scalar compiler"
+        )
         return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
     if (
         counters.annotation_assertion_axioms
@@ -1476,9 +1821,9 @@ def prepare_encoded_subset_compilation(
 
     domains, ranges = ({}, {}) if asserted_taxonomy_only else columns.domain_range_index()
     role_axioms = () if asserted_taxonomy_only else columns.role_axioms()
-    anonymous_ids = {} if asserted_taxonomy_only else columns.anonymous_ids()
+    anonymous_ids = {} if asserted_taxonomy_only else columns.anonymous_ids(reachable)
     class_iris = (
-        columns.class_iris()
+        columns.class_iris(reachable)
         if options.include_literals
         and counters.annotation_assertion_axioms
         and not asserted_taxonomy_only
@@ -1503,6 +1848,7 @@ def prepare_encoded_subset_compilation(
         _anonymous_ids=anonymous_ids,
         _class_iris=class_iris,
         _counters=counters,
+        _retained_leases=retained_leases,
         _ignored_restriction_subclasses=ignored_restrictions,
         statistics=CompileStatistics(ignored_shapes=ignored_restrictions),
     )

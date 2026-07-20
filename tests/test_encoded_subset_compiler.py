@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, cast
@@ -11,7 +11,16 @@ from unittest.mock import patch
 
 import pyowl_core
 import pytest
-from pyowl_core import BackendPreference, ImportPolicy, LoadOptions
+from pyowl_core import (
+    BackendPreference,
+    CanonicalSet,
+    ImportPolicy,
+    LoadOptions,
+    OntologyDelta,
+    apply_delta,
+    compose_views,
+)
+from pyowl_core.model import AnonymousIndividual, ObjectPropertyAssertion
 
 from pyowl2vec_star_projector import Edge, ProjectionOptions, Projector
 from pyowl2vec_star_projector import api as api_module
@@ -37,6 +46,7 @@ from pyowl2vec_star_projector.errors import (
     SnapshotCompatibilityError,
     UnsupportedAxiomShapeError,
 )
+from tests.support.core_views import ConformingView
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,6 +73,82 @@ def _lease(view: object) -> EncodedStructuralLease:
         encoded,
         pyowl_core.EncodedStructuralView,
         pyowl_core.AxiomScope.CLOSURE,
+    )
+
+
+@dataclass(slots=True)
+class _SegmentFixture:
+    role: int
+    owner: object
+    source: object | None
+    posting_mode: int
+    root_ids: memoryview
+    member_token: bytes | None = None
+    anonymous_scope_map: memoryview = field(default_factory=lambda: memoryview(b""))
+
+
+def _postings(*root_ids: int) -> memoryview:
+    return memoryview(b"".join(root_id.to_bytes(4, "little") for root_id in root_ids))
+
+
+def _scope_map(*rows: tuple[bytes, bytes]) -> memoryview:
+    return memoryview(b"".join(source + target for source, target in sorted(rows)))
+
+
+def _overlay_base_lease(
+    view: object,
+    source: EncodedStructuralLease,
+    *,
+    posting_mode: int = 0,
+    postings: memoryview | None = None,
+    scope_map: memoryview | None = None,
+    local_columns_empty: bool = True,
+) -> EncodedStructuralLease:
+    top = _lease(view) if hasattr(view, "view") else _lease(_snapshot(""))
+    empty = _lease(_snapshot(""))
+    segment = _SegmentFixture(
+        2,
+        source.owner,
+        source.encoded_view,
+        posting_mode,
+        memoryview(b"") if postings is None else postings,
+        anonymous_scope_map=memoryview(b"") if scope_map is None else scope_map,
+    )
+    return replace(
+        top,
+        owner=view,
+        encoded_view=empty.encoded_view if not hasattr(view, "view") else top.encoded_view,
+        buffers=empty.buffers if local_columns_empty else top.buffers,
+        segments=(segment,),
+    )
+
+
+def _anonymous_scope(lease: EncodedStructuralLease, node_id: int) -> bytes:
+    buffers = lease.buffers
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(
+        offsets[(node_id - 1) * 8 : node_id * 8],
+        "little",
+    )
+    values = buffers["field_values"]
+    lengths = buffers["field_lengths"]
+    scalar_offset = int.from_bytes(
+        values[field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    scalar_length = int.from_bytes(
+        lengths[field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    return bytes(buffers["scalar_bytes"][scalar_offset : scalar_offset + scalar_length])
+
+
+def _anonymous_node_ids(lease: EncodedStructuralLease) -> tuple[int, ...]:
+    tags = lease.buffers["node_tags"]
+    return tuple(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 3
     )
 
 
@@ -357,6 +443,243 @@ def test_anonymous_object_property_assertions_match_scalar_blank_ids() -> None:
             assert counters.edge_batches == 3
             assert counters.raw_edges == 3
             assert counters.scalar_fallbacks == 0
+
+
+def test_overlay_base_exclusion_matches_scalar_and_retains_direct_owner() -> None:
+    base = _snapshot("ObjectPropertyAssertion(:p _:a :i) ObjectPropertyAssertion(:p _:z :j)")
+    source_lease = _lease(base)
+    axioms = tuple(base.iter_axioms())  # type: ignore[attr-defined]
+    assert len(axioms) == 2
+    overlay = apply_delta(
+        base,  # type: ignore[arg-type]
+        OntologyDelta(remove_axioms=CanonicalSet((axioms[0],))),
+    )
+    lease = _overlay_base_lease(
+        overlay,
+        source_lease,
+        posting_mode=2,
+        postings=_postings(1),
+    )
+    options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(overlay, options=options)
+
+    prepared, negotiation, initial = prepare_encoded_subset_compilation(
+        overlay,
+        replace(options, backend="native"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert initial is not None
+    assert prepared._retained_leases == (source_lease,)
+    assert prepared._retained_leases[0].owner is base
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("overlay base crossed scalar axiom traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(overlay, options=replace(options, backend="native"))
+
+    assert actual == expected
+    assert len(actual) == 1
+    assert actual[0].source == "_:genid2147483648"
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.referenced_segments == 1
+    assert counters.posting_rows_inspected == 1
+    assert counters.scope_map_rows_inspected == 0
+    assert counters.source_roots_inspected == 2
+    assert counters.selected_roots == 1
+    assert counters.roots_inspected == 2
+    assert counters.object_property_assertion_axioms == 1
+    assert counters.anonymous_individuals == 2
+    assert counters.scalar_fallbacks == 0
+
+
+def test_overlay_base_scope_remap_matches_scalar_blank_identity() -> None:
+    source = _snapshot("ObjectPropertyAssertion(:p _:anon :i)")
+    source_lease = _lease(source)
+    axiom = next(source.iter_axioms())  # type: ignore[attr-defined]
+    assert isinstance(axiom, ObjectPropertyAssertion)
+    assert isinstance(axiom.source, AnonymousIndividual)
+    source_scope = axiom.source.document_scope
+    target_scope = bytes((source_scope[0] ^ 0xFF,)) + source_scope[1:]
+    mapped_axiom = replace(
+        axiom,
+        source=AnonymousIndividual(target_scope, axiom.source.local_key),
+    )
+    target_document = replace(
+        source.root,  # type: ignore[attr-defined]
+        axioms=CanonicalSet((mapped_axiom,)),
+    )
+    target = ConformingView((target_document,))
+    lease = _overlay_base_lease(
+        target,
+        source_lease,
+        scope_map=_scope_map((source_scope, target_scope)),
+    )
+    options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(target, options=options)
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("scope-remapped overlay crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(target, options=replace(options, backend="native"))
+
+    assert actual == expected == [Edge("_:genid2147483648", "urn:slice#p", "urn:slice#i")]
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.referenced_segments == 1
+    assert counters.posting_rows_inspected == 0
+    assert counters.scope_map_rows_inspected == 1
+    assert counters.source_roots_inspected == counters.selected_roots == 1
+    assert counters.scalar_fallbacks == 0
+
+
+def test_overlay_scope_remap_that_reorders_identities_falls_back_before_output() -> None:
+    left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
+    right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
+    source = compose_views(left, right)  # type: ignore[arg-type]
+    source_lease = _lease(source)
+    anonymous_nodes = _anonymous_node_ids(source_lease)
+    assert len(anonymous_nodes) == 2
+    scopes = tuple(_anonymous_scope(source_lease, node_id) for node_id in anonymous_nodes)
+    assert scopes[0] < scopes[1]
+    overlay = apply_delta(source, OntologyDelta())
+    lease = _overlay_base_lease(
+        overlay,
+        source_lease,
+        scope_map=_scope_map(
+            (scopes[0], b"\xff" * 32),
+            (scopes[1], b"\x00" * 32),
+        ),
+    )
+
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        overlay,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert "scope remap does not preserve canonical order" in (negotiation.reason or "")
+    assert counters is not None
+    assert counters.referenced_segments == 1
+    assert counters.scope_map_rows_inspected == 2
+    assert counters.source_roots_inspected == counters.selected_roots == 2
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == counters.raw_edges == 0
+
+
+@pytest.mark.parametrize(
+    ("corruption", "match"),
+    [
+        ("posting-partial", "fixed-width layout"),
+        ("posting-writable", "readonly memoryview"),
+        ("posting-out-of-range", "sorted unique in-range"),
+        ("posting-duplicate", "sorted unique in-range"),
+        ("scope-identity", "identity row"),
+        ("scope-unsorted", "sources are not sorted unique"),
+        ("member-token", "member token"),
+        ("owner-mismatch", "referenced owner"),
+        ("local-columns", "nonempty local columns"),
+    ],
+)
+def test_overlay_base_hostile_metadata_fails_before_output(
+    corruption: str,
+    match: str,
+) -> None:
+    base = _snapshot("ObjectPropertyAssertion(:p _:a :i) ObjectPropertyAssertion(:p _:z :j)")
+    source_lease = _lease(base)
+    axioms = tuple(base.iter_axioms())  # type: ignore[attr-defined]
+    overlay = apply_delta(
+        base,  # type: ignore[arg-type]
+        OntologyDelta(remove_axioms=CanonicalSet((axioms[0],))),
+    )
+    lease = _overlay_base_lease(
+        overlay,
+        source_lease,
+        posting_mode=2,
+        postings=_postings(1),
+        local_columns_empty=corruption != "local-columns",
+    )
+    segment = lease.segments[0]
+    if corruption == "posting-partial":
+        segment = replace(segment, root_ids=memoryview(b"\x01"))
+    elif corruption == "posting-writable":
+        segment = replace(segment, root_ids=memoryview(bytearray((1).to_bytes(4, "little"))))
+    elif corruption == "posting-out-of-range":
+        segment = replace(segment, root_ids=_postings(3))
+    elif corruption == "posting-duplicate":
+        segment = replace(segment, root_ids=_postings(1, 1))
+    elif corruption == "scope-identity":
+        scope = _anonymous_scope(source_lease, _anonymous_node_ids(source_lease)[0])
+        segment = replace(segment, anonymous_scope_map=memoryview(scope + scope))
+    elif corruption == "scope-unsorted":
+        segment = replace(
+            segment,
+            anonymous_scope_map=memoryview(b"b" * 32 + b"c" * 32 + b"a" * 32 + b"d" * 32),
+        )
+    elif corruption == "member-token":
+        segment = replace(segment, member_token=b"m" * 32)
+    elif corruption == "owner-mismatch":
+        segment = replace(segment, owner=object())
+    hostile = replace(lease, segments=(segment,))
+
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        prepare_encoded_subset_compilation(
+            overlay,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+def test_overlay_base_revalidates_referenced_source_columns() -> None:
+    base = _snapshot("ObjectPropertyAssertion(:p _:a :i)")
+    source_lease = _lease(base)
+    buffers = dict(source_lease.buffers)
+    tags = buffers["node_tags"]
+    assertion_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 113
+    )
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = assertion_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile_source = replace(
+        source_lease.encoded_view,
+        buffers=MappingProxyType(buffers),
+    )
+    overlay = apply_delta(base, OntologyDelta())  # type: ignore[arg-type]
+    lease = _overlay_base_lease(overlay, source_lease)
+    hostile_segment = replace(lease.segments[0], source=hostile_source)
+    hostile = replace(lease, segments=(hostile_segment,))
+
+    with pytest.raises(SnapshotCompatibilityError, match=r"offsets|arity"):
+        prepare_encoded_subset_compilation(
+            overlay,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
 
 
 def test_selected_class_annotations_match_scalar_order_rendering_and_diagnostics() -> None:

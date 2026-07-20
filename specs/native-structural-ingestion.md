@@ -61,12 +61,21 @@ uses the pinned expression ordering and role expansion. Named `SubObjectProperty
 hash-set visitation order. The slice emits direct ABox triples and streams restriction and
 domain/range edges with that state through the existing projector `Edge` IR in caller-bounded
 batches, without reconstructing core OWL values. The dedicated asserted-taxonomy API preflights
-the same slice but emits only named-to-named `SubClassOf` edges. Any other valid constructor,
-annotations on the supported declaration/logical-axiom families, or segmented view selects
-scalar-native compilation for the complete operation before edge output. Test-visible counters
-cover inspected roots/nodes/scalar bytes, supported axiom kinds, batches, raw edges, and scalar
-fallbacks. This slice is intentionally absent from the native feature ledger; it does not change
-public backend promotion.
+the same slice but emits only named-to-named `SubClassOf` edges.
+
+One bounded segmented form uses the same compiler: an overlay-base-only manifest may reference a
+fully revalidated canonical direct closure with `ALL` or sorted `EXCLUDE` root postings and empty
+top-local columns. The compilation retains both leases/owners, applies postings before rule
+indexes and blank-ID assignment, and accepts anonymous scope maps only when the mapped scopes
+remain strictly canonical-order preserving. A valid order-changing scope map, nested referenced
+source, overlay delta, composite, or other segment family selects whole-operation scalar-native
+compilation before output. Malformed posting bounds/layout, scope rows, owner links, empty-local
+claims, or referenced columns fail closed. Any other valid constructor or annotations on the
+supported declaration/logical-axiom families also select scalar-native compilation for the
+complete operation before edge output. Test-visible counters cover inspected roots/nodes/scalar
+bytes, supported axiom kinds, referenced segments, posting/scope rows, source/selected roots,
+batches, raw edges, and scalar fallbacks. This slice is intentionally absent from the native
+feature ledger; it does not change public backend promotion.
 
 ## 3. Native projection compiler
 
