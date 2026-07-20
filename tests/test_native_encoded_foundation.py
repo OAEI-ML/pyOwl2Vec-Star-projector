@@ -115,6 +115,18 @@ def _property_chain_snapshot() -> object:
     )
 
 
+def _nonprojecting_class_snapshot() -> object:
+    return _snapshot(
+        "SubClassOf(:A ObjectOneOf(:member _:one)) "
+        "SubClassOf(ObjectHasValue(ObjectInverseOf(:p) _:value) :B) "
+        "SubClassOf(:C ObjectHasSelf(ObjectInverseOf(:q))) "
+        "ClassAssertion(ObjectOneOf(:member _:assertion) :i) "
+        "ClassAssertion(:Named _:classAnonymous) ClassAssertion(:Type :named) "
+        "SubClassOf(:TaxA :TaxB) SubObjectPropertyOf(:child :r) "
+        "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -173,6 +185,7 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.declarations == 3
     assert statistics.subclasses == 2
     assert statistics.restriction_subclasses == 0
+    assert statistics.ignored_subclasses == 0
     assert statistics.equivalents == 0
     assert statistics.aggregate_equivalents == 0
     assert statistics.disjoint_classes == 0
@@ -181,6 +194,7 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.same_individuals == 0
     assert statistics.different_individuals == 0
     assert statistics.class_assertions == 0
+    assert statistics.ignored_class_assertions == 0
     assert statistics.object_property_assertions == 0
     assert statistics.negative_object_property_assertions == 0
     assert statistics.sub_object_properties == 0
@@ -1467,10 +1481,10 @@ def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> N
     "body",
     [
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectExactCardinality(1 :p :C)))",
-        "ClassAssertion(:A _:anonymous)",
+        "ClassAssertion(ObjectComplementOf(:A) :i)",
         'EquivalentClasses(Annotation(<urn:meta> "unsupported") :A ObjectIntersectionOf(:B :C))',
     ],
-    ids=["complex-equivalent", "anonymous-individual", "annotated-equivalent"],
+    ids=["complex-equivalent", "recursive-class", "annotated-equivalent"],
 )
 def test_valid_but_out_of_slice_class_axioms_are_transactionally_unsupported(body: str) -> None:
     compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
@@ -1880,6 +1894,196 @@ def test_hostile_property_chain_rows_fail_before_output(corruption: str) -> None
             r"scalar offset|object-property|named or inverse"
         ),
     ):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_nonprojecting_object_expressions_match_scalar_state_neutral_ignores(
+    only_taxonomy: bool,
+) -> None:
+    view = _nonprojecting_class_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert len(actual) == 4
+    assert not any(
+        edge.relation in {"urn:native-direct#p", "urn:native-direct#q"} for edge in actual
+    )
+    assert statistics.roots == 10
+    assert statistics.subclasses == 4
+    assert statistics.restriction_subclasses == 0
+    assert statistics.ignored_subclasses == 3
+    assert statistics.class_assertions == 3
+    assert statistics.ignored_class_assertions == 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 1
+
+
+def test_asserted_taxonomy_preflights_nonprojecting_expressions_without_leakage() -> None:
+    view = _nonprojecting_class_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert statistics.ignored_subclasses == 3
+    assert statistics.ignored_class_assertions == 2
+    assert statistics.role_expansion_edges == 0
+
+
+def test_many_nonprojecting_roots_cross_one_zero_output_bounded_call() -> None:
+    axioms = " ".join(
+        (
+            f"SubClassOf(:A{index:03d} ObjectHasSelf(:p{index:03d}))"
+            if index % 2 == 0
+            else "ClassAssertion("
+            f"ObjectOneOf(:member{index:03d} _:anonymous{index:03d}) :i{index:03d})"
+        )
+        for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(axioms)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == 250
+    assert statistics.subclasses == statistics.ignored_subclasses == 125
+    assert statistics.class_assertions == statistics.ignored_class_assertions == 125
+    assert statistics.skipped_axioms == 0
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize(
+    ("target_tag", "field_delta", "collection", "match"),
+    [
+        (33, 0, True, "individual"),
+        (36, 0, False, "object-property"),
+        (36, 1, False, "individual"),
+        (37, 0, False, "object-property"),
+    ],
+    ids=["one-of-member", "has-value-property", "has-value-member", "has-self-property"],
+)
+def test_hostile_nonprojecting_expression_rows_fail_before_output(
+    target_tag: int,
+    field_delta: int,
+    collection: bool,
+    match: str,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) SubClassOf(:A ObjectOneOf(:member _:one)) "
+            "SubClassOf(:B ObjectHasValue(ObjectInverseOf(:p) _:value)) "
+            "ClassAssertion(ObjectHasSelf(ObjectInverseOf(:q)) :i) "
+            "Declaration(Class(:Wrong))"
+        )
+    )
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_nodes(tag: int) -> list[int]:
+        return [
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        ]
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    declaration_field = field_start(tagged_nodes(60)[0])
+    wrong_class = int.from_bytes(
+        buffers["field_values"][declaration_field * 8 : (declaration_field + 1) * 8],
+        "little",
+    )
+    target_field = field_start(tagged_nodes(target_tag)[0]) + field_delta
+    if collection:
+        item_start = int.from_bytes(
+            buffers["field_values"][target_field * 8 : (target_field + 1) * 8],
+            "little",
+        )
+        item_length = int.from_bytes(
+            buffers["field_lengths"][target_field * 8 : (target_field + 1) * 8],
+            "little",
+        )
+        item_values = bytearray(buffers["item_values"])
+        values = [
+            int.from_bytes(item_values[index * 8 : (index + 1) * 8], "little")
+            for index in range(item_start, item_start + item_length)
+        ]
+        values[0] = wrong_class
+        values.sort()
+        for index, value in enumerate(values, start=item_start):
+            item_values[index * 8 : (index + 1) * 8] = value.to_bytes(8, "little")
+        replacements = {"item_values": memoryview(bytes(item_values))}
+    else:
+        field_values = bytearray(buffers["field_values"])
+        field_values[target_field * 8 : (target_field + 1) * 8] = wrong_class.to_bytes(
+            8,
+            "little",
+        )
+        replacements = {"field_values": memoryview(bytes(field_values))}
+    compiler = prepare_native_encoded_direct(_replace_buffers(lease, replacements))
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SubClassOf(:A ObjectComplementOf(ObjectOneOf(:member _:one)))",
+        "SubClassOf(:A ObjectExactCardinality(1 :p :B))",
+    ],
+    ids=["recursive-complement", "exact-cardinality"],
+)
+def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str) -> None:
+    compiler = prepare_native_encoded_direct(
+        _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
+    )
+    with pytest.raises(NativeEncodedDirectUnsupported):
         compiler.compile_batch(
             bidirectional=False,
             max_edges=10,

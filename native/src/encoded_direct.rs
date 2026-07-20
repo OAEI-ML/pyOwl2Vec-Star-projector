@@ -50,8 +50,11 @@ const TAG_OBJECT_INVERSE_OF: u16 = 10;
 const TAG_OBJECT_PROPERTY_CHAIN: u16 = 11;
 const TAG_OBJECT_INTERSECTION_OF: u16 = 30;
 const TAG_OBJECT_UNION_OF: u16 = 31;
+const TAG_OBJECT_ONE_OF: u16 = 33;
 const TAG_OBJECT_SOME_VALUES_FROM: u16 = 34;
 const TAG_OBJECT_ALL_VALUES_FROM: u16 = 35;
+const TAG_OBJECT_HAS_VALUE: u16 = 36;
+const TAG_OBJECT_HAS_SELF: u16 = 37;
 const TAG_OBJECT_MIN_CARDINALITY: u16 = 38;
 const TAG_OBJECT_MAX_CARDINALITY: u16 = 39;
 const TAG_DECLARATION: u16 = 60;
@@ -196,6 +199,7 @@ pub(crate) struct DirectCompileStats {
     pub(crate) declarations: usize,
     pub(crate) subclasses: usize,
     pub(crate) restriction_subclasses: usize,
+    pub(crate) ignored_subclasses: usize,
     pub(crate) equivalents: usize,
     pub(crate) aggregate_equivalents: usize,
     pub(crate) disjoint_classes: usize,
@@ -204,6 +208,7 @@ pub(crate) struct DirectCompileStats {
     pub(crate) same_individuals: usize,
     pub(crate) different_individuals: usize,
     pub(crate) class_assertions: usize,
+    pub(crate) ignored_class_assertions: usize,
     pub(crate) object_property_assertions: usize,
     pub(crate) negative_object_property_assertions: usize,
     pub(crate) sub_object_properties: usize,
@@ -250,6 +255,13 @@ enum SubclassProjection<'a> {
         relation: &'a str,
         destination: &'a str,
     },
+    Ignored,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ClassAssertionProjection<'a> {
+    Edge { individual: &'a str, class: &'a str },
+    Ignored,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -312,6 +324,7 @@ struct RootCounts {
     declarations: usize,
     subclasses: usize,
     restriction_subclasses: usize,
+    ignored_subclasses: usize,
     equivalents: usize,
     aggregate_equivalents: usize,
     disjoint_classes: usize,
@@ -320,6 +333,7 @@ struct RootCounts {
     same_individuals: usize,
     different_individuals: usize,
     class_assertions: usize,
+    ignored_class_assertions: usize,
     object_property_assertions: usize,
     negative_object_property_assertions: usize,
     sub_object_properties: usize,
@@ -1545,6 +1559,61 @@ impl<'a> DirectColumns<'a> {
         Ok((relation, destination))
     }
 
+    fn validate_nonprojecting_class_expression(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_OBJECT_ONE_OF => {
+                let start = self.exact_fields(node_id, 1)?;
+                let (item_start, length) = self.node_set_range(start, 1)?;
+                for item_index in item_start..item_start + length {
+                    self.validate_individual(self.item_node(item_index)?, maximum)?;
+                }
+                Ok(())
+            }
+            TAG_OBJECT_HAS_VALUE => {
+                let start = self.exact_fields(node_id, 2)?;
+                self.object_property_expression(self.field_node(start)?, maximum)?;
+                self.validate_individual(self.field_node(start + 1)?, maximum)
+            }
+            TAG_OBJECT_HAS_SELF => {
+                let start = self.exact_fields(node_id, 1)?;
+                self.object_property_expression(self.field_node(start)?, maximum)?;
+                Ok(())
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native slice does not support this nonprojecting class expression",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded class-expression tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn validate_ignored_subclass_operand(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => self.named_class_iri(node_id, maximum).map(|_iri| ()),
+            tag if is_restriction_tag(tag) => {
+                self.restriction_parts(node_id, maximum).map(|_parts| ())
+            }
+            tag if is_nonprojecting_class_tag(tag) => {
+                self.validate_nonprojecting_class_expression(node_id, maximum)
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native ignored SubClassOf operand is outside the bounded class envelope",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded subclass operand tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
     fn subclass_projection(
         self,
         node_id: usize,
@@ -1574,6 +1643,10 @@ impl<'a> DirectColumns<'a> {
                 relation,
                 destination,
             }
+        } else if is_nonprojecting_class_tag(sub_tag) || is_nonprojecting_class_tag(super_tag) {
+            self.validate_ignored_subclass_operand(sub_id, maximum)?;
+            self.validate_ignored_subclass_operand(super_id, maximum)?;
+            SubclassProjection::Ignored
         } else {
             return Err(KernelError::unsupported(
                 "direct native slice supports only named taxonomy or named-role SubClassOf",
@@ -1784,16 +1857,35 @@ impl<'a> DirectColumns<'a> {
         self.empty_annotation_set(start + 2)
     }
 
-    fn class_assertion_pair(
+    fn class_assertion_projection(
         self,
         node_id: usize,
         maximum: usize,
-    ) -> Result<(&'a str, &'a str), KernelError> {
+    ) -> Result<ClassAssertionProjection<'a>, KernelError> {
         let start = self.exact_fields(node_id, 3)?;
-        let class = self.named_class_iri(self.field_node(start)?, maximum)?;
-        let individual = self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
+        let class_id = self.field_node(start)?;
+        let individual_id = self.field_node(start + 1)?;
+        let named_class = self.node_tag(class_id)? == TAG_ENTITY;
+        if named_class {
+            self.named_class_iri(class_id, maximum)?;
+        } else if is_nonprojecting_class_tag(self.node_tag(class_id)?) {
+            self.validate_nonprojecting_class_expression(class_id, maximum)?;
+        } else {
+            return Err(KernelError::unsupported(
+                "direct native ClassAssertion class is outside the bounded class envelope",
+            ));
+        }
+        let named_individual = self.node_tag(individual_id)? == TAG_ENTITY;
+        self.validate_individual(individual_id, maximum)?;
         self.empty_annotation_set(start + 2)?;
-        Ok((individual, class))
+        if named_class && named_individual {
+            Ok(ClassAssertionProjection::Edge {
+                individual: self.named_individual_iri(individual_id, maximum)?,
+                class: self.named_class_iri(class_id, maximum)?,
+            })
+        } else {
+            Ok(ClassAssertionProjection::Ignored)
+        }
     }
 
     fn validate_generic(self, state: &AtomicU8) -> Result<(), KernelError> {
@@ -2011,6 +2103,9 @@ impl<'a> DirectColumns<'a> {
                 | TAG_OBJECT_MAX_CARDINALITY => {
                     self.restriction_parts(node_id, maximum_iri)?;
                 }
+                TAG_OBJECT_ONE_OF | TAG_OBJECT_HAS_VALUE | TAG_OBJECT_HAS_SELF => {
+                    self.validate_nonprojecting_class_expression(node_id, maximum_iri)?;
+                }
                 TAG_SUB_CLASS_OF => {
                     self.subclass_projection(node_id, maximum_iri)?;
                 }
@@ -2043,7 +2138,7 @@ impl<'a> DirectColumns<'a> {
                     self.property_class_pair(node_id, TAG_OBJECT_PROPERTY_RANGE, maximum_iri)?;
                 }
                 TAG_CLASS_ASSERTION => {
-                    self.class_assertion_pair(node_id, maximum_iri)?;
+                    self.class_assertion_projection(node_id, maximum_iri)?;
                 }
                 TAG_OBJECT_PROPERTY_ASSERTION => {
                     self.object_property_assertion_parts(node_id, maximum_iri)?;
@@ -2130,11 +2225,12 @@ impl<'a> DirectColumns<'a> {
                 (ROOT_AXIOM, TAG_DECLARATION) => counts.declarations += 1,
                 (ROOT_AXIOM, TAG_SUB_CLASS_OF) => {
                     counts.subclasses += 1;
-                    if matches!(
-                        self.subclass_projection(node_id, maximum_iri)?,
-                        SubclassProjection::Restriction { .. }
-                    ) {
-                        counts.restriction_subclasses += 1;
+                    match self.subclass_projection(node_id, maximum_iri)? {
+                        SubclassProjection::Restriction { .. } => {
+                            counts.restriction_subclasses += 1;
+                        }
+                        SubclassProjection::Ignored => counts.ignored_subclasses += 1,
+                        SubclassProjection::Taxonomy { .. } => {}
                     }
                 }
                 (ROOT_AXIOM, TAG_EQUIVALENT_CLASSES) => {
@@ -2169,7 +2265,15 @@ impl<'a> DirectColumns<'a> {
                 (ROOT_AXIOM, TAG_OBJECT_PROPERTY_RANGE) => {
                     counts.object_property_ranges += 1;
                 }
-                (ROOT_AXIOM, TAG_CLASS_ASSERTION) => counts.class_assertions += 1,
+                (ROOT_AXIOM, TAG_CLASS_ASSERTION) => {
+                    counts.class_assertions += 1;
+                    if matches!(
+                        self.class_assertion_projection(node_id, maximum_iri)?,
+                        ClassAssertionProjection::Ignored
+                    ) {
+                        counts.ignored_class_assertions += 1;
+                    }
+                }
                 (ROOT_AXIOM, TAG_OBJECT_PROPERTY_ASSERTION) => {
                     counts.object_property_assertions += 1;
                 }
@@ -2665,6 +2769,7 @@ pub(crate) fn compile_direct_with_options(
     let direct_subclasses = counts
         .subclasses
         .checked_sub(counts.restriction_subclasses)
+        .and_then(|count| count.checked_sub(counts.ignored_subclasses))
         .ok_or_else(|| KernelError::malformed("encoded subclass counters are inconsistent"))?;
     let direct_taxonomy_edges = direct_subclasses
         .checked_mul(directions)
@@ -2688,7 +2793,12 @@ pub(crate) fn compile_direct_with_options(
     let class_assertion_edges = if asserted_taxonomy_only {
         0
     } else {
-        counts.class_assertions
+        counts
+            .class_assertions
+            .checked_sub(counts.ignored_class_assertions)
+            .ok_or_else(|| {
+                KernelError::malformed("encoded class-assertion counters are inconsistent")
+            })?
     };
     let object_assertion_edges = if asserted_taxonomy_only {
         0
@@ -2783,6 +2893,7 @@ pub(crate) fn compile_direct_with_options(
                 push_role_edges(&mut edges, &role_state, source, relation, destination)?;
             }
             SubclassProjection::Restriction { .. } => {}
+            SubclassProjection::Ignored => {}
         }
     }
 
@@ -2832,12 +2943,15 @@ pub(crate) fn compile_direct_with_options(
             if columns.node_tag(node_id)? != TAG_CLASS_ASSERTION {
                 continue;
             }
-            let (individual, class) = columns.class_assertion_pair(node_id, max_iri_bytes)?;
-            edges.push(DirectEdge {
-                source: clone_text(individual)?,
-                relation: clone_text(RDF_TYPE)?,
-                destination: clone_text(class)?,
-            });
+            if let ClassAssertionProjection::Edge { individual, class } =
+                columns.class_assertion_projection(node_id, max_iri_bytes)?
+            {
+                edges.push(DirectEdge {
+                    source: clone_text(individual)?,
+                    relation: clone_text(RDF_TYPE)?,
+                    destination: clone_text(class)?,
+                });
+            }
         }
 
         for index in 0..columns.root_count() {
@@ -2904,6 +3018,7 @@ pub(crate) fn compile_direct_with_options(
         declarations: counts.declarations,
         subclasses: counts.subclasses,
         restriction_subclasses: counts.restriction_subclasses,
+        ignored_subclasses: counts.ignored_subclasses,
         equivalents: counts.equivalents,
         aggregate_equivalents: counts.aggregate_equivalents,
         disjoint_classes: counts.disjoint_classes,
@@ -2912,6 +3027,7 @@ pub(crate) fn compile_direct_with_options(
         same_individuals: counts.same_individuals,
         different_individuals: counts.different_individuals,
         class_assertions: counts.class_assertions,
+        ignored_class_assertions: counts.ignored_class_assertions,
         object_property_assertions: counts.object_property_assertions,
         negative_object_property_assertions: counts.negative_object_property_assertions,
         sub_object_properties: counts.sub_object_properties,
@@ -2981,6 +3097,10 @@ fn is_restriction_tag(tag: u16) -> bool {
         TAG_OBJECT_MAX_CARDINALITY,
     ]
     .contains(&tag)
+}
+
+fn is_nonprojecting_class_tag(tag: u16) -> bool {
+    [TAG_OBJECT_ONE_OF, TAG_OBJECT_HAS_VALUE, TAG_OBJECT_HAS_SELF].contains(&tag)
 }
 
 fn is_aggregate_tag(tag: u16) -> bool {
@@ -3559,6 +3679,67 @@ mod tests {
         fixture.finish_node(TAG_SUB_OBJECT_PROPERTY_OF); // 32
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&32_u32.to_le_bytes());
+        fixture
+    }
+
+    fn nonprojecting_class_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"urn:B",
+            b"urn:member",
+            b"urn:i",
+            b"urn:p",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=5
+        }
+        for iri_id in [1_u64, 2] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 6..=7
+        }
+        for iri_id in [3_u64, 4] {
+            fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 8..=9
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 10
+        fixture.push_scalar(COMPONENT_BYTES, &[3; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"anonymous");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 11
+        fixture.push_node_ref(10);
+        fixture.finish_node(TAG_OBJECT_INVERSE_OF); // 12
+        fixture.push_node_set(&[8, 11]);
+        fixture.finish_node(TAG_OBJECT_ONE_OF); // 13
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(11);
+        fixture.finish_node(TAG_OBJECT_HAS_VALUE); // 14
+        fixture.push_node_ref(12);
+        fixture.finish_node(TAG_OBJECT_HAS_SELF); // 15
+
+        for (sub, sup) in [(6_u64, 13_u64), (14, 7), (6, 15)] {
+            fixture.push_node_ref(sub);
+            fixture.push_node_ref(sup);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_SUB_CLASS_OF); // 16..=18
+        }
+        for (class, individual) in [(13_u64, 9_u64), (6, 11), (6, 9)] {
+            fixture.push_node_ref(class);
+            fixture.push_node_ref(individual);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_CLASS_ASSERTION); // 19..=21
+        }
+        fixture.push_node_ref(6);
+        fixture.push_node_ref(7);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 22
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 7]);
+        for root_id in 16_u32..=22 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
         fixture
     }
 
@@ -4195,6 +4376,42 @@ mod tests {
             ),
             Err(KernelError::Malformed(_))
         ));
+    }
+
+    #[test]
+    fn nonprojecting_object_expressions_are_counted_state_neutral_ignored_shapes() {
+        let fixture = nonprojecting_class_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            2,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 2);
+        assert_eq!(stats.subclasses, 4);
+        assert_eq!(stats.ignored_subclasses, 3);
+        assert_eq!(stats.class_assertions, 3);
+        assert_eq!(stats.ignored_class_assertions, 2);
+        assert_eq!(stats.role_expansion_edges, 0);
+        assert_eq!(stats.skipped_axioms, 0);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            true,
+            true,
+            false,
+            2,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(asserted.len(), 2);
+        assert_eq!(stats.ignored_subclasses, 3);
+        assert_eq!(stats.ignored_class_assertions, 2);
     }
 
     #[test]
