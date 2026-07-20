@@ -116,8 +116,12 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.roots == 5
     assert statistics.declarations == 3
     assert statistics.subclasses == 2
+    assert statistics.restriction_subclasses == 0
     assert statistics.equivalents == 0
     assert statistics.class_assertions == 0
+    assert statistics.object_property_domains == 0
+    assert statistics.object_property_ranges == 0
+    assert statistics.domain_range_edges == 0
     assert statistics.edges == 4
     assert statistics.nodes > statistics.roots
     assert statistics.buffer_bytes == sum(value.nbytes for value in lease.buffers.values())
@@ -237,6 +241,102 @@ def test_asserted_taxonomy_mode_preflights_and_suppresses_adjacent_axioms() -> N
     assert statistics.edges == 2
 
 
+@pytest.mark.parametrize(
+    ("bidirectional", "only_taxonomy"),
+    [(False, False), (True, False), (False, True)],
+)
+def test_named_restrictions_and_domain_range_products_match_python_oracle(
+    bidirectional: bool,
+    only_taxonomy: bool,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:TaxA :TaxB) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "SubClassOf(ObjectAllValuesFrom(:p :C) :D) "
+        "SubClassOf(:E ObjectMinCardinality(256 :p :F)) "
+        "SubClassOf(ObjectMaxCardinality(3 :p :G) :H) "
+        "EquivalentClasses(:Y :Z) ClassAssertion(:Y :i) "
+        "ObjectPropertyDomain(:p :D2) ObjectPropertyDomain(:p :D1) "
+        "ObjectPropertyRange(:p :R2) ObjectPropertyRange(:p :R1) "
+        "ObjectPropertyDomain(:q :QD) ObjectPropertyRange(:q :QR)"
+    )
+    lease = _lease(view)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=bidirectional,
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+
+    compiler = prepare_native_encoded_direct(lease)
+    actual, statistics = compiler.compile_batch(
+        bidirectional=bidirectional,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert statistics.roots == 13
+    assert statistics.subclasses == 5
+    assert statistics.restriction_subclasses == 4
+    assert statistics.equivalents == 1
+    assert statistics.class_assertions == 1
+    assert statistics.object_property_domains == 3
+    assert statistics.object_property_ranges == 3
+    assert statistics.domain_range_edges == 5
+    assert statistics.edges == len(expected)
+    assert actual[-5:] == [
+        Edge("urn:native-direct#D1", "urn:native-direct#p", "urn:native-direct#R1"),
+        Edge("urn:native-direct#D1", "urn:native-direct#p", "urn:native-direct#R2"),
+        Edge("urn:native-direct#D2", "urn:native-direct#p", "urn:native-direct#R1"),
+        Edge("urn:native-direct#D2", "urn:native-direct#p", "urn:native-direct#R2"),
+        Edge("urn:native-direct#QD", "urn:native-direct#q", "urn:native-direct#QR"),
+    ]
+    restriction_edges = [
+        edge
+        for edge in actual
+        if edge.relation == "urn:native-direct#p"
+        and edge.source in {"urn:native-direct#A", "urn:native-direct#D"}
+    ]
+    assert len(restriction_edges) == (0 if only_taxonomy else 2)
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_asserted_taxonomy_mode_suppresses_preflighted_role_family() -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :C)) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    lease = _lease(view)
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    compiler = prepare_native_encoded_direct(lease)
+    actual, statistics = compiler.compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert statistics.subclasses == 2
+    assert statistics.restriction_subclasses == 1
+    assert statistics.object_property_domains == 1
+    assert statistics.object_property_ranges == 1
+    assert statistics.domain_range_edges == 0
+
+
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
     constructor_lease = _lease(_snapshot("DisjointClasses(:A :B)"))
     compiler = prepare_native_encoded_direct(constructor_lease)
@@ -316,6 +416,65 @@ def test_equivalent_set_corruption_and_mixed_edge_limit_fail_before_publication(
     assert limited.state == "failed"
 
 
+def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication() -> None:
+    lease = _lease(
+        _snapshot("SubClassOf(:A ObjectMinCardinality(256 :p :B))")
+    )
+    scalar = bytearray(lease.buffers["scalar_bytes"])
+    offset = scalar.index(b"\x00\x01")
+    scalar[offset + 1] = 0
+    hostile = _replace_buffers(lease, {"scalar_bytes": memoryview(bytes(scalar))})
+    malformed = prepare_native_encoded_direct(hostile)
+    with pytest.raises(SnapshotCompatibilityError, match="minimally encoded"):
+        malformed.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed.state == "failed"
+
+    domains = " ".join(f"ObjectPropertyDomain(:p :D{index:02d})" for index in range(20))
+    ranges = " ".join(f"ObjectPropertyRange(:p :R{index:02d})" for index in range(20))
+    product = prepare_native_encoded_direct(_lease(_snapshot(f"{domains} {ranges}")))
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        product.compile_batch(
+            bidirectional=False,
+            max_edges=399,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert product.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
+        "SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
+        "SubClassOf(:A ObjectExactCardinality(1 :p :B))",
+        "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
+        "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
+        'ObjectPropertyRange(Annotation(<urn:meta> "unsupported") :p :R)',
+    ],
+    ids=[
+        "inverse-property",
+        "complex-filler",
+        "exact-cardinality",
+        "restriction-pair",
+        "complex-domain",
+        "annotated-range",
+    ],
+)
+def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body: str) -> None:
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
+    with pytest.raises(NativeEncodedDirectUnsupported):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
 def test_descriptor_binding_and_hostile_supported_rows_fail_closed() -> None:
     lease = _lease(_snapshot("SubClassOf(:A :B)"))
     mismatched = replace(lease, descriptor_sha256="00" * 32)
@@ -337,7 +496,9 @@ def test_descriptor_binding_and_hostile_supported_rows_fail_closed() -> None:
 
 def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None:
     view = _snapshot(
-        "SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :individual)"
+        "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "EquivalentClasses(:A :C) ClassAssertion(:A :individual) "
+        "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:p :B)"
     )
     lease = _lease(view)
     exporter = cast(bytes, lease.buffers["scalar_bytes"].obj)
@@ -353,7 +514,9 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
 
     def create() -> tuple[NativeEncodedDirectCompiler, weakref.ReferenceType[object]]:
         view = _snapshot(
-            "SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :individual)"
+            "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+            "EquivalentClasses(:A :C) ClassAssertion(:A :individual) "
+            "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:p :B)"
         )
         lease = _lease(view)
         owner = Owner()
@@ -394,7 +557,9 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
 def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:
     lease = _lease(
         _snapshot(
-            "SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :individual)"
+            "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+            "EquivalentClasses(:A :C) ClassAssertion(:A :individual) "
+            "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:p :B)"
         )
     )
     compiler = prepare_native_encoded_direct(lease)
@@ -414,7 +579,7 @@ def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:
     with pytest.raises(NativeEncodedDirectCancelled):
         compiler.compile_batch(
             bidirectional=False,
-            max_edges=3,
+            max_edges=6,
             max_iri_bytes=1024 * 1024,
         )
 
