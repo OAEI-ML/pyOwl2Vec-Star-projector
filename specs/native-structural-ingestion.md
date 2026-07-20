@@ -113,6 +113,7 @@ is likewise preflighted and skipped, retaining anonymous members for determinist
 `DataPropertyAssertion` over a named data property, supported individual, and validated literal
 follows the same bounded skip contract, retaining literal-byte and anonymous-ID accounting.
 `NegativeDataPropertyAssertion` follows the same data-assertion validation and skip contract.
+`SubAnnotationPropertyOf` between named annotation properties is preflighted and skipped.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
