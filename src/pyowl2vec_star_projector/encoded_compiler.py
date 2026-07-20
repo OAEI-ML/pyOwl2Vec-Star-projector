@@ -3,9 +3,10 @@
 The slice is intentionally narrow: one canonical direct segment containing
 declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
 axioms, simple named ABox assertions, and named object-property domain/range
-axioms, all with empty annotation sets.  It preflights the complete encoded
-view before yielding any edge.  A well-formed view outside that subset selects
-the scalar compiler for the whole operation; malformed rows fail closed.
+and role axioms, all with empty annotation sets.  It preflights the complete
+encoded view before yielding any edge.  A well-formed view outside that subset
+selects the scalar compiler for the whole operation; malformed rows fail
+closed.
 """
 
 from __future__ import annotations
@@ -19,6 +20,9 @@ from .compiler import (
     SUPERCLASS_OF,
     CompileStatistics,
     RoleState,
+    _combine,
+    _int32,
+    _owlapi_iri_hash,
 )
 from .diagnostics import ProjectionDiagnostic
 from .encoded import EncodedNegotiation, EncodedStructuralLease
@@ -31,6 +35,8 @@ _TAG_ENTITY = 2
 _TAG_DECLARATION = 60
 _TAG_SUB_CLASS_OF = 61
 _TAG_EQUIVALENT_CLASSES = 62
+_TAG_SUB_OBJECT_PROPERTY_OF = 70
+_TAG_INVERSE_OBJECT_PROPERTIES = 73
 _TAG_OBJECT_PROPERTY_DOMAIN = 74
 _TAG_OBJECT_PROPERTY_RANGE = 75
 _TAG_CLASS_ASSERTION = 112
@@ -146,6 +152,8 @@ class EncodedSubsetCounters:
     subclass_axioms: int = 0
     equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
+    sub_object_property_axioms: int = 0
+    inverse_object_property_axioms: int = 0
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
     object_property_range_axioms: int = 0
@@ -162,6 +170,8 @@ class EncodedSubsetCounters:
             self.subclass_axioms,
             self.equivalent_axioms,
             self.class_assertion_axioms,
+            self.sub_object_property_axioms,
+            self.inverse_object_property_axioms,
             self.object_property_assertion_axioms,
             self.object_property_domain_axioms,
             self.object_property_range_axioms,
@@ -182,6 +192,8 @@ class _MutableCounters:
     subclass_axioms: int = 0
     equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
+    sub_object_property_axioms: int = 0
+    inverse_object_property_axioms: int = 0
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
     object_property_range_axioms: int = 0
@@ -198,6 +210,8 @@ class _MutableCounters:
             subclass_axioms=self.subclass_axioms,
             equivalent_axioms=self.equivalent_axioms,
             class_assertion_axioms=self.class_assertion_axioms,
+            sub_object_property_axioms=self.sub_object_property_axioms,
+            inverse_object_property_axioms=self.inverse_object_property_axioms,
             object_property_assertion_axioms=self.object_property_assertion_axioms,
             object_property_domain_axioms=self.object_property_domain_axioms,
             object_property_range_axioms=self.object_property_range_axioms,
@@ -218,6 +232,15 @@ class _Inspection:
             self.fallback_reason = reason
 
 
+@dataclass(frozen=True, slots=True)
+class _EncodedRoleAxiom:
+    tag: int
+    node_id: int
+    first: str
+    second: str
+    owlapi_hash: int
+
+
 @dataclass(slots=True)
 class EncodedSubsetCompilation:
     """Prepared direct-view slice that emits only existing projector ``Edge`` IR."""
@@ -231,7 +254,9 @@ class EncodedSubsetCompilation:
     _columns: _EncodedColumns
     _domains: dict[str, tuple[str, ...]]
     _ranges: dict[str, tuple[str, ...]]
+    _role_axioms: tuple[_EncodedRoleAxiom, ...]
     _counters: _MutableCounters
+    _roles_prepared: bool = False
     statistics: CompileStatistics = field(default_factory=CompileStatistics)
 
     @property
@@ -243,7 +268,8 @@ class EncodedSubsetCompilation:
         return ()
 
     def prepare_role_state(self) -> None:
-        """The exact slice contains no role-map constructors."""
+        """Eagerly apply exact named role-map constructors for stateful calls."""
+        self._ensure_roles()
 
     def iter_raw_edges(self) -> Iterator[Edge]:
         """Yield encounter-order edges through a caller-bounded local batch."""
@@ -281,6 +307,8 @@ class EncodedSubsetCompilation:
                 continue
             if tag in {
                 _TAG_DECLARATION,
+                _TAG_SUB_OBJECT_PROPERTY_OF,
+                _TAG_INVERSE_OBJECT_PROPERTIES,
                 _TAG_OBJECT_PROPERTY_DOMAIN,
                 _TAG_OBJECT_PROPERTY_RANGE,
             }:
@@ -308,6 +336,7 @@ class EncodedSubsetCompilation:
             yield from self._iter_domain_range_edges()
 
     def _iter_domain_range_edges(self) -> Iterator[Edge]:
+        self._ensure_roles()
         properties = sorted(
             (property_iri for property_iri in self._domains if property_iri in self._ranges),
             key=lambda item: item.encode("utf-8"),
@@ -321,6 +350,20 @@ class EncodedSubsetCompilation:
                     inverse = self.role_state.inverse_roles.get(property_iri)
                     if inverse is not None:
                         yield Edge(range_iri, inverse, domain)
+
+    def _ensure_roles(self) -> None:
+        if self._roles_prepared:
+            return
+        for axiom in self._role_axioms:
+            if axiom.tag == _TAG_SUB_OBJECT_PROPERTY_OF:
+                self.role_state.subroles[axiom.second] = (
+                    axiom.first,
+                    *self.role_state.subroles.get(axiom.first, ()),
+                )
+            else:
+                self.role_state.inverse_roles[axiom.first] = axiom.second
+                self.role_state.inverse_roles[axiom.second] = axiom.first
+        self._roles_prepared = True
 
 
 class _EncodedColumns:
@@ -364,6 +407,10 @@ class _EncodedColumns:
                 counters.subclass_axioms += 1
             elif tag == _TAG_EQUIVALENT_CLASSES:
                 counters.equivalent_axioms += 1
+            elif tag == _TAG_SUB_OBJECT_PROPERTY_OF:
+                counters.sub_object_property_axioms += 1
+            elif tag == _TAG_INVERSE_OBJECT_PROPERTIES:
+                counters.inverse_object_property_axioms += 1
             elif tag == _TAG_OBJECT_PROPERTY_DOMAIN:
                 counters.object_property_domain_axioms += 1
             elif tag == _TAG_OBJECT_PROPERTY_RANGE:
@@ -480,6 +527,48 @@ class _EncodedColumns:
             {key: tuple(values) for key, values in ranges.items()},
         )
 
+    def role_axioms(self) -> tuple[_EncodedRoleAxiom, ...]:
+        rows: list[_EncodedRoleAxiom] = []
+        for root_index in range(self.root_count):
+            node_id = self.root_id(root_index)
+            tag = self.node_tag(node_id)
+            if tag not in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
+                continue
+            first, second = self._property_pair_iris(node_id, tag)
+            first_hash = _combine(4153, _owlapi_iri_hash(first))
+            second_hash = _combine(4153, _owlapi_iri_hash(second))
+            owlapi_hash = (
+                _combine(1823, first_hash, second_hash, 0)
+                if tag == _TAG_SUB_OBJECT_PROPERTY_OF
+                else _combine(1229, _int32(first_hash + second_hash), 0)
+            )
+            rows.append(_EncodedRoleAxiom(tag, node_id, first, second, owlapi_hash))
+        capacity = 16
+        while len(rows) > int(capacity * 0.75):
+            capacity *= 2
+
+        def order_key(row: _EncodedRoleAxiom) -> tuple[int, int, int]:
+            unsigned = row.owlapi_hash & 0xFFFFFFFF
+            spread = unsigned ^ (unsigned >> 16)
+            return spread & (capacity - 1), spread, row.node_id
+
+        rows.sort(key=order_key)
+        return tuple(rows)
+
+    def _property_pair_iris(self, node_id: int, expected_tag: int) -> tuple[str, str]:
+        if self.node_tag(node_id) != expected_tag:
+            raise SnapshotCompatibilityError(
+                "encoded subset batch cursor does not reference a role axiom"
+            )
+        start = self._exact_fields(node_id, 3)
+        first = self._named_object_property_iri(self._field_node(start))
+        second = self._named_object_property_iri(self._field_node(start + 1))
+        if first is None or second is None:  # pragma: no cover - preflight
+            raise SnapshotCompatibilityError(
+                "encoded subset role axiom shape changed after successful preflight"
+            )
+        return first, second
+
     def _property_class_iris(self, node_id: int, expected_tag: int) -> tuple[str, str]:
         if self.node_tag(node_id) != expected_tag:
             raise SnapshotCompatibilityError(
@@ -541,6 +630,17 @@ class _EncodedColumns:
                 inspection.fallback(
                     "encoded subset does not yet support annotated EquivalentClasses axioms"
                 )
+            return
+        if tag in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
+            start = self._exact_fields(node_id, 3)
+            first_named = self._is_named_object_property(self._field_node(start))
+            second_named = self._is_named_object_property(self._field_node(start + 1))
+            if not first_named or not second_named:
+                inspection.fallback(
+                    "encoded subset requires named object properties in role axioms"
+                )
+            if not self._empty_annotation_set(start + 2):
+                inspection.fallback("encoded subset does not yet support annotated role axioms")
             return
         if tag in {_TAG_OBJECT_PROPERTY_DOMAIN, _TAG_OBJECT_PROPERTY_RANGE}:
             start = self._exact_fields(node_id, 3)
@@ -788,6 +888,7 @@ def prepare_encoded_subset_compilation(
         return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
 
     domains, ranges = ({}, {}) if asserted_taxonomy_only else columns.domain_range_index()
+    role_axioms = () if asserted_taxonomy_only else columns.role_axioms()
     compilation = EncodedSubsetCompilation(
         view=view,
         options=options,
@@ -798,6 +899,7 @@ def prepare_encoded_subset_compilation(
         _columns=columns,
         _domains=domains,
         _ranges=ranges,
+        _role_axioms=role_axioms,
         _counters=counters,
     )
     return compilation, ingestion, compilation.counters

@@ -343,6 +343,114 @@ def test_domain_range_slice_preserves_scala_instance_role_expansion() -> None:
     assert counters.scalar_fallbacks == 0
 
 
+def test_named_role_axioms_match_scalar_hashset_order_and_same_view_edges() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:p :r) SubObjectPropertyOf(:q :r) "
+        "SubObjectPropertyOf(:p :q) InverseObjectProperties(:r :s) "
+        "InverseObjectProperties(:r :t) ObjectPropertyDomain(:r :D) "
+        "ObjectPropertyRange(:r :R) ObjectPropertyDomain(:q :QD) "
+        "ObjectPropertyRange(:q :QR)"
+    )
+    lease = _lease(view)
+    expected_edges = [
+        Edge("urn:slice#QD", "urn:slice#q", "urn:slice#QR"),
+        Edge("urn:slice#QD", "urn:slice#p", "urn:slice#QR"),
+        Edge("urn:slice#D", "urn:slice#r", "urn:slice#R"),
+        Edge("urn:slice#D", "urn:slice#q", "urn:slice#R"),
+        Edge("urn:slice#R", "urn:slice#s", "urn:slice#D"),
+    ]
+    for compatibility_state in ("isolated", "scala-instance"):
+        options = ProjectionOptions(
+            backend="python",
+            compatibility_state=compatibility_state,
+            order="encounter",
+        )
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert expected == expected_edges
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("encoded role slice crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=2,
+                )
+            )
+
+        assert actual == expected
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == 9
+        assert counters.sub_object_property_axioms == 3
+        assert counters.inverse_object_property_axioms == 2
+        assert counters.object_property_domain_axioms == 2
+        assert counters.object_property_range_axioms == 2
+        assert counters.edge_batches == 3
+        assert counters.raw_edges == 5
+        assert counters.scalar_fallbacks == 0
+
+
+def test_encoded_role_state_is_reused_by_a_later_scala_instance_call() -> None:
+    role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
+    domain_range_view = _snapshot("ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)")
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(role_view, options=options) == []
+    expected = scalar.project(domain_range_view, options=options)
+
+    projector = Projector()
+    with (
+        _forced_encoded(_lease(role_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded role state crossed scalar traversal"),
+        ),
+    ):
+        assert projector.project(role_view, options=replace(options, backend="native")) == []
+    first_counters = projector.last_encoded_counters
+    assert first_counters is not None
+    assert first_counters.sub_object_property_axioms == 1
+    assert first_counters.inverse_object_property_axioms == 1
+
+    with (
+        _forced_encoded(_lease(domain_range_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded lifecycle crossed scalar traversal"),
+        ),
+    ):
+        actual = projector.project(
+            domain_range_view,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected
+    assert actual == [
+        Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+        Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        Edge("urn:slice#R", "urn:slice#pinv", "urn:slice#D"),
+    ]
+
+
 def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -> None:
     view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p :B))")
     lease = _lease(view)
@@ -391,6 +499,10 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
         'ObjectPropertyRange(Annotation(<urn:a> "x") :p :R)',
         'ObjectPropertyAssertion(Annotation(<urn:a> "x") :p :i :j)',
+        "EquivalentObjectProperties(:p :q)",
+        "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
+        'SubObjectPropertyOf(Annotation(<urn:a> "x") :p :q)',
+        'InverseObjectProperties(Annotation(<urn:a> "x") :p :q)',
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -489,7 +601,8 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     view = _snapshot(
         "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i) "
         "ObjectPropertyAssertion(:p :i :j) ObjectPropertyDomain(:p :C) "
-        "ObjectPropertyRange(:p :D)"
+        "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
+        "InverseObjectProperties(:p :pinv)"
     )
     lease = _lease(view)
     expected = Projector().project_taxonomy(
@@ -526,6 +639,8 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters.subclass_axioms == 1
     assert counters.equivalent_axioms == 1
     assert counters.class_assertion_axioms == 1
+    assert counters.sub_object_property_axioms == 1
+    assert counters.inverse_object_property_axioms == 1
     assert counters.object_property_assertion_axioms == 1
     assert counters.object_property_domain_axioms == 1
     assert counters.object_property_range_axioms == 1
@@ -631,14 +746,16 @@ def test_equivalent_class_set_corruption_fails_before_edge_output(corruption: st
 
 @pytest.mark.parametrize(
     ("tag", "arity"),
-    [(74, 3), (75, 3), (113, 4)],
+    [(70, 3), (73, 3), (74, 3), (75, 3), (113, 4)],
 )
 def test_named_property_axiom_corruption_fails_before_edge_output(
     tag: int,
     arity: int,
 ) -> None:
     view = _snapshot(
-        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R) ObjectPropertyAssertion(:p :i :j)"
+        "SubObjectPropertyOf(:q :p) InverseObjectProperties(:p :pinv) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R) "
+        "ObjectPropertyAssertion(:p :i :j)"
     )
     lease = _lease(view)
     buffers = dict(lease.buffers)
