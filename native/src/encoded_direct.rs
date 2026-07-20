@@ -45,6 +45,7 @@ const TAG_IRI: u16 = 1;
 const TAG_ENTITY: u16 = 2;
 const TAG_ANNOTATION: u16 = 5;
 const TAG_OBJECT_INVERSE_OF: u16 = 10;
+const TAG_OBJECT_PROPERTY_CHAIN: u16 = 11;
 const TAG_OBJECT_SOME_VALUES_FROM: u16 = 34;
 const TAG_OBJECT_ALL_VALUES_FROM: u16 = 35;
 const TAG_OBJECT_MIN_CARDINALITY: u16 = 38;
@@ -52,8 +53,19 @@ const TAG_OBJECT_MAX_CARDINALITY: u16 = 39;
 const TAG_DECLARATION: u16 = 60;
 const TAG_SUB_CLASS_OF: u16 = 61;
 const TAG_EQUIVALENT_CLASSES: u16 = 62;
+const TAG_SUB_OBJECT_PROPERTY_OF: u16 = 70;
+const TAG_EQUIVALENT_OBJECT_PROPERTIES: u16 = 71;
+const TAG_DISJOINT_OBJECT_PROPERTIES: u16 = 72;
+const TAG_INVERSE_OBJECT_PROPERTIES: u16 = 73;
 const TAG_OBJECT_PROPERTY_DOMAIN: u16 = 74;
 const TAG_OBJECT_PROPERTY_RANGE: u16 = 75;
+const TAG_FUNCTIONAL_OBJECT_PROPERTY: u16 = 76;
+const TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY: u16 = 77;
+const TAG_REFLEXIVE_OBJECT_PROPERTY: u16 = 78;
+const TAG_IRREFLEXIVE_OBJECT_PROPERTY: u16 = 79;
+const TAG_SYMMETRIC_OBJECT_PROPERTY: u16 = 80;
+const TAG_ASYMMETRIC_OBJECT_PROPERTY: u16 = 81;
+const TAG_TRANSITIVE_OBJECT_PROPERTY: u16 = 82;
 const TAG_CLASS_ASSERTION: u16 = 112;
 const TAG_OBJECT_PROPERTY_ASSERTION: u16 = 113;
 const TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: u16 = 114;
@@ -124,10 +136,22 @@ pub(crate) struct DirectCompileStats {
     pub(crate) class_assertions: usize,
     pub(crate) object_property_assertions: usize,
     pub(crate) negative_object_property_assertions: usize,
+    pub(crate) sub_object_properties: usize,
+    pub(crate) equivalent_object_properties: usize,
+    pub(crate) disjoint_object_properties: usize,
+    pub(crate) inverse_object_properties: usize,
+    pub(crate) functional_object_properties: usize,
+    pub(crate) inverse_functional_object_properties: usize,
+    pub(crate) reflexive_object_properties: usize,
+    pub(crate) irreflexive_object_properties: usize,
+    pub(crate) symmetric_object_properties: usize,
+    pub(crate) asymmetric_object_properties: usize,
+    pub(crate) transitive_object_properties: usize,
     pub(crate) skipped_axioms: usize,
     pub(crate) object_property_domains: usize,
     pub(crate) object_property_ranges: usize,
     pub(crate) domain_range_edges: usize,
+    pub(crate) role_expansion_edges: usize,
     pub(crate) edges: usize,
     pub(crate) buffer_bytes: usize,
 }
@@ -154,8 +178,163 @@ struct RootCounts {
     class_assertions: usize,
     object_property_assertions: usize,
     negative_object_property_assertions: usize,
+    sub_object_properties: usize,
+    equivalent_object_properties: usize,
+    disjoint_object_properties: usize,
+    inverse_object_properties: usize,
+    functional_object_properties: usize,
+    inverse_functional_object_properties: usize,
+    reflexive_object_properties: usize,
+    irreflexive_object_properties: usize,
+    symmetric_object_properties: usize,
+    asymmetric_object_properties: usize,
+    transitive_object_properties: usize,
     object_property_domains: usize,
     object_property_ranges: usize,
+}
+
+impl RootCounts {
+    fn role_axioms(self) -> Result<usize, KernelError> {
+        self.sub_object_properties
+            .checked_add(self.inverse_object_properties)
+            .ok_or_else(|| KernelError::resource("encoded role-axiom count overflow"))
+    }
+
+    fn skipped_object_axioms(self) -> Result<usize, KernelError> {
+        [
+            self.negative_object_property_assertions,
+            self.equivalent_object_properties,
+            self.disjoint_object_properties,
+            self.functional_object_properties,
+            self.inverse_functional_object_properties,
+            self.reflexive_object_properties,
+            self.irreflexive_object_properties,
+            self.symmetric_object_properties,
+            self.asymmetric_object_properties,
+            self.transitive_object_properties,
+        ]
+        .into_iter()
+        .try_fold(0_usize, |total, count| {
+            total
+                .checked_add(count)
+                .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ObjectPropertyExpression<'a> {
+    iri: &'a str,
+    owlapi_hash: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RoleAxiom<'a> {
+    tag: u16,
+    first: &'a str,
+    second: &'a str,
+    spread: u32,
+    canonical_order: usize,
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+struct RoleState<'a> {
+    subroles: Vec<(&'a str, Vec<&'a str>)>,
+    inverses: Vec<(&'a str, &'a str)>,
+}
+
+impl<'a> RoleState<'a> {
+    fn with_capacity(subrole_axioms: usize, inverse_axioms: usize) -> Result<Self, KernelError> {
+        let inverse_capacity = inverse_axioms
+            .checked_mul(2)
+            .ok_or_else(|| KernelError::resource("encoded inverse-role capacity overflow"))?;
+        let mut state = Self::default();
+        state
+            .subroles
+            .try_reserve_exact(subrole_axioms)
+            .map_err(|_| KernelError::resource("encoded subrole index allocation failed"))?;
+        state
+            .inverses
+            .try_reserve_exact(inverse_capacity)
+            .map_err(|_| KernelError::resource("encoded inverse-role index allocation failed"))?;
+        Ok(state)
+    }
+
+    fn subroles_for(&self, property: &str) -> &[&'a str] {
+        self.subroles
+            .iter()
+            .find_map(|(key, values)| (*key == property).then_some(values.as_slice()))
+            .unwrap_or_default()
+    }
+
+    fn inverse_for(&self, property: &str) -> Option<&'a str> {
+        self.inverses
+            .iter()
+            .find_map(|(key, inverse)| (*key == property).then_some(*inverse))
+    }
+
+    fn set_subroles(&mut self, property: &'a str, values: Vec<&'a str>) -> Result<(), KernelError> {
+        if let Some((_key, current)) = self
+            .subroles
+            .iter_mut()
+            .find(|(key, _values)| *key == property)
+        {
+            *current = values;
+            return Ok(());
+        }
+        self.subroles
+            .try_reserve(1)
+            .map_err(|_| KernelError::resource("encoded subrole index allocation failed"))?;
+        self.subroles.push((property, values));
+        Ok(())
+    }
+
+    fn set_inverse(&mut self, property: &'a str, inverse: &'a str) -> Result<(), KernelError> {
+        if let Some((_key, current)) = self
+            .inverses
+            .iter_mut()
+            .find(|(key, _inverse)| *key == property)
+        {
+            *current = inverse;
+            return Ok(());
+        }
+        self.inverses
+            .try_reserve(1)
+            .map_err(|_| KernelError::resource("encoded inverse-role index allocation failed"))?;
+        self.inverses.push((property, inverse));
+        Ok(())
+    }
+
+    fn apply(&mut self, axiom: RoleAxiom<'a>) -> Result<(), KernelError> {
+        if axiom.tag == TAG_SUB_OBJECT_PROPERTY_OF {
+            let previous = self.subroles_for(axiom.first);
+            let capacity = previous
+                .len()
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded subrole list overflow"))?;
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(capacity)
+                .map_err(|_| KernelError::resource("encoded subrole list allocation failed"))?;
+            values.push(axiom.first);
+            values.extend_from_slice(previous);
+            self.set_subroles(axiom.second, values)
+        } else if axiom.tag == TAG_INVERSE_OBJECT_PROPERTIES {
+            self.set_inverse(axiom.first, axiom.second)?;
+            self.set_inverse(axiom.second, axiom.first)
+        } else {
+            Err(KernelError::malformed(
+                "encoded role-state row has the wrong constructor tag",
+            ))
+        }
+    }
+
+    fn edge_count(&self, property: &str) -> Result<usize, KernelError> {
+        1_usize
+            .checked_add(self.subroles_for(property).len())
+            .and_then(|count| count.checked_add(usize::from(self.inverse_for(property).is_some())))
+            .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -526,6 +705,92 @@ impl<'a> DirectColumns<'a> {
                 "encoded object-property expression tag {tag} is outside structural-columns v1",
             ))),
         }
+    }
+
+    fn object_property_expression(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<ObjectPropertyExpression<'a>, KernelError> {
+        let tag = self.node_tag(node_id)?;
+        let iri = self.object_property_expression_iri(node_id, maximum)?;
+        let named_hash = combine_hash(4153, &[owlapi_iri_hash(iri)]);
+        Ok(ObjectPropertyExpression {
+            iri,
+            owlapi_hash: if tag == TAG_OBJECT_INVERSE_OF {
+                combine_hash(4241, &[named_hash])
+            } else {
+                named_hash
+            },
+        })
+    }
+
+    fn role_axiom_parts(
+        self,
+        node_id: usize,
+        expected_tag: u16,
+        maximum: usize,
+    ) -> Result<(ObjectPropertyExpression<'a>, ObjectPropertyExpression<'a>), KernelError> {
+        if self.node_tag(node_id)? != expected_tag
+            || ![TAG_SUB_OBJECT_PROPERTY_OF, TAG_INVERSE_OBJECT_PROPERTIES].contains(&expected_tag)
+        {
+            return Err(KernelError::malformed(
+                "encoded role-axiom cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        if expected_tag == TAG_SUB_OBJECT_PROPERTY_OF
+            && self.node_tag(self.field_node(start)?)? == TAG_OBJECT_PROPERTY_CHAIN
+        {
+            return Err(KernelError::unsupported(
+                "direct native slice does not yet support object-property chains",
+            ));
+        }
+        let first = self.object_property_expression(self.field_node(start)?, maximum)?;
+        let second = self.object_property_expression(self.field_node(start + 1)?, maximum)?;
+        self.empty_annotation_set(start + 2)?;
+        Ok((first, second))
+    }
+
+    fn validate_object_property_set_axiom(
+        self,
+        node_id: usize,
+        expected_tag: u16,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != expected_tag
+            || ![
+                TAG_EQUIVALENT_OBJECT_PROPERTIES,
+                TAG_DISJOINT_OBJECT_PROPERTIES,
+            ]
+            .contains(&expected_tag)
+        {
+            return Err(KernelError::malformed(
+                "encoded object-property set cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        let (item_start, length) = self.node_set_range(start, 2)?;
+        for item_index in item_start..item_start + length {
+            self.object_property_expression(self.item_node(item_index)?, maximum)?;
+        }
+        self.empty_annotation_set(start + 1)
+    }
+
+    fn validate_object_property_characteristic(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        let tag = self.node_tag(node_id)?;
+        if !is_object_property_characteristic(tag) {
+            return Err(KernelError::malformed(
+                "encoded object-property characteristic cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        self.object_property_expression(self.field_node(start)?, maximum)?;
+        self.empty_annotation_set(start + 1)
     }
 
     fn object_property_assertion_parts(
@@ -915,6 +1180,16 @@ impl<'a> DirectColumns<'a> {
                 TAG_EQUIVALENT_CLASSES => {
                     self.equivalent_pair(node_id, maximum_iri)?;
                 }
+                TAG_SUB_OBJECT_PROPERTY_OF | TAG_INVERSE_OBJECT_PROPERTIES => {
+                    self.role_axiom_parts(node_id, self.node_tag(node_id)?, maximum_iri)?;
+                }
+                TAG_EQUIVALENT_OBJECT_PROPERTIES | TAG_DISJOINT_OBJECT_PROPERTIES => {
+                    self.validate_object_property_set_axiom(
+                        node_id,
+                        self.node_tag(node_id)?,
+                        maximum_iri,
+                    )?;
+                }
                 TAG_OBJECT_PROPERTY_DOMAIN => {
                     self.property_class_pair(node_id, TAG_OBJECT_PROPERTY_DOMAIN, maximum_iri)?;
                 }
@@ -929,6 +1204,9 @@ impl<'a> DirectColumns<'a> {
                 }
                 TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
                     self.validate_negative_object_property_assertion(node_id, maximum_iri)?;
+                }
+                tag if is_object_property_characteristic(tag) => {
+                    self.validate_object_property_characteristic(node_id, maximum_iri)?;
                 }
                 tag if SCHEMA_TAGS.contains(&tag) => {
                     return Err(KernelError::unsupported(format!(
@@ -968,6 +1246,18 @@ impl<'a> DirectColumns<'a> {
                     }
                 }
                 (ROOT_AXIOM, TAG_EQUIVALENT_CLASSES) => counts.equivalents += 1,
+                (ROOT_AXIOM, TAG_SUB_OBJECT_PROPERTY_OF) => {
+                    counts.sub_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_EQUIVALENT_OBJECT_PROPERTIES) => {
+                    counts.equivalent_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_DISJOINT_OBJECT_PROPERTIES) => {
+                    counts.disjoint_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_INVERSE_OBJECT_PROPERTIES) => {
+                    counts.inverse_object_properties += 1;
+                }
                 (ROOT_AXIOM, TAG_OBJECT_PROPERTY_DOMAIN) => {
                     counts.object_property_domains += 1;
                 }
@@ -980,6 +1270,27 @@ impl<'a> DirectColumns<'a> {
                 }
                 (ROOT_AXIOM, TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION) => {
                     counts.negative_object_property_assertions += 1;
+                }
+                (ROOT_AXIOM, TAG_FUNCTIONAL_OBJECT_PROPERTY) => {
+                    counts.functional_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY) => {
+                    counts.inverse_functional_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_REFLEXIVE_OBJECT_PROPERTY) => {
+                    counts.reflexive_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_IRREFLEXIVE_OBJECT_PROPERTY) => {
+                    counts.irreflexive_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_SYMMETRIC_OBJECT_PROPERTY) => {
+                    counts.symmetric_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_ASYMMETRIC_OBJECT_PROPERTY) => {
+                    counts.asymmetric_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_TRANSITIVE_OBJECT_PROPERTY) => {
+                    counts.transitive_object_properties += 1;
                 }
                 (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) | (ROOT_EXTENSION, TAG_SWRL_RULE) => {
                     return Err(KernelError::unsupported(
@@ -1001,12 +1312,104 @@ impl<'a> DirectColumns<'a> {
         Ok(counts)
     }
 
-    fn domain_range_edge_count(
+    fn build_role_state(
         self,
+        counts: RootCounts,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<RoleState<'a>, KernelError> {
+        let role_axiom_count = counts.role_axioms()?;
+        let mut rows = Vec::new();
+        rows.try_reserve_exact(role_axiom_count)
+            .map_err(|_| KernelError::resource("encoded role-row allocation failed"))?;
+        for canonical_order in 0..self.root_count() {
+            check_cancel(state, canonical_order)?;
+            let node_id = self.root_id(canonical_order)?;
+            let tag = self.node_tag(node_id)?;
+            if ![TAG_SUB_OBJECT_PROPERTY_OF, TAG_INVERSE_OBJECT_PROPERTIES].contains(&tag) {
+                continue;
+            }
+            let (first, second) = self.role_axiom_parts(node_id, tag, maximum_iri)?;
+            let owlapi_hash = if tag == TAG_SUB_OBJECT_PROPERTY_OF {
+                combine_hash(1823, &[first.owlapi_hash, second.owlapi_hash, 0])
+            } else {
+                combine_hash(
+                    1229,
+                    &[first.owlapi_hash.wrapping_add(second.owlapi_hash), 0],
+                )
+            };
+            let unsigned = owlapi_hash as u32;
+            rows.push(RoleAxiom {
+                tag,
+                first: first.iri,
+                second: second.iri,
+                spread: unsigned ^ (unsigned >> 16),
+                canonical_order,
+            });
+        }
+        if rows.len() != role_axiom_count {
+            return Err(KernelError::malformed(
+                "encoded role-axiom count changed after successful preflight",
+            ));
+        }
+        let mut capacity = 16_usize;
+        while role_axiom_count > capacity / 4 * 3 {
+            capacity = capacity
+                .checked_mul(2)
+                .ok_or_else(|| KernelError::resource("encoded role-table capacity overflow"))?;
+        }
+        rows.sort_unstable_by_key(|row| {
+            (
+                (row.spread as usize) & (capacity - 1),
+                row.spread,
+                row.canonical_order,
+            )
+        });
+        let mut role_state = RoleState::with_capacity(
+            counts.sub_object_properties,
+            counts.inverse_object_properties,
+        )?;
+        for (index, row) in rows.into_iter().enumerate() {
+            check_cancel(state, index)?;
+            role_state.apply(row)?;
+        }
+        Ok(role_state)
+    }
+
+    fn restriction_role_edge_count(
+        self,
+        role_state: &RoleState<'a>,
         maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<usize, KernelError> {
         let mut count = 0_usize;
+        for index in 0..self.root_count() {
+            check_cancel(state, index)?;
+            let node_id = self.root_id(index)?;
+            if self.node_tag(node_id)? != TAG_SUB_CLASS_OF {
+                continue;
+            }
+            if let SubclassProjection::Restriction { relation, .. } =
+                self.subclass_projection(node_id, maximum_iri)?
+            {
+                count = count
+                    .checked_add(role_state.edge_count(relation)?)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded restriction edge-count overflow")
+                    })?;
+            }
+        }
+        Ok(count)
+    }
+
+    fn domain_range_edge_count(
+        self,
+        role_state: &RoleState<'a>,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<(usize, usize), KernelError> {
+        let mut products = 0_usize;
+        let mut edges = 0_usize;
         for domain_index in 0..self.root_count() {
             check_cancel(state, domain_index)?;
             let domain_id = self.root_id(domain_index)?;
@@ -1024,13 +1427,18 @@ impl<'a> DirectColumns<'a> {
                 let (range_property, _range) =
                     self.property_class_pair(range_id, TAG_OBJECT_PROPERTY_RANGE, maximum_iri)?;
                 if domain_property == range_property {
-                    count = count.checked_add(1).ok_or_else(|| {
+                    products = products.checked_add(1).ok_or_else(|| {
                         KernelError::resource("encoded domain/range edge-count overflow")
                     })?;
+                    edges = edges
+                        .checked_add(role_state.edge_count(domain_property)?)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded domain/range edge-count overflow")
+                        })?;
                 }
             }
         }
-        Ok(count)
+        Ok((products, edges))
     }
 
     fn next_paired_property(
@@ -1095,6 +1503,11 @@ pub(crate) fn compile_direct(
     columns.validate_supported_nodes(max_iri_bytes, state)?;
     let counts = columns.classify_roots(max_iri_bytes, state)?;
     let buffer_bytes = columns.buffer_bytes()?;
+    let role_state = if asserted_taxonomy_only {
+        RoleState::default()
+    } else {
+        columns.build_role_state(counts, max_iri_bytes, state)?
+    };
     let directions = 1_usize + usize::from(bidirectional);
     let direct_subclasses = counts
         .subclasses
@@ -1114,7 +1527,7 @@ pub(crate) fn compile_direct(
     let restriction_edges = if asserted_taxonomy_only || only_taxonomy {
         0
     } else {
-        counts.restriction_subclasses
+        columns.restriction_role_edge_count(&role_state, max_iri_bytes, state)?
     };
     let class_assertion_edges = if asserted_taxonomy_only {
         0
@@ -1129,19 +1542,38 @@ pub(crate) fn compile_direct(
     let skipped_axioms = if asserted_taxonomy_only {
         0
     } else {
-        counts.negative_object_property_assertions
+        counts.skipped_object_axioms()?
     };
-    let domain_range_edges = if asserted_taxonomy_only {
+    let (domain_range_edges, expanded_domain_range_edges) = if asserted_taxonomy_only {
+        (0, 0)
+    } else {
+        columns.domain_range_edge_count(&role_state, max_iri_bytes, state)?
+    };
+    let base_role_edges = if asserted_taxonomy_only {
         0
     } else {
-        columns.domain_range_edge_count(max_iri_bytes, state)?
+        domain_range_edges
+            .checked_add(if only_taxonomy {
+                0
+            } else {
+                counts.restriction_subclasses
+            })
+            .ok_or_else(|| KernelError::resource("encoded base role-edge count overflow"))?
     };
+    let expanded_role_edges = restriction_edges
+        .checked_add(expanded_domain_range_edges)
+        .ok_or_else(|| KernelError::resource("encoded expanded role-edge count overflow"))?;
+    let role_expansion_edges = expanded_role_edges
+        .checked_sub(base_role_edges)
+        .ok_or_else(|| {
+            KernelError::malformed("encoded role-expansion counters are inconsistent")
+        })?;
     let projected = direct_taxonomy_edges
         .checked_add(equivalent_edges)
         .and_then(|total| total.checked_add(restriction_edges))
         .and_then(|total| total.checked_add(class_assertion_edges))
         .and_then(|total| total.checked_add(object_assertion_edges))
-        .and_then(|total| total.checked_add(domain_range_edges))
+        .and_then(|total| total.checked_add(expanded_domain_range_edges))
         .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
     if projected > max_edges {
         return Err(KernelError::resource(format!(
@@ -1184,11 +1616,7 @@ pub(crate) fn compile_direct(
                 relation,
                 destination,
             } if !asserted_taxonomy_only && !only_taxonomy => {
-                edges.push(DirectEdge {
-                    source: clone_text(source)?,
-                    relation: clone_text(relation)?,
-                    destination: clone_text(destination)?,
-                });
+                push_role_edges(&mut edges, &role_state, source, relation, destination)?;
             }
             SubclassProjection::Restriction { .. } => {}
         }
@@ -1278,11 +1706,7 @@ pub(crate) fn compile_direct(
                         max_iri_bytes,
                     )?;
                     if range_property == property {
-                        edges.push(DirectEdge {
-                            source: clone_text(domain)?,
-                            relation: clone_text(property)?,
-                            destination: clone_text(range)?,
-                        });
+                        push_role_edges(&mut edges, &role_state, domain, property, range)?;
                     }
                 }
             }
@@ -1305,10 +1729,22 @@ pub(crate) fn compile_direct(
         class_assertions: counts.class_assertions,
         object_property_assertions: counts.object_property_assertions,
         negative_object_property_assertions: counts.negative_object_property_assertions,
+        sub_object_properties: counts.sub_object_properties,
+        equivalent_object_properties: counts.equivalent_object_properties,
+        disjoint_object_properties: counts.disjoint_object_properties,
+        inverse_object_properties: counts.inverse_object_properties,
+        functional_object_properties: counts.functional_object_properties,
+        inverse_functional_object_properties: counts.inverse_functional_object_properties,
+        reflexive_object_properties: counts.reflexive_object_properties,
+        irreflexive_object_properties: counts.irreflexive_object_properties,
+        symmetric_object_properties: counts.symmetric_object_properties,
+        asymmetric_object_properties: counts.asymmetric_object_properties,
+        transitive_object_properties: counts.transitive_object_properties,
         skipped_axioms,
         object_property_domains: counts.object_property_domains,
         object_property_ranges: counts.object_property_ranges,
         domain_range_edges,
+        role_expansion_edges,
         edges: edges.len(),
         buffer_bytes,
     };
@@ -1323,6 +1759,74 @@ fn is_restriction_tag(tag: u16) -> bool {
         TAG_OBJECT_MAX_CARDINALITY,
     ]
     .contains(&tag)
+}
+
+fn is_object_property_characteristic(tag: u16) -> bool {
+    [
+        TAG_FUNCTIONAL_OBJECT_PROPERTY,
+        TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
+        TAG_REFLEXIVE_OBJECT_PROPERTY,
+        TAG_IRREFLEXIVE_OBJECT_PROPERTY,
+        TAG_SYMMETRIC_OBJECT_PROPERTY,
+        TAG_ASYMMETRIC_OBJECT_PROPERTY,
+        TAG_TRANSITIVE_OBJECT_PROPERTY,
+    ]
+    .contains(&tag)
+}
+
+fn java_string_hash(value: &str) -> i32 {
+    value.encode_utf16().fold(0_i32, |result, unit| {
+        result.wrapping_mul(31).wrapping_add(i32::from(unit))
+    })
+}
+
+fn owlapi_iri_hash(value: &str) -> i32 {
+    let split_at = value
+        .char_indices()
+        .rev()
+        .find_map(|(index, character)| {
+            ['#', '/', ':']
+                .contains(&character)
+                .then_some(index + character.len_utf8())
+        })
+        .unwrap_or(0);
+    let (namespace, remainder) = value.split_at(split_at);
+    java_string_hash(namespace).wrapping_add(java_string_hash(remainder))
+}
+
+fn combine_hash(seed: i32, components: &[i32]) -> i32 {
+    components.iter().fold(seed, |result, component| {
+        result.wrapping_mul(31).wrapping_add(*component)
+    })
+}
+
+fn push_role_edges(
+    edges: &mut Vec<DirectEdge>,
+    role_state: &RoleState<'_>,
+    source: &str,
+    relation: &str,
+    destination: &str,
+) -> Result<(), KernelError> {
+    edges.push(DirectEdge {
+        source: clone_text(source)?,
+        relation: clone_text(relation)?,
+        destination: clone_text(destination)?,
+    });
+    for subrole in role_state.subroles_for(relation) {
+        edges.push(DirectEdge {
+            source: clone_text(source)?,
+            relation: clone_text(subrole)?,
+            destination: clone_text(destination)?,
+        });
+    }
+    if let Some(inverse) = role_state.inverse_for(relation) {
+        edges.push(DirectEdge {
+            source: clone_text(destination)?,
+            relation: clone_text(inverse)?,
+            destination: clone_text(source)?,
+        });
+    }
+    Ok(())
 }
 
 fn clone_text(value: &str) -> Result<String, KernelError> {
@@ -1631,6 +2135,85 @@ mod tests {
         fixture
     }
 
+    fn named_role_axiom_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"urn:B",
+            b"urn:D",
+            b"urn:R",
+            b"urn:p",
+            b"urn:child",
+            b"urn:pinv",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=7
+        }
+        for iri_id in 1_u64..=4 {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 8..=11
+        }
+        for iri_id in 5_u64..=7 {
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 12..=14
+        }
+        fixture.push_node_ref(12);
+        fixture.finish_node(TAG_OBJECT_INVERSE_OF); // 15
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(9);
+        fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM); // 16
+        fixture.push_node_ref(8);
+        fixture.push_node_ref(16);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 17
+        for (tag, first, second) in [
+            (TAG_SUB_OBJECT_PROPERTY_OF, 13_u64, 12_u64),
+            (TAG_INVERSE_OBJECT_PROPERTIES, 12, 14),
+        ] {
+            fixture.push_node_ref(first);
+            fixture.push_node_ref(second);
+            fixture.push_empty_set();
+            fixture.finish_node(tag); // 18..=19
+        }
+        for (tag, class) in [
+            (TAG_OBJECT_PROPERTY_DOMAIN, 10_u64),
+            (TAG_OBJECT_PROPERTY_RANGE, 11),
+        ] {
+            fixture.push_node_ref(12);
+            fixture.push_node_ref(class);
+            fixture.push_empty_set();
+            fixture.finish_node(tag); // 20..=21
+        }
+        for (tag, properties) in [
+            (TAG_EQUIVALENT_OBJECT_PROPERTIES, [12_u64, 15_u64]),
+            (TAG_DISJOINT_OBJECT_PROPERTIES, [13_u64, 14_u64]),
+        ] {
+            fixture.push_node_set(&properties);
+            fixture.push_empty_set();
+            fixture.finish_node(tag); // 22..=23
+        }
+        for tag in [
+            TAG_FUNCTIONAL_OBJECT_PROPERTY,
+            TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
+            TAG_REFLEXIVE_OBJECT_PROPERTY,
+            TAG_IRREFLEXIVE_OBJECT_PROPERTY,
+            TAG_SYMMETRIC_OBJECT_PROPERTY,
+            TAG_ASYMMETRIC_OBJECT_PROPERTY,
+            TAG_TRANSITIVE_OBJECT_PROPERTY,
+        ] {
+            fixture.push_node_ref(if tag % 2 == 0 { 12 } else { 15 });
+            fixture.push_empty_set();
+            fixture.finish_node(tag); // 24..=30
+        }
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 14]);
+        for root_id in 17_u32..=30 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
     fn running_state() -> AtomicU8 {
         AtomicU8::new(STATE_RUNNING)
     }
@@ -1933,6 +2516,91 @@ mod tests {
             ),
             Err(KernelError::Malformed(_))
         ));
+    }
+
+    #[test]
+    fn named_role_axioms_expand_edges_and_skipped_role_families_are_state_neutral() {
+        let fixture = named_role_axiom_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            6,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:B".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:A".into(),
+                },
+                DirectEdge {
+                    source: "urn:D".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:R".into(),
+                },
+                DirectEdge {
+                    source: "urn:D".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:R".into(),
+                },
+                DirectEdge {
+                    source: "urn:R".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:D".into(),
+                },
+            ]
+        );
+        assert_eq!(stats.sub_object_properties, 1);
+        assert_eq!(stats.inverse_object_properties, 1);
+        assert_eq!(stats.equivalent_object_properties, 1);
+        assert_eq!(stats.disjoint_object_properties, 1);
+        assert_eq!(stats.skipped_axioms, 9);
+        assert_eq!(stats.domain_range_edges, 1);
+        assert_eq!(stats.role_expansion_edges, 4);
+
+        let (only_taxonomy, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            true,
+            3,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(only_taxonomy.len(), 3);
+        assert_eq!(stats.role_expansion_edges, 2);
+        assert_eq!(stats.skipped_axioms, 9);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.skipped_axioms, 0);
+        assert_eq!(stats.role_expansion_edges, 0);
     }
 
     #[test]

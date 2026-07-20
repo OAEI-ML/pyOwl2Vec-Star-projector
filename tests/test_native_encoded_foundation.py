@@ -124,10 +124,22 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.class_assertions == 0
     assert statistics.object_property_assertions == 0
     assert statistics.negative_object_property_assertions == 0
+    assert statistics.sub_object_properties == 0
+    assert statistics.equivalent_object_properties == 0
+    assert statistics.disjoint_object_properties == 0
+    assert statistics.inverse_object_properties == 0
+    assert statistics.functional_object_properties == 0
+    assert statistics.inverse_functional_object_properties == 0
+    assert statistics.reflexive_object_properties == 0
+    assert statistics.irreflexive_object_properties == 0
+    assert statistics.symmetric_object_properties == 0
+    assert statistics.asymmetric_object_properties == 0
+    assert statistics.transitive_object_properties == 0
     assert statistics.skipped_axioms == 0
     assert statistics.object_property_domains == 0
     assert statistics.object_property_ranges == 0
     assert statistics.domain_range_edges == 0
+    assert statistics.role_expansion_edges == 0
     assert statistics.edges == 4
     assert statistics.nodes > statistics.roots
     assert statistics.buffer_bytes == sum(value.nbytes for value in lease.buffers.values())
@@ -316,6 +328,10 @@ def test_named_restrictions_and_domain_range_products_match_python_oracle(
 def test_asserted_taxonomy_mode_suppresses_preflighted_role_family() -> None:
     view = _snapshot(
         "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :C)) "
+        "SubObjectPropertyOf(ObjectInverseOf(:child) :p) "
+        "InverseObjectProperties(:p ObjectInverseOf(:pinv)) "
+        "EquivalentObjectProperties(:p ObjectInverseOf(:equivalent)) "
+        "FunctionalObjectProperty(ObjectInverseOf(:p)) "
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
     )
     lease = _lease(view)
@@ -341,6 +357,101 @@ def test_asserted_taxonomy_mode_suppresses_preflighted_role_family() -> None:
     assert statistics.object_property_domains == 1
     assert statistics.object_property_ranges == 1
     assert statistics.domain_range_edges == 0
+    assert statistics.sub_object_properties == 1
+    assert statistics.inverse_object_properties == 1
+    assert statistics.equivalent_object_properties == 1
+    assert statistics.functional_object_properties == 1
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_named_role_hashset_order_expands_restrictions_and_domains_but_not_assertions(
+    only_taxonomy: bool,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:p :r) SubObjectPropertyOf(:q :r) "
+        "SubObjectPropertyOf(:p :q) InverseObjectProperties(:r :s) "
+        "InverseObjectProperties(:r :t) SubClassOf(:A ObjectSomeValuesFrom(:r :B)) "
+        "ObjectPropertyAssertion(:r :i :j) ObjectPropertyDomain(:r :D) "
+        "ObjectPropertyRange(:r :R)"
+    )
+    lease = _lease(view)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(lease).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert statistics.sub_object_properties == 3
+    assert statistics.inverse_object_properties == 2
+    assert statistics.role_expansion_edges == (2 if only_taxonomy else 4)
+    direct_assertion = Edge(
+        "urn:native-direct#i",
+        "urn:native-direct#r",
+        "urn:native-direct#j",
+    )
+    assert actual.count(direct_assertion) == 1
+    assert not any(
+        edge.source in {"urn:native-direct#i", "urn:native-direct#j"}
+        and edge.relation in {"urn:native-direct#p", "urn:native-direct#s"}
+        for edge in actual
+    )
+
+
+def test_inverse_role_operands_and_skipped_object_property_families_match_python() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(ObjectInverseOf(:child) ObjectInverseOf(:p)) "
+        "InverseObjectProperties(ObjectInverseOf(:p) ObjectInverseOf(:pinv)) "
+        "EquivalentObjectProperties(:u ObjectInverseOf(:v) :w) "
+        "DisjointObjectProperties(:x ObjectInverseOf(:y)) FunctionalObjectProperty(:u) "
+        "InverseFunctionalObjectProperty(ObjectInverseOf(:u)) ReflexiveObjectProperty(:u) "
+        "IrreflexiveObjectProperty(ObjectInverseOf(:u)) SymmetricObjectProperty(:u) "
+        "AsymmetricObjectProperty(ObjectInverseOf(:u)) TransitiveObjectProperty(:u) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    lease = _lease(view)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(lease).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected
+    assert statistics.sub_object_properties == 1
+    assert statistics.inverse_object_properties == 1
+    assert statistics.equivalent_object_properties == 1
+    assert statistics.disjoint_object_properties == 1
+    assert statistics.functional_object_properties == 1
+    assert statistics.inverse_functional_object_properties == 1
+    assert statistics.reflexive_object_properties == 1
+    assert statistics.irreflexive_object_properties == 1
+    assert statistics.symmetric_object_properties == 1
+    assert statistics.asymmetric_object_properties == 1
+    assert statistics.transitive_object_properties == 1
+    assert statistics.skipped_axioms == 9
+    assert statistics.domain_range_edges == 1
+    assert statistics.role_expansion_edges == 4
 
 
 @pytest.mark.parametrize("only_taxonomy", [False, True])
@@ -553,6 +664,11 @@ def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication()
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
         'ObjectPropertyRange(Annotation(<urn:meta> "unsupported") :p :R)',
+        "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
+        'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") :p :q)',
+        'InverseObjectProperties(Annotation(<urn:meta> "unsupported") :p :q)',
+        'EquivalentObjectProperties(Annotation(<urn:meta> "unsupported") :p :q)',
+        'FunctionalObjectProperty(Annotation(<urn:meta> "unsupported") :p)',
     ],
     ids=[
         "inverse-property",
@@ -561,6 +677,11 @@ def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication()
         "restriction-pair",
         "complex-domain",
         "annotated-range",
+        "property-chain",
+        "annotated-subproperty",
+        "annotated-inverse",
+        "annotated-equivalent",
+        "annotated-characteristic",
     ],
 )
 def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body: str) -> None:
@@ -640,6 +761,43 @@ def test_hostile_object_assertion_individual_and_edge_limit_fail_before_publicat
             max_iri_bytes=1024 * 1024,
         )
     assert limited.state == "failed"
+
+
+def test_role_set_corruption_and_expanded_edge_limit_fail_before_publication() -> None:
+    lease = _lease(_snapshot("EquivalentObjectProperties(:p :q :r)"))
+    values = bytearray(lease.buffers["item_values"])
+    first = bytes(values[:8])
+    values[:8] = values[8:16]
+    values[8:16] = first
+    hostile = _replace_buffers(lease, {"item_values": memoryview(bytes(values))})
+    malformed = prepare_native_encoded_direct(hostile)
+    with pytest.raises(SnapshotCompatibilityError, match="sorted and unique"):
+        malformed.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed.state == "failed"
+
+    restrictions = " ".join(
+        f"SubClassOf(:A{index:03d} ObjectSomeValuesFrom(:p :B{index:03d}))"
+        for index in range(250)
+    )
+    expanded = prepare_native_encoded_direct(
+        _lease(
+            _snapshot(
+                "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+                f"{restrictions}"
+            )
+        )
+    )
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        expanded.compile_batch(
+            bidirectional=False,
+            max_edges=749,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert expanded.state == "failed"
 
 
 def test_descriptor_binding_and_hostile_supported_rows_fail_closed() -> None:

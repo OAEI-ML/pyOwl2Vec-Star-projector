@@ -27,7 +27,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyMapping, PyMemoryView, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 4;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 5;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -511,10 +511,22 @@ impl EncodedDirectCompiler {
                         stats.class_assertions,
                         stats.object_property_assertions,
                         stats.negative_object_property_assertions,
+                        stats.sub_object_properties,
+                        stats.equivalent_object_properties,
+                        stats.disjoint_object_properties,
+                        stats.inverse_object_properties,
+                        stats.functional_object_properties,
+                        stats.inverse_functional_object_properties,
+                        stats.reflexive_object_properties,
+                        stats.irreflexive_object_properties,
+                        stats.symmetric_object_properties,
+                        stats.asymmetric_object_properties,
+                        stats.transitive_object_properties,
                         stats.skipped_axioms,
                         stats.object_property_domains,
                         stats.object_property_ranges,
                         stats.domain_range_edges,
+                        stats.role_expansion_edges,
                         stats.edges,
                         stats.buffer_bytes,
                     ],

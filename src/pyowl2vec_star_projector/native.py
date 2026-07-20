@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 4
+ENCODED_DIRECT_KERNEL_VERSION = 5
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -71,10 +71,22 @@ class NativeEncodedDirectStatistics:
     class_assertions: int
     object_property_assertions: int
     negative_object_property_assertions: int
+    sub_object_properties: int
+    equivalent_object_properties: int
+    disjoint_object_properties: int
+    inverse_object_properties: int
+    functional_object_properties: int
+    inverse_functional_object_properties: int
+    reflexive_object_properties: int
+    irreflexive_object_properties: int
+    symmetric_object_properties: int
+    asymmetric_object_properties: int
+    transitive_object_properties: int
     skipped_axioms: int
     object_property_domains: int
     object_property_ranges: int
     domain_range_edges: int
+    role_expansion_edges: int
     edges: int
     buffer_bytes: int
 
@@ -89,10 +101,22 @@ class NativeEncodedDirectStatistics:
             self.class_assertions,
             self.object_property_assertions,
             self.negative_object_property_assertions,
+            self.sub_object_properties,
+            self.equivalent_object_properties,
+            self.disjoint_object_properties,
+            self.inverse_object_properties,
+            self.functional_object_properties,
+            self.inverse_functional_object_properties,
+            self.reflexive_object_properties,
+            self.irreflexive_object_properties,
+            self.symmetric_object_properties,
+            self.asymmetric_object_properties,
+            self.transitive_object_properties,
             self.skipped_axioms,
             self.object_property_domains,
             self.object_property_ranges,
             self.domain_range_edges,
+            self.role_expansion_edges,
             self.edges,
             self.buffer_bytes,
         ):
@@ -189,7 +213,7 @@ class NativeEncodedDirectCompiler:
         except Exception as error:
             raise _execution_error(error) from error
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 15:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 27:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
