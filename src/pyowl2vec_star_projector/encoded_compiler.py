@@ -16,7 +16,7 @@ declaration/logical axioms, and skipped data-property domains over the validated
 envelope, data-property ranges over named datatypes, and functional data properties.
 Named-datatype ``DatatypeDefinition`` axioms, ``HasKey`` axioms over the validated
 class-expression/property envelope, and ``SameIndividual`` axioms follow the same bounded skipped
-path.
+path. ``DifferentIndividuals`` uses the same validated individual-set path.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -99,6 +99,7 @@ _TAG_FUNCTIONAL_DATA_PROPERTY = 95
 _TAG_DATATYPE_DEFINITION = 100
 _TAG_HAS_KEY = 101
 _TAG_SAME_INDIVIDUAL = 110
+_TAG_DIFFERENT_INDIVIDUALS = 111
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -278,6 +279,7 @@ class EncodedSubsetCounters:
     datatype_definition_axioms: int = 0
     has_key_axioms: int = 0
     same_individual_axioms: int = 0
+    different_individual_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -330,6 +332,7 @@ class EncodedSubsetCounters:
             self.datatype_definition_axioms,
             self.has_key_axioms,
             self.same_individual_axioms,
+            self.different_individual_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -386,6 +389,7 @@ class _MutableCounters:
     datatype_definition_axioms: int = 0
     has_key_axioms: int = 0
     same_individual_axioms: int = 0
+    different_individual_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -440,6 +444,7 @@ class _MutableCounters:
             datatype_definition_axioms=self.datatype_definition_axioms,
             has_key_axioms=self.has_key_axioms,
             same_individual_axioms=self.same_individual_axioms,
+            different_individual_axioms=self.different_individual_axioms,
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -939,6 +944,8 @@ class _EncodedColumns:
             counters.has_key_axioms += 1
         elif tag == _TAG_SAME_INDIVIDUAL:
             counters.same_individual_axioms += 1
+        elif tag == _TAG_DIFFERENT_INDIVIDUALS:
+            counters.different_individual_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1588,6 +1595,16 @@ class _EncodedColumns:
                 if not self._is_supported_individual(self._item_node(item_index)):
                     raise SnapshotCompatibilityError(
                         "encoded subset SameIndividual item is not an individual"
+                    )
+            self._annotation_set_range(start + 1)
+            return
+        if tag == _TAG_DIFFERENT_INDIVIDUALS:
+            start = self._exact_fields(node_id, 2)
+            item_start, length = self._node_set_range(start, minimum=2)
+            for item_index in range(item_start, item_start + length):
+                if not self._is_supported_individual(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset DifferentIndividuals item is not an individual"
                     )
             self._annotation_set_range(start + 1)
             return
@@ -3010,6 +3027,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_DATATYPE_DEFINITION: "DatatypeDefinition",
         _TAG_HAS_KEY: "HasKey",
         _TAG_SAME_INDIVIDUAL: "SameIndividual",
+        _TAG_DIFFERENT_INDIVIDUALS: "DifferentIndividuals",
     }
     result: dict[str, int] = {}
     for root in roots:

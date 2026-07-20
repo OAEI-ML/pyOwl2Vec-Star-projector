@@ -107,6 +107,7 @@ properties is likewise preflighted and skipped; either property set may be empty
 Class expressions outside the bounded envelope retain whole-operation scalar fallback.
 `SameIndividual` over a minimum-two canonical set of named or anonymous individuals is preflighted
 and skipped while its anonymous members remain part of deterministic blank-ID assignment.
+`DifferentIndividuals` follows the same individual-set, annotation, skip, and blank-ID contract.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
