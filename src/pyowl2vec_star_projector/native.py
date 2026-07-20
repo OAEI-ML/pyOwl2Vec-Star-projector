@@ -4,19 +4,36 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 from .backend import native_runtime_policy_reason
 from .compiler import Compilation, CompileStatistics
+from .encoded import EncodedStructuralLease
 from .errors import (
     NativeBackendUnavailableError,
     ProjectionError,
     ProjectionResourceError,
+    SnapshotCompatibilityError,
 )
 from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
+ENCODED_DIRECT_KERNEL_VERSION = 1
+ENCODED_DIRECT_BUFFER_ORDER = (
+    "root_kinds",
+    "root_ids",
+    "node_tags",
+    "node_field_offsets",
+    "field_kinds",
+    "field_values",
+    "field_lengths",
+    "item_kinds",
+    "item_values",
+    "item_lengths",
+    "scalar_bytes",
+)
 
 
 class _Processor(Protocol):
@@ -30,6 +47,182 @@ class _Processor(Protocol):
     def drain_batch(self, max_items: int) -> list[tuple[str, str, str]]: ...
 
     def cancel(self) -> None: ...
+
+
+class NativeEncodedDirectUnsupported(Exception):
+    """A valid public shape is outside the private Rust foundation."""
+
+
+class NativeEncodedDirectCancelled(Exception):
+    """The private Rust foundation was cancelled before publishing output."""
+
+
+@dataclass(frozen=True, slots=True)
+class NativeEncodedDirectStatistics:
+    roots: int
+    nodes: int
+    declarations: int
+    subclasses: int
+    edges: int
+    buffer_bytes: int
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.roots,
+            self.nodes,
+            self.declarations,
+            self.subclasses,
+            self.edges,
+            self.buffer_bytes,
+        ):
+            if type(value) is not int or value < 0:
+                raise ProjectionError("native encoded compiler returned invalid statistics")
+
+
+@dataclass(slots=True)
+class NativeEncodedDirectCompiler:
+    """Owner-retaining Python handle for the private one-shot Rust compiler."""
+
+    lease: EncodedStructuralLease
+    _kernel: Any
+    _module: Any
+
+    @property
+    def state(self) -> str:
+        value = getattr(self._kernel, "state", None)
+        if not isinstance(value, str):
+            raise ProjectionError("native encoded compiler returned invalid state")
+        return value
+
+    @property
+    def retained_buffer_count(self) -> int:
+        value = getattr(self._kernel, "retained_buffer_count", None)
+        if type(value) is not int or value < 0:
+            raise ProjectionError("native encoded compiler returned invalid buffer count")
+        return value
+
+    def compile_batch(
+        self,
+        *,
+        bidirectional: bool,
+        max_edges: int,
+        max_iri_bytes: int,
+    ) -> tuple[list[Edge], NativeEncodedDirectStatistics]:
+        if type(bidirectional) is not bool:
+            raise TypeError("bidirectional must be bool")
+        if type(max_edges) is not int or max_edges < 1:
+            raise ValueError("max_edges must be a positive int")
+        if type(max_iri_bytes) is not int or max_iri_bytes < 1:
+            raise ValueError("max_iri_bytes must be a positive int")
+        try:
+            raw_edges, raw_stats = self._kernel.compile_batch(
+                bidirectional,
+                max_edges,
+                max_iri_bytes,
+            )
+        except MemoryError as error:
+            raise _resource_error(error) from error
+        except self._module.EncodedDirectUnsupportedError as error:
+            raise NativeEncodedDirectUnsupported(str(error)) from error
+        except self._module.EncodedDirectBufferError as error:
+            raise SnapshotCompatibilityError(str(error)) from error
+        except self._module.EncodedDirectCancelledError as error:
+            raise NativeEncodedDirectCancelled(str(error)) from error
+        except ProjectionError:
+            raise
+        except Exception as error:
+            raise _execution_error(error) from error
+
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 6:
+            raise ProjectionError("native encoded compiler returned an invalid batch envelope")
+        try:
+            statistics = NativeEncodedDirectStatistics(*raw_stats)
+            edges = [Edge(*value) for value in raw_edges]
+        except (MemoryError, OverflowError) as error:
+            raise _resource_error(error) from error
+        except ProjectionError:
+            raise
+        except Exception as error:
+            raise ProjectionError(
+                "native encoded compiler returned an invalid edge batch"
+            ) from error
+        if statistics.edges != len(edges) or statistics.buffer_bytes != sum(
+            buffer.nbytes for buffer in self.lease.buffers.values()
+        ):
+            raise ProjectionError(
+                "native encoded compiler statistics do not match its retained input"
+            )
+        return edges, statistics
+
+    def cancel(self) -> bool:
+        try:
+            result = self._kernel.cancel()
+        except Exception as error:
+            raise _execution_error(error) from error
+        if type(result) is not bool:
+            raise ProjectionError("native encoded compiler returned an invalid cancellation result")
+        return result
+
+
+def prepare_native_encoded_direct(
+    lease: EncodedStructuralLease,
+) -> NativeEncodedDirectCompiler:
+    """Bind one validated public lease to the unadvertised Rust foundation.
+
+    No memoryview is copied.  The Rust constructor accepts only exact, full
+    immutable-``bytes`` exporters.  Mmap, sliced, and other valid exporters are
+    deliberately reported as unsupported until the abi3-safe design expands.
+    """
+
+    if type(lease) is not EncodedStructuralLease:
+        raise TypeError("lease must be EncodedStructuralLease")
+    if lease.owner is not getattr(lease.encoded_view, "owner", None):
+        raise SnapshotCompatibilityError("encoded lease lost its exact owner identity")
+    try:
+        descriptor_sha256 = bytes.fromhex(lease.descriptor_sha256)
+    except (TypeError, ValueError) as error:
+        raise SnapshotCompatibilityError("encoded lease descriptor digest is invalid") from error
+    if len(descriptor_sha256) != 32:
+        raise SnapshotCompatibilityError("encoded lease descriptor digest is invalid")
+
+    module = load_native_module()
+    try:
+        version = getattr(module, "ENCODED_DIRECT_KERNEL_VERSION", None)
+        order = getattr(module, "ENCODED_DIRECT_BUFFER_ORDER", None)
+        compiler = getattr(module, "EncodedDirectCompiler", None)
+        unsupported = getattr(module, "EncodedDirectUnsupportedError", None)
+        buffer_error = getattr(module, "EncodedDirectBufferError", None)
+        cancelled = getattr(module, "EncodedDirectCancelledError", None)
+    except Exception as error:
+        raise NativeBackendUnavailableError(
+            "native encoded foundation metadata could not be read",
+            details={"cause": type(error).__name__},
+        ) from error
+    if version != ENCODED_DIRECT_KERNEL_VERSION:
+        raise NativeBackendUnavailableError("native encoded foundation version is incompatible")
+    actual_order = tuple(order) if isinstance(order, (tuple, list)) else ()
+    if actual_order != ENCODED_DIRECT_BUFFER_ORDER:
+        raise NativeBackendUnavailableError(
+            "native encoded foundation buffer order is incompatible"
+        )
+    exceptions = (unsupported, buffer_error, cancelled)
+    if not callable(compiler) or not all(
+        isinstance(value, type) and issubclass(value, Exception) for value in exceptions
+    ):
+        raise NativeBackendUnavailableError("native encoded foundation is incomplete")
+    unsupported_type = cast(type[Exception], unsupported)
+    buffer_error_type = cast(type[Exception], buffer_error)
+    try:
+        kernel = compiler(lease.encoded_view, lease.owner, descriptor_sha256)
+    except unsupported_type as error:
+        raise NativeEncodedDirectUnsupported(str(error)) from error
+    except buffer_error_type as error:
+        raise SnapshotCompatibilityError(str(error)) from error
+    except MemoryError as error:
+        raise _resource_error(error) from error
+    except Exception as error:
+        raise _execution_error(error) from error
+    return NativeEncodedDirectCompiler(lease, kernel, module)
 
 
 def load_native_module() -> Any:
@@ -242,11 +435,18 @@ def _copy_statistics(
 
 
 __all__ = [
+    "ENCODED_DIRECT_BUFFER_ORDER",
+    "ENCODED_DIRECT_KERNEL_VERSION",
     "NATIVE_API_VERSION",
+    "NativeEncodedDirectCancelled",
+    "NativeEncodedDirectCompiler",
+    "NativeEncodedDirectStatistics",
+    "NativeEncodedDirectUnsupported",
     "iter_native_compilation",
     "iter_native_passthrough",
     "iter_native_policy",
     "load_native_module",
     "native_implementation_version",
     "native_runtime_metadata",
+    "prepare_native_encoded_direct",
 ]
