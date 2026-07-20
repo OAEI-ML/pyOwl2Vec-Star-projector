@@ -24,12 +24,18 @@ from .artifact import (
 )
 from .backend import BackendSelection, select_backend, warn_if_auto_fallback
 from .compiler import (
+    Compilation,
     RoleState,
     iter_asserted_taxonomy,
     prepare_streaming_compilation,
     validate_view,
 )
 from .encoded import EncodedNegotiation, select_ingestion
+from .encoded_compiler import (
+    EncodedSubsetCompilation,
+    EncodedSubsetCounters,
+    prepare_encoded_subset_compilation,
+)
 from .errors import (
     InvalidProjectionOptionsError,
     NativeBackendUnavailableError,
@@ -71,6 +77,7 @@ class Projector:
         self._last_view: object | None = None
         self._last_report: ProjectionReport | None = None
         self._last_spill_metrics = SpillMetrics(0, 0, 0, 0)
+        self._last_encoded_counters: EncodedSubsetCounters | None = None
         self._scala_invocation_count = 0
         self._scala_call_history_digest = ""
 
@@ -90,6 +97,12 @@ class Projector:
         """Path-free spill accounting for the most recently active iterator."""
         with self._metadata_lock:
             return self._last_spill_metrics
+
+    @property
+    def last_encoded_counters(self) -> EncodedSubsetCounters | None:
+        """Bounded-work counters for the incomplete encoded compiler slice."""
+        with self._metadata_lock:
+            return self._last_encoded_counters
 
     def project(
         self,
@@ -278,14 +291,30 @@ class Projector:
             native_features=native_features,
             backend_fallback_reason=selection.fallback_reason,
         )
-        _require_available_ingestion_compiler(ingestion)
+        encoded_compilation, ingestion, encoded_counters = prepare_encoded_subset_compilation(
+            checked,
+            ProjectionOptions(
+                bidirectional_taxonomy=bidirectional,
+                only_taxonomy=True,
+                duplicates="preserve",
+                order="encounter",
+                backend=backend,
+            ),
+            ingestion,
+            batch_edges=buffer_edges,
+        )
         with self._metadata_lock:
             self._last_view = checked
-        raw = iter_asserted_taxonomy(
-            checked,
-            bidirectional=bidirectional,
-            duplicates="preserve",
-            order="encounter",
+            self._last_encoded_counters = encoded_counters
+        raw = (
+            self._iter_encoded_raw(encoded_compilation)
+            if encoded_compilation is not None
+            else iter_asserted_taxonomy(
+                checked,
+                bidirectional=bidirectional,
+                duplicates="preserve",
+                order="encounter",
+            )
         )
         if selection.selected == "native":
             raw = iter_native_passthrough(raw, batch_edges=buffer_edges)
@@ -332,25 +361,41 @@ class Projector:
                     native_features=native_features,
                     backend_fallback_reason=selection.fallback_reason,
                 )
-                _require_available_ingestion_compiler(ingestion)
                 role_state = (
                     self._scala_state
                     if options.compatibility_state == "scala-instance"
                     else RoleState.empty()
                 )
-                compilation = prepare_streaming_compilation(checked, options, role_state)
+                encoded_compilation, ingestion, encoded_counters = (
+                    prepare_encoded_subset_compilation(
+                        checked,
+                        options,
+                        ingestion,
+                        batch_edges=native_batch_edges,
+                    )
+                )
+                compilation: Compilation | EncodedSubsetCompilation
+                if encoded_compilation is None:
+                    compilation = prepare_streaming_compilation(checked, options, role_state)
+                else:
+                    compilation = encoded_compilation
                 if options.compatibility_state == "scala-instance":
                     compilation.prepare_role_state()
                 with self._metadata_lock:
                     self._last_view = compilation.view
                     self._last_report = None
+                    self._last_encoded_counters = encoded_counters
                     if options.compatibility_state == "scala-instance":
                         self._scala_invocation_count += 1
                         invocation = self._scala_invocation_count
                     else:
                         invocation = 1
                 output_count = 0
-                raw_edges: Iterator[Edge] = compilation.iter_raw_edges()
+                raw_edges: Iterator[Edge] = (
+                    self._iter_encoded_raw(encoded_compilation)
+                    if encoded_compilation is not None
+                    else compilation.iter_raw_edges()
+                )
                 if selection.selected == "native":
                     raw_edges = iter_native_passthrough(
                         raw_edges,
@@ -392,6 +437,16 @@ class Projector:
                     self._scala_lock.release()
 
         return generate()
+
+    def _iter_encoded_raw(
+        self,
+        compilation: EncodedSubsetCompilation,
+    ) -> Iterator[Edge]:
+        try:
+            yield from compilation.iter_raw_edges()
+        finally:
+            with self._metadata_lock:
+                self._last_encoded_counters = compilation.counters
 
     def _remember_spill_metrics(self, metrics: SpillMetrics) -> None:
         with self._metadata_lock:
@@ -557,20 +612,6 @@ def _activate_selection(
             fallback_reason=f"native load failed: {error}",
         )
         return fallback, None, frozenset()
-
-
-def _require_available_ingestion_compiler(ingestion: EncodedNegotiation) -> None:
-    """Fail before scalar traversal if an extension claims the unfinished P7 ABI."""
-    if ingestion.path != "encoded-native":
-        return
-    lease = ingestion.lease
-    raise NativeBackendUnavailableError(
-        "encoded structural view is compatible but the P7 compiler ABI is not frozen",
-        details={
-            "schema_name": "" if lease is None else lease.schema_name,
-            "schema_version": -1 if lease is None else lease.schema_version,
-        },
-    )
 
 
 def _ingestion_provenance(ingestion: EncodedNegotiation) -> IngestionProvenance:

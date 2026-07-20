@@ -41,6 +41,14 @@ fixed-width column pairing, monotone offsets, and root/node/item/scalar/posting 
 over retained read-only byte views. This validation constructs no OWL value or dense-ID cache and
 does not advertise or promote the unfinished encoded-native compiler path.
 
+The first internal compiler slice additionally preflights canonical direct views containing only
+declarations and simple named-class `SubClassOf` axioms, then emits the existing projector `Edge`
+IR in caller-bounded batches without reconstructing core OWL values. Any other valid constructor,
+annotation-bearing slice, or segmented view selects scalar-native compilation for the complete
+operation before edge output. Test-visible counters cover inspected roots/nodes/scalar bytes,
+batches, raw edges, and scalar fallbacks. This slice is intentionally absent from the native
+feature ledger; it does not change public backend promotion.
+
 ## 3. Native projection compiler
 
 ```text
