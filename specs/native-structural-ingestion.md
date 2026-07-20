@@ -75,16 +75,26 @@ deduplicates equal roots without reconstructing OWL values or allocating an onto
 canonical arena. Domain/range indexes, role state, class signatures, and anonymous identifiers are
 then derived across both tables.
 
-A valid order-changing scope map, nested referenced source, composite, or other segment family
+The same cursor and arbitrary-group merge execute canonical composite manifests with at least two
+token-sorted unique members and an optional nonempty top-local bridge. Member sources resolve
+recursively without flattening. `ALL` retains every resolved source occurrence; `INCLUDE` selects
+only the posted roots local to the immediate referenced view; and `EXCLUDE` removes only those
+source-local roots while preserving roots inherited by that view. Anonymous scope maps compose
+from leaf scope to effective scope at each reference boundary before final canonical merge and
+structural deduplication. Every distinct referenced table is fully revalidated once, and every
+required lease/owner remains retained by the prepared compilation.
+
+A valid order-changing scope map, or a nested source outside the recursive composite-member lane,
 selects whole-operation scalar-native compilation before output. Malformed posting bounds/layout,
-scope rows, owner links, base/delta metadata, local-root order, empty-local claims, or referenced
-columns fail closed. Any other valid constructor or annotations on the supported
+scope rows, owner links, base/delta/member/bridge metadata, member tokens, recursive cycles,
+local-root order, empty-local claims, or referenced columns fail closed. Any other valid
+constructor or annotations on the supported
 declaration/logical-axiom families also select scalar-native compilation for the complete
 operation before edge output. Test-visible counters cover inspected roots/nodes/scalar bytes,
-supported axiom kinds, referenced segments, posting/scope rows, source/delta/selected and
-deduplicated roots, canonical bytes compared, batches, raw edges, and scalar fallbacks. This slice
-is intentionally absent from the native feature ledger; it does not change public backend
-promotion.
+supported axiom kinds, referenced/member segments, posting/scope rows,
+source/delta/bridge/selected and deduplicated roots, canonical bytes compared, batches, raw edges,
+and scalar fallbacks. This slice is intentionally absent from the native feature ledger; it does
+not change public backend promotion.
 
 ## 3. Native projection compiler
 

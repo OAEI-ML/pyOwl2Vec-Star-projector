@@ -1,14 +1,15 @@
 """Bounded encoded-column to projector-edge compiler slice.
 
-The slice is intentionally narrow: one canonical direct segment, or one
+The slice is intentionally narrow: one canonical direct segment; one
 overlay-base segment referencing a canonical direct source and optionally
-followed by one top-local delta segment, containing declarations, simple
-named-class ``SubClassOf`` and ``EquivalentClasses`` axioms, named
-``ClassAssertion`` axioms, direct ``ObjectPropertyAssertion`` axioms over named
-or anonymous individuals, and named object-property domain/range and role
-axioms, plus named-property/named-filler ``SubClassOf`` restrictions, and
-named/aggregate ``EquivalentClasses`` pairs over the same operands, with empty
-annotation sets on those declaration/logical axioms.
+followed by one top-local delta segment; or recursively resolved composite
+members with an optional top-local bridge.  Those roots may contain
+declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
+axioms, named ``ClassAssertion`` axioms, direct ``ObjectPropertyAssertion``
+axioms over named or anonymous individuals, and named object-property
+domain/range and role axioms, plus named-property/named-filler ``SubClassOf``
+restrictions, and named/aggregate ``EquivalentClasses`` pairs over the same
+operands, with empty annotation sets on those declaration/logical axioms.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
 closure proves the pinned root-only lookup semantics.  It preflights the
 complete encoded view before yielding any edge.  A well-formed view outside
@@ -75,7 +76,10 @@ _TAG_ANNOTATION_ASSERTION = 120
 _SEGMENT_DIRECT = 1
 _SEGMENT_OVERLAY_BASE = 2
 _SEGMENT_OVERLAY_DELTA = 3
+_SEGMENT_COMPOSITE_MEMBER = 4
+_SEGMENT_COMPOSITE_BRIDGE = 5
 _POSTINGS_ALL = 0
+_POSTINGS_INCLUDE = 1
 _POSTINGS_EXCLUDE = 2
 
 _ROOT_AXIOM = 2
@@ -199,7 +203,7 @@ _ENTITY_KINDS = frozenset(
 _MAX_ENTITY_KIND_BYTES = max(map(len, _ENTITY_KINDS))
 
 
-class _OverlayBaseSegmentLike(Protocol):
+class _SegmentLike(Protocol):
     role: object
     source: object | None
     owner: object
@@ -234,6 +238,8 @@ class EncodedSubsetCounters:
     scope_map_rows_inspected: int = 0
     source_roots_inspected: int = 0
     delta_roots_inspected: int = 0
+    composite_member_segments: int = 0
+    bridge_roots_inspected: int = 0
     selected_roots: int = 0
     deduplicated_roots: int = 0
     canonical_bytes_compared: int = 0
@@ -266,6 +272,8 @@ class EncodedSubsetCounters:
             self.scope_map_rows_inspected,
             self.source_roots_inspected,
             self.delta_roots_inspected,
+            self.composite_member_segments,
+            self.bridge_roots_inspected,
             self.selected_roots,
             self.deduplicated_roots,
             self.canonical_bytes_compared,
@@ -302,6 +310,8 @@ class _MutableCounters:
     scope_map_rows_inspected: int = 0
     source_roots_inspected: int = 0
     delta_roots_inspected: int = 0
+    composite_member_segments: int = 0
+    bridge_roots_inspected: int = 0
     selected_roots: int = 0
     deduplicated_roots: int = 0
     canonical_bytes_compared: int = 0
@@ -334,6 +344,8 @@ class _MutableCounters:
             scope_map_rows_inspected=self.scope_map_rows_inspected,
             source_roots_inspected=self.source_roots_inspected,
             delta_roots_inspected=self.delta_roots_inspected,
+            composite_member_segments=self.composite_member_segments,
+            bridge_roots_inspected=self.bridge_roots_inspected,
             selected_roots=self.selected_roots,
             deduplicated_roots=self.deduplicated_roots,
             canonical_bytes_compared=self.canonical_bytes_compared,
@@ -386,6 +398,50 @@ class _EncodedNodeRef:
 
 
 @dataclass(frozen=True, slots=True)
+class _ValidatedSegment:
+    role: int
+    owner: object
+    source: object | None
+    posting_mode: int
+    postings: memoryview
+    scope_map: Mapping[bytes, bytes]
+    scope_map_rows: int
+    member_token: object
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedColumnGroup:
+    """One source-local canonical root subsequence with its effective leaf map."""
+
+    lease: EncodedStructuralLease
+    root_indices: tuple[int, ...]
+    scope_map: Mapping[bytes, bytes]
+
+
+@dataclass(slots=True)
+class _SegmentResolutionState:
+    """Bound recursive view cache and pre-publication validation evidence."""
+
+    top_lease: EncodedStructuralLease
+    leases: dict[int, EncodedStructuralLease] = field(default_factory=dict)
+    inspections: dict[int, _Inspection] = field(default_factory=dict)
+    cache: dict[int, tuple[_ResolvedColumnGroup, ...]] = field(default_factory=dict)
+    active: set[int] = field(default_factory=set)
+    fallback_reason: str | None = None
+    referenced_segments: int = 0
+    posting_rows_inspected: int = 0
+    scope_map_rows_inspected: int = 0
+    source_roots_inspected: int = 0
+    delta_roots_inspected: int = 0
+    composite_member_segments: int = 0
+    bridge_roots_inspected: int = 0
+
+    def fallback(self, reason: str) -> None:
+        if self.fallback_reason is None:
+            self.fallback_reason = reason
+
+
+@dataclass(frozen=True, slots=True)
 class _EquivalentOperand:
     tag: int
     node_id: int
@@ -407,7 +463,7 @@ class EncodedSubsetCompilation:
     _domains: dict[str, tuple[str, ...]]
     _ranges: dict[str, tuple[str, ...]]
     _role_axioms: tuple[_EncodedRoleAxiom, ...]
-    _anonymous_ids: dict[_EncodedColumns, dict[int, str]]
+    _anonymous_ids: dict[_CanonicalCursor, dict[int, str]]
     _class_iris: frozenset[str]
     _counters: _MutableCounters
     _retained_leases: tuple[EncodedStructuralLease, ...] = ()
@@ -532,7 +588,7 @@ class EncodedSubsetCompilation:
                 edge, non_string_literal = columns.annotation_assertion_edge(
                     root_id,
                     self._class_iris,
-                    self._anonymous_ids[columns],
+                    self._anonymous_ids[root.cursor],
                 )
                 if edge is None:
                     self.statistics.ignored_shapes += 1
@@ -553,7 +609,7 @@ class EncodedSubsetCompilation:
             if tag == _TAG_OBJECT_PROPERTY_ASSERTION:
                 source, relation, destination = columns.object_property_assertion_iris(
                     root_id,
-                    self._anonymous_ids[columns],
+                    self._anonymous_ids[root.cursor],
                 )
                 yield Edge(source, relation, destination)
         yield from self._iter_domain_range_edges()
@@ -1915,16 +1971,378 @@ def _borrowed_segment_bytes(segment: object, name: str, width: int) -> memoryvie
     return value
 
 
-def _validate_empty_overlay_columns(lease: EncodedStructuralLease) -> None:
+def _validated_segment(segment: object) -> _ValidatedSegment:
+    try:
+        typed_segment = cast(_SegmentLike, segment)
+        role = typed_segment.role
+        source = typed_segment.source
+        owner = typed_segment.owner
+        posting_mode = typed_segment.posting_mode
+        member_token = typed_segment.member_token
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "encoded subset segment metadata is not readable"
+        ) from error
+    if type(role) is not int or role not in {
+        _SEGMENT_DIRECT,
+        _SEGMENT_OVERLAY_BASE,
+        _SEGMENT_OVERLAY_DELTA,
+        _SEGMENT_COMPOSITE_MEMBER,
+        _SEGMENT_COMPOSITE_BRIDGE,
+    }:
+        raise SnapshotCompatibilityError("encoded subset segment role is invalid")
+    if type(posting_mode) is not int or posting_mode not in {
+        _POSTINGS_ALL,
+        _POSTINGS_INCLUDE,
+        _POSTINGS_EXCLUDE,
+    }:
+        raise SnapshotCompatibilityError("encoded subset segment posting mode is invalid")
+    postings = _borrowed_segment_bytes(segment, "root_ids", 4)
+    raw_scope_map = _borrowed_segment_bytes(segment, "anonymous_scope_map", 64)
+    scope_map: dict[bytes, bytes] = {}
+    previous_scope: bytes | None = None
+    for offset in range(0, raw_scope_map.nbytes, 64):
+        source_scope = bytes(raw_scope_map[offset : offset + 32])
+        target_scope = bytes(raw_scope_map[offset + 32 : offset + 64])
+        if source_scope == target_scope:
+            raise SnapshotCompatibilityError(
+                "encoded subset anonymous scope map contains an identity row"
+            )
+        if previous_scope is not None and source_scope <= previous_scope:
+            raise SnapshotCompatibilityError(
+                "encoded subset anonymous scope-map sources are not sorted unique"
+            )
+        scope_map[source_scope] = target_scope
+        previous_scope = source_scope
+    return _ValidatedSegment(
+        role,
+        owner,
+        source,
+        posting_mode,
+        postings,
+        MappingProxyType(scope_map),
+        raw_scope_map.nbytes // 64,
+        member_token,
+    )
+
+
+def _register_resolution_lease(
+    state: _SegmentResolutionState,
+    lease: EncodedStructuralLease,
+    *,
+    referenced: bool,
+) -> None:
+    identity = id(lease.encoded_view)
+    retained = state.leases.get(identity)
+    if retained is not None:
+        if retained.encoded_view is not lease.encoded_view:  # pragma: no cover - retained id
+            raise SnapshotCompatibilityError("encoded subset segment resolution identity changed")
+        return
+    columns = _EncodedColumns(lease)
+    state.leases[identity] = lease
+    state.inspections[identity] = columns.inspect(classify_roots=False)
+    if referenced:
+        state.source_roots_inspected += columns.root_count
+
+
+def _reference_segment_lease(
+    state: _SegmentResolutionState,
+    current_lease: EncodedStructuralLease,
+    segment: _ValidatedSegment,
+) -> EncodedStructuralLease:
+    source = segment.source
+    if source is current_lease.encoded_view:
+        raise SnapshotCompatibilityError("encoded subset segment graph contains a direct cycle")
+    if source is None or segment.owner is not getattr(source, "owner", None):
+        raise SnapshotCompatibilityError(
+            "encoded subset referenced segment does not retain its source owner"
+        )
+    state.referenced_segments += 1
+    retained = state.leases.get(id(source))
+    if retained is not None and retained.encoded_view is source:
+        return retained
+    source_lease = _validate_encoded_view(
+        segment.owner,
+        source,
+        type(state.top_lease.encoded_view),
+        state.top_lease.scope,
+    )
+    _register_resolution_lease(state, source_lease, referenced=True)
+    return source_lease
+
+
+def _posting_indices(
+    postings: memoryview,
+    posting_mode: int,
+    root_count: int,
+) -> frozenset[int]:
+    if posting_mode == _POSTINGS_ALL:
+        if postings.nbytes:
+            raise SnapshotCompatibilityError("encoded subset ALL segment requires empty postings")
+        return frozenset()
+    if posting_mode not in {_POSTINGS_INCLUDE, _POSTINGS_EXCLUDE}:
+        raise SnapshotCompatibilityError("encoded subset posting mode is invalid")
+    if not postings.nbytes:
+        raise SnapshotCompatibilityError("encoded subset INCLUDE/EXCLUDE segment requires postings")
+    selected: set[int] = set()
+    previous_root_id = 0
+    for offset in range(0, postings.nbytes, 4):
+        root_id = int.from_bytes(postings[offset : offset + 4], "little")
+        if root_id <= previous_root_id or root_id > root_count:
+            raise SnapshotCompatibilityError(
+                "encoded subset postings are not sorted unique source-local references"
+            )
+        selected.add(root_id - 1)
+        previous_root_id = root_id
+    return frozenset(selected)
+
+
+def _apply_resolved_postings(
+    groups: tuple[_ResolvedColumnGroup, ...],
+    source_lease: EncodedStructuralLease,
+    posting_mode: int,
+    postings: memoryview,
+) -> tuple[_ResolvedColumnGroup, ...]:
+    selected = _posting_indices(
+        postings,
+        posting_mode,
+        source_lease.buffers["root_kinds"].nbytes,
+    )
+    if posting_mode == _POSTINGS_ALL:
+        return groups
+    result: list[_ResolvedColumnGroup] = []
+    for group in groups:
+        is_source_local = group.lease.encoded_view is source_lease.encoded_view
+        if posting_mode == _POSTINGS_INCLUDE and not is_source_local:
+            continue
+        if not is_source_local:
+            result.append(group)
+            continue
+        if posting_mode == _POSTINGS_INCLUDE:
+            root_indices = tuple(index for index in group.root_indices if index in selected)
+        else:
+            root_indices = tuple(index for index in group.root_indices if index not in selected)
+        if root_indices:
+            result.append(_ResolvedColumnGroup(group.lease, root_indices, group.scope_map))
+    return tuple(result)
+
+
+def _compose_group_scope_map(
+    group: _ResolvedColumnGroup,
+    scope_map: Mapping[bytes, bytes],
+    state: _SegmentResolutionState,
+) -> _ResolvedColumnGroup:
+    if not scope_map:
+        return group
+    columns = _EncodedColumns(group.lease, root_indices=group.root_indices)
+    reachable = columns.reachable_node_ids()
+    composed: dict[bytes, bytes] = {}
+    for original_scope in columns.anonymous_scopes(reachable):
+        current_scope = group.scope_map.get(original_scope, original_scope)
+        target_scope = scope_map.get(current_scope, current_scope)
+        if target_scope != original_scope:
+            composed[original_scope] = target_scope
+    frozen: Mapping[bytes, bytes] = MappingProxyType(composed)
+    if not _scope_remap_preserves_order(columns, reachable, frozen):
+        state.fallback("encoded composite anonymous scope remap does not preserve canonical order")
+    return _ResolvedColumnGroup(group.lease, group.root_indices, frozen)
+
+
+def _apply_group_scope_map(
+    groups: tuple[_ResolvedColumnGroup, ...],
+    scope_map: Mapping[bytes, bytes],
+    state: _SegmentResolutionState,
+) -> tuple[_ResolvedColumnGroup, ...]:
+    return tuple(_compose_group_scope_map(group, scope_map, state) for group in groups)
+
+
+def _local_resolved_group(lease: EncodedStructuralLease) -> _ResolvedColumnGroup:
+    root_count = lease.buffers["root_kinds"].nbytes
+    return _ResolvedColumnGroup(
+        lease,
+        tuple(range(root_count)),
+        MappingProxyType({}),
+    )
+
+
+def _resolve_segment_groups(
+    lease: EncodedStructuralLease,
+    state: _SegmentResolutionState,
+) -> tuple[_ResolvedColumnGroup, ...]:
+    """Resolve segment occurrences while retaining their source-local table identity."""
+
+    identity = id(lease.encoded_view)
+    if identity in state.active:
+        raise SnapshotCompatibilityError("encoded subset segment graph is cyclic")
+    cached = state.cache.get(identity)
+    if cached is not None:
+        return cached
+    _register_resolution_lease(
+        state,
+        lease,
+        referenced=lease.encoded_view is not state.top_lease.encoded_view,
+    )
+    state.active.add(identity)
+    try:
+        raw_segments = lease.segments
+        if type(raw_segments) is not tuple or not raw_segments:
+            raise SnapshotCompatibilityError(
+                "encoded subset segment manifest is not a nonempty exact tuple"
+            )
+        segments = tuple(_validated_segment(segment) for segment in raw_segments)
+        state.posting_rows_inspected += sum(segment.postings.nbytes // 4 for segment in segments)
+        state.scope_map_rows_inspected += sum(segment.scope_map_rows for segment in segments)
+        roles = tuple(segment.role for segment in segments)
+        local = _local_resolved_group(lease)
+        resolved: list[_ResolvedColumnGroup] = []
+
+        if roles == (_SEGMENT_DIRECT,):
+            segment = segments[0]
+            if (
+                segment.owner is not lease.owner
+                or segment.source is not None
+                or segment.posting_mode != _POSTINGS_ALL
+                or segment.postings.nbytes
+                or segment.scope_map
+                or segment.member_token is not None
+            ):
+                raise SnapshotCompatibilityError(
+                    "encoded subset direct segment metadata is not canonical"
+                )
+            if local.root_indices:
+                resolved.append(local)
+        elif roles in {
+            (_SEGMENT_OVERLAY_BASE,),
+            (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA),
+        }:
+            base = segments[0]
+            if (
+                base.source is None
+                or base.owner is not getattr(base.source, "owner", None)
+                or base.posting_mode not in {_POSTINGS_ALL, _POSTINGS_EXCLUDE}
+                or base.member_token is not None
+            ):
+                raise SnapshotCompatibilityError(
+                    "encoded subset overlay base segment metadata is invalid"
+                )
+            source_lease = _reference_segment_lease(state, lease, base)
+            source_groups = _resolve_segment_groups(source_lease, state)
+            source_groups = _apply_group_scope_map(
+                source_groups,
+                base.scope_map,
+                state,
+            )
+            resolved.extend(
+                _apply_resolved_postings(
+                    source_groups,
+                    source_lease,
+                    base.posting_mode,
+                    base.postings,
+                )
+            )
+            if len(segments) == 1:
+                _validate_empty_local_columns(lease, family="overlay without delta")
+            else:
+                delta = segments[1]
+                if (
+                    delta.owner is not lease.owner
+                    or delta.source is not None
+                    or delta.posting_mode != _POSTINGS_ALL
+                    or delta.postings.nbytes
+                    or delta.scope_map
+                    or delta.member_token is not None
+                    or not local.root_indices
+                ):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset overlay delta segment metadata is invalid"
+                    )
+                state.delta_roots_inspected += len(local.root_indices)
+                resolved.append(local)
+        else:
+            member_count = roles.count(_SEGMENT_COMPOSITE_MEMBER)
+            bridge_count = roles.count(_SEGMENT_COMPOSITE_BRIDGE)
+            expected = (_SEGMENT_COMPOSITE_MEMBER,) * member_count + (
+                (_SEGMENT_COMPOSITE_BRIDGE,) if bridge_count else ()
+            )
+            if member_count < 2 or bridge_count > 1 or roles != expected:
+                raise SnapshotCompatibilityError(
+                    "encoded subset composite segment roles are invalid"
+                )
+            previous_token: bytes | None = None
+            for member in segments[:member_count]:
+                token = member.member_token
+                if (
+                    member.source is None
+                    or member.owner is not getattr(member.source, "owner", None)
+                    or member.posting_mode
+                    not in {_POSTINGS_ALL, _POSTINGS_INCLUDE, _POSTINGS_EXCLUDE}
+                    or type(token) is not bytes
+                    or len(token) != 32
+                ):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset composite member metadata is invalid"
+                    )
+                if previous_token is not None and token <= previous_token:
+                    raise SnapshotCompatibilityError(
+                        "encoded subset composite member tokens are not sorted unique"
+                    )
+                previous_token = token
+                state.composite_member_segments += 1
+                source_lease = _reference_segment_lease(state, lease, member)
+                member_groups = _resolve_segment_groups(source_lease, state)
+                member_groups = _apply_group_scope_map(
+                    member_groups,
+                    member.scope_map,
+                    state,
+                )
+                resolved.extend(
+                    _apply_resolved_postings(
+                        member_groups,
+                        source_lease,
+                        member.posting_mode,
+                        member.postings,
+                    )
+                )
+            if bridge_count:
+                bridge = segments[-1]
+                if (
+                    bridge.owner is not lease.owner
+                    or bridge.source is not None
+                    or bridge.posting_mode != _POSTINGS_ALL
+                    or bridge.postings.nbytes
+                    or bridge.scope_map
+                    or bridge.member_token is not None
+                    or not local.root_indices
+                ):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset composite bridge metadata is invalid"
+                    )
+                state.bridge_roots_inspected += len(local.root_indices)
+                resolved.append(local)
+            else:
+                _validate_empty_local_columns(lease, family="composite without bridge")
+
+        result = tuple(resolved)
+        state.cache[identity] = result
+        return result
+    finally:
+        state.active.remove(identity)
+
+
+def _validate_empty_local_columns(
+    lease: EncodedStructuralLease,
+    *,
+    family: str,
+) -> None:
     if set(lease.buffers) != set(ENCODED_BUFFER_WIDTHS):
         raise SnapshotCompatibilityError(
-            "encoded subset overlay local buffer set differs from schema 1"
+            f"encoded subset {family} local buffer set differs from schema 1"
         )
     for name, width in ENCODED_BUFFER_WIDTHS.items():
         value = lease.buffers[name]
         if type(value) is not memoryview or not value.readonly:
             raise SnapshotCompatibilityError(
-                "encoded subset overlay local buffer is not readonly",
+                f"encoded subset {family} local buffer is not readonly",
                 details={"buffer": name},
             )
         if (
@@ -1937,13 +2355,13 @@ def _validate_empty_overlay_columns(lease: EncodedStructuralLease) -> None:
             or value.nbytes % width
         ):
             raise SnapshotCompatibilityError(
-                "encoded subset overlay local buffer layout is invalid",
+                f"encoded subset {family} local buffer layout is invalid",
                 details={"buffer": name},
             )
         expected = 8 if name == "node_field_offsets" else 0
         if value.nbytes != expected or (expected and bytes(value) != b"\x00" * expected):
             raise SnapshotCompatibilityError(
-                "encoded subset overlay without delta has nonempty local columns",
+                f"encoded subset {family} has nonempty local columns",
                 details={"buffer": name},
             )
 
@@ -1953,7 +2371,7 @@ def _validate_overlay_delta_segment(
     segment: object,
 ) -> None:
     try:
-        typed_segment = cast(_OverlayBaseSegmentLike, segment)
+        typed_segment = cast(_SegmentLike, segment)
         role = typed_segment.role
         source = typed_segment.source
         owner = typed_segment.owner
@@ -1996,7 +2414,7 @@ def _overlay_base_source(
     """Validate one referenced-direct overlay base and resolve its postings."""
 
     try:
-        typed_segment = cast(_OverlayBaseSegmentLike, segment)
+        typed_segment = cast(_SegmentLike, segment)
         role = typed_segment.role
         source = typed_segment.source
         owner = typed_segment.owner
@@ -2183,11 +2601,11 @@ def _anonymous_id_maps(
         ...,
     ],
     comparator: _CanonicalComparator,
-) -> dict[_EncodedColumns, dict[int, str]]:
+) -> dict[_CanonicalCursor, dict[int, str]]:
     node_groups: list[tuple[_EncodedNodeRef, ...]] = []
-    result: dict[_EncodedColumns, dict[int, str]] = {}
+    result: dict[_CanonicalCursor, dict[int, str]] = {}
     for columns, cursor, reachable in groups:
-        result[columns] = {}
+        result[cursor] = {}
         node_groups.append(
             tuple(
                 _EncodedNodeRef(columns, cursor, node_id)
@@ -2197,7 +2615,7 @@ def _anonymous_id_maps(
         )
     for identities, blank_id in _merge_node_groups(tuple(node_groups), comparator):
         for identity in identities:
-            result[identity.columns][identity.node_id] = blank_id
+            result[identity.cursor][identity.node_id] = blank_id
     return result
 
 
@@ -2244,7 +2662,11 @@ def prepare_encoded_subset_compilation(
         raise SnapshotCompatibilityError(
             "encoded subset segment manifest is not a nonempty exact tuple"
         )
-    first_role = getattr(segments[0], "role", None)
+    try:
+        segment_roles = tuple(cast(_SegmentLike, segment).role for segment in segments)
+    except Exception as error:
+        raise SnapshotCompatibilityError("encoded subset segment roles are not readable") from error
+    first_role = segment_roles[0]
     if type(first_role) is not int or first_role not in {1, 2, 3, 4, 5}:
         raise SnapshotCompatibilityError("encoded subset segment role is invalid")
 
@@ -2254,6 +2676,9 @@ def prepare_encoded_subset_compilation(
     is_direct = len(segments) == 1 and first_role == _SEGMENT_DIRECT
     is_overlay_base = first_role == _SEGMENT_OVERLAY_BASE and len(segments) in {1, 2}
     has_overlay_delta = is_overlay_base and len(segments) == 2
+    is_composite = any(
+        role in {_SEGMENT_COMPOSITE_MEMBER, _SEGMENT_COMPOSITE_BRIDGE} for role in segment_roles
+    )
     column_groups: tuple[
         tuple[_EncodedColumns, _CanonicalCursor, frozenset[int]],
         ...,
@@ -2261,12 +2686,12 @@ def prepare_encoded_subset_compilation(
 
     if is_overlay_base:
         if has_overlay_delta:
-            second_role = getattr(segments[1], "role", None)
+            second_role = segment_roles[1]
             if type(second_role) is not int or second_role != _SEGMENT_OVERLAY_DELTA:
                 raise SnapshotCompatibilityError("encoded subset overlay delta role is invalid")
             _validate_overlay_delta_segment(lease, segments[1])
         else:
-            _validate_empty_overlay_columns(lease)
+            _validate_empty_local_columns(lease, family="overlay without delta")
         try:
             (
                 source_lease,
@@ -2335,6 +2760,50 @@ def prepare_encoded_subset_compilation(
         counters.selected_roots = len(roots)
         counters.deduplicated_roots = deduplicated_roots
         counters.canonical_bytes_compared = comparator.bytes_compared
+    elif is_composite:
+        resolution = _SegmentResolutionState(lease)
+        try:
+            resolved_groups = _resolve_segment_groups(lease, resolution)
+        except RecursionError as error:
+            raise SnapshotCompatibilityError(
+                "encoded subset segment graph exceeds the safe recursion depth"
+            ) from error
+        inspection = _merge_unclassified_inspections(tuple(resolution.inspections.values()))
+        counters = inspection.counters
+        counters.referenced_segments = resolution.referenced_segments
+        counters.posting_rows_inspected = resolution.posting_rows_inspected
+        counters.scope_map_rows_inspected = resolution.scope_map_rows_inspected
+        counters.source_roots_inspected = resolution.source_roots_inspected
+        counters.delta_roots_inspected = resolution.delta_roots_inspected
+        counters.composite_member_segments = resolution.composite_member_segments
+        counters.bridge_roots_inspected = resolution.bridge_roots_inspected
+        retained_leases = tuple(
+            retained
+            for retained in resolution.leases.values()
+            if retained.encoded_view is not lease.encoded_view
+        )
+        if resolution.fallback_reason is not None:
+            counters.selected_roots = sum(len(group.root_indices) for group in resolved_groups)
+            counters.scalar_fallbacks = 1
+            reason = f"{resolution.fallback_reason}; selected whole-operation scalar compiler"
+            return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
+
+        prepared_root_groups: list[tuple[_EncodedRootRef, ...]] = []
+        prepared_column_groups: list[tuple[_EncodedColumns, _CanonicalCursor, frozenset[int]]] = []
+        for group in resolved_groups:
+            columns = _EncodedColumns(group.lease, root_indices=group.root_indices)
+            cursor = _CanonicalCursor(columns, group.scope_map)
+            reachable = columns.reachable_node_ids()
+            prepared_root_groups.append(_root_group(columns, cursor))
+            prepared_column_groups.append((columns, cursor, reachable))
+        root_groups = tuple(prepared_root_groups)
+        column_groups = tuple(prepared_column_groups)
+        roots, deduplicated_roots = _merge_root_groups(root_groups, comparator)
+        for root in roots:
+            root.columns.inspect_root(root.root_index, inspection)
+        counters.selected_roots = len(roots)
+        counters.deduplicated_roots = deduplicated_roots
+        counters.canonical_bytes_compared = comparator.bytes_compared
     elif is_direct:
         columns = _EncodedColumns(lease)
         cursor = _CanonicalCursor(columns, empty_scope_map)
@@ -2347,14 +2816,11 @@ def prepare_encoded_subset_compilation(
         column_groups = ((columns, cursor, reachable),)
     else:
         columns = _EncodedColumns(lease)
-        inspection = columns.inspect()
-        counters = inspection.counters
-        counters.scalar_fallbacks = 1
-        reason = (
-            "encoded compiler slice supports direct segments and referenced-direct "
-            "overlay base/delta segments only"
+        columns.inspect()
+        raise SnapshotCompatibilityError(
+            "encoded subset segment manifest is outside the canonical direct, overlay, "
+            "and composite families"
         )
-        return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
 
     if inspection.fallback_reason is not None:
         counters.scalar_fallbacks = 1
@@ -2376,7 +2842,7 @@ def prepare_encoded_subset_compilation(
     domains, ranges = ({}, {}) if asserted_taxonomy_only else _domain_range_index(roots)
     role_axioms = () if asserted_taxonomy_only else _role_axioms(roots)
     anonymous_ids = (
-        {columns: {} for columns, _cursor, _reachable in column_groups}
+        {cursor: {} for _columns, cursor, _reachable in column_groups}
         if asserted_taxonomy_only
         else _anonymous_id_maps(column_groups, comparator)
     )

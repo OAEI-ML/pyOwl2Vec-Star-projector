@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -90,6 +90,15 @@ class _SegmentFixture:
     anonymous_scope_map: memoryview = field(default_factory=lambda: memoryview(b""))
 
 
+@dataclass(frozen=True, slots=True)
+class _CompositeMemberFixture:
+    lease: EncodedStructuralLease
+    token: bytes
+    posting_mode: int = 0
+    postings: memoryview = field(default_factory=lambda: memoryview(b""))
+    scope_map: memoryview = field(default_factory=lambda: memoryview(b""))
+
+
 def _postings(*root_ids: int) -> memoryview:
     return memoryview(b"".join(root_id.to_bytes(4, "little") for root_id in root_ids))
 
@@ -117,11 +126,19 @@ def _overlay_base_lease(
         memoryview(b"") if postings is None else postings,
         anonymous_scope_map=memoryview(b"") if scope_map is None else scope_map,
     )
+    buffers = empty.buffers if local_columns_empty else top.buffers
+    original_encoded = empty.encoded_view if not hasattr(view, "view") else top.encoded_view
+    encoded_view = replace(
+        original_encoded,
+        owner=view,
+        buffers=buffers,
+        segments=(segment,),
+    )
     return replace(
         top,
+        encoded_view=encoded_view,
         owner=view,
-        encoded_view=empty.encoded_view if not hasattr(view, "view") else top.encoded_view,
-        buffers=empty.buffers if local_columns_empty else top.buffers,
+        buffers=buffers,
         segments=(segment,),
     )
 
@@ -151,11 +168,87 @@ def _overlay_delta_lease(
         0,
         memoryview(b""),
     )
-    return replace(
-        top,
+    segments = (base_segment, delta_segment)
+    encoded_view = replace(
+        top.encoded_view,
         owner=view,
         buffers=delta.buffers,
-        segments=(base_segment, delta_segment),
+        segments=segments,
+    )
+    return replace(
+        top,
+        encoded_view=encoded_view,
+        owner=view,
+        buffers=delta.buffers,
+        segments=segments,
+    )
+
+
+def _composite_lease(
+    view: object,
+    members: tuple[_CompositeMemberFixture, ...],
+    *,
+    bridge: EncodedStructuralLease | None = None,
+) -> EncodedStructuralLease:
+    top = _lease(view) if hasattr(view, "view") else _lease(_snapshot(""))
+    empty = _lease(_snapshot(""))
+    segments: tuple[_SegmentFixture, ...] = tuple(
+        _SegmentFixture(
+            4,
+            member.lease.owner,
+            member.lease.encoded_view,
+            member.posting_mode,
+            member.postings,
+            member.token,
+            member.scope_map,
+        )
+        for member in members
+    )
+    if bridge is not None:
+        segments = (
+            *segments,
+            _SegmentFixture(5, view, None, 0, memoryview(b"")),
+        )
+    buffers = empty.buffers if bridge is None else bridge.buffers
+    encoded_view = replace(
+        top.encoded_view,
+        owner=view,
+        buffers=buffers,
+        segments=segments,
+    )
+    return replace(
+        top,
+        encoded_view=encoded_view,
+        owner=view,
+        buffers=buffers,
+        segments=segments,
+    )
+
+
+def _semantic_composite_lease(
+    view: object,
+    sources: tuple[EncodedStructuralLease, ...],
+    *,
+    bridge: EncodedStructuralLease | None = None,
+) -> EncodedStructuralLease:
+    tokens = cast(tuple[bytes, ...], cast(Any, view)._source_tokens())
+    mappings = cast(
+        tuple[Mapping[bytes, bytes], ...] | None,
+        cast(Any, view)._scope_replacements(),
+    )
+    assert mappings is not None
+    rows = sorted(zip(tokens, sources, mappings, strict=True), key=lambda row: row[0])
+    return _composite_lease(
+        view,
+        tuple(
+            _CompositeMemberFixture(
+                source,
+                token,
+                scope_map=_scope_map(*mapping.items()),
+            )
+            for token, source, mapping in rows
+        ),
+        bridge=bridge,
     )
 
 
@@ -861,6 +954,672 @@ def test_overlay_delta_deduplicates_after_anonymous_scope_remap() -> None:
     assert counters.canonical_bytes_compared > 0
     assert counters.raw_edges == 1
     assert counters.scalar_fallbacks == 0
+
+
+def test_composite_members_merge_exact_order_indexes_and_bridge() -> None:
+    left = _snapshot(
+        "SubClassOf(:Z :Top) ObjectPropertyDomain(:p :D) SubObjectPropertyOf(:child :p)"
+    )
+    right = _snapshot(
+        "SubClassOf(:AA :Top) ObjectPropertyRange(:p :R) "
+        "InverseObjectProperties(:p :pinv) ClassAssertion(:AA :i)"
+    )
+    bridge = _snapshot("Declaration(Class(:Bridge))")
+    bridge_axioms = tuple(bridge.iter_axioms())  # type: ignore[attr-defined]
+    composite = compose_views(
+        left,
+        right,
+        delta=OntologyDelta(add_axioms=CanonicalSet(bridge_axioms)),
+    )
+    left_lease = _lease(left)
+    right_lease = _lease(right)
+    lease = _semantic_composite_lease(
+        composite,
+        (left_lease, right_lease),
+        bridge=_lease(bridge),
+    )
+    prepared, negotiation, initial = prepare_encoded_subset_compilation(
+        composite,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert initial is not None
+    assert {item.owner for item in prepared._retained_leases} == {left, right}
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(composite, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("composite crossed scalar axiom traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = projector.project(
+                composite,
+                options=replace(options, backend="native"),
+            )
+
+            assert actual == scalar_edges
+            assert Edge("urn:slice#D", "urn:slice#p", "urn:slice#R") in actual
+            assert Edge("urn:slice#D", "urn:slice#child", "urn:slice#R") in actual
+            assert Edge("urn:slice#R", "urn:slice#pinv", "urn:slice#D") in actual
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.referenced_segments == 2
+            assert counters.composite_member_segments == 2
+            assert counters.bridge_roots_inspected == 1
+            assert counters.source_roots_inspected == 7
+            assert counters.roots_inspected == counters.selected_roots == 8
+            assert counters.deduplicated_roots == 0
+            assert counters.canonical_bytes_compared > 0
+            assert counters.scalar_fallbacks == 0
+
+
+def test_composite_structurally_deduplicates_equal_member_roots() -> None:
+    left = _snapshot("SubClassOf(:A :B)")
+    right = _snapshot("SubClassOf(:A :B)")
+    composite = compose_views(left, right)
+    lease = _semantic_composite_lease(
+        composite,
+        (_lease(left), _lease(right)),
+    )
+    expected = Projector().project(
+        composite,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("deduplicated composite crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(
+            composite,
+            options=ProjectionOptions(backend="native", order="encounter"),
+        )
+
+    assert actual == expected == [Edge("urn:slice#A", SUBCLASS_OF, "urn:slice#B")]
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.roots_inspected == 2
+    assert counters.source_roots_inspected == 2
+    assert counters.selected_roots == counters.subclass_axioms == 1
+    assert counters.deduplicated_roots == 1
+    assert counters.composite_member_segments == counters.referenced_segments == 2
+    assert counters.scalar_fallbacks == 0
+
+
+def test_recursive_composite_postings_address_only_source_local_roots() -> None:
+    nested_left = _snapshot("SubClassOf(:NestedA :Top)")
+    nested_right = _snapshot("SubClassOf(:NestedB :Top)")
+    inner_bridge = _snapshot("SubClassOf(:LocalDrop :Top) SubClassOf(:LocalKeep :Top)")
+    bridge_axioms = tuple(inner_bridge.iter_axioms())  # type: ignore[attr-defined]
+    keep_id = next(
+        index
+        for index, axiom in enumerate(bridge_axioms, 1)
+        if b"LocalKeep" in canonical_bytes(axiom)
+    )
+    drop_id = next(
+        index
+        for index, axiom in enumerate(bridge_axioms, 1)
+        if b"LocalDrop" in canonical_bytes(axiom)
+    )
+    inner = compose_views(
+        nested_left,
+        nested_right,
+        delta=OntologyDelta(add_axioms=CanonicalSet(bridge_axioms)),
+    )
+    inner_lease = _semantic_composite_lease(
+        inner,
+        (_lease(nested_left), _lease(nested_right)),
+        bridge=_lease(inner_bridge),
+    )
+    other = _snapshot("SubClassOf(:Other :Top)")
+    other_lease = _lease(other)
+    cases = (
+        (
+            1,
+            keep_id,
+            "SubClassOf(:LocalKeep :Top) SubClassOf(:Other :Top)",
+            2,
+        ),
+        (
+            2,
+            drop_id,
+            "SubClassOf(:NestedA :Top) SubClassOf(:NestedB :Top) "
+            "SubClassOf(:LocalKeep :Top) SubClassOf(:Other :Top)",
+            4,
+        ),
+    )
+
+    for posting_mode, posting_id, body, expected_roots in cases:
+        target = _snapshot(body)
+        lease = _composite_lease(
+            target,
+            (
+                _CompositeMemberFixture(
+                    inner_lease,
+                    b"a" * 32,
+                    posting_mode=posting_mode,
+                    postings=_postings(posting_id),
+                ),
+                _CompositeMemberFixture(other_lease, b"b" * 32),
+            ),
+        )
+        scalar_options = ProjectionOptions(backend="python", order="encounter")
+        expected = Projector().project(target, options=scalar_options)
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            target,
+            ProjectionOptions(backend="native", order="encounter"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert {id(item.owner) for item in prepared._retained_leases} == {
+            id(inner),
+            id(nested_left),
+            id(nested_right),
+            id(other),
+        }
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("recursive composite crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(
+                target,
+                options=replace(scalar_options, backend="native"),
+            )
+
+        assert actual == expected
+        assert len(actual) == expected_roots
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.referenced_segments == 4
+        assert counters.composite_member_segments == 4
+        assert counters.bridge_roots_inspected == 2
+        assert counters.posting_rows_inspected == 1
+        assert counters.source_roots_inspected == counters.roots_inspected == 5
+        assert counters.selected_roots == expected_roots
+        assert counters.scalar_fallbacks == 0
+
+
+def test_composite_recursively_resolves_overlay_member_and_retains_every_lease() -> None:
+    base = _snapshot("SubClassOf(:Base :Top)")
+    delta = _snapshot("SubClassOf(:Delta :Top)")
+    delta_axioms = tuple(delta.iter_axioms())  # type: ignore[attr-defined]
+    overlay = apply_delta(
+        base,  # type: ignore[arg-type]
+        OntologyDelta(add_axioms=CanonicalSet(delta_axioms)),
+    )
+    overlay_lease = _overlay_delta_lease(
+        overlay,
+        _lease(base),
+        _lease(delta),
+    )
+    other = _snapshot("SubClassOf(:Other :Top)")
+    target = compose_views(overlay, other)
+    lease = _composite_lease(
+        target,
+        (
+            _CompositeMemberFixture(overlay_lease, b"a" * 32),
+            _CompositeMemberFixture(_lease(other), b"b" * 32),
+        ),
+    )
+    options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(target, options=options)
+    prepared, negotiation, initial = prepare_encoded_subset_compilation(
+        target,
+        replace(options, backend="native"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert initial is not None
+    assert {id(item.owner) for item in prepared._retained_leases} == {
+        id(overlay),
+        id(base),
+        id(other),
+    }
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("overlay-member composite crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(
+            target,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected
+    assert len(actual) == 3
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.referenced_segments == 3
+    assert counters.composite_member_segments == 2
+    assert counters.delta_roots_inspected == 1
+    assert counters.source_roots_inspected == counters.roots_inspected == 3
+    assert counters.selected_roots == 3
+    assert counters.scalar_fallbacks == 0
+
+
+def test_recursive_composite_composes_anonymous_scope_maps_exactly() -> None:
+    body = "ObjectPropertyAssertion(:p _:x :i)"
+    left = _snapshot(body)
+    right = _snapshot(body)
+    third = _snapshot(body)
+    inner = compose_views(left, right)
+    inner_lease = _semantic_composite_lease(
+        inner,
+        (_lease(left), _lease(right)),
+    )
+    outer = compose_views(inner, third)
+    inner_mappings = cast(
+        tuple[Mapping[bytes, bytes], ...],
+        cast(Any, inner)._scope_replacements(),
+    )
+    outer_mappings = cast(
+        tuple[Mapping[bytes, bytes], ...],
+        cast(Any, outer)._scope_replacements(),
+    )
+    assert len(inner_mappings) == 2
+    assert len(outer_mappings) == 3
+    inner_to_outer: dict[bytes, bytes] = {}
+    for inner_mapping, outer_mapping in zip(
+        inner_mappings,
+        outer_mappings[:2],
+        strict=True,
+    ):
+        for original_scope in inner_mapping.keys() | outer_mapping.keys():
+            current_scope = inner_mapping.get(original_scope, original_scope)
+            target_scope = outer_mapping.get(original_scope, original_scope)
+            if current_scope != target_scope:
+                inner_to_outer[current_scope] = target_scope
+    lease = _composite_lease(
+        outer,
+        (
+            _CompositeMemberFixture(
+                inner_lease,
+                b"a" * 32,
+                scope_map=_scope_map(*inner_to_outer.items()),
+            ),
+            _CompositeMemberFixture(
+                _lease(third),
+                b"b" * 32,
+                scope_map=_scope_map(*outer_mappings[2].items()),
+            ),
+        ),
+    )
+    options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(outer, options=options)
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("scope-composed composite crossed scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project(
+            outer,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected
+    assert len(actual) == 3
+    assert {edge.source for edge in actual} == {
+        "_:genid2147483648",
+        "_:genid2147483649",
+        "_:genid2147483650",
+    }
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.referenced_segments == counters.composite_member_segments == 4
+    assert counters.scope_map_rows_inspected > 0
+    assert counters.source_roots_inspected == counters.roots_inspected == 3
+    assert counters.selected_roots == 3
+    assert counters.anonymous_individuals == 3
+    assert counters.canonical_bytes_compared > 0
+    assert counters.scalar_fallbacks == 0
+
+
+def test_composite_order_changing_scope_map_falls_back_after_full_preflight() -> None:
+    left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
+    right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
+    source = compose_views(left, right)  # type: ignore[arg-type]
+    source_lease = _lease(source)
+    anonymous_nodes = _anonymous_node_ids(source_lease)
+    assert len(anonymous_nodes) == 2
+    scopes = tuple(_anonymous_scope(source_lease, node_id) for node_id in anonymous_nodes)
+    assert scopes[0] < scopes[1]
+    other = _snapshot("SubClassOf(:Other :Top)")
+    target = compose_views(source, other)  # type: ignore[arg-type]
+    lease = _composite_lease(
+        target,
+        (
+            _CompositeMemberFixture(
+                source_lease,
+                b"a" * 32,
+                scope_map=_scope_map(
+                    (scopes[0], b"\xff" * 32),
+                    (scopes[1], b"\x00" * 32),
+                ),
+            ),
+            _CompositeMemberFixture(_lease(other), b"b" * 32),
+        ),
+    )
+
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        target,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert "scope remap does not preserve canonical order" in (negotiation.reason or "")
+    assert counters is not None
+    assert counters.referenced_segments == counters.composite_member_segments == 2
+    assert counters.scope_map_rows_inspected == 2
+    assert counters.source_roots_inspected == counters.roots_inspected == 3
+    assert counters.selected_roots == 3
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == counters.raw_edges == 0
+
+
+def test_composite_scope_fallback_does_not_mask_later_hostile_source() -> None:
+    left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
+    right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
+    source = compose_views(left, right)  # type: ignore[arg-type]
+    source_lease = _lease(source)
+    anonymous_nodes = _anonymous_node_ids(source_lease)
+    scopes = tuple(_anonymous_scope(source_lease, node_id) for node_id in anonymous_nodes)
+    assert len(scopes) == 2
+    other = _snapshot("SubClassOf(:A :Top) SubClassOf(:B :Top)")
+    other_lease = _lease(other)
+    hostile_buffers = dict(other_lease.buffers)
+    root_ids = bytes(hostile_buffers["root_ids"])
+    assert len(root_ids) == 8
+    hostile_buffers["root_ids"] = memoryview(root_ids[4:] + root_ids[:4])
+    frozen_buffers = MappingProxyType(hostile_buffers)
+    hostile_encoded = replace(other_lease.encoded_view, buffers=frozen_buffers)
+    hostile_other = replace(
+        other_lease,
+        encoded_view=hostile_encoded,
+        buffers=frozen_buffers,
+    )
+    target = compose_views(source, other)  # type: ignore[arg-type]
+    lease = _composite_lease(
+        target,
+        (
+            _CompositeMemberFixture(
+                source_lease,
+                b"a" * 32,
+                scope_map=_scope_map(
+                    (scopes[0], b"\xff" * 32),
+                    (scopes[1], b"\x00" * 32),
+                ),
+            ),
+            _CompositeMemberFixture(hostile_other, b"b" * 32),
+        ),
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match="roots are not canonical"):
+        prepare_encoded_subset_compilation(
+            target,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+
+
+def test_composite_supported_family_falls_back_for_unsupported_axiom_slice() -> None:
+    left = _snapshot("DisjointClasses(:A :B)")
+    right = _snapshot("SubClassOf(:B :Top)")
+    target = compose_views(left, right)
+    lease = _semantic_composite_lease(
+        target,
+        (_lease(left), _lease(right)),
+    )
+
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        target,
+        ProjectionOptions(backend="native"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert "outside the executable axiom slice" in (negotiation.reason or "")
+    assert counters is not None
+    assert counters.referenced_segments == counters.composite_member_segments == 2
+    assert counters.roots_inspected == counters.source_roots_inspected == 2
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == counters.raw_edges == 0
+
+
+def test_recursive_composite_cycle_fails_before_output() -> None:
+    left = _snapshot("SubClassOf(:A :Top)")
+    right = _snapshot("SubClassOf(:B :Top)")
+    inner = compose_views(left, right)
+    inner_lease = _composite_lease(
+        inner,
+        (
+            _CompositeMemberFixture(_lease(left), b"a" * 32),
+            _CompositeMemberFixture(_lease(right), b"b" * 32),
+        ),
+    )
+    third = _snapshot("SubClassOf(:C :Top)")
+    outer = compose_views(inner, third)
+    outer_lease = _composite_lease(
+        outer,
+        (
+            _CompositeMemberFixture(inner_lease, b"a" * 32),
+            _CompositeMemberFixture(_lease(third), b"b" * 32),
+        ),
+    )
+    inner_first = cast(_SegmentFixture, inner_lease.segments[0])
+    inner_first.owner = outer
+    inner_first.source = outer_lease.encoded_view
+
+    with pytest.raises(SnapshotCompatibilityError, match="segment graph is cyclic"):
+        prepare_encoded_subset_compilation(
+            outer,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=outer_lease),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    ("corruption", "match"),
+    [
+        ("role", "roles"),
+        ("owner", "member metadata"),
+        ("source", "member metadata"),
+        ("cycle", "direct cycle"),
+        ("mode", "posting mode"),
+        ("all-posting", "ALL segment"),
+        ("include-empty", "INCLUDE/EXCLUDE"),
+        ("posting-range", "source-local"),
+        ("posting-partial", "fixed-width layout"),
+        ("scope-identity", "identity row"),
+        ("scope-unsorted", "sources are not sorted unique"),
+        ("token-short", "member metadata"),
+        ("token-duplicate", "tokens are not sorted unique"),
+        ("token-order", "tokens are not sorted unique"),
+        ("local-columns", "nonempty local columns"),
+    ],
+)
+def test_composite_hostile_member_metadata_fails_before_output(
+    corruption: str,
+    match: str,
+) -> None:
+    left = _snapshot("SubClassOf(:A :Top)")
+    right = _snapshot("SubClassOf(:B :Top)")
+    target = compose_views(left, right)
+    left_lease = _lease(left)
+    right_lease = _lease(right)
+    lease = _composite_lease(
+        target,
+        (
+            _CompositeMemberFixture(left_lease, b"a" * 32),
+            _CompositeMemberFixture(right_lease, b"b" * 32),
+        ),
+    )
+    first, second = lease.segments
+    if corruption == "role":
+        first = replace(first, role=3)
+    elif corruption == "owner":
+        first = replace(first, owner=object())
+    elif corruption == "source":
+        first = replace(first, source=None)
+    elif corruption == "cycle":
+        first = replace(first, owner=target, source=lease.encoded_view)
+    elif corruption == "mode":
+        first = replace(first, posting_mode=9)
+    elif corruption == "all-posting":
+        first = replace(first, root_ids=_postings(1))
+    elif corruption == "include-empty":
+        first = replace(first, posting_mode=1)
+    elif corruption == "posting-range":
+        first = replace(first, posting_mode=1, root_ids=_postings(2))
+    elif corruption == "posting-partial":
+        first = replace(first, root_ids=memoryview(b"\x01"))
+    elif corruption == "scope-identity":
+        first = replace(first, anonymous_scope_map=_scope_map((b"a" * 32, b"a" * 32)))
+    elif corruption == "scope-unsorted":
+        first = replace(
+            first,
+            anonymous_scope_map=memoryview(b"b" * 32 + b"c" * 32 + b"a" * 32 + b"d" * 32),
+        )
+    elif corruption == "token-short":
+        first = replace(first, member_token=b"short")
+    elif corruption == "token-duplicate":
+        second = replace(second, member_token=b"a" * 32)
+    elif corruption == "token-order":
+        first = replace(first, member_token=b"z" * 32)
+    hostile = replace(lease, segments=(first, second))
+    if corruption == "local-columns":
+        hostile = replace(hostile, buffers=left_lease.buffers)
+
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        prepare_encoded_subset_compilation(
+            target,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    ("corruption", "match"),
+    [
+        ("owner", "bridge metadata"),
+        ("source", "bridge metadata"),
+        ("mode", "bridge metadata"),
+        ("posting", "bridge metadata"),
+        ("scope-map", "bridge metadata"),
+        ("member-token", "bridge metadata"),
+        ("empty-local", "bridge metadata"),
+    ],
+)
+def test_composite_hostile_bridge_metadata_fails_before_output(
+    corruption: str,
+    match: str,
+) -> None:
+    left = _snapshot("SubClassOf(:A :Top)")
+    right = _snapshot("SubClassOf(:B :Top)")
+    bridge = _snapshot("SubClassOf(:Bridge :Top)")
+    target = compose_views(
+        left,
+        right,
+        delta=OntologyDelta(
+            add_axioms=CanonicalSet(tuple(bridge.iter_axioms())),  # type: ignore[attr-defined]
+        ),
+    )
+    left_lease = _lease(left)
+    lease = _semantic_composite_lease(
+        target,
+        (left_lease, _lease(right)),
+        bridge=_lease(bridge),
+    )
+    *members, bridge_segment = lease.segments
+    if corruption == "owner":
+        bridge_segment = replace(bridge_segment, owner=object())
+    elif corruption == "source":
+        bridge_segment = replace(
+            bridge_segment,
+            owner=left,
+            source=left_lease.encoded_view,
+        )
+    elif corruption == "mode":
+        bridge_segment = replace(bridge_segment, posting_mode=1)
+    elif corruption == "posting":
+        bridge_segment = replace(bridge_segment, root_ids=_postings(1))
+    elif corruption == "scope-map":
+        bridge_segment = replace(
+            bridge_segment,
+            anonymous_scope_map=_scope_map((b"a" * 32, b"b" * 32)),
+        )
+    elif corruption == "member-token":
+        bridge_segment = replace(bridge_segment, member_token=b"c" * 32)
+    hostile = replace(lease, segments=(*members, bridge_segment))
+    if corruption == "empty-local":
+        hostile = replace(hostile, buffers=_lease(_snapshot("")).buffers)
+
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        prepare_encoded_subset_compilation(
+            target,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
 
 
 def test_overlay_scope_remap_that_reorders_identities_falls_back_before_output() -> None:
