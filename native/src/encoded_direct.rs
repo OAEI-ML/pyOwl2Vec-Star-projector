@@ -1554,7 +1554,7 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 3)?;
         self.named_data_property_iri(self.field_node(start)?, maximum)?;
-        self.validate_bounded_data_range(self.field_node(start + 1)?, maximum)?;
+        self.validate_data_range_node(self.field_node(start + 1)?, maximum)?;
         self.validate_annotation_set(start + 2)
     }
 
@@ -1585,7 +1585,7 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 3)?;
         self.named_datatype_iri(self.field_node(start)?, maximum)?;
-        self.validate_bounded_data_range(self.field_node(start + 1)?, maximum)?;
+        self.validate_data_range_node(self.field_node(start + 1)?, maximum)?;
         self.validate_annotation_set(start + 2)
     }
 
@@ -1905,9 +1905,45 @@ impl<'a> DirectColumns<'a> {
         self.validate_literal(self.field_node(start + 1)?, maximum)
     }
 
-    fn validate_atomic_data_range(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+    fn validate_data_range_reference(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
         match self.node_tag(node_id)? {
             TAG_ENTITY => self.named_datatype_iri(node_id, maximum).map(|_iri| ()),
+            tag if is_data_range_tag(tag) => Ok(()),
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
+                "encoded data-range reference has the wrong constructor tag",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded data-range tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn validate_data_range_node(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => self.named_datatype_iri(node_id, maximum).map(|_iri| ()),
+            TAG_DATA_INTERSECTION_OF | TAG_DATA_UNION_OF => {
+                let tag = self.node_tag(node_id)?;
+                let start = self.exact_fields(node_id, 1)?;
+                let (item_start, length) = self.node_set_range(start, 2)?;
+                for item_index in item_start..item_start + length {
+                    let operand_id = self.item_node(item_index)?;
+                    if self.node_tag(operand_id)? == tag {
+                        return Err(KernelError::malformed(
+                            "encoded data-range aggregate operands are not flattened",
+                        ));
+                    }
+                    self.validate_data_range_reference(operand_id, maximum)?;
+                }
+                Ok(())
+            }
+            TAG_DATA_COMPLEMENT_OF => {
+                let start = self.exact_fields(node_id, 1)?;
+                self.validate_data_range_reference(self.field_node(start)?, maximum)
+            }
             TAG_DATA_ONE_OF => {
                 let start = self.exact_fields(node_id, 1)?;
                 let (item_start, length) = self.node_set_range(start, 1)?;
@@ -1925,9 +1961,6 @@ impl<'a> DirectColumns<'a> {
                 }
                 Ok(())
             }
-            tag if is_data_range_tag(tag) => Err(KernelError::unsupported(
-                "direct native data range is outside the bounded atomic envelope",
-            )),
             tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
                 "encoded data-range reference has the wrong constructor tag",
             )),
@@ -1937,37 +1970,100 @@ impl<'a> DirectColumns<'a> {
         }
     }
 
-    fn validate_nonrecursive_data_range(
+    fn validate_data_range_graph(
         self,
-        node_id: usize,
         maximum: usize,
+        state: &AtomicU8,
     ) -> Result<(), KernelError> {
-        if self.node_tag(node_id)? != TAG_DATA_COMPLEMENT_OF {
-            return self.validate_atomic_data_range(node_id, maximum);
-        }
-        let start = self.exact_fields(node_id, 1)?;
-        self.validate_atomic_data_range(self.field_node(start)?, maximum)
-    }
-
-    fn validate_bounded_data_range(
-        self,
-        node_id: usize,
-        maximum: usize,
-    ) -> Result<(), KernelError> {
-        let tag = self.node_tag(node_id)?;
-        if ![TAG_DATA_INTERSECTION_OF, TAG_DATA_UNION_OF].contains(&tag) {
-            return self.validate_nonrecursive_data_range(node_id, maximum);
-        }
-        let start = self.exact_fields(node_id, 1)?;
-        let (item_start, length) = self.node_set_range(start, 2)?;
-        for item_index in item_start..item_start + length {
-            let operand_id = self.item_node(item_index)?;
-            if self.node_tag(operand_id)? == tag {
-                return Err(KernelError::malformed(
-                    "encoded data-range aggregate operands are not flattened",
-                ));
+        let mut has_recursive_data_range = false;
+        for node_id in 1..=self.node_count() {
+            check_cancel(state, node_id)?;
+            if is_recursive_data_range_tag(self.node_tag(node_id)?) {
+                has_recursive_data_range = true;
+                break;
             }
-            self.validate_nonrecursive_data_range(operand_id, maximum)?;
+        }
+        if !has_recursive_data_range {
+            return Ok(());
+        }
+
+        let color_length = self
+            .node_count()
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded data-range color length overflow"))?;
+        let mut colors = Vec::new();
+        colors
+            .try_reserve_exact(color_length)
+            .map_err(|_| KernelError::resource("encoded data-range color allocation failed"))?;
+        colors.resize(color_length, 0_u8);
+        let mut stack = Vec::new();
+        let mut work_index = 0_usize;
+
+        for start_id in 1..=self.node_count() {
+            if !is_recursive_data_range_tag(self.node_tag(start_id)?) || colors[start_id] == 2 {
+                continue;
+            }
+            queue_data_range_event(&mut stack, start_id, false)?;
+            while let Some((node_id, exiting)) = stack.pop() {
+                check_cancel(state, work_index)?;
+                work_index = work_index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded data-range traversal overflow")
+                })?;
+                if exiting {
+                    colors[node_id] = 2;
+                    continue;
+                }
+                match colors[node_id] {
+                    2 => continue,
+                    1 => {
+                        return Err(KernelError::malformed("encoded data-range graph is cyclic"));
+                    }
+                    _ => {}
+                }
+                colors[node_id] = 1;
+                queue_data_range_event(&mut stack, node_id, true)?;
+                match self.node_tag(node_id)? {
+                    TAG_DATA_INTERSECTION_OF | TAG_DATA_UNION_OF => {
+                        let start = self.exact_fields(node_id, 1)?;
+                        let (item_start, length) = self.node_set_range(start, 2)?;
+                        for item_index in (item_start..item_start + length).rev() {
+                            let child = self.item_node(item_index)?;
+                            if !is_recursive_data_range_tag(self.node_tag(child)?) {
+                                self.validate_data_range_reference(child, maximum)?;
+                                continue;
+                            }
+                            if colors[child] == 1 {
+                                return Err(KernelError::malformed(
+                                    "encoded data-range graph is cyclic",
+                                ));
+                            }
+                            if colors[child] == 0 {
+                                queue_data_range_event(&mut stack, child, false)?;
+                            }
+                        }
+                    }
+                    TAG_DATA_COMPLEMENT_OF => {
+                        let child = self.field_node(self.exact_fields(node_id, 1)?)?;
+                        if is_recursive_data_range_tag(self.node_tag(child)?) {
+                            if colors[child] == 1 {
+                                return Err(KernelError::malformed(
+                                    "encoded data-range graph is cyclic",
+                                ));
+                            }
+                            if colors[child] == 0 {
+                                queue_data_range_event(&mut stack, child, false)?;
+                            }
+                        } else {
+                            self.validate_data_range_reference(child, maximum)?;
+                        }
+                    }
+                    _ => {
+                        return Err(KernelError::malformed(
+                            "encoded recursive data-range cursor changed after preflight",
+                        ));
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1984,7 +2080,7 @@ impl<'a> DirectColumns<'a> {
                 for item_index in item_start..item_start + length {
                     self.named_data_property_iri(self.item_node(item_index)?, maximum)?;
                 }
-                self.validate_bounded_data_range(self.field_node(start + 1)?, maximum)
+                self.validate_data_range_node(self.field_node(start + 1)?, maximum)
             }
             TAG_DATA_HAS_VALUE => {
                 let start = self.exact_fields(node_id, 2)?;
@@ -1995,7 +2091,7 @@ impl<'a> DirectColumns<'a> {
                 let start = self.exact_fields(node_id, 3)?;
                 self.canonical_integer(start)?;
                 self.named_data_property_iri(self.field_node(start + 1)?, maximum)?;
-                self.validate_bounded_data_range(self.field_node(start + 2)?, maximum)
+                self.validate_data_range_node(self.field_node(start + 2)?, maximum)
             }
             tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
                 "encoded data class-expression cursor has the wrong constructor tag",
@@ -2696,7 +2792,7 @@ impl<'a> DirectColumns<'a> {
             }
             TAG_DATA_RANGE_ATOM => {
                 let start = self.exact_fields(node_id, 2)?;
-                self.validate_bounded_data_range(self.field_node(start)?, maximum_iri)?;
+                self.validate_data_range_node(self.field_node(start)?, maximum_iri)?;
                 self.validate_swrl_data_argument(self.field_node(start + 1)?, maximum_iri)
             }
             TAG_OBJECT_PROPERTY_ATOM => {
@@ -2792,7 +2888,7 @@ impl<'a> DirectColumns<'a> {
                 | TAG_DATA_COMPLEMENT_OF
                 | TAG_DATA_ONE_OF
                 | TAG_DATATYPE_RESTRICTION => {
-                    self.validate_bounded_data_range(node_id, maximum_iri)?;
+                    self.validate_data_range_node(node_id, maximum_iri)?;
                 }
                 TAG_OBJECT_INTERSECTION_OF | TAG_OBJECT_UNION_OF => {
                     self.validate_aggregate_expression(node_id, maximum_iri)?;
@@ -2949,7 +3045,7 @@ impl<'a> DirectColumns<'a> {
                 }
             }
         }
-        Ok(())
+        self.validate_data_range_graph(maximum_iri, state)
     }
 
     fn classify_roots(
@@ -3962,6 +4058,15 @@ fn is_data_range_tag(tag: u16) -> bool {
     .contains(&tag)
 }
 
+fn is_recursive_data_range_tag(tag: u16) -> bool {
+    [
+        TAG_DATA_INTERSECTION_OF,
+        TAG_DATA_UNION_OF,
+        TAG_DATA_COMPLEMENT_OF,
+    ]
+    .contains(&tag)
+}
+
 fn is_aggregate_tag(tag: u16) -> bool {
     [TAG_OBJECT_INTERSECTION_OF, TAG_OBJECT_UNION_OF].contains(&tag)
 }
@@ -4178,6 +4283,18 @@ fn queue_reachable_node(
         reachable[node_id] = true;
         stack.push(node_id);
     }
+    Ok(())
+}
+
+fn queue_data_range_event(
+    stack: &mut Vec<(usize, bool)>,
+    node_id: usize,
+    exiting: bool,
+) -> Result<(), KernelError> {
+    stack
+        .try_reserve(1)
+        .map_err(|_| KernelError::resource("encoded data-range stack allocation failed"))?;
+    stack.push((node_id, exiting));
     Ok(())
 }
 

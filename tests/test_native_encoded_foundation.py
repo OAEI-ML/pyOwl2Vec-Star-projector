@@ -1078,6 +1078,31 @@ def test_many_swrl_extensions_cross_one_zero_output_bounded_call() -> None:
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
 
 
+def test_recursive_swrl_data_range_predicate_is_validated_and_silent() -> None:
+    view = _swrl_snapshot(
+        "SWRLRule((DataRangeAtom(DataComplementOf(DataUnionOf("
+        "<http://www.w3.org/2001/XMLSchema#string> "
+        "DataComplementOf(<http://www.w3.org/2001/XMLSchema#integer>))) "
+        "Variable(:value))) ()) SubClassOf(:Before :After)"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    assert statistics.swrl_rules == 1
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
+
+
 def test_unsupported_swrl_class_predicate_falls_back_before_output() -> None:
     compiler = prepare_native_encoded_direct(
         _lease(
@@ -1538,17 +1563,9 @@ def test_annotated_data_property_families_are_state_neutral_skips(body: str) -> 
     "body",
     [
         "DataPropertyDomain(:dp ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
-        "DataPropertyRange(:dp DataComplementOf(DataComplementOf("
-        "<http://www.w3.org/2001/XMLSchema#string>)))",
-        "DatatypeDefinition(:custom DataIntersectionOf("
-        "<http://www.w3.org/2001/XMLSchema#string> "
-        "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
-        "<http://www.w3.org/2001/XMLSchema#decimal>)))",
     ],
     ids=[
         "nested-domain",
-        "nested-range",
-        "nested-definition",
     ],
 )
 def test_out_of_slice_data_shapes_are_transactionally_unsupported(body: str) -> None:
@@ -1560,6 +1577,45 @@ def test_out_of_slice_data_shapes_are_transactionally_unsupported(body: str) -> 
             max_iri_bytes=1024 * 1024,
         )
     assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    ("body", "counter"),
+    [
+        (
+            "DataPropertyRange(:dp DataComplementOf(DataComplementOf("
+            "<http://www.w3.org/2001/XMLSchema#string>)))",
+            "data_property_ranges",
+        ),
+        (
+            "DatatypeDefinition(:custom DataIntersectionOf("
+            "<http://www.w3.org/2001/XMLSchema#string> "
+            "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
+            "<http://www.w3.org/2001/XMLSchema#decimal>)))",
+            "datatype_definitions",
+        ),
+    ],
+    ids=["range", "datatype-definition"],
+)
+def test_recursive_data_range_skipped_families_match_scalar(
+    body: str,
+    counter: str,
+) -> None:
+    view = _snapshot(body)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == []
+    assert getattr(statistics, counter) == 1
+    assert statistics.skipped_axioms == 1
+    assert statistics.role_expansion_edges == 0
 
 
 @pytest.mark.parametrize(
@@ -3811,14 +3867,111 @@ def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str
     ],
     ids=["nested-data-complement", "nested-data-aggregate"],
 )
-def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
-    compiler = prepare_native_encoded_direct(
-        _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
+@pytest.mark.parametrize("mode", ["normal", "only-taxonomy", "asserted-taxonomy"])
+def test_recursive_data_range_variants_match_scalar_state_neutrality(
+    body: str,
+    mode: str,
+) -> None:
+    view = _snapshot(f"SubClassOf(:Before :After) {body}")
+    if mode == "asserted-taxonomy":
+        expected = list(
+            iter_asserted_taxonomy(
+                view,
+                bidirectional=False,
+                duplicates="preserve",
+                order="encounter",
+            )
+        )
+    else:
+        expected = Projector().project(
+            view,
+            options=ProjectionOptions(
+                backend="python",
+                only_taxonomy=mode == "only-taxonomy",
+                order="encounter",
+            ),
+        )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=mode == "only-taxonomy",
+        asserted_taxonomy_only=mode == "asserted-taxonomy",
     )
-    with pytest.raises(NativeEncodedDirectUnsupported):
+
+    assert actual == expected == [
+        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
+    ]
+    assert statistics.subclasses == 2
+    assert statistics.ignored_subclasses == 1
+    assert statistics.role_expansion_edges == 0
+
+
+def test_deep_recursive_data_range_uses_one_bounded_zero_output_call() -> None:
+    data_range = "<http://www.w3.org/2001/XMLSchema#string>"
+    for _index in range(200):
+        data_range = f"DataComplementOf({data_range})"
+    compiler = prepare_native_encoded_direct(
+        _lease(_snapshot(f"DataPropertyRange(:dp {data_range})"))
+    )
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.data_property_ranges == 1
+    assert statistics.skipped_axioms == 1
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_cyclic_recursive_data_range_fails_before_output() -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) DataPropertyRange(:dp "
+            "DataComplementOf(DataComplementOf("
+            "<http://www.w3.org/2001/XMLSchema#string>)))"
+        )
+    )
+    tags = lease.buffers["node_tags"]
+    complement_ids = [
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 23
+    ]
+    assert len(complement_ids) == 2
+    offsets = lease.buffers["node_field_offsets"]
+    values = bytearray(lease.buffers["field_values"])
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    references = {
+        node_id: int.from_bytes(
+            values[field_start(node_id) * 8 : (field_start(node_id) + 1) * 8],
+            "little",
+        )
+        for node_id in complement_ids
+    }
+    outer = next(node_id for node_id, child in references.items() if child in complement_ids)
+    inner = references[outer]
+    inner_field = field_start(inner)
+    values[inner_field * 8 : (inner_field + 1) * 8] = outer.to_bytes(8, "little")
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(
+            lease,
+            {"field_values": memoryview(bytes(values))},
+        )
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match="data-range graph is cyclic"):
         compiler.compile_batch(
             bidirectional=False,
-            max_edges=10,
+            max_edges=2,
             max_iri_bytes=1024 * 1024,
         )
     assert compiler.state == "failed"
@@ -3830,16 +3983,12 @@ def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
         "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) "
         "ObjectComplementOf(:B)))",
         "SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
-        "SubClassOf(:A DataSomeValuesFrom("
-        ":dp DataComplementOf(DataComplementOf("
-        "<http://www.w3.org/2001/XMLSchema#string>))))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
     ],
     ids=[
         "inverse-complex-filler",
         "complex-filler",
-        "nested-data-restriction",
         "restriction-pair",
         "nested-domain",
     ],
