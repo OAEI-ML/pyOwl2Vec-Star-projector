@@ -59,9 +59,11 @@ expansion as domain/range edges. A one-level `ObjectInverseOf` property expressi
 restrictions reproduces the scalar helper's historical behavior by projecting through the
 underlying named property IRI; it does not reverse the emitted edge. A single named class
 paired by `EquivalentClasses` with an intersection or union of named classes and those restrictions
-uses the pinned expression ordering and role expansion. Named `SubObjectPropertyOf` and
-`InverseObjectProperties` axioms update the retained compatibility role state in exact OWLAPI
-hash-set visitation order. Annotations on every otherwise-executable declaration/logical axiom are
+uses the pinned expression ordering and role expansion. Named-or-inverse
+`SubObjectPropertyOf` and `InverseObjectProperties` axioms update the retained compatibility role
+state in exact OWLAPI hash-set visitation order. Their projected state uses the underlying named
+IRI while their distinct named/inverse OWLAPI expression hashes continue to control visitation and
+overwrite behavior. Annotations on every otherwise-executable declaration/logical axiom are
 fully preflighted and remain part of canonical root identity, preserving annotated-variant
 multiplicity and cross-table structural deduplication. Annotation property/value hashes contribute
 to role-axiom visitation exactly as in the scalar compiler; nested annotation sets remain validated
@@ -81,10 +83,9 @@ ignored once under the root constructor, matching the scalar named-property type
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
 Consequently, an n-ary axiom whose first two expressions are named emits only that named pair and
 silently ignores a later aggregate or restriction. Inverse object-property assertions remain on
-the whole-operation scalar error path, and inverse expressions in RBox axioms remain scalar
-fallbacks. Other constructors not semantically validated by this bounded slice, including complex
-restriction fillers, complement expressions, and property chains, continue to select
-whole-operation scalar compilation before output.
+the whole-operation scalar error path. Other constructors not semantically validated by this
+bounded slice, including complex restriction fillers, complement expressions, and property
+chains, continue to select whole-operation scalar compilation before output.
 
 One bounded segmented form uses the same compiler: an overlay-base manifest may reference a fully
 revalidated canonical direct closure with `ALL` or sorted `EXCLUDE` root postings. It may either

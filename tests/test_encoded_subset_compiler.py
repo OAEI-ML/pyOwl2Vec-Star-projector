@@ -2928,6 +2928,73 @@ def test_named_role_axioms_match_scalar_hashset_order_and_same_view_edges() -> N
         assert counters.scalar_fallbacks == 0
 
 
+def test_inverse_role_axioms_match_scalar_hashset_order_and_overwrites() -> None:
+    view = _snapshot(
+        'SubObjectPropertyOf(Annotation(<urn:meta> "inverse-p-r") '
+        "ObjectInverseOf(:p) :r) "
+        'SubObjectPropertyOf(Annotation(<urn:meta> "q-inverse-r") '
+        ":q ObjectInverseOf(:r)) "
+        'SubObjectPropertyOf(Annotation(Annotation(<urn:nested> "ignored") '
+        '<urn:meta> "inverse-both") ObjectInverseOf(:p) ObjectInverseOf(:q)) '
+        'InverseObjectProperties(Annotation(<urn:meta> "inverse-r-s") '
+        "ObjectInverseOf(:r) :s) "
+        'InverseObjectProperties(Annotation(<urn:meta> "r-inverse-t") '
+        ":r ObjectInverseOf(:t)) "
+        "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R) "
+        "ObjectPropertyDomain(:q :QD) ObjectPropertyRange(:q :QR)"
+    )
+    lease = _lease(view)
+    expected_edges = [
+        Edge("urn:slice#QD", "urn:slice#q", "urn:slice#QR"),
+        Edge("urn:slice#QD", "urn:slice#p", "urn:slice#QR"),
+        Edge("urn:slice#D", "urn:slice#r", "urn:slice#R"),
+        Edge("urn:slice#D", "urn:slice#q", "urn:slice#R"),
+        Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+        Edge("urn:slice#R", "urn:slice#t", "urn:slice#D"),
+    ]
+    for compatibility_state in ("isolated", "scala-instance"):
+        options = ProjectionOptions(
+            backend="python",
+            compatibility_state=compatibility_state,
+            order="encounter",
+        )
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert expected == expected_edges
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("inverse role axioms crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=2,
+                )
+            )
+
+        assert actual == expected
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == 9
+        assert counters.sub_object_property_axioms == 3
+        assert counters.inverse_object_property_axioms == 2
+        assert counters.annotation_nodes == 6
+        assert counters.literal_nodes == 6
+        assert counters.raw_edges == 6
+        assert counters.scalar_fallbacks == 0
+
+
 def test_annotated_role_axioms_match_scalar_hashset_order_exactly() -> None:
     view = _snapshot(
         'SubObjectPropertyOf(Annotation(Annotation(<urn:nested> "ignored") '
@@ -2997,7 +3064,11 @@ def test_encoded_role_annotation_hashes_match_scalar_value_variants() -> None:
         'SubObjectPropertyOf(Annotation(<urn:a> "first") '
         'Annotation(<urn:b> "second") :multi :p) '
         'InverseObjectProperties(Annotation(Annotation(<urn:nested> "ignored") '
-        '<urn:meta> "plain") :p :inverse)'
+        '<urn:meta> "plain") :p :inverse) '
+        'SubObjectPropertyOf(Annotation(<urn:meta> "inverse-sub") '
+        "ObjectInverseOf(:inverseSub) :inverseSuper) "
+        'InverseObjectProperties(Annotation(<urn:meta> "inverse-pair") '
+        "ObjectInverseOf(:inverseFirst) :inverseSecond)"
     )
     compilation, negotiation, counters = prepare_encoded_subset_compilation(
         view,
@@ -3010,22 +3081,27 @@ def test_encoded_role_annotation_hashes_match_scalar_value_variants() -> None:
     assert counters is not None
     encoded_hashes = {(row.first, row.second): row.owlapi_hash for row in compilation._role_axioms}
     scalar_hashes: dict[tuple[str, str], int] = {}
+
+    def underlying_iri(expression: object) -> str:
+        value = getattr(expression, "property", expression)
+        return cast(Any, value).iri.value
+
     for axiom in view.iter_axioms():  # type: ignore[attr-defined]
         if type(axiom).__name__ == "SubObjectPropertyOf":
             typed = cast(Any, axiom)
-            first = typed.sub_property.iri.value
-            second = typed.super_property.iri.value
+            first = underlying_iri(typed.sub_property)
+            second = underlying_iri(typed.super_property)
         elif type(axiom).__name__ == "InverseObjectProperties":
             typed = cast(Any, axiom)
-            first = typed.first.iri.value
-            second = typed.second.iri.value
+            first = underlying_iri(typed.first)
+            second = underlying_iri(typed.second)
         else:  # pragma: no cover - fixture contains only role axioms
             continue
         scalar_hashes[(first, second)] = _owlapi_hash(axiom)
 
     assert encoded_hashes == scalar_hashes
-    assert counters.sub_object_property_axioms == 3
-    assert counters.inverse_object_property_axioms == 1
+    assert counters.sub_object_property_axioms == 4
+    assert counters.inverse_object_property_axioms == 2
     assert counters.scalar_fallbacks == 0
 
 
@@ -3070,8 +3146,11 @@ def test_unhashable_annotated_role_value_selects_scalar_before_output() -> None:
     assert scalar_prepare.call_count == 1
 
 
-def test_encoded_role_state_is_reused_by_a_later_scala_instance_call() -> None:
-    role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
+def test_inverse_encoded_role_state_is_reused_by_a_later_scala_instance_call() -> None:
+    role_view = _snapshot(
+        "SubObjectPropertyOf(ObjectInverseOf(:child) :p) "
+        "InverseObjectProperties(ObjectInverseOf(:p) :pinv)"
+    )
     domain_range_view = _snapshot("ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)")
     options = ProjectionOptions(
         backend="python",
@@ -3588,13 +3667,15 @@ def test_segmented_inverse_properties_preserve_order_diagnostics_and_leases() ->
     source_body = (
         'SubClassOf(Annotation(<urn:meta> "inverse-source") '
         ":A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B)) "
-        "ObjectPropertyDomain(ObjectInverseOf(:p) :IgnoredDomain)"
+        "ObjectPropertyDomain(ObjectInverseOf(:p) :IgnoredDomain) "
+        "SubObjectPropertyOf(ObjectInverseOf(:child) :p)"
     )
     delta_body = (
         "EquivalentClasses(:C ObjectIntersectionOf(:D "
         "ObjectAllValuesFrom(ObjectInverseOf(:p) :E))) "
         'ObjectPropertyRange(Annotation(<urn:meta> "inverse-delta") '
         "ObjectInverseOf(:p) :IgnoredRange) "
+        "InverseObjectProperties(ObjectInverseOf(:p) :pinv) "
         "ObjectPropertyDomain(:p :ProjectedDomain) "
         "ObjectPropertyRange(:p :ProjectedRange)"
     )
@@ -3647,10 +3728,24 @@ def test_segmented_inverse_properties_preserve_order_diagnostics_and_leases() ->
             actual
             == expected
             == [
+                Edge("urn:slice#A", "urn:slice#child", "urn:slice#B"),
                 Edge("urn:slice#A", "urn:slice#p", "urn:slice#B"),
+                Edge("urn:slice#B", "urn:slice#pinv", "urn:slice#A"),
                 Edge("urn:slice#C", SUBCLASS_OF, "urn:slice#D"),
+                Edge("urn:slice#C", "urn:slice#child", "urn:slice#E"),
                 Edge("urn:slice#C", "urn:slice#p", "urn:slice#E"),
+                Edge("urn:slice#E", "urn:slice#pinv", "urn:slice#C"),
+                Edge(
+                    "urn:slice#ProjectedDomain",
+                    "urn:slice#child",
+                    "urn:slice#ProjectedRange",
+                ),
                 Edge("urn:slice#ProjectedDomain", "urn:slice#p", "urn:slice#ProjectedRange"),
+                Edge(
+                    "urn:slice#ProjectedRange",
+                    "urn:slice#pinv",
+                    "urn:slice#ProjectedDomain",
+                ),
             ]
         )
         assert projector.last_report is not None
@@ -3663,7 +3758,9 @@ def test_segmented_inverse_properties_preserve_order_diagnostics_and_leases() ->
         assert ignored == {"ObjectPropertyDomain": 1, "ObjectPropertyRange": 1}
         counters = projector.last_encoded_counters
         assert counters is not None
-        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.roots_inspected == counters.selected_roots == 8
+        assert counters.sub_object_property_axioms == 1
+        assert counters.inverse_object_property_axioms == 1
         assert counters.scalar_fallbacks == 0
         assert counters.referenced_segments in {1, 2}
 
@@ -3710,8 +3807,6 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
     [
         "EquivalentObjectProperties(:p :q)",
         "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
-        "SubObjectPropertyOf(ObjectInverseOf(:p) :q)",
-        "InverseObjectProperties(ObjectInverseOf(:p) :q)",
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
         'SubObjectPropertyOf(Annotation(<urn:a> "x") ObjectPropertyChain(:p :q) :r)',
     ],

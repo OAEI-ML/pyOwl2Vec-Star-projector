@@ -8,7 +8,8 @@ declarations; ``SubClassOf``, ``EquivalentClasses``, ``ClassAssertion``, and
 object-property domain/range axioms over the validated named, aggregate, and
 named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
-named role axioms, including annotations on those declaration/logical axioms.
+named-or-inverse role axioms, including annotations on those
+declaration/logical axioms.
 The compiler reproduces both emitted edges and grouped ignored-shape outcomes
 for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -1096,19 +1097,19 @@ class _EncodedColumns:
         self,
         node_id: int,
         expected_tag: int,
-    ) -> tuple[str, str, int]:
+    ) -> tuple[str, str, int, int, int]:
         if self.node_tag(node_id) != expected_tag:
             raise SnapshotCompatibilityError(
                 "encoded subset batch cursor does not reference a role axiom"
             )
         start = self._exact_fields(node_id, 3)
-        first = self._named_object_property_iri(self._field_node(start))
-        second = self._named_object_property_iri(self._field_node(start + 1))
+        first = self._projected_object_property_parts(self._field_node(start))
+        second = self._projected_object_property_parts(self._field_node(start + 1))
         if first is None or second is None:  # pragma: no cover - preflight
             raise SnapshotCompatibilityError(
                 "encoded subset role axiom shape changed after successful preflight"
             )
-        return first, second, self._annotation_set_hash(start + 2)
+        return first[0], second[0], first[1], second[1], self._annotation_set_hash(start + 2)
 
     def _property_class_iris(
         self,
@@ -1253,11 +1254,13 @@ class _EncodedColumns:
             return
         if tag in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
             start = self._exact_fields(node_id, 3)
-            first_named = self._is_named_object_property(self._field_node(start))
-            second_named = self._is_named_object_property(self._field_node(start + 1))
-            if not first_named or not second_named:
+            first_supported = self._is_supported_object_property_expression(self._field_node(start))
+            second_supported = self._is_supported_object_property_expression(
+                self._field_node(start + 1)
+            )
+            if not first_supported or not second_supported:
                 inspection.fallback(
-                    "encoded subset requires named object properties in role axioms"
+                    "encoded subset requires supported object property expressions in role axioms"
                 )
             try:
                 self._annotation_set_hash(start + 2)
@@ -1572,13 +1575,21 @@ class _EncodedColumns:
         return self._iri_text(iri_id)[0] if kind == b"object_property" else None
 
     def _projected_object_property_iri(self, node_id: int) -> str | None:
+        parts = self._projected_object_property_parts(node_id)
+        return None if parts is None else parts[0]
+
+    def _projected_object_property_parts(self, node_id: int) -> tuple[str, int] | None:
         named = self._named_object_property_iri(node_id)
         if named is not None:
-            return named
+            return named, _combine(4153, _owlapi_iri_hash(named))
         if self.node_tag(node_id) != _TAG_OBJECT_INVERSE_OF:
             return None
         start = self._exact_fields(node_id, 1)
-        return self._named_object_property_iri(self._field_node(start))
+        underlying = self._named_object_property_iri(self._field_node(start))
+        if underlying is None:
+            return None
+        underlying_hash = _combine(4153, _owlapi_iri_hash(underlying))
+        return underlying, _combine(4241, underlying_hash)
 
     def _is_named_class(self, node_id: int) -> bool:
         if self.node_tag(node_id) != _TAG_ENTITY:
@@ -2646,9 +2657,10 @@ def _role_axioms(roots: tuple[_EncodedRootRef, ...]) -> tuple[_EncodedRoleAxiom,
         tag = root.columns.node_tag(root.node_id)
         if tag not in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
             continue
-        first, second, annotation_hash = root.columns._role_axiom_parts(root.node_id, tag)
-        first_hash = _combine(4153, _owlapi_iri_hash(first))
-        second_hash = _combine(4153, _owlapi_iri_hash(second))
+        first, second, first_hash, second_hash, annotation_hash = root.columns._role_axiom_parts(
+            root.node_id,
+            tag,
+        )
         owlapi_hash = (
             _combine(1823, first_hash, second_hash, annotation_hash)
             if tag == _TAG_SUB_OBJECT_PROPERTY_OF
