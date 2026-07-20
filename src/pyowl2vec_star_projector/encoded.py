@@ -1,8 +1,8 @@
 """Public pyowl-core encoded-view negotiation for the P7 native compiler.
 
 This module deliberately knows only the public core capability and view
-contracts.  It does not import ``pyowl_core._native`` or interpret structural
-columns before WP17 publishes their generated schema ledger.
+contracts.  It validates the frozen WP17 schema ledger without importing
+``pyowl_core._native`` or interpreting schema-local identifiers in Python.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import hashlib
 import importlib
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal
 
 from .errors import SnapshotCompatibilityError
@@ -19,6 +20,24 @@ from .provenance import IngestionPath
 ENCODED_SCHEMA_NAME = "pyowl-core/structural-columns"
 ENCODED_SCHEMA_VERSION = 1
 ENCODED_NATIVE_FEATURE = "encoded-structural-compiler-v1"
+ENCODED_DESCRIPTOR_SHA256 = bytes.fromhex(
+    "9ad29db6a7e616f65cea2957bc5ba8d1f9b99ef0eb1fe1432c09be25786267b5"
+)
+ENCODED_BUFFER_WIDTHS: Mapping[str, int] = MappingProxyType(
+    {
+        "field_kinds": 1,
+        "field_lengths": 8,
+        "field_values": 8,
+        "item_kinds": 1,
+        "item_lengths": 8,
+        "item_values": 8,
+        "node_field_offsets": 8,
+        "node_tags": 2,
+        "root_ids": 4,
+        "root_kinds": 1,
+        "scalar_bytes": 1,
+    }
+)
 
 _EMPTY_FEATURES: frozenset[str] = frozenset()
 
@@ -201,6 +220,11 @@ def _validate_encoded_view(
         raise SnapshotCompatibilityError(
             "core encoded view descriptor digest does not match its immutable descriptor"
         )
+    if authoritative_descriptor_digest != ENCODED_DESCRIPTOR_SHA256:
+        raise SnapshotCompatibilityError(
+            "core encoded view descriptor does not match the frozen "
+            "pyowl-core structural-columns v1 ledger"
+        )
     if not isinstance(buffers, Mapping):
         raise SnapshotCompatibilityError("core encoded view buffers are not a mapping")
 
@@ -226,6 +250,19 @@ def _validate_encoded_view(
                 details={"buffer": name},
             )
         names.append(name)
+    if set(names) != set(ENCODED_BUFFER_WIDTHS):
+        missing = sorted(set(ENCODED_BUFFER_WIDTHS) - set(names))
+        extra = sorted(set(names) - set(ENCODED_BUFFER_WIDTHS))
+        raise SnapshotCompatibilityError(
+            "core encoded schema 1 buffer set differs",
+            details={"missing": repr(missing), "extra": repr(extra)},
+        )
+    for name, width in ENCODED_BUFFER_WIDTHS.items():
+        if buffers[name].nbytes % width:
+            raise SnapshotCompatibilityError(
+                "core encoded buffer length is not divisible by its schema scalar width",
+                details={"buffer": name, "width": width},
+            )
     source_fingerprint = getattr(source_view, "structural_fingerprint", None)
     if source_fingerprint is None or type(fingerprint) is not type(source_fingerprint):
         raise SnapshotCompatibilityError(
@@ -243,6 +280,8 @@ def _validate_encoded_view(
 
 
 __all__ = [
+    "ENCODED_BUFFER_WIDTHS",
+    "ENCODED_DESCRIPTOR_SHA256",
     "ENCODED_NATIVE_FEATURE",
     "ENCODED_SCHEMA_NAME",
     "ENCODED_SCHEMA_VERSION",

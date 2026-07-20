@@ -8,9 +8,13 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
+from pyowl_core.backends.native_views import ENCODED_STRUCTURAL_DESCRIPTOR_V1
+
 from pyowl2vec_star_projector import ProjectionOptions, Projector
 from pyowl2vec_star_projector.backend import BackendSelection
 from pyowl2vec_star_projector.encoded import (
+    ENCODED_BUFFER_WIDTHS,
+    ENCODED_DESCRIPTOR_SHA256,
     ENCODED_NATIVE_FEATURE,
     ENCODED_SCHEMA_NAME,
     select_ingestion,
@@ -26,14 +30,15 @@ class _EncodedStructuralView:
         self.schema_version = 1
         self.model_schema = 1
         self.owner = owner
-        self.descriptor = b"public encoded schema descriptor"
+        self.descriptor = ENCODED_STRUCTURAL_DESCRIPTOR_V1
         self.descriptor_digest = hashlib.sha256(self.descriptor).digest()
         self.structural_fingerprint = "encoded-fingerprint"
-        payload: bytes | bytearray = bytearray(b"axioms") if writable else b"axioms"
         self.buffers = {
-            "axioms": memoryview(payload),
-            "strings": memoryview(b"strings"),
+            name: memoryview(b"\x00" * (8 if name == "node_field_offsets" else 0))
+            for name in ENCODED_BUFFER_WIDTHS
         }
+        if writable:
+            self.buffers["root_kinds"] = memoryview(bytearray(b"\x00"))
 
 
 class _View:
@@ -111,10 +116,10 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         self.assertIsNotNone(decision.lease)
         assert decision.lease is not None
         self.assertIs(decision.lease.owner, view)
-        self.assertEqual(decision.lease.buffer_names, ("axioms", "strings"))
+        self.assertEqual(decision.lease.buffer_names, tuple(ENCODED_BUFFER_WIDTHS))
         self.assertEqual(
             decision.lease.descriptor_sha256,
-            hashlib.sha256(b"public encoded schema descriptor").hexdigest(),
+            ENCODED_DESCRIPTOR_SHA256.hex(),
         )
         self.assertEqual(len(view.calls), 1)
         _, options = view.calls[0]
@@ -189,6 +194,52 @@ class EncodedNativeDispatchTests(unittest.TestCase):
             decision.lease.descriptor_sha256,
             hashlib.sha256(encoded.descriptor).hexdigest(),
         )
+
+    def test_self_consistent_descriptor_drift_fails_before_native_compilation(self) -> None:
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        encoded = _EncodedStructuralView(view, writable=False)
+        encoded.descriptor += b" "
+        encoded.descriptor_digest = hashlib.sha256(encoded.descriptor).digest()
+        view.view = lambda _view_type, **_options: encoded  # type: ignore[method-assign]
+
+        with self.assertRaisesRegex(SnapshotCompatibilityError, "frozen"):
+            select_ingestion(
+                view,
+                selected_backend="native",
+                native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                core_module=_core(),
+            )
+
+    def test_buffer_ledger_and_scalar_widths_fail_before_native_compilation(self) -> None:
+        cases = {
+            "missing": {
+                name: memoryview(b"") for name in ENCODED_BUFFER_WIDTHS if name != "root_ids"
+            },
+            "extra": {
+                **{name: memoryview(b"") for name in ENCODED_BUFFER_WIDTHS},
+                "private_layout": memoryview(b""),
+            },
+            "partial": {
+                **{name: memoryview(b"") for name in ENCODED_BUFFER_WIDTHS},
+                "root_ids": memoryview(b"\x00"),
+            },
+        }
+        for label, buffers in cases.items():
+            with self.subTest(label):
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                encoded = _EncodedStructuralView(view, writable=False)
+                encoded.buffers = buffers
+                view.view = (  # type: ignore[method-assign]
+                    lambda _view_type, _encoded=encoded, **_options: _encoded
+                )
+
+                with self.assertRaisesRegex(SnapshotCompatibilityError, "buffer"):
+                    select_ingestion(
+                        view,
+                        selected_backend="native",
+                        native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                        core_module=_core(),
+                    )
 
     def test_encoded_lease_keeps_the_exact_owner_alive(self) -> None:
         view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
