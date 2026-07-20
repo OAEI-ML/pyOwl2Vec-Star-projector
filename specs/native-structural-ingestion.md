@@ -112,6 +112,7 @@ and skipped while its anonymous members remain part of deterministic blank-ID as
 is likewise preflighted and skipped, retaining anonymous members for deterministic blank IDs.
 `DataPropertyAssertion` over a named data property, supported individual, and validated literal
 follows the same bounded skip contract, retaining literal-byte and anonymous-ID accounting.
+`NegativeDataPropertyAssertion` follows the same data-assertion validation and skip contract.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.

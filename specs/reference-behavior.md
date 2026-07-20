@@ -254,6 +254,7 @@ mutate object-role state.
 `NegativeObjectPropertyAssertion` is skipped, including inverse-property forms, and cannot mutate
 object-role state.
 `DataPropertyAssertion` is skipped and cannot affect projected data-property or object-role state.
+`NegativeDataPropertyAssertion` follows the same skipped, state-neutral contract.
 
 ## 11. Mutable instance state
 

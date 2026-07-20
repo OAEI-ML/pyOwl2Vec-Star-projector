@@ -21,6 +21,7 @@ path. ``DifferentIndividuals`` uses the same validated individual-set path.
 expressions and individuals.
 ``DataPropertyAssertion`` uses a bounded skipped path over named data properties, supported
 individuals, and structurally validated literals.
+``NegativeDataPropertyAssertion`` follows the same bounded validation and skip contract.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -108,6 +109,7 @@ _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION = 114
 _TAG_DATA_PROPERTY_ASSERTION = 115
+_TAG_NEGATIVE_DATA_PROPERTY_ASSERTION = 116
 _TAG_ANNOTATION_ASSERTION = 120
 
 _SEGMENT_DIRECT = 1
@@ -288,6 +290,7 @@ class EncodedSubsetCounters:
     different_individual_axioms: int = 0
     negative_object_property_assertion_axioms: int = 0
     data_property_assertion_axioms: int = 0
+    negative_data_property_assertion_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -343,6 +346,7 @@ class EncodedSubsetCounters:
             self.different_individual_axioms,
             self.negative_object_property_assertion_axioms,
             self.data_property_assertion_axioms,
+            self.negative_data_property_assertion_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -402,6 +406,7 @@ class _MutableCounters:
     different_individual_axioms: int = 0
     negative_object_property_assertion_axioms: int = 0
     data_property_assertion_axioms: int = 0
+    negative_data_property_assertion_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -461,6 +466,7 @@ class _MutableCounters:
                 self.negative_object_property_assertion_axioms
             ),
             data_property_assertion_axioms=self.data_property_assertion_axioms,
+            negative_data_property_assertion_axioms=(self.negative_data_property_assertion_axioms),
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -970,6 +976,8 @@ class _EncodedColumns:
             counters.negative_object_property_assertion_axioms += 1
         elif tag == _TAG_DATA_PROPERTY_ASSERTION:
             counters.data_property_assertion_axioms += 1
+        elif tag == _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION:
+            counters.negative_data_property_assertion_axioms += 1
         elif tag == _TAG_ANNOTATION_ASSERTION:
             counters.annotation_assertion_axioms += 1
         else:
@@ -1681,6 +1689,22 @@ class _EncodedColumns:
             if self.node_tag(self._field_node(start + 2)) != _TAG_LITERAL:
                 raise SnapshotCompatibilityError(
                     "encoded subset DataPropertyAssertion value is not a literal"
+                )
+            self._annotation_set_range(start + 3)
+            return
+        if tag == _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION:
+            start = self._exact_fields(node_id, 4)
+            if not self._is_named_data_property(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset NegativeDataPropertyAssertion property is not a data property"
+                )
+            if not self._is_supported_individual(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset NegativeDataPropertyAssertion source is not an individual"
+                )
+            if self.node_tag(self._field_node(start + 2)) != _TAG_LITERAL:
+                raise SnapshotCompatibilityError(
+                    "encoded subset NegativeDataPropertyAssertion value is not a literal"
                 )
             self._annotation_set_range(start + 3)
             return
@@ -3083,6 +3107,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_DIFFERENT_INDIVIDUALS: "DifferentIndividuals",
         _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: "NegativeObjectPropertyAssertion",
         _TAG_DATA_PROPERTY_ASSERTION: "DataPropertyAssertion",
+        _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION: "NegativeDataPropertyAssertion",
     }
     result: dict[str, int] = {}
     for root in roots:
