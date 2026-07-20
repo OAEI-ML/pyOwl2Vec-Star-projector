@@ -1870,7 +1870,7 @@ def test_composite_scope_fallback_does_not_mask_later_hostile_source() -> None:
 
 
 def test_composite_supported_family_falls_back_for_unsupported_axiom_slice() -> None:
-    left = _snapshot("DisjointClasses(:A :B)")
+    left = _snapshot("DisjointUnion(:Defined :A :B)")
     right = _snapshot("SubClassOf(:B :Top)")
     target = compose_views(left, right)
     lease = _semantic_composite_lease(
@@ -10051,6 +10051,8 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "ObjectPropertyAssertion(:p _:edge :i)",
         "HasKey(Annotation(<urn:meta> _:skipped) ObjectComplementOf(:C) (:p) ()) "
         "ObjectPropertyAssertion(:u _:edge :i)",
+        "DisjointClasses(Annotation(<urn:meta> _:skipped) :A ObjectComplementOf(:C)) "
+        "ObjectPropertyAssertion(:u _:edge :i)",
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -10148,6 +10150,7 @@ def test_asserted_taxonomy_api_uses_the_same_bounded_slice() -> None:
 def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     view = _snapshot(
         "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i) "
+        "DisjointClasses(:disjointA ObjectUnionOf(:disjointB :disjointC)) "
         "ObjectPropertyAssertion(:p :i :j) ObjectPropertyAssertion(:p _:anon :i) "
         "ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
@@ -10221,6 +10224,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters.restriction_subclass_axioms == 2
     assert counters.equivalent_axioms == 2
     assert counters.aggregate_equivalent_axioms == 1
+    assert counters.disjoint_class_axioms == 1
     assert counters.class_assertion_axioms == 2
     assert counters.sub_object_property_axioms == 2
     assert counters.equivalent_object_property_axioms == 1
@@ -13212,6 +13216,300 @@ def test_swrl_structural_corruption_fails_before_output(corruption: str) -> None
     with pytest.raises(
         SnapshotCompatibilityError,
         match=r"extension root|canonical set|non-atom|Variable|BuiltInAtom",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+def test_disjoint_classes_match_scalar_skips_and_blank_ids() -> None:
+    view = _snapshot(
+        "DisjointClasses(Annotation(<urn:meta> _:skippedMeta) :A "
+        "ObjectSomeValuesFrom(:p :B) ObjectUnionOf(:C :D)) "
+        "DisjointClasses(:E :F) "
+        "AnnotationPropertyRange(:label <urn:annotationRange>) "
+        "SubObjectPropertyOf(:child :p) ObjectPropertyDomain(:p :Domain) "
+        "ObjectPropertyRange(:p :Range) ObjectPropertyAssertion(:u _:edge :i)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(backend="python", duplicates="unique", order="canonical"),
+        ProjectionOptions(
+            backend="python",
+            compatibility_state="scala-instance",
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("DisjointClasses slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert len(actual) == 3
+            assert Edge("urn:slice#Domain", "urn:slice#p", "urn:slice#Range") in actual
+            assert Edge("urn:slice#Domain", "urn:slice#child", "urn:slice#Range") in actual
+            assertion = next(edge for edge in actual if edge.relation == "urn:slice#u")
+            assert assertion.source.startswith("_:genid")
+            assert assertion.destination == "urn:slice#i"
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert projector.last_report.provenance.counts.skipped_axioms == 3
+            assert projector.last_report.provenance.counts.ignored_shapes == 0
+            assert projector.last_report.diagnostics == (
+                ProjectionDiagnostic(
+                    code="MOWL_SKIPPED_AXIOM",
+                    message="axiom category is not visited by the pinned profile",
+                    count=1,
+                    constructor="AnnotationPropertyRange",
+                ),
+                ProjectionDiagnostic(
+                    code="MOWL_SKIPPED_AXIOM",
+                    message="axiom category is not visited by the pinned profile",
+                    count=2,
+                    constructor="DisjointClasses",
+                ),
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 7
+            assert counters.disjoint_class_axioms == 2
+            assert counters.annotation_property_range_axioms == 1
+            assert counters.sub_object_property_axioms == 1
+            assert counters.object_property_assertion_axioms == 1
+            assert counters.anonymous_individuals == 2
+            assert counters.edge_batches == counters.raw_edges == 3
+            assert counters.scalar_fallbacks == 0
+
+
+def test_skipped_disjoint_classes_do_not_mutate_scala_instance_role_state() -> None:
+    skipped_view = _snapshot(
+        'DisjointClasses(Annotation(<urn:meta> "skipped") :shared ObjectSomeValuesFrom(:shared :C))'
+    )
+    domain_range_view = _snapshot(
+        "ObjectPropertyDomain(:shared :D) ObjectPropertyRange(:shared :R)"
+    )
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(skipped_view, options=options) == []
+    assert scalar.last_report is not None
+    first_scalar_report = scalar.last_report.to_dict()
+    expected = scalar.project(domain_range_view, options=options)
+    assert scalar.last_report is not None
+    second_scalar_report = scalar.last_report.to_dict()
+
+    projector = Projector()
+    with (
+        _forced_encoded(_lease(skipped_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded DisjointClasses lifecycle crossed scalar"),
+        ),
+    ):
+        assert projector.project(skipped_view, options=replace(options, backend="native")) == []
+
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        first_scalar_report
+    )
+    first_counters = projector.last_encoded_counters
+    assert first_counters is not None
+    assert first_counters.disjoint_class_axioms == 1
+    assert first_counters.scalar_fallbacks == 0
+
+    with (
+        _forced_encoded(_lease(domain_range_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded DisjointClasses follow-on crossed scalar"),
+        ),
+    ):
+        actual = projector.project(
+            domain_range_view,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected == [Edge("urn:slice#D", "urn:slice#shared", "urn:slice#R")]
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        second_scalar_report
+    )
+    assert projector.last_report.provenance.invocation_count == 2
+
+
+def test_segmented_disjoint_classes_preserve_skips_edges_and_leases() -> None:
+    source_body = (
+        "DisjointClasses(Annotation(<urn:meta> _:sourceMeta) :A "
+        "ObjectSomeValuesFrom(:q :B)) ObjectPropertyDomain(:p :D) "
+        "ObjectPropertyAssertion(:u :i :j)"
+    )
+    delta_body = (
+        "DisjointClasses(Annotation(<urn:meta> _:deltaMeta) :C ObjectUnionOf(:E :F)) "
+        "ObjectPropertyRange(:p :R) SubObjectPropertyOf(:child :p)"
+    )
+    source = _snapshot(source_body)
+    delta = _snapshot(delta_body)
+    overlay = _snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(backend="python", duplicates="unique", order="canonical")
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert prepared.statistics.skipped_axioms == 2
+        assert len(prepared._role_axioms) == 1
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("segmented DisjointClasses crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected
+        assert set(actual) == {
+            Edge("urn:slice#i", "urn:slice#u", "urn:slice#j"),
+            Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+            Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        }
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        assert projector.last_report.provenance.counts.skipped_axioms == 2
+        assert projector.last_report.provenance.counts.ignored_shapes == 0
+        assert projector.last_report.diagnostics == (
+            ProjectionDiagnostic(
+                code="MOWL_SKIPPED_AXIOM",
+                message="axiom category is not visited by the pinned profile",
+                count=2,
+                constructor="DisjointClasses",
+            ),
+        )
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.disjoint_class_axioms == 2
+        assert counters.anonymous_individuals == 2
+        assert counters.scalar_fallbacks == 0
+        assert counters.referenced_segments in {1, 2}
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["arity", "set-kind", "set-item", "annotation-kind", "annotation-item"],
+)
+def test_disjoint_classes_corruption_fails_before_output(corruption: str) -> None:
+    view = _snapshot(
+        'DisjointClasses(Annotation(<urn:a> "x") :A ObjectSomeValuesFrom(:p :B)) '
+        "SubClassOf(:Projected :Edge) Declaration(NamedIndividual(:Wrong))"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    axiom_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 63
+    )
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_individual_iri(node_id) == "urn:slice#Wrong"
+    )
+    buffers = dict(lease.buffers)
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(
+        offsets[(axiom_id - 1) * 8 : axiom_id * 8],
+        "little",
+    )
+    set_item = int.from_bytes(
+        buffers["field_values"][field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    annotation_index = field_index + 1
+    annotation_item = int.from_bytes(
+        buffers["field_values"][annotation_index * 8 : (annotation_index + 1) * 8],
+        "little",
+    )
+
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = axiom_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption in {"set-kind", "annotation-kind"}:
+        kinds = bytearray(buffers["field_kinds"])
+        index = field_index if corruption == "set-kind" else annotation_index
+        kinds[index] = 7
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    else:
+        values = bytearray(buffers["item_values"])
+        index = set_item if corruption == "set-item" else annotation_item
+        values[index * 8 : (index + 1) * 8] = wrong_id.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"arity|canonical set|DisjointClasses item|annotation set",
     ):
         prepare_encoded_subset_compilation(
             view,

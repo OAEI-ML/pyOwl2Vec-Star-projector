@@ -85,6 +85,9 @@ named/aggregate `SubClassOf`, direct restriction or otherwise unsupported ordere
 `EquivalentClasses` pairs, complex or anonymous-individual `ClassAssertion`, and complex
 domain/range expressions. An inverse property in a domain/range axiom is likewise preflighted but
 ignored once under the root constructor, matching the scalar named-property type check.
+`DisjointClasses` canonical sets over the same validated class-expression envelope are fully
+preflighted and skipped. Valid members outside that bounded envelope retain one whole-operation
+scalar fallback.
 `EquivalentObjectProperties` and `DisjointObjectProperties` sets over named or inverse property
 expressions are fully preflighted and stay encoded-native, but the pinned projector never visits
 them as role axioms. The unary named-or-inverse `FunctionalObjectProperty`,
