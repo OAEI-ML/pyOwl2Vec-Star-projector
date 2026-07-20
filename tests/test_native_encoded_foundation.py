@@ -135,6 +135,15 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.symmetric_object_properties == 0
     assert statistics.asymmetric_object_properties == 0
     assert statistics.transitive_object_properties == 0
+    assert statistics.sub_data_properties == 0
+    assert statistics.equivalent_data_properties == 0
+    assert statistics.disjoint_data_properties == 0
+    assert statistics.data_property_domains == 0
+    assert statistics.data_property_ranges == 0
+    assert statistics.functional_data_properties == 0
+    assert statistics.datatype_definitions == 0
+    assert statistics.data_property_assertions == 0
+    assert statistics.negative_data_property_assertions == 0
     assert statistics.skipped_axioms == 0
     assert statistics.object_property_domains == 0
     assert statistics.object_property_ranges == 0
@@ -232,9 +241,7 @@ def test_named_equivalence_and_class_assertion_match_python_oracle(
 
 
 def test_asserted_taxonomy_mode_preflights_and_suppresses_adjacent_axioms() -> None:
-    view = _snapshot(
-        "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i)"
-    )
+    view = _snapshot("SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i)")
     lease = _lease(view)
     expected = list(
         iter_asserted_taxonomy(
@@ -547,6 +554,244 @@ def test_positive_inverse_object_assertion_preserves_reference_failure() -> None
     assert compiler.state == "failed"
 
 
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_named_data_property_families_and_literal_forms_match_python_oracle(
+    only_taxonomy: bool,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) SubDataPropertyOf(:dp :dq) "
+        "EquivalentDataProperties(:dp :dq :dr) DisjointDataProperties(:dp :dq) "
+        "DataPropertyDomain(:dp :A) "
+        "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
+        "FunctionalDataProperty(:dp) "
+        "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>) "
+        'DataPropertyAssertion(:dp :i "plain") '
+        'DataPropertyAssertion(:dq :i "7"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer>) "
+        'DataPropertyAssertion(:dr :i "bonjour"@fr) '
+        'NegativeDataPropertyAssertion(:dp :i "blocked")'
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected == [Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B")]
+    assert statistics.roots == 12
+    assert statistics.sub_data_properties == 1
+    assert statistics.equivalent_data_properties == 1
+    assert statistics.disjoint_data_properties == 1
+    assert statistics.data_property_domains == 1
+    assert statistics.data_property_ranges == 1
+    assert statistics.functional_data_properties == 1
+    assert statistics.datatype_definitions == 1
+    assert statistics.data_property_assertions == 3
+    assert statistics.negative_data_property_assertions == 1
+    assert statistics.skipped_axioms == 11
+    assert statistics.edges == 1
+    assert compiler.state == "finished"
+
+
+def test_asserted_taxonomy_preflights_data_state_but_suppresses_its_skip_count() -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) DataPropertyDomain(:dp :A) "
+        "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
+        'DataPropertyAssertion(:dp :i "value") '
+        'NegativeDataPropertyAssertion(:dp :i "blocked")'
+    )
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert statistics.data_property_domains == 1
+    assert statistics.data_property_ranges == 1
+    assert statistics.data_property_assertions == 1
+    assert statistics.negative_data_property_assertions == 1
+    assert statistics.skipped_axioms == 0
+
+
+def test_many_data_assertions_cross_one_zero_output_bounded_call() -> None:
+    assertions = " ".join(
+        f'DataPropertyAssertion(:score :i{index:03d} "{index}")' for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(assertions)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == statistics.data_property_assertions == 250
+    assert statistics.skipped_axioms == 250
+    assert statistics.edges == 0
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'SubDataPropertyOf(Annotation(<urn:meta> "unsupported") :dp :dq)',
+        'EquivalentDataProperties(Annotation(<urn:meta> "unsupported") :dp :dq)',
+        'DisjointDataProperties(Annotation(<urn:meta> "unsupported") :dp :dq)',
+        'DataPropertyDomain(Annotation(<urn:meta> "unsupported") :dp :A)',
+        'DataPropertyRange(Annotation(<urn:meta> "unsupported") :dp '
+        "<http://www.w3.org/2001/XMLSchema#string>)",
+        'FunctionalDataProperty(Annotation(<urn:meta> "unsupported") :dp)',
+        'DatatypeDefinition(Annotation(<urn:meta> "unsupported") :custom '
+        "<http://www.w3.org/2001/XMLSchema#string>)",
+        'DataPropertyAssertion(Annotation(<urn:meta> "unsupported") :dp :i "value")',
+        'NegativeDataPropertyAssertion(Annotation(<urn:meta> "unsupported") :dp :i "value")',
+    ],
+    ids=[
+        "subproperty",
+        "equivalent",
+        "disjoint",
+        "domain",
+        "range",
+        "functional",
+        "datatype-definition",
+        "positive-assertion",
+        "negative-assertion",
+    ],
+)
+def test_annotated_data_property_families_fail_before_output(body: str) -> None:
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
+    with pytest.raises(NativeEncodedDirectUnsupported, match=r"annotations|schema tag 5"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "DataPropertyDomain(:dp ObjectIntersectionOf(:A :B))",
+        "DataPropertyRange(:dp DataUnionOf("
+        "<http://www.w3.org/2001/XMLSchema#string> "
+        "<http://www.w3.org/2001/XMLSchema#integer>))",
+        "DatatypeDefinition(:custom DataComplementOf(<http://www.w3.org/2001/XMLSchema#string>))",
+        'DataPropertyAssertion(:dp _:anonymous "value")',
+        'NegativeDataPropertyAssertion(:dp _:anonymous "value")',
+    ],
+    ids=[
+        "complex-domain",
+        "complex-range",
+        "complex-definition",
+        "anonymous-positive",
+        "anonymous-negative",
+    ],
+)
+def test_out_of_slice_data_shapes_are_transactionally_unsupported(body: str) -> None:
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
+    with pytest.raises(NativeEncodedDirectUnsupported):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_hostile_data_set_and_literal_language_fail_closed() -> None:
+    set_lease = _lease(_snapshot("EquivalentDataProperties(:dp :dq :dr)"))
+    item_values = bytearray(set_lease.buffers["item_values"])
+    first = bytes(item_values[:8])
+    item_values[:8] = item_values[8:16]
+    item_values[8:16] = first
+    hostile_set = _replace_buffers(
+        set_lease,
+        {"item_values": memoryview(bytes(item_values))},
+    )
+    malformed_set = prepare_native_encoded_direct(hostile_set)
+    with pytest.raises(SnapshotCompatibilityError, match="sorted and unique"):
+        malformed_set.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed_set.state == "failed"
+
+    literal_lease = _lease(_snapshot('DataPropertyAssertion(:dp :i "bonjour"@fr)'))
+    tags = literal_lease.buffers["node_tags"]
+    literal_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 4
+    )
+    offsets = literal_lease.buffers["node_field_offsets"]
+    field_start = int.from_bytes(
+        offsets[(literal_id - 1) * 8 : literal_id * 8],
+        "little",
+    )
+    field_values = literal_lease.buffers["field_values"]
+    language_offset = int.from_bytes(
+        field_values[(field_start + 2) * 8 : (field_start + 3) * 8],
+        "little",
+    )
+    scalar = bytearray(literal_lease.buffers["scalar_bytes"])
+    assert scalar[language_offset : language_offset + 2] == b"fr"
+    scalar[language_offset : language_offset + 2] = b"FR"
+    hostile_literal = _replace_buffers(
+        literal_lease,
+        {"scalar_bytes": memoryview(bytes(scalar))},
+    )
+    malformed_literal = prepare_native_encoded_direct(hostile_literal)
+    with pytest.raises(SnapshotCompatibilityError, match="language is not canonical"):
+        malformed_literal.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert malformed_literal.state == "failed"
+
+
+def test_data_literal_datatype_iri_limit_fails_before_taxonomy_publication() -> None:
+    compiler = prepare_native_encoded_direct(
+        _lease(
+            _snapshot(
+                "SubClassOf(:A :B) DataPropertyAssertion(:dp :i "
+                '"value"^^<urn:datatype-with-a-deliberately-long-name>)'
+            )
+        )
+    )
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=25,
+        )
+    assert compiler.state == "failed"
+
+
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
     constructor_lease = _lease(_snapshot("DisjointClasses(:A :B)"))
     compiler = prepare_native_encoded_direct(constructor_lease)
@@ -613,9 +858,7 @@ def test_equivalent_set_corruption_and_mixed_edge_limit_fail_before_publication(
         )
     assert malformed.state == "failed"
 
-    mixed = _lease(
-        _snapshot("SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :i)")
-    )
+    mixed = _lease(_snapshot("SubClassOf(:A :B) EquivalentClasses(:A :C) ClassAssertion(:A :i)"))
     limited = prepare_native_encoded_direct(mixed)
     with pytest.raises(ProjectionResourceError, match="configured edge resources"):
         limited.compile_batch(
@@ -627,9 +870,7 @@ def test_equivalent_set_corruption_and_mixed_edge_limit_fail_before_publication(
 
 
 def test_nonminimal_cardinality_and_domain_range_limit_fail_before_publication() -> None:
-    lease = _lease(
-        _snapshot("SubClassOf(:A ObjectMinCardinality(256 :p :B))")
-    )
+    lease = _lease(_snapshot("SubClassOf(:A ObjectMinCardinality(256 :p :B))"))
     scalar = bytearray(lease.buffers["scalar_bytes"])
     offset = scalar.index(b"\x00\x01")
     scalar[offset + 1] = 0
@@ -780,14 +1021,12 @@ def test_role_set_corruption_and_expanded_edge_limit_fail_before_publication() -
     assert malformed.state == "failed"
 
     restrictions = " ".join(
-        f"SubClassOf(:A{index:03d} ObjectSomeValuesFrom(:p :B{index:03d}))"
-        for index in range(250)
+        f"SubClassOf(:A{index:03d} ObjectSomeValuesFrom(:p :B{index:03d}))" for index in range(250)
     )
     expanded = prepare_native_encoded_direct(
         _lease(
             _snapshot(
-                "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
-                f"{restrictions}"
+                f"SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) {restrictions}"
             )
         )
     )

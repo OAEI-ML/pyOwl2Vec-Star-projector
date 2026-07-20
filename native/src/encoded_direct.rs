@@ -43,6 +43,7 @@ const COMPONENT_SEQUENCE: u8 = 7;
 
 const TAG_IRI: u16 = 1;
 const TAG_ENTITY: u16 = 2;
+const TAG_LITERAL: u16 = 4;
 const TAG_ANNOTATION: u16 = 5;
 const TAG_OBJECT_INVERSE_OF: u16 = 10;
 const TAG_OBJECT_PROPERTY_CHAIN: u16 = 11;
@@ -66,14 +67,24 @@ const TAG_IRREFLEXIVE_OBJECT_PROPERTY: u16 = 79;
 const TAG_SYMMETRIC_OBJECT_PROPERTY: u16 = 80;
 const TAG_ASYMMETRIC_OBJECT_PROPERTY: u16 = 81;
 const TAG_TRANSITIVE_OBJECT_PROPERTY: u16 = 82;
+const TAG_SUB_DATA_PROPERTY_OF: u16 = 90;
+const TAG_EQUIVALENT_DATA_PROPERTIES: u16 = 91;
+const TAG_DISJOINT_DATA_PROPERTIES: u16 = 92;
+const TAG_DATA_PROPERTY_DOMAIN: u16 = 93;
+const TAG_DATA_PROPERTY_RANGE: u16 = 94;
+const TAG_FUNCTIONAL_DATA_PROPERTY: u16 = 95;
+const TAG_DATATYPE_DEFINITION: u16 = 100;
 const TAG_CLASS_ASSERTION: u16 = 112;
 const TAG_OBJECT_PROPERTY_ASSERTION: u16 = 113;
 const TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: u16 = 114;
+const TAG_DATA_PROPERTY_ASSERTION: u16 = 115;
+const TAG_NEGATIVE_DATA_PROPERTY_ASSERTION: u16 = 116;
 const TAG_SWRL_RULE: u16 = 148;
 
 const SUBCLASS_OF: &str = "http://subclassof";
 const SUPERCLASS_OF: &str = "http://superclassof";
 const RDF_TYPE: &str = "http://type";
+const RDF_PLAIN_LITERAL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#PlainLiteral";
 
 const ENTITY_KINDS: [&[u8]; 6] = [
     b"class",
@@ -147,6 +158,15 @@ pub(crate) struct DirectCompileStats {
     pub(crate) symmetric_object_properties: usize,
     pub(crate) asymmetric_object_properties: usize,
     pub(crate) transitive_object_properties: usize,
+    pub(crate) sub_data_properties: usize,
+    pub(crate) equivalent_data_properties: usize,
+    pub(crate) disjoint_data_properties: usize,
+    pub(crate) data_property_domains: usize,
+    pub(crate) data_property_ranges: usize,
+    pub(crate) functional_data_properties: usize,
+    pub(crate) datatype_definitions: usize,
+    pub(crate) data_property_assertions: usize,
+    pub(crate) negative_data_property_assertions: usize,
     pub(crate) skipped_axioms: usize,
     pub(crate) object_property_domains: usize,
     pub(crate) object_property_ranges: usize,
@@ -189,6 +209,15 @@ struct RootCounts {
     symmetric_object_properties: usize,
     asymmetric_object_properties: usize,
     transitive_object_properties: usize,
+    sub_data_properties: usize,
+    equivalent_data_properties: usize,
+    disjoint_data_properties: usize,
+    data_property_domains: usize,
+    data_property_ranges: usize,
+    functional_data_properties: usize,
+    datatype_definitions: usize,
+    data_property_assertions: usize,
+    negative_data_property_assertions: usize,
     object_property_domains: usize,
     object_property_ranges: usize,
 }
@@ -200,7 +229,7 @@ impl RootCounts {
             .ok_or_else(|| KernelError::resource("encoded role-axiom count overflow"))
     }
 
-    fn skipped_object_axioms(self) -> Result<usize, KernelError> {
+    fn skipped_axioms(self) -> Result<usize, KernelError> {
         [
             self.negative_object_property_assertions,
             self.equivalent_object_properties,
@@ -212,6 +241,15 @@ impl RootCounts {
             self.symmetric_object_properties,
             self.asymmetric_object_properties,
             self.transitive_object_properties,
+            self.sub_data_properties,
+            self.equivalent_data_properties,
+            self.disjoint_data_properties,
+            self.data_property_domains,
+            self.data_property_ranges,
+            self.functional_data_properties,
+            self.datatype_definitions,
+            self.data_property_assertions,
+            self.negative_data_property_assertions,
         ]
         .into_iter()
         .try_fold(0_usize, |total, count| {
@@ -678,6 +716,220 @@ impl<'a> DirectColumns<'a> {
             ));
         }
         self.iri(iri_id, maximum)
+    }
+
+    fn named_data_property_iri(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<&'a str, KernelError> {
+        let tag = self.node_tag(node_id)?;
+        if tag != TAG_ENTITY {
+            if SCHEMA_TAGS.contains(&tag) {
+                return Err(KernelError::unsupported(
+                    "direct native slice supports only named data properties",
+                ));
+            }
+            return Err(KernelError::malformed(
+                "encoded data property has an unknown node tag",
+            ));
+        }
+        let (kind, iri_id) = self.entity(node_id)?;
+        if kind != b"data_property" {
+            return Err(KernelError::malformed(
+                "encoded data-property entity has the wrong kind",
+            ));
+        }
+        self.iri(iri_id, maximum)
+    }
+
+    fn named_datatype_iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
+        let tag = self.node_tag(node_id)?;
+        if tag != TAG_ENTITY {
+            if SCHEMA_TAGS.contains(&tag) {
+                return Err(KernelError::unsupported(
+                    "direct native slice supports only named datatypes",
+                ));
+            }
+            return Err(KernelError::malformed(
+                "encoded datatype has an unknown node tag",
+            ));
+        }
+        let (kind, iri_id) = self.entity(node_id)?;
+        if kind != b"datatype" {
+            return Err(KernelError::malformed(
+                "encoded datatype entity has the wrong kind",
+            ));
+        }
+        self.iri(iri_id, maximum)
+    }
+
+    fn validate_literal(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_LITERAL {
+            return Err(KernelError::malformed(
+                "encoded data assertion value does not reference a Literal",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        let lexical = self.scalar_payload(start, COMPONENT_TEXT)?;
+        std::str::from_utf8(lexical)
+            .map_err(|_| KernelError::malformed("encoded literal lexical form is not UTF-8"))?;
+        let datatype = self.named_datatype_iri(self.field_node(start + 1)?, maximum_iri)?;
+        match self.field_kind(start + 2)? {
+            COMPONENT_NONE => {
+                if self.field_value(start + 2)? != 0 || self.field_length(start + 2)? != 0 {
+                    return Err(KernelError::malformed(
+                        "encoded Literal language none field is not canonical",
+                    ));
+                }
+            }
+            COMPONENT_TEXT => {
+                let payload = self.scalar_payload(start + 2, COMPONENT_TEXT)?;
+                let language = std::str::from_utf8(payload)
+                    .map_err(|_| KernelError::malformed("encoded Literal language is not UTF-8"))?;
+                let is_lowercase = language
+                    .chars()
+                    .flat_map(|character| character.to_lowercase())
+                    .eq(language.chars());
+                if language.is_empty() || !is_lowercase || datatype != RDF_PLAIN_LITERAL {
+                    return Err(KernelError::malformed(
+                        "encoded Literal language is not canonical",
+                    ));
+                }
+            }
+            _ => {
+                return Err(KernelError::malformed(
+                    "encoded Literal language field kind is invalid",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_binary_data_property_axiom(
+        self,
+        node_id: usize,
+        expected_tag: u16,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != expected_tag || expected_tag != TAG_SUB_DATA_PROPERTY_OF {
+            return Err(KernelError::malformed(
+                "encoded data-property axiom cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_data_property_iri(self.field_node(start)?, maximum)?;
+        self.named_data_property_iri(self.field_node(start + 1)?, maximum)?;
+        self.empty_annotation_set(start + 2)
+    }
+
+    fn validate_data_property_set_axiom(
+        self,
+        node_id: usize,
+        expected_tag: u16,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != expected_tag
+            || ![TAG_EQUIVALENT_DATA_PROPERTIES, TAG_DISJOINT_DATA_PROPERTIES]
+                .contains(&expected_tag)
+        {
+            return Err(KernelError::malformed(
+                "encoded data-property set cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        let (item_start, length) = self.node_set_range(start, 2)?;
+        for item_index in item_start..item_start + length {
+            self.named_data_property_iri(self.item_node(item_index)?, maximum)?;
+        }
+        self.empty_annotation_set(start + 1)
+    }
+
+    fn validate_data_property_domain(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_DATA_PROPERTY_DOMAIN {
+            return Err(KernelError::malformed(
+                "encoded data-property domain cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_data_property_iri(self.field_node(start)?, maximum)?;
+        self.named_class_iri(self.field_node(start + 1)?, maximum)?;
+        self.empty_annotation_set(start + 2)
+    }
+
+    fn validate_data_property_range(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_DATA_PROPERTY_RANGE {
+            return Err(KernelError::malformed(
+                "encoded data-property range cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_data_property_iri(self.field_node(start)?, maximum)?;
+        self.named_datatype_iri(self.field_node(start + 1)?, maximum)?;
+        self.empty_annotation_set(start + 2)
+    }
+
+    fn validate_functional_data_property(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_FUNCTIONAL_DATA_PROPERTY {
+            return Err(KernelError::malformed(
+                "encoded functional data-property cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        self.named_data_property_iri(self.field_node(start)?, maximum)?;
+        self.empty_annotation_set(start + 1)
+    }
+
+    fn validate_datatype_definition(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_DATATYPE_DEFINITION {
+            return Err(KernelError::malformed(
+                "encoded datatype-definition cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_datatype_iri(self.field_node(start)?, maximum)?;
+        self.named_datatype_iri(self.field_node(start + 1)?, maximum)?;
+        self.empty_annotation_set(start + 2)
+    }
+
+    fn validate_data_property_assertion(
+        self,
+        node_id: usize,
+        expected_tag: u16,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != expected_tag
+            || ![
+                TAG_DATA_PROPERTY_ASSERTION,
+                TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+            ]
+            .contains(&expected_tag)
+        {
+            return Err(KernelError::malformed(
+                "encoded data-property assertion cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 4)?;
+        self.named_data_property_iri(self.field_node(start)?, maximum)?;
+        self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
+        self.validate_literal(self.field_node(start + 2)?, maximum)?;
+        self.empty_annotation_set(start + 3)
     }
 
     fn object_inverse_iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
@@ -1160,6 +1412,9 @@ impl<'a> DirectColumns<'a> {
                     let (_kind, iri_id) = self.entity(node_id)?;
                     self.iri(iri_id, maximum_iri)?;
                 }
+                TAG_LITERAL => {
+                    self.validate_literal(node_id, maximum_iri)?;
+                }
                 TAG_OBJECT_INVERSE_OF => {
                     self.object_inverse_iri(node_id, maximum_iri)?;
                 }
@@ -1204,6 +1459,39 @@ impl<'a> DirectColumns<'a> {
                 }
                 TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
                     self.validate_negative_object_property_assertion(node_id, maximum_iri)?;
+                }
+                TAG_SUB_DATA_PROPERTY_OF => {
+                    self.validate_binary_data_property_axiom(
+                        node_id,
+                        TAG_SUB_DATA_PROPERTY_OF,
+                        maximum_iri,
+                    )?;
+                }
+                TAG_EQUIVALENT_DATA_PROPERTIES | TAG_DISJOINT_DATA_PROPERTIES => {
+                    self.validate_data_property_set_axiom(
+                        node_id,
+                        self.node_tag(node_id)?,
+                        maximum_iri,
+                    )?;
+                }
+                TAG_DATA_PROPERTY_DOMAIN => {
+                    self.validate_data_property_domain(node_id, maximum_iri)?;
+                }
+                TAG_DATA_PROPERTY_RANGE => {
+                    self.validate_data_property_range(node_id, maximum_iri)?;
+                }
+                TAG_FUNCTIONAL_DATA_PROPERTY => {
+                    self.validate_functional_data_property(node_id, maximum_iri)?;
+                }
+                TAG_DATATYPE_DEFINITION => {
+                    self.validate_datatype_definition(node_id, maximum_iri)?;
+                }
+                TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
+                    self.validate_data_property_assertion(
+                        node_id,
+                        self.node_tag(node_id)?,
+                        maximum_iri,
+                    )?;
                 }
                 tag if is_object_property_characteristic(tag) => {
                     self.validate_object_property_characteristic(node_id, maximum_iri)?;
@@ -1291,6 +1579,33 @@ impl<'a> DirectColumns<'a> {
                 }
                 (ROOT_AXIOM, TAG_TRANSITIVE_OBJECT_PROPERTY) => {
                     counts.transitive_object_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_SUB_DATA_PROPERTY_OF) => {
+                    counts.sub_data_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_EQUIVALENT_DATA_PROPERTIES) => {
+                    counts.equivalent_data_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_DISJOINT_DATA_PROPERTIES) => {
+                    counts.disjoint_data_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_DATA_PROPERTY_DOMAIN) => {
+                    counts.data_property_domains += 1;
+                }
+                (ROOT_AXIOM, TAG_DATA_PROPERTY_RANGE) => {
+                    counts.data_property_ranges += 1;
+                }
+                (ROOT_AXIOM, TAG_FUNCTIONAL_DATA_PROPERTY) => {
+                    counts.functional_data_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_DATATYPE_DEFINITION) => {
+                    counts.datatype_definitions += 1;
+                }
+                (ROOT_AXIOM, TAG_DATA_PROPERTY_ASSERTION) => {
+                    counts.data_property_assertions += 1;
+                }
+                (ROOT_AXIOM, TAG_NEGATIVE_DATA_PROPERTY_ASSERTION) => {
+                    counts.negative_data_property_assertions += 1;
                 }
                 (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) | (ROOT_EXTENSION, TAG_SWRL_RULE) => {
                     return Err(KernelError::unsupported(
@@ -1542,7 +1857,7 @@ pub(crate) fn compile_direct(
     let skipped_axioms = if asserted_taxonomy_only {
         0
     } else {
-        counts.skipped_object_axioms()?
+        counts.skipped_axioms()?
     };
     let (domain_range_edges, expanded_domain_range_edges) = if asserted_taxonomy_only {
         (0, 0)
@@ -1740,6 +2055,15 @@ pub(crate) fn compile_direct(
         symmetric_object_properties: counts.symmetric_object_properties,
         asymmetric_object_properties: counts.asymmetric_object_properties,
         transitive_object_properties: counts.transitive_object_properties,
+        sub_data_properties: counts.sub_data_properties,
+        equivalent_data_properties: counts.equivalent_data_properties,
+        disjoint_data_properties: counts.disjoint_data_properties,
+        data_property_domains: counts.data_property_domains,
+        data_property_ranges: counts.data_property_ranges,
+        functional_data_properties: counts.functional_data_properties,
+        datatype_definitions: counts.datatype_definitions,
+        data_property_assertions: counts.data_property_assertions,
+        negative_data_property_assertions: counts.negative_data_property_assertions,
         skipped_axioms,
         object_property_domains: counts.object_property_domains,
         object_property_ranges: counts.object_property_ranges,
@@ -1915,6 +2239,12 @@ mod tests {
         fn push_node_ref(&mut self, node_id: u64) {
             self.field_kinds.push(COMPONENT_NODE);
             self.field_values.extend_from_slice(&node_id.to_le_bytes());
+            self.field_lengths.extend_from_slice(&0_u64.to_le_bytes());
+        }
+
+        fn push_none(&mut self) {
+            self.field_kinds.push(COMPONENT_NONE);
+            self.field_values.extend_from_slice(&0_u64.to_le_bytes());
             self.field_lengths.extend_from_slice(&0_u64.to_le_bytes());
         }
 
@@ -2209,6 +2539,89 @@ mod tests {
         }
         fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 14]);
         for root_id in 17_u32..=30 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
+    fn named_data_property_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"urn:dp",
+            b"urn:dq",
+            b"urn:dr",
+            b"urn:i",
+            RDF_PLAIN_LITERAL.as_bytes(),
+            b"http://www.w3.org/2001/XMLSchema#string",
+            b"urn:custom",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=8
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 9
+        for iri_id in [2_u64, 3, 4] {
+            fixture.push_scalar(COMPONENT_ENUM, b"data_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 10..=12
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 13
+        for iri_id in [6_u64, 7, 8] {
+            fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 14..=16
+        }
+        fixture.push_scalar(COMPONENT_TEXT, b"plain");
+        fixture.push_node_ref(14);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 17
+        fixture.push_scalar(COMPONENT_TEXT, b"bonjour");
+        fixture.push_node_ref(14);
+        fixture.push_scalar(COMPONENT_TEXT, b"fr");
+        fixture.finish_node(TAG_LITERAL); // 18
+
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(11);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_DATA_PROPERTY_OF); // 19
+        fixture.push_node_set(&[10, 11, 12]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_EQUIVALENT_DATA_PROPERTIES); // 20
+        fixture.push_node_set(&[10, 11]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DISJOINT_DATA_PROPERTIES); // 21
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(9);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DATA_PROPERTY_DOMAIN); // 22
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(15);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DATA_PROPERTY_RANGE); // 23
+        fixture.push_node_ref(10);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_FUNCTIONAL_DATA_PROPERTY); // 24
+        fixture.push_node_ref(16);
+        fixture.push_node_ref(15);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DATATYPE_DEFINITION); // 25
+        for (tag, property, literal) in [
+            (TAG_DATA_PROPERTY_ASSERTION, 10_u64, 17_u64),
+            (TAG_NEGATIVE_DATA_PROPERTY_ASSERTION, 11, 18),
+        ] {
+            fixture.push_node_ref(property);
+            fixture.push_node_ref(13);
+            fixture.push_node_ref(literal);
+            fixture.push_empty_set();
+            fixture.finish_node(tag); // 26..=27
+        }
+
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 9]);
+        for root_id in 19_u32..=27 {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
@@ -2601,6 +3014,45 @@ mod tests {
         assert!(asserted.is_empty());
         assert_eq!(stats.skipped_axioms, 0);
         assert_eq!(stats.role_expansion_edges, 0);
+    }
+
+    #[test]
+    fn named_data_property_families_validate_literals_and_remain_state_neutral() {
+        let fixture = named_data_property_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(edges.is_empty());
+        assert_eq!(stats.sub_data_properties, 1);
+        assert_eq!(stats.equivalent_data_properties, 1);
+        assert_eq!(stats.disjoint_data_properties, 1);
+        assert_eq!(stats.data_property_domains, 1);
+        assert_eq!(stats.data_property_ranges, 1);
+        assert_eq!(stats.functional_data_properties, 1);
+        assert_eq!(stats.datatype_definitions, 1);
+        assert_eq!(stats.data_property_assertions, 1);
+        assert_eq!(stats.negative_data_property_assertions, 1);
+        assert_eq!(stats.skipped_axioms, 9);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.skipped_axioms, 0);
     }
 
     #[test]

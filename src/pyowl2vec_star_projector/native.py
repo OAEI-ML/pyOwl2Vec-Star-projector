@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 5
+ENCODED_DIRECT_KERNEL_VERSION = 6
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -82,6 +82,15 @@ class NativeEncodedDirectStatistics:
     symmetric_object_properties: int
     asymmetric_object_properties: int
     transitive_object_properties: int
+    sub_data_properties: int
+    equivalent_data_properties: int
+    disjoint_data_properties: int
+    data_property_domains: int
+    data_property_ranges: int
+    functional_data_properties: int
+    datatype_definitions: int
+    data_property_assertions: int
+    negative_data_property_assertions: int
     skipped_axioms: int
     object_property_domains: int
     object_property_ranges: int
@@ -112,6 +121,15 @@ class NativeEncodedDirectStatistics:
             self.symmetric_object_properties,
             self.asymmetric_object_properties,
             self.transitive_object_properties,
+            self.sub_data_properties,
+            self.equivalent_data_properties,
+            self.disjoint_data_properties,
+            self.data_property_domains,
+            self.data_property_ranges,
+            self.functional_data_properties,
+            self.datatype_definitions,
+            self.data_property_assertions,
+            self.negative_data_property_assertions,
             self.skipped_axioms,
             self.object_property_domains,
             self.object_property_ranges,
@@ -213,7 +231,7 @@ class NativeEncodedDirectCompiler:
         except Exception as error:
             raise _execution_error(error) from error
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 27:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 36:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
