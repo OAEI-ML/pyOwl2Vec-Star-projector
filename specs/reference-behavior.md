@@ -251,6 +251,8 @@ mutate object-role state.
 `HasKey` is skipped and cannot affect projected class, data-property, or object-role state.
 `SameIndividual` is skipped and cannot affect projected individual or object-role state.
 `DifferentIndividuals` follows the same skipped, state-neutral contract.
+`NegativeObjectPropertyAssertion` is skipped, including inverse-property forms, and cannot mutate
+object-role state.
 
 ## 11. Mutable instance state
 

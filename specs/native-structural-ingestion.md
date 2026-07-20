@@ -108,6 +108,8 @@ Class expressions outside the bounded envelope retain whole-operation scalar fal
 `SameIndividual` over a minimum-two canonical set of named or anonymous individuals is preflighted
 and skipped while its anonymous members remain part of deterministic blank-ID assignment.
 `DifferentIndividuals` follows the same individual-set, annotation, skip, and blank-ID contract.
+`NegativeObjectPropertyAssertion` over a named or inverse object property and supported individuals
+is likewise preflighted and skipped, retaining anonymous members for deterministic blank IDs.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
