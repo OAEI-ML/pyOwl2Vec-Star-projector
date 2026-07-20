@@ -1,103 +1,126 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector revision: `9ee3c52`. pyOWLCore candidate revision:
-`34b9e84`. Exact-OM integration revision: `ebff7be`.
+Date: 2026-07-20. Projector implementation through `1a44d75`. pyOWLCore candidate revision:
+`cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
 
-P7 has a substantial, fail-closed implementation checkpoint, but it is **not accepted or
-promoted**. The projector can negotiate and validate the public
-`pyowl-core/structural-columns` version 1 view and compile the currently validated direct and
-segmented constructor envelope in Rust. Unsupported valid shapes select one whole-operation
-scalar fallback before output, while malformed descriptors fail closed. The complete Python
-compiler remains the semantic fallback and `auto` does not advertise or select encoded-native.
+P7 is **not accepted, integrated, advertised, or promoted**. Production projection still uses the
+Python semantic compiler. When the native backend is selected, that Python compiler materializes
+projector `Edge` values and the established Rust `EdgeBatchProcessor` receives owned string tuples
+only to apply edge policy. The broad decoder in `encoded_compiler.py` is Python code; its tests and
+counter ledger are not evidence of a Rust ontology compiler.
 
-This report records repository-owned implementation and verification only. It deliberately does
-not claim the labelled performance, hosted wheel, sanitizer, licensed-corpus, or released-revision
-evidence required by WP-P7.
+The extension feature ledger remains exactly `abi3-py310` and `bounded-batches`.
+`encoded-structural-compiler-v1` is absent, so normal backend negotiation cannot select an
+encoded-native production compiler.
 
-## Implemented checkpoint
+This checkpoint adds a real but deliberately private Rust foundation. It proves one useful
+semantic slice across the actual PyO3 boundary without changing the production claim:
 
-- Public capability negotiation validates the core model schema, encoded schema/version,
-  descriptor digest, scope, structural fingerprint, owner lifetime, little-endian columns,
-  offsets, references, and segment manifests without importing core internals.
-- The native compiler covers declarations; the pinned subclass/equivalence/restriction,
-  annotation, ABox, taxonomy, domain/range, and role-state rules in the documented native
-  envelope; and all currently enumerated non-projecting/skipped constructors. Silent SWRL and
-  ontology-annotation roots are structurally validated without changing projection semantics.
-- Canonical direct views, retained overlay bases/deltas, recursive overlay bases, and composite
-  member groups compile through retained public leases. Root postings and anonymous-scope maps
-  are applied before a canonical streaming merge and structural deduplication; valid
-  order-changing mappings select scalar fallback rather than being reinterpreted.
-- Rust emits bounded packed edge batches through the existing materialized, iterator, sink,
-  digest, and artifact surfaces. The boundary does not perform a Python call per axiom or edge.
-- Projection provenance records the selected path, encoded schema and descriptor identity,
-  monotonic publication/validation/compiler durations, and a bounded public ledger for scalar
-  rows, borrowed/indexed/detached buffers, segments, postings, staging/structural copies,
-  parser/resolver/wire work, scalar materialization, base flattening, per-row FFI, and GIL state.
-  Scalar paths publish the same counter vocabulary with encoded values fixed at zero.
-- Test-only parity instrumentation compares canonical rule counters, ordered and bag edge digests,
-  diagnostics, and fallbacks against the scalar compiler. Hostile segment/descriptor fixtures and
-  retained-owner lifetime cases exercise failure before output.
-- `benchmark_encoded_compiler.py` measures an already-loaded public view through the production
-  projector path. It records exact identity, first-edge/complete wall and CPU time, incremental
-  RSS, edge digests, public ingestion phases/counters, and post-load core operation deltas. Its
-  release mode fails closed on scalar fallback, missing zero-counter coverage, staging copies, or
-  absent GIL-release evidence.
+- one canonical direct structural-columns v1 segment;
+- exact full immutable-`bytes` exporters for all eleven columns;
+- IRI and Entity nodes, silent unannotated Declaration roots, and unannotated named-to-named
+  `SubClassOf` roots only;
+- forward `http://subclassof` edges and optional reverse `http://superclassof` edges; and
+- one caller-bounded coarse output batch, with no per-root or per-edge Python call.
 
-The constructor and segmented-view work is represented by the implementation sequence from
-`ab2b809` through `9ee3c52`, including direct aggregate/ABox/annotation compilation, overlay and
-composite resolution, compatibility role state, every documented skipped constructor, hostile
-segment fixtures, silent structural extensions, fallback validation, public phase diagnostics,
-path-bound evidence validation, and the load-excluded acceptance harness.
+Any other valid segment, exporter, constructor, annotation, or class-expression shape is rejected
+as unsupported before output. Malformed supported columns fail closed. This is a foundation, not
+the complete compiler described by WP-P7.
 
-## Local verification captured at this checkpoint
+## What the private kernel actually does
 
-The source-tree candidate passed the following repository-owned gates at revision `9ee3c52`:
+`EncodedDirectCompiler` receives the already validated public encoded view, its exact retained
+owner, and the descriptor digest bound by the Python adapter. Its constructor rechecks the frozen
+schema/model version, descriptor binding, direct-segment envelope, exact buffer names, memoryview
+readonly/shape metadata, and exporter coverage. It retains the encoded view, owner, and one owned
+reference to each immutable bytes exporter.
+
+`compile_batch()` lends those stable byte slices to the Python-free Rust kernel and releases the
+GIL with `Python::detach`. Rust then:
+
+1. validates paired column widths, counts, monotone offsets, canonical roots, component kinds,
+   node/item/scalar references, and arena coverage;
+2. preflights every supported constructor, UTF-8 IRI, entity kind, empty annotation set, root
+   kind/tag pairing, output count, and IRI/output limit;
+3. allocates output only after the complete preflight succeeds; and
+4. returns one coarse list of edge tuples plus roots, nodes, declarations, subclasses, edges, and
+   retained-buffer-byte counters.
+
+The Python wrapper exposes an exact call ledger for this kernel: eleven input buffers, eleven
+detached/zero-copy buffers, zero indexed buffers, zero staging/structural copy bytes, zero per-row
+FFI calls, one native boundary call, and GIL release. These counters describe only this private
+call. They are not currently attached to `ProjectionReport`, because the production projector
+does not dispatch to the private kernel.
+
+The compiler is one-shot. Atomic idle/running/finished/cancelled/failed transitions allow another
+Python thread to cancel detached work. A cancellation racing with successful compilation discards
+the result. Unsupported, malformed, resource, cancelled, and panic outcomes cross the boundary as
+distinct typed failures; no partial batch is returned.
+
+## No-copy boundary and exact blocker
+
+PyO3 0.28.3 gates its safe generic `PyBuffer` API out at the project's `abi3-py310` floor. The
+private kernel therefore accepts only exact memoryviews that cover an entire immutable `bytes`
+exporter. This path is safe to lend while detached because the compiler retains both the Python
+owner graph and immutable exporter references; it makes no ontology-sized input copy.
+
+Sliced exporters, readonly bytearrays, mmap-backed views, and other otherwise valid public buffer
+providers are reported as unsupported. The kernel does not copy them and does not count them as
+detached. A future general mmap path needs a reviewed safe lifetime mechanism compatible with the
+3.10 stable ABI (or a coordinated ABI-floor/design change). Until then, direct bytes are the only
+no-copy Rust input proven here.
+
+## Verification at this checkpoint
+
+The following source-tree checks passed for the implementation commits `39a5656` and `1a44d75`:
 
 | Gate | Result |
 |---|---|
-| Complete projector test suite | 830 passed |
-| Encoded compiler/dispatch/segment suite | 663 passed |
-| Rust tests, formatting, and Clippy | passed |
-| Python Ruff and mypy gates | passed |
-| Exact focused snapshot/projection integration | passed |
+| Rust unit tests (`cargo test --no-default-features`) | 8 passed |
+| Rust formatting and Clippy with warnings denied | passed |
+| Private PyO3 foundation tests | 7 passed |
+| Existing native backend plus private foundation tests | 35 passed |
+| Complete projector test suite | 837 passed |
+| Focused Python Ruff and mypy checks | passed |
 
-These results establish the bounded implementation slice; they are not a substitute for the
-labelled P7 acceptance matrix. Portable artifact identity remains independent of the new execution
-timings and counters.
+The focused tests cover Python-oracle parity, bidirectional projection, declarations as
+non-emitting roots, a 250-axiom single boundary call, output-limit failure, valid unsupported
+constructors, sliced and non-bytes exporters, descriptor mismatch, hostile root references,
+bytes-exporter reference lifetime, exact owner lifetime, GIL release, concurrent cancellation,
+and continued absence of the production encoded feature.
+
+These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
+licensed corpora, performance thresholds, or the Exact acceptance matrix.
 
 ## Acceptance ledger
 
-| WP-P7 requirement | Checkpoint state |
+| WP-P7 requirement | Current truthful state |
 |---|---|
-| Freeze and validate the public encoded descriptor and owner lifetime | Implemented for structural-columns v1 candidate; final released core pin remains open |
-| Complete pinned projection-rule and option parity | Broad documented constructor envelope implemented; full generated/oracle/large-corpus acceptance remains open |
-| Bounded packed batches without per-row FFI | Implemented and locally tested |
-| Preserve scalar paths and versioned diagnostics | Implemented; Python remains complete and encoded-native remains unadvertised |
-| Direct/mmap/overlay/composite parity matrix | Direct and segmented overlay/composite coverage implemented; installed-wheel mmap cross-product remains open |
-| Lifetime, hostile-input, thread/fork/cancel/panic safety | Focused local coverage exists; fuzz, sanitizer, Miri-equivalent ownership evidence, and hosted matrix remain open |
-| Zero parser/resolver/wire/scalar/base-flattening/materialization ledger | Complete public counter vocabulary and fail-closed harness are implemented; labelled direct/mmap proof and released-GIL evidence remain open |
-| NCIT/DOID/GO/million-axiom/licensed-corpus time and RSS gates | Open; no performance threshold is claimed |
-| Exact shared-stack identity, parity, scale, and dependency-DAG gate | Focused source integration passed; full scale matrix and exact released revisions remain open |
-| Wheels, SBOM/licenses, reproducibility, and Python/platform matrix | Open for the encoded capability |
+| Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
+| Complete Rust projection rules/options | Open; Rust implements only direct unannotated named `SubClassOf` plus silent declarations |
+| Bounded batches without per-row FFI | Proven for one caller-bounded private coarse batch; streaming multi-batch integration remains open |
+| Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
+| Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
+| Lifetime/GIL/cancel/failure safety | Focused private bytes-path tests pass; full iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
+| Zero forbidden-work ledger | Proven only for the private bytes call; no production-path claim |
+| Corpus performance/RSS gates | Open |
+| Exact shared-stack acceptance | Open for this kernel |
+| Wheels/SBOM/platform matrix | Open for this kernel |
 
-## Promotion decision and remaining work
+## Promotion decision and next work
 
-`auto` remains unchanged. The encoded path stays an internal opt-in candidate and is absent from
-the public native feature ledger until all of the following evidence is committed:
+`auto` and explicit native negotiation remain unchanged. Before advertising
+`encoded-structural-compiler-v1`, P7 still needs:
 
-1. exact scalar/encoded rule, multiplicity, order, digest, artifact, error, and lifecycle parity
-   over the complete oracle/generated/direct/mmap/overlay/composite and licensed-corpus matrices;
-2. fuzz and sanitizer lanes plus thread, fork, cancellation, panic, interpreter-shutdown, and
-   installed-wheel lifetime evidence on every supported platform/Python pair;
-3. labelled NCIT, DOID, GO, million-axiom synthetic, and largest-available licensed-corpus runs
-   proving the timing, RSS, copy/materialization, boundary-overhead, and cleanup thresholds in
-   `specs/native-structural-ingestion.md`;
-4. Exact-OM shared-stack scale reruns with fixed identities, semantic digests, zero forbidden
-   handoff counters, and no regression relative to both scalar baselines; and
-5. exact released core/projector compatibility pins, wheel audits, SBOM/license evidence, and a
-   reviewed backend-promotion decision.
+1. complete Rust rule, option, multiplicity, order, diagnostic, error, and lifecycle parity;
+2. bounded streaming batches integrated into iterator, sink, digest, artifact, and cancellation
+   surfaces without the current whole-batch limitation;
+3. safe no-copy direct/mmap/overlay/composite ownership and segment traversal;
+4. production provenance wired only after it describes actual Rust work;
+5. full oracle/generated/hostile/fuzz/sanitizer/thread/fork/shutdown/platform verification;
+6. labelled NCIT, DOID, GO, million-axiom, licensed-corpus, RSS, and copy evidence; and
+7. Exact-OM shared-stack and release packaging/SBOM/compatibility review.
 
-Until those gates pass, P7 remains in progress and no version, compatibility, or performance claim
-is inferred from this checkpoint.
+No compatibility, completeness, or performance claim is inferred from this private checkpoint.

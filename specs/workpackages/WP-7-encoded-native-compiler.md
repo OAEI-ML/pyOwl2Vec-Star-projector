@@ -4,6 +4,24 @@
 **Depends on:** P3–P6 and a frozen pyowl-core WP17 encoded-view candidate.
 **Status:** implementation checkpoint in progress; capability unadvertised and acceptance open.
 
+## Current implementation checkpoint
+
+As of 2026-07-20, the broad structural-columns decoder/compiler in
+`encoded_compiler.py` is Python, and the production Rust backend still receives already-created
+edge strings for policy processing. Neither is a complete Rust encoded compiler.
+
+A private unadvertised PyO3 foundation now compiles one canonical direct, exact-`bytes` slice in
+Rust: unannotated named-to-named `SubClassOf` plus declarations as non-emitting roots. It retains
+the owner/exporters, preflights before allocating output, releases the GIL, supports concurrent
+cancellation, and returns one caller-bounded coarse batch. Other constructors/segments and
+sliced, mmap, or non-bytes exporters are unsupported without copying. The safe generic PyO3
+buffer API is unavailable at the current `abi3-py310` floor, so general mmap ownership remains an
+explicit design blocker.
+
+This checkpoint does not satisfy any deliverable that says complete, every, production, or full
+matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact
+implementation and open ledger are recorded in `reports/p7/encoded-native-compiler.md`.
+
 ## Goal
 
 Replace scalar Python ontology traversal and partial edge-policy acceleration with a complete Rust

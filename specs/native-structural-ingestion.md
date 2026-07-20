@@ -4,6 +4,12 @@ Status: normative successor optimization for the implemented projector. It prese
 `mowl-d993536-v1`, all public edge/artifact contracts, deterministic streaming, and the complete
 pure-Python fallback.
 
+Implementation note (2026-07-20): this document is the acceptance design, not a statement that
+the production Rust compiler exists. The broad internal structural-columns slice described in
+section 2 is currently implemented in Python. Rust has only the private, unadvertised direct
+exact-`bytes` named-`SubClassOf` foundation recorded in the P7 report; normal projection still
+uses Python semantic compilation followed by the older Rust edge-policy bridge.
+
 ## 1. Objective
 
 The optimized native backend MUST compile the caller's exact retained
@@ -41,7 +47,7 @@ fixed-width column pairing, monotone offsets, and root/node/item/scalar/posting 
 over retained read-only byte views. This validation constructs no OWL value or dense-ID cache and
 does not advertise or promote the unfinished encoded-native compiler path.
 
-The internal compiler slice additionally preflights canonical direct views containing only
+The current Python internal compiler slice additionally preflights canonical direct views containing only
 declarations; `SubClassOf`, `EquivalentClasses`, `ClassAssertion`, and object-property
 domain/range axioms over named classes, intersections/unions, and the validated restriction
 envelope; direct `ObjectPropertyAssertion` axioms over named or anonymous individuals; and named
@@ -208,7 +214,7 @@ exact OntologyView identity
             existing Edge, iterator, sink, digest and artifact APIs
 ```
 
-The Rust compiler implements every `reference-rules.json` rule and all option interactions,
+The accepted Rust compiler MUST implement every `reference-rules.json` rule and all option interactions,
 including compatibility-state lifecycle, bag multiplicity, annotation string conversion,
 historical subrole/inverse behavior, ABox, dedicated taxonomy projection, encounter order, and
 canonical order. Generated relation strings and compatibility labels are projector-owned; core
@@ -245,15 +251,15 @@ outside the retained owner or as standalone cache identity.
 
 ## 5. Lifetime, safety, and failure
 
-Buffer borrowing, iterator lifetime, re-entrancy, `scala-instance` exclusion, thread movement,
-fork, cancellation, generator close, interpreter shutdown, and panic conversion have focused
-tests. Rust releases the GIL without Python callbacks and validates count-derived allocations
-before growth. Failure before or during streaming publishes no cache/artifact and cleans private
-spill resources under the existing P4 rules.
+Acceptance evidence MUST cover buffer borrowing, iterator lifetime, re-entrancy,
+`scala-instance` exclusion, thread movement, fork, cancellation, generator close, interpreter
+shutdown, and panic conversion. Rust MUST release the GIL without Python callbacks and validate
+count-derived allocations before growth. Failure before or during streaming MUST publish no
+cache/artifact and MUST clean private spill resources under the existing P4 rules.
 
-A copied structural column is allowed only for a measured alignment/ownership need and is reported
-by byte count. Direct and mmap retained-native views have zero ontology-sized staging copy.
-Every completed projection publishes the selected path, monotonic public-view
+A copied structural column is allowed only for a measured alignment/ownership need and MUST be
+reported by byte count. Accepted direct and mmap retained-native views MUST have zero
+ontology-sized staging copy. Every completed production encoded projection MUST publish the selected path, monotonic public-view
 publication/validation and compiler-setup durations, and the bounded copy/materialization ledger
 through `ProjectionReport.provenance.ingestion`. Consumers such as Exact read that report; they do
 not request, flatten, or decode an encoded view themselves. The report contains no paths, object
