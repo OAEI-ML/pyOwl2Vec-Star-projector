@@ -169,6 +169,19 @@ Use `identity_probes={"labels": lambda: source.labels_view}` to assert that cons
 also retain object identity. The benchmark and Exact baseline comparator live under
 `benchmarks/benchmark_consumer_handoff.py` and `tools/compare_exact_baselines.py`.
 
+The successor P7 harness measures an already-loaded public view through the production projector
+path and records first-edge/complete wall and CPU time, RSS, edge hashes, core operation deltas,
+public ingestion phases/counters, and missing acceptance evidence:
+
+```bash
+PYTHONPATH=src:../pyOWLCore/src python benchmarks/benchmark_encoded_compiler.py ontology.ofn \
+  --format functional --load-backend native --projector-backend native
+```
+
+Use `--require-encoded-native` only as a release-evidence gate. It fails unless every repetition
+selects encoded-native and exposes a complete zero-forbidden-counter, zero-staging-copy,
+released-GIL record; it never relabels scalar fallback as accelerated evidence.
+
 ## Optional native build
 
 Every distribution contains the complete Python backend. The default build is always the

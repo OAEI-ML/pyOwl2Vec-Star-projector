@@ -1,7 +1,7 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector revision: `99330e9`. pyOWLCore candidate revision:
-`1d3cd25`. Exact-OM integration revision: `3c3cfce`.
+Date: 2026-07-20. Projector revision: `3f0264b`. pyOWLCore candidate revision:
+`34b9e84`. Exact-OM integration revision: `ebff7be`.
 
 ## Outcome
 
@@ -38,19 +38,25 @@ evidence required by WP-P7.
 - Test-only parity instrumentation compares canonical rule counters, ordered and bag edge digests,
   diagnostics, and fallbacks against the scalar compiler. Hostile segment/descriptor fixtures and
   retained-owner lifetime cases exercise failure before output.
+- `benchmark_encoded_compiler.py` measures an already-loaded public view through the production
+  projector path. It records exact identity, first-edge/complete wall and CPU time, incremental
+  RSS, edge digests, public ingestion phases/counters, and post-load core operation deltas. Its
+  release mode fails closed on scalar fallback, missing zero-counter coverage, staging copies, or
+  absent GIL-release evidence.
 
 The constructor and segmented-view work is represented by the implementation sequence from
-`ab2b809` through `99330e9`, including direct aggregate/ABox/annotation compilation, overlay and
+`ab2b809` through `3f0264b`, including direct aggregate/ABox/annotation compilation, overlay and
 composite resolution, compatibility role state, every documented skipped constructor, hostile
-segment fixtures, silent structural extensions, fallback validation, and public phase diagnostics.
+segment fixtures, silent structural extensions, fallback validation, public phase diagnostics,
+path-bound evidence validation, and the load-excluded acceptance harness.
 
 ## Local verification captured at this checkpoint
 
-The source-tree candidate passed the following repository-owned gates at revision `99330e9`:
+The source-tree candidate passed the following repository-owned gates at revision `3f0264b`:
 
 | Gate | Result |
 |---|---|
-| Complete projector test suite | 828 passed |
+| Complete projector test suite | 830 passed |
 | Encoded compiler/dispatch/segment suite | 663 passed |
 | Rust tests, formatting, and Clippy | passed |
 | Python Ruff and mypy gates | passed |
@@ -70,7 +76,7 @@ timings and counters.
 | Preserve scalar paths and versioned diagnostics | Implemented; Python remains complete and encoded-native remains unadvertised |
 | Direct/mmap/overlay/composite parity matrix | Direct and segmented overlay/composite coverage implemented; installed-wheel mmap cross-product remains open |
 | Lifetime, hostile-input, thread/fork/cancel/panic safety | Focused local coverage exists; fuzz, sanitizer, Miri-equivalent ownership evidence, and hosted matrix remain open |
-| Zero parser/resolver/wire/scalar/base-flattening/materialization ledger | Public counters are wired; labelled direct/mmap proof across consumers remains open |
+| Zero parser/resolver/wire/scalar/base-flattening/materialization ledger | Executable fail-closed harness is implemented; missing public counters and labelled direct/mmap proof remain open |
 | NCIT/DOID/GO/million-axiom/licensed-corpus time and RSS gates | Open; no performance threshold is claimed |
 | Exact shared-stack identity, parity, scale, and dependency-DAG gate | Focused source integration passed; full scale matrix and exact released revisions remain open |
 | Wheels, SBOM/licenses, reproducibility, and Python/platform matrix | Open for the encoded capability |
