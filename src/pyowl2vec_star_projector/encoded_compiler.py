@@ -13,7 +13,7 @@ and validated skipped equivalent/disjoint/property-characteristic axioms, includ
 functional, inverse-functional, reflexive, irreflexive, symmetric, asymmetric, and transitive,
 plus data-property subproperty/equivalence/disjointness axioms, with annotations on those
 declaration/logical axioms, and skipped data-property domains over the validated class-expression
-envelope plus data-property ranges over named datatypes.
+envelope, data-property ranges over named datatypes, and functional data properties.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -92,6 +92,7 @@ _TAG_EQUIVALENT_DATA_PROPERTIES = 91
 _TAG_DISJOINT_DATA_PROPERTIES = 92
 _TAG_DATA_PROPERTY_DOMAIN = 93
 _TAG_DATA_PROPERTY_RANGE = 94
+_TAG_FUNCTIONAL_DATA_PROPERTY = 95
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -267,6 +268,7 @@ class EncodedSubsetCounters:
     disjoint_data_property_axioms: int = 0
     data_property_domain_axioms: int = 0
     data_property_range_axioms: int = 0
+    functional_data_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -315,6 +317,7 @@ class EncodedSubsetCounters:
             self.disjoint_data_property_axioms,
             self.data_property_domain_axioms,
             self.data_property_range_axioms,
+            self.functional_data_property_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -367,6 +370,7 @@ class _MutableCounters:
     disjoint_data_property_axioms: int = 0
     data_property_domain_axioms: int = 0
     data_property_range_axioms: int = 0
+    functional_data_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -417,6 +421,7 @@ class _MutableCounters:
             disjoint_data_property_axioms=self.disjoint_data_property_axioms,
             data_property_domain_axioms=self.data_property_domain_axioms,
             data_property_range_axioms=self.data_property_range_axioms,
+            functional_data_property_axioms=self.functional_data_property_axioms,
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -908,6 +913,8 @@ class _EncodedColumns:
             counters.data_property_domain_axioms += 1
         elif tag == _TAG_DATA_PROPERTY_RANGE:
             counters.data_property_range_axioms += 1
+        elif tag == _TAG_FUNCTIONAL_DATA_PROPERTY:
+            counters.functional_data_property_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1505,6 +1512,14 @@ class _EncodedColumns:
             if not self._is_named_datatype(self._field_node(start + 1)):
                 inspection.fallback("encoded subset requires a named datatype in DataPropertyRange")
             self._annotation_set_range(start + 2)
+            return
+        if tag == _TAG_FUNCTIONAL_DATA_PROPERTY:
+            start = self._exact_fields(node_id, 2)
+            if not self._is_named_data_property(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset FunctionalDataProperty property is not a data property"
+                )
+            self._annotation_set_range(start + 1)
             return
         if tag == _TAG_CLASS_ASSERTION:
             start = self._exact_fields(node_id, 3)
@@ -2921,6 +2936,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_DISJOINT_DATA_PROPERTIES: "DisjointDataProperties",
         _TAG_DATA_PROPERTY_DOMAIN: "DataPropertyDomain",
         _TAG_DATA_PROPERTY_RANGE: "DataPropertyRange",
+        _TAG_FUNCTIONAL_DATA_PROPERTY: "FunctionalDataProperty",
     }
     result: dict[str, int] = {}
     for root in roots:

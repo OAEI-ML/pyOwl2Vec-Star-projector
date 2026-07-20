@@ -246,6 +246,7 @@ skipped-axiom contract and cannot mutate object-role state.
 `DataPropertyDomain` is also skipped rather than projected and cannot populate object domains or
 mutate object-role state.
 `DataPropertyRange` follows the same contract and cannot populate object ranges.
+`FunctionalDataProperty` is likewise skipped and cannot mutate object-role state.
 
 ## 11. Mutable instance state
 
