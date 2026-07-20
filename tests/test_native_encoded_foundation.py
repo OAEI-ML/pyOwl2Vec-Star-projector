@@ -210,6 +210,24 @@ def _inverse_restriction_domain_snapshot() -> object:
     )
 
 
+def _annotation_metadata_root_snapshot() -> object:
+    return _snapshot(
+        "Annotation(Annotation(<urn:nested> _:ontologyNested) "
+        "<urn:ontology-meta> _:ontology) "
+        "SubAnnotationPropertyOf(Annotation(<urn:meta> _:subMeta) "
+        ":childAnnotation :parentAnnotation) "
+        "AnnotationPropertyDomain(Annotation(<urn:meta> _:domainMeta) "
+        ":childAnnotation <urn:annotation-domain>) "
+        "AnnotationPropertyRange(Annotation(<urn:meta> _:rangeMeta) "
+        ":parentAnnotation <urn:annotation-range>) "
+        "SubClassOf(:A :B) "
+        "AnnotationAssertion(Annotation(<urn:meta> _:assertionMeta) "
+        "<http://www.w3.org/2000/01/rdf-schema#label> :A \"label\") "
+        "SubObjectPropertyOf(:child :p) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -265,6 +283,7 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
 
     assert actual == expected
     assert statistics.roots == 5
+    assert statistics.ontology_annotations == 0
     assert statistics.declarations == 3
     assert statistics.subclasses == 2
     assert statistics.restriction_subclasses == 0
@@ -302,6 +321,9 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.data_property_assertions == 0
     assert statistics.negative_data_property_assertions == 0
     assert statistics.annotation_assertions == 0
+    assert statistics.sub_annotation_properties == 0
+    assert statistics.annotation_property_domains == 0
+    assert statistics.annotation_property_ranges == 0
     assert statistics.annotation_edges == 0
     assert statistics.non_string_literal_renderings == 0
     assert statistics.skipped_axioms == 0
@@ -1286,6 +1308,113 @@ def test_annotation_options_pin_historical_only_taxonomy_and_asserted_suppressio
     assert invalid.state == "idle"
 
 
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_annotation_metadata_roots_match_scalar_state_neutral_skips(
+    only_taxonomy: bool,
+) -> None:
+    view = _annotation_metadata_root_snapshot()
+    options = ProjectionOptions(
+        backend="python",
+        include_literals=True,
+        only_taxonomy=only_taxonomy,
+        duplicates="preserve",
+        order="encounter",
+    )
+    expected = Projector().project(view, options=options)
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+        include_literals=True,
+    )
+
+    assert actual == expected
+    assert actual == [
+        Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B"),
+        Edge("urn:native-direct#A", "rdfs:label", "label"),
+        Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
+        Edge("urn:native-direct#D", "urn:native-direct#child", "urn:native-direct#R"),
+    ]
+    assert statistics.roots == 9
+    assert statistics.ontology_annotations == 1
+    assert statistics.sub_annotation_properties == 1
+    assert statistics.annotation_property_domains == 1
+    assert statistics.annotation_property_ranges == 1
+    assert statistics.annotation_assertions == 1
+    assert statistics.annotation_edges == 1
+    assert statistics.skipped_axioms == 3
+    assert statistics.domain_range_edges == 1
+    assert statistics.role_expansion_edges == 1
+
+
+def test_asserted_taxonomy_preflights_annotation_metadata_roots_without_leakage() -> None:
+    view = _annotation_metadata_root_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+        include_literals=True,
+    )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert statistics.ontology_annotations == 1
+    assert statistics.sub_annotation_properties == 1
+    assert statistics.annotation_property_domains == 1
+    assert statistics.annotation_property_ranges == 1
+    assert statistics.annotation_edges == 0
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
+
+
+def test_many_annotation_metadata_roots_cross_one_zero_output_bounded_call() -> None:
+    annotations = " ".join(
+        f"Annotation(<urn:ontology-meta-{index:03d}> _:value{index:03d})"
+        for index in range(63)
+    )
+    subproperties = " ".join(
+        "SubAnnotationPropertyOf("
+        f"Annotation(<urn:meta> _:subMeta{index:03d}) "
+        f":sub{index:03d} :super{index:03d})"
+        for index in range(63)
+    )
+    domains = " ".join(
+        f"AnnotationPropertyDomain(:domain{index:03d} <urn:domain-{index:03d}>)"
+        for index in range(62)
+    )
+    ranges = " ".join(
+        f"AnnotationPropertyRange(:range{index:03d} <urn:range-{index:03d}>)"
+        for index in range(62)
+    )
+    compiler = prepare_native_encoded_direct(
+        _lease(_snapshot(f"{annotations} {subproperties} {domains} {ranges}"))
+    )
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == 250
+    assert statistics.ontology_annotations == 63
+    assert statistics.sub_annotation_properties == 63
+    assert statistics.annotation_property_domains == 62
+    assert statistics.annotation_property_ranges == 62
+    assert statistics.skipped_axioms == 187
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
 def test_annotation_edge_limit_and_nonrenderable_values_fail_before_publication() -> None:
     assertions = " ".join(
         f'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "value-{index:03d}")'
@@ -1302,25 +1431,25 @@ def test_annotation_edge_limit_and_nonrenderable_values_fail_before_publication(
         )
     assert limited.state == "failed"
 
-    for body in (
-        "Declaration(Class(:A)) AnnotationAssertion("
-        "<http://www.w3.org/2000/01/rdf-schema#label> :A _:anonymous)",
-        "Declaration(Class(:A)) AnnotationAssertion(Annotation("
-        "<urn:meta> _:anonymous) "
-        '<http://www.w3.org/2000/01/rdf-schema#label> :A "value")',
-    ):
-        unsupported = prepare_native_encoded_direct(_lease(_snapshot(body)))
-        with pytest.raises(
-            NativeEncodedDirectUnsupported,
-            match=r"schema tag 3|IRI or literal",
-        ):
-            unsupported.compile_batch(
-                bidirectional=False,
-                max_edges=1,
-                max_iri_bytes=1024 * 1024,
-                include_literals=True,
+    unsupported = prepare_native_encoded_direct(
+        _lease(
+            _snapshot(
+                "Declaration(Class(:A)) AnnotationAssertion("
+                "<http://www.w3.org/2000/01/rdf-schema#label> :A _:anonymous)"
             )
-        assert unsupported.state == "failed"
+        )
+    )
+    with pytest.raises(
+        NativeEncodedDirectUnsupported,
+        match=r"schema tag 3|IRI or literal",
+    ):
+        unsupported.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+            include_literals=True,
+        )
+    assert unsupported.state == "failed"
 
 
 @pytest.mark.parametrize(
@@ -1394,6 +1523,119 @@ def test_hostile_annotation_assertion_rows_fail_before_output(
             max_edges=10,
             max_iri_bytes=1024 * 1024,
             include_literals=True,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    ("target_tag", "field_delta", "replacement", "match"),
+    [
+        (121, 0, "class", "annotation-property"),
+        (121, 1, "class", "annotation-property"),
+        (122, 0, "class", "annotation-property"),
+        (122, 1, "annotation-property", "IRI"),
+        (123, 0, "class", "annotation-property"),
+        (123, 1, "annotation-property", "IRI"),
+        (121, 2, "annotation-item", "annotation set item"),
+    ],
+    ids=[
+        "sub-property",
+        "super-property",
+        "domain-property",
+        "domain-iri",
+        "range-property",
+        "range-iri",
+        "annotation-item",
+    ],
+)
+def test_hostile_annotation_metadata_axiom_fields_fail_before_output(
+    target_tag: int,
+    field_delta: int,
+    replacement: str,
+    match: str,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            'Annotation(<urn:ontology-meta> "ontology") '
+            'SubAnnotationPropertyOf(Annotation(<urn:meta> "sub") :sub :super) '
+            'AnnotationPropertyDomain(Annotation(<urn:meta> "domain") '
+            ':domain <urn:domain>) '
+            'AnnotationPropertyRange(Annotation(<urn:meta> "range") '
+            ':range <urn:range>) '
+            "SubClassOf(:Before :After)"
+        )
+    )
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    subclass_start = field_start(tagged_node(61))
+    class_id = int.from_bytes(
+        buffers["field_values"][subclass_start * 8 : (subclass_start + 1) * 8],
+        "little",
+    )
+    subproperty_start = field_start(tagged_node(121))
+    annotation_property_id = int.from_bytes(
+        buffers["field_values"][subproperty_start * 8 : (subproperty_start + 1) * 8],
+        "little",
+    )
+    target_field = field_start(tagged_node(target_tag)) + field_delta
+    if replacement == "annotation-item":
+        item_start = int.from_bytes(
+            buffers["field_values"][target_field * 8 : (target_field + 1) * 8],
+            "little",
+        )
+        item_values = bytearray(buffers["item_values"])
+        item_values[item_start * 8 : (item_start + 1) * 8] = tagged_node(4).to_bytes(
+            8,
+            "little",
+        )
+        replacements = {"item_values": memoryview(bytes(item_values))}
+    else:
+        replacement_id = class_id if replacement == "class" else annotation_property_id
+        field_values = bytearray(buffers["field_values"])
+        field_values[target_field * 8 : (target_field + 1) * 8] = replacement_id.to_bytes(
+            8,
+            "little",
+        )
+        replacements = {"field_values": memoryview(bytes(field_values))}
+    compiler = prepare_native_encoded_direct(_replace_buffers(lease, replacements))
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_hostile_ontology_annotation_root_kind_fails_before_output() -> None:
+    lease = _lease(_annotation_metadata_root_snapshot())
+    root_kinds = bytearray(lease.buffers["root_kinds"])
+    ontology_index = root_kinds.index(1)
+    root_kinds[ontology_index] = 2
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"root_kinds": memoryview(bytes(root_kinds))})
+    )
+    with pytest.raises(SnapshotCompatibilityError, match="root kind"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
         )
     assert compiler.state == "failed"
 
@@ -1604,9 +1846,11 @@ def test_hostile_anonymous_individual_shape_fails_before_output() -> None:
 
 
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
-    constructor_lease = _lease(_snapshot("SubAnnotationPropertyOf(:a :b)"))
+    constructor_lease = _lease(
+        _snapshot('Declaration(Annotation(<urn:meta> "unsupported") Class(:A))')
+    )
     compiler = prepare_native_encoded_direct(constructor_lease)
-    with pytest.raises(NativeEncodedDirectUnsupported, match="schema tag 121"):
+    with pytest.raises(NativeEncodedDirectUnsupported, match="annotations"):
         compiler.compile_batch(
             bidirectional=False,
             max_edges=10,

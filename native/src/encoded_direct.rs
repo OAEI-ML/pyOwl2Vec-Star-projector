@@ -105,6 +105,9 @@ const TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: u16 = 114;
 const TAG_DATA_PROPERTY_ASSERTION: u16 = 115;
 const TAG_NEGATIVE_DATA_PROPERTY_ASSERTION: u16 = 116;
 const TAG_ANNOTATION_ASSERTION: u16 = 120;
+const TAG_SUB_ANNOTATION_PROPERTY_OF: u16 = 121;
+const TAG_ANNOTATION_PROPERTY_DOMAIN: u16 = 122;
+const TAG_ANNOTATION_PROPERTY_RANGE: u16 = 123;
 const TAG_SWRL_RULE: u16 = 148;
 
 const SUBCLASS_OF: &str = "http://subclassof";
@@ -210,6 +213,7 @@ pub(crate) struct DirectEdge {
 pub(crate) struct DirectCompileStats {
     pub(crate) roots: usize,
     pub(crate) nodes: usize,
+    pub(crate) ontology_annotations: usize,
     pub(crate) declarations: usize,
     pub(crate) subclasses: usize,
     pub(crate) restriction_subclasses: usize,
@@ -247,6 +251,9 @@ pub(crate) struct DirectCompileStats {
     pub(crate) data_property_assertions: usize,
     pub(crate) negative_data_property_assertions: usize,
     pub(crate) annotation_assertions: usize,
+    pub(crate) sub_annotation_properties: usize,
+    pub(crate) annotation_property_domains: usize,
+    pub(crate) annotation_property_ranges: usize,
     pub(crate) annotation_edges: usize,
     pub(crate) non_string_literal_renderings: usize,
     pub(crate) skipped_axioms: usize,
@@ -336,6 +343,7 @@ pub(crate) struct DirectCompileOptions {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct RootCounts {
+    ontology_annotations: usize,
     declarations: usize,
     subclasses: usize,
     restriction_subclasses: usize,
@@ -373,6 +381,9 @@ struct RootCounts {
     data_property_assertions: usize,
     negative_data_property_assertions: usize,
     annotation_assertions: usize,
+    sub_annotation_properties: usize,
+    annotation_property_domains: usize,
+    annotation_property_ranges: usize,
     object_property_domains: usize,
     object_property_ranges: usize,
 }
@@ -410,6 +421,9 @@ impl RootCounts {
             self.datatype_definitions,
             self.data_property_assertions,
             self.negative_data_property_assertions,
+            self.sub_annotation_properties,
+            self.annotation_property_domains,
+            self.annotation_property_ranges,
         ]
         .into_iter()
         .try_fold(0_usize, |total, count| {
@@ -1095,6 +1109,24 @@ impl<'a> DirectColumns<'a> {
         Ok(())
     }
 
+    fn validate_metadata_annotation_value(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_IRI => self.iri(node_id, maximum_iri).map(|_iri| ()),
+            TAG_LITERAL => self.validate_literal(node_id, maximum_iri),
+            TAG_ANONYMOUS_INDIVIDUAL => self.validate_anonymous_individual(node_id),
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native annotation metadata supports only IRI, literal, or anonymous-individual values",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded annotation metadata value tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
     fn validate_annotation(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
         if self.node_tag(node_id)? != TAG_ANNOTATION {
             return Err(KernelError::malformed(
@@ -1103,7 +1135,7 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 3)?;
         self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
-        self.annotation_value(self.field_node(start + 1)?, maximum_iri)?;
+        self.validate_metadata_annotation_value(self.field_node(start + 1)?, maximum_iri)?;
         self.validate_annotation_set(start + 2)
     }
 
@@ -1122,6 +1154,45 @@ impl<'a> DirectColumns<'a> {
         self.iri(self.field_node(start + 1)?, maximum_iri)?;
         self.annotation_value(self.field_node(start + 2)?, maximum_iri)?;
         self.validate_annotation_set(start + 3)
+    }
+
+    fn validate_sub_annotation_property_of(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_SUB_ANNOTATION_PROPERTY_OF {
+            return Err(KernelError::malformed(
+                "encoded sub-annotation-property cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
+        self.named_annotation_property_iri(self.field_node(start + 1)?, maximum_iri)?;
+        self.validate_annotation_set(start + 2)
+    }
+
+    fn validate_annotation_property_iri_axiom(
+        self,
+        node_id: usize,
+        expected_tag: u16,
+        maximum_iri: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != expected_tag
+            || ![
+                TAG_ANNOTATION_PROPERTY_DOMAIN,
+                TAG_ANNOTATION_PROPERTY_RANGE,
+            ]
+            .contains(&expected_tag)
+        {
+            return Err(KernelError::malformed(
+                "encoded annotation-property IRI axiom cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
+        self.iri(self.field_node(start + 1)?, maximum_iri)?;
+        self.validate_annotation_set(start + 2)
     }
 
     fn contains_class_iri(
@@ -2415,6 +2486,16 @@ impl<'a> DirectColumns<'a> {
                 TAG_ANNOTATION_ASSERTION => {
                     self.validate_annotation_assertion(node_id, maximum_iri)?;
                 }
+                TAG_SUB_ANNOTATION_PROPERTY_OF => {
+                    self.validate_sub_annotation_property_of(node_id, maximum_iri)?;
+                }
+                TAG_ANNOTATION_PROPERTY_DOMAIN | TAG_ANNOTATION_PROPERTY_RANGE => {
+                    self.validate_annotation_property_iri_axiom(
+                        node_id,
+                        self.node_tag(node_id)?,
+                        maximum_iri,
+                    )?;
+                }
                 tag if is_object_property_characteristic(tag) => {
                     self.validate_object_property_characteristic(node_id, maximum_iri)?;
                 }
@@ -2559,9 +2640,28 @@ impl<'a> DirectColumns<'a> {
                 (ROOT_AXIOM, TAG_ANNOTATION_ASSERTION) => {
                     counts.annotation_assertions += 1;
                 }
-                (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) | (ROOT_EXTENSION, TAG_SWRL_RULE) => {
+                (ROOT_AXIOM, TAG_SUB_ANNOTATION_PROPERTY_OF) => {
+                    counts.sub_annotation_properties += 1;
+                }
+                (ROOT_AXIOM, TAG_ANNOTATION_PROPERTY_DOMAIN) => {
+                    counts.annotation_property_domains += 1;
+                }
+                (ROOT_AXIOM, TAG_ANNOTATION_PROPERTY_RANGE) => {
+                    counts.annotation_property_ranges += 1;
+                }
+                (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) => {
+                    counts.ontology_annotations += 1;
+                }
+                (ROOT_EXTENSION, TAG_SWRL_RULE) => {
                     return Err(KernelError::unsupported(
-                        "direct native slice does not support ontology annotations or extensions",
+                        "direct native slice does not support extensions",
+                    ));
+                }
+                (ROOT_AXIOM, TAG_ANNOTATION)
+                | (ROOT_ONTOLOGY_ANNOTATION, _)
+                | (ROOT_EXTENSION, _) => {
+                    return Err(KernelError::malformed(
+                        "encoded root kind does not match its constructor tag",
                     ));
                 }
                 (ROOT_AXIOM, known) if SCHEMA_TAGS.contains(&known) => {
@@ -3271,6 +3371,7 @@ pub(crate) fn compile_direct_with_options(
     let stats = DirectCompileStats {
         roots: columns.root_count(),
         nodes: columns.node_count(),
+        ontology_annotations: counts.ontology_annotations,
         declarations: counts.declarations,
         subclasses: counts.subclasses,
         restriction_subclasses: counts.restriction_subclasses,
@@ -3308,6 +3409,9 @@ pub(crate) fn compile_direct_with_options(
         data_property_assertions: counts.data_property_assertions,
         negative_data_property_assertions: counts.negative_data_property_assertions,
         annotation_assertions: counts.annotation_assertions,
+        sub_annotation_properties: counts.sub_annotation_properties,
+        annotation_property_domains: counts.annotation_property_domains,
+        annotation_property_ranges: counts.annotation_property_ranges,
         annotation_edges: annotation_counts.edges,
         non_string_literal_renderings: annotation_counts.non_string_literals,
         skipped_axioms,
@@ -4372,6 +4476,74 @@ mod tests {
         fixture
     }
 
+    fn annotation_metadata_root_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"urn:B",
+            b"urn:annotation-property",
+            b"urn:super-annotation-property",
+            b"urn:annotation-domain",
+            b"urn:annotation-range",
+            XSD_STRING.as_bytes(),
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=7
+        }
+        for iri_id in [1_u64, 2] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 8..=9
+        }
+        for iri_id in [3_u64, 4] {
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 10..=11
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(7);
+        fixture.finish_node(TAG_ENTITY); // 12
+        fixture.push_scalar(COMPONENT_BYTES, &[17; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"metadata-anonymous");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 13
+        fixture.push_scalar(COMPONENT_TEXT, b"metadata-literal");
+        fixture.push_node_ref(12);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 14
+        fixture.push_node_ref(11);
+        fixture.push_node_ref(13);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_ANNOTATION); // 15
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(14);
+        fixture.push_node_set(&[15]);
+        fixture.finish_node(TAG_ANNOTATION); // 16
+        fixture.push_node_ref(8);
+        fixture.push_node_ref(9);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 17
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(11);
+        fixture.push_node_set(&[16]);
+        fixture.finish_node(TAG_SUB_ANNOTATION_PROPERTY_OF); // 18
+        for (tag, property, iri) in [
+            (TAG_ANNOTATION_PROPERTY_DOMAIN, 10_u64, 5_u64),
+            (TAG_ANNOTATION_PROPERTY_RANGE, 11, 6),
+        ] {
+            fixture.push_node_ref(property);
+            fixture.push_node_ref(iri);
+            fixture.push_node_set(&[16]);
+            fixture.finish_node(tag); // 19..=20
+        }
+        fixture.root_kinds.push(ROOT_ONTOLOGY_ANNOTATION);
+        fixture.root_ids.extend_from_slice(&16_u32.to_le_bytes());
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 4]);
+        for root_id in 17_u32..=20 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
     fn skipped_logical_fixture() -> Fixture {
         let mut fixture = named_annotation_fixture();
         fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
@@ -5231,6 +5403,66 @@ mod tests {
                 &running_state(),
             ),
             Err(KernelError::Resource(_))
+        ));
+    }
+
+    #[test]
+    fn annotation_metadata_roots_are_validated_state_neutral_skips() {
+        let mut fixture = annotation_metadata_root_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        assert_eq!(stats.roots, 5);
+        assert_eq!(stats.ontology_annotations, 1);
+        assert_eq!(stats.sub_annotation_properties, 1);
+        assert_eq!(stats.annotation_property_domains, 1);
+        assert_eq!(stats.annotation_property_ranges, 1);
+        assert_eq!(stats.skipped_axioms, 3);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(asserted.len(), 1);
+        assert_eq!(stats.ontology_annotations, 1);
+        assert_eq!(stats.sub_annotation_properties, 1);
+        assert_eq!(stats.annotation_property_domains, 1);
+        assert_eq!(stats.annotation_property_ranges, 1);
+        assert_eq!(stats.skipped_axioms, 0);
+
+        fixture.root_kinds[0] = ROOT_AXIOM;
+        assert!(matches!(
+            compile_direct(
+                fixture.columns(),
+                false,
+                false,
+                false,
+                1,
+                1024,
+                &running_state(),
+            ),
+            Err(KernelError::Malformed(_))
         ));
     }
 

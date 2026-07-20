@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 16
+ENCODED_DIRECT_KERNEL_VERSION = 17
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -64,6 +64,7 @@ class NativeEncodedDirectCancelled(Exception):
 class NativeEncodedDirectStatistics:
     roots: int
     nodes: int
+    ontology_annotations: int
     declarations: int
     subclasses: int
     restriction_subclasses: int
@@ -101,6 +102,9 @@ class NativeEncodedDirectStatistics:
     data_property_assertions: int
     negative_data_property_assertions: int
     annotation_assertions: int
+    sub_annotation_properties: int
+    annotation_property_domains: int
+    annotation_property_ranges: int
     annotation_edges: int
     non_string_literal_renderings: int
     skipped_axioms: int
@@ -115,6 +119,7 @@ class NativeEncodedDirectStatistics:
         for value in (
             self.roots,
             self.nodes,
+            self.ontology_annotations,
             self.declarations,
             self.subclasses,
             self.restriction_subclasses,
@@ -152,6 +157,9 @@ class NativeEncodedDirectStatistics:
             self.data_property_assertions,
             self.negative_data_property_assertions,
             self.annotation_assertions,
+            self.sub_annotation_properties,
+            self.annotation_property_domains,
+            self.annotation_property_ranges,
             self.annotation_edges,
             self.non_string_literal_renderings,
             self.skipped_axioms,
@@ -259,7 +267,7 @@ class NativeEncodedDirectCompiler:
         except Exception as error:
             raise _execution_error(error) from error
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 48:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 52:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
