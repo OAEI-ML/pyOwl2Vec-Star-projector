@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector implementation through `1a44d75`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector implementation through `b2f8b14`. pyOWLCore candidate revision:
 `cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -74,7 +74,8 @@ no-copy Rust input proven here.
 
 ## Verification at this checkpoint
 
-The following source-tree checks passed for the implementation commits `39a5656` and `1a44d75`:
+The following source-tree checks passed for the implementation sequence `39a5656` through
+`b2f8b14`:
 
 | Gate | Result |
 |---|---|
