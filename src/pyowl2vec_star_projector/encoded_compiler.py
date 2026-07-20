@@ -1,7 +1,8 @@
-"""First bounded encoded-column to projector-edge compiler slice.
+"""Bounded encoded-column to projector-edge compiler slice.
 
 The slice is intentionally narrow: one canonical direct segment containing
-declarations and simple named-class ``SubClassOf`` axioms with empty annotation
+declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
+axioms, and simple named ``ClassAssertion`` axioms, all with empty annotation
 sets.  It preflights the complete encoded view before yielding any edge.  A
 well-formed view outside that subset selects the scalar compiler for the whole
 operation; malformed rows fail closed.
@@ -12,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from .compiler import SUBCLASS_OF, SUPERCLASS_OF, CompileStatistics
+from .compiler import RDF_TYPE, SUBCLASS_OF, SUPERCLASS_OF, CompileStatistics
 from .diagnostics import ProjectionDiagnostic
 from .encoded import EncodedNegotiation, EncodedStructuralLease
 from .errors import SnapshotCompatibilityError
@@ -23,6 +24,8 @@ _TAG_IRI = 1
 _TAG_ENTITY = 2
 _TAG_DECLARATION = 60
 _TAG_SUB_CLASS_OF = 61
+_TAG_EQUIVALENT_CLASSES = 62
+_TAG_CLASS_ASSERTION = 112
 
 _ROOT_AXIOM = 2
 _COMPONENT_NODE = 1
@@ -132,6 +135,8 @@ class EncodedSubsetCounters:
     nodes_inspected: int = 0
     declaration_axioms: int = 0
     subclass_axioms: int = 0
+    equivalent_axioms: int = 0
+    class_assertion_axioms: int = 0
     scalar_bytes_checked: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
@@ -143,6 +148,8 @@ class EncodedSubsetCounters:
             self.nodes_inspected,
             self.declaration_axioms,
             self.subclass_axioms,
+            self.equivalent_axioms,
+            self.class_assertion_axioms,
             self.scalar_bytes_checked,
             self.edge_batches,
             self.raw_edges,
@@ -158,6 +165,8 @@ class _MutableCounters:
     nodes_inspected: int = 0
     declaration_axioms: int = 0
     subclass_axioms: int = 0
+    equivalent_axioms: int = 0
+    class_assertion_axioms: int = 0
     scalar_bytes_checked: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
@@ -169,6 +178,8 @@ class _MutableCounters:
             nodes_inspected=self.nodes_inspected,
             declaration_axioms=self.declaration_axioms,
             subclass_axioms=self.subclass_axioms,
+            equivalent_axioms=self.equivalent_axioms,
+            class_assertion_axioms=self.class_assertion_axioms,
             scalar_bytes_checked=self.scalar_bytes_checked,
             edge_batches=self.edge_batches,
             raw_edges=self.raw_edges,
@@ -194,6 +205,7 @@ class EncodedSubsetCompilation:
     options: ProjectionOptions
     lease: EncodedStructuralLease
     batch_edges: int
+    asserted_taxonomy_only: bool
     _columns: _EncodedColumns
     _counters: _MutableCounters
     statistics: CompileStatistics = field(default_factory=CompileStatistics)
@@ -220,19 +232,39 @@ class EncodedSubsetCompilation:
                     tag = self._columns.node_tag(root_id)
                     if tag == _TAG_DECLARATION:
                         continue
-                    if tag != _TAG_SUB_CLASS_OF:  # pragma: no cover - guarded by preflight
+                    if tag == _TAG_SUB_CLASS_OF:
+                        source, destination = self._columns.subclass_iris(root_id)
+                        edges = (
+                            Edge(source, SUBCLASS_OF, destination),
+                            *(
+                                (Edge(destination, SUPERCLASS_OF, source),)
+                                if self.options.bidirectional_taxonomy
+                                else ()
+                            ),
+                        )
+                    elif tag == _TAG_EQUIVALENT_CLASSES:
+                        if self.asserted_taxonomy_only:
+                            continue
+                        source, destination = self._columns.equivalent_iris(root_id)
+                        edges = (
+                            Edge(source, SUBCLASS_OF, destination),
+                            *(
+                                (Edge(destination, SUPERCLASS_OF, source),)
+                                if self.options.bidirectional_taxonomy
+                                else ()
+                            ),
+                        )
+                    elif tag == _TAG_CLASS_ASSERTION:
+                        if self.asserted_taxonomy_only:
+                            continue
+                        individual, class_iri = self._columns.class_assertion_iris(root_id)
+                        edges = (Edge(individual, RDF_TYPE, class_iri),)
+                    else:  # pragma: no cover - guarded by preflight
                         raise SnapshotCompatibilityError(
                             "encoded subset root changed after successful preflight"
                         )
-                    source, destination = self._columns.subclass_iris(root_id)
-                    batch.append(Edge(source, SUBCLASS_OF, destination))
-                    if len(batch) == self.batch_edges:
-                        self._counters.edge_batches += 1
-                        self._counters.raw_edges += len(batch)
-                        yield from batch
-                        batch.clear()
-                    if self.options.bidirectional_taxonomy:
-                        batch.append(Edge(destination, SUPERCLASS_OF, source))
+                    for edge in edges:
+                        batch.append(edge)
                         if len(batch) == self.batch_edges:
                             self._counters.edge_batches += 1
                             self._counters.raw_edges += len(batch)
@@ -259,6 +291,7 @@ class _EncodedColumns:
         self.root_count = self._buffers["root_kinds"].nbytes
         self.node_count = self._buffers["node_tags"].nbytes // 2
         self.field_count = self._buffers["field_kinds"].nbytes
+        self.item_count = self._buffers["item_kinds"].nbytes
 
     def inspect(self) -> _Inspection:
         counters = _MutableCounters(
@@ -286,10 +319,12 @@ class _EncodedColumns:
                 counters.declaration_axioms += 1
             elif tag == _TAG_SUB_CLASS_OF:
                 counters.subclass_axioms += 1
+            elif tag == _TAG_EQUIVALENT_CLASSES:
+                counters.equivalent_axioms += 1
+            elif tag == _TAG_CLASS_ASSERTION:
+                counters.class_assertion_axioms += 1
             else:
-                inspection.fallback(
-                    "encoded subset root is not a declaration or SubClassOf axiom"
-                )
+                inspection.fallback("encoded subset root is outside the executable axiom slice")
         return inspection
 
     def root_id(self, index: int) -> int:
@@ -315,6 +350,47 @@ class _EncodedColumns:
             )
         return sub, sup
 
+    def equivalent_iris(self, node_id: int) -> tuple[str, str]:
+        if self.node_tag(node_id) != _TAG_EQUIVALENT_CLASSES:
+            raise SnapshotCompatibilityError(
+                "encoded subset batch cursor does not reference EquivalentClasses"
+            )
+        start = self._exact_fields(node_id, 2)
+        item_start, length = self._node_set_range(start, minimum=2)
+        first: tuple[bytes, str] | None = None
+        second: tuple[bytes, str] | None = None
+        for item_index in range(item_start, item_start + length):
+            iri = self._named_class_iri(self._item_node(item_index))
+            if iri is None:  # pragma: no cover - guarded by preflight
+                raise SnapshotCompatibilityError(
+                    "encoded subset EquivalentClasses shape changed after successful preflight"
+                )
+            candidate = iri.encode("utf-8"), iri
+            if first is None or candidate[0] < first[0]:
+                second = first
+                first = candidate
+            elif second is None or candidate[0] < second[0]:
+                second = candidate
+        if first is None or second is None:  # pragma: no cover - minimum guarded above
+            raise SnapshotCompatibilityError(
+                "encoded subset EquivalentClasses lost its required expressions"
+            )
+        return first[1], second[1]
+
+    def class_assertion_iris(self, node_id: int) -> tuple[str, str]:
+        if self.node_tag(node_id) != _TAG_CLASS_ASSERTION:
+            raise SnapshotCompatibilityError(
+                "encoded subset batch cursor does not reference ClassAssertion"
+            )
+        start = self._exact_fields(node_id, 3)
+        class_iri = self._named_class_iri(self._field_node(start))
+        individual = self._named_individual_iri(self._field_node(start + 1))
+        if class_iri is None or individual is None:  # pragma: no cover - preflight
+            raise SnapshotCompatibilityError(
+                "encoded subset ClassAssertion shape changed after successful preflight"
+            )
+        return individual, class_iri
+
     def _inspect_node(self, node_id: int, inspection: _Inspection) -> None:
         tag = self.node_tag(node_id)
         if tag not in _SCHEMA_TAGS:
@@ -327,16 +403,14 @@ class _EncodedColumns:
             inspection.counters.scalar_bytes_checked += checked
             return
         if tag == _TAG_ENTITY:
-            _class, _iri_id, checked = self._entity(node_id)
+            _kind, _iri_id, checked = self._entity(node_id)
             inspection.counters.scalar_bytes_checked += checked
             return
         if tag == _TAG_DECLARATION:
             start = self._exact_fields(node_id, 2)
             self._entity(self._field_node(start))
             if not self._empty_annotation_set(start + 1):
-                inspection.fallback(
-                    "encoded subset does not yet support annotated declarations"
-                )
+                inspection.fallback("encoded subset does not yet support annotated declarations")
             return
         if tag == _TAG_SUB_CLASS_OF:
             start = self._exact_fields(node_id, 3)
@@ -351,8 +425,35 @@ class _EncodedColumns:
                     "encoded subset does not yet support annotated SubClassOf axioms"
                 )
             return
+        if tag == _TAG_EQUIVALENT_CLASSES:
+            start = self._exact_fields(node_id, 2)
+            item_start, length = self._node_set_range(start, minimum=2)
+            all_named = True
+            for item_index in range(item_start, item_start + length):
+                if not self._is_named_class(self._item_node(item_index)):
+                    all_named = False
+            if not all_named:
+                inspection.fallback("encoded subset requires named classes in EquivalentClasses")
+            if not self._empty_annotation_set(start + 1):
+                inspection.fallback(
+                    "encoded subset does not yet support annotated EquivalentClasses axioms"
+                )
+            return
+        if tag == _TAG_CLASS_ASSERTION:
+            start = self._exact_fields(node_id, 3)
+            named_class = self._is_named_class(self._field_node(start))
+            named_individual = self._is_named_individual(self._field_node(start + 1))
+            if not named_class or not named_individual:
+                inspection.fallback(
+                    "encoded subset requires a named class and named individual in ClassAssertion"
+                )
+            if not self._empty_annotation_set(start + 2):
+                inspection.fallback(
+                    "encoded subset does not yet support annotated ClassAssertion axioms"
+                )
+            return
         inspection.fallback(
-            "encoded subset contains a constructor outside declarations and SubClassOf"
+            "encoded subset contains a constructor outside the executable axiom slice"
         )
 
     def _field_range(self, node_id: int) -> tuple[int, int]:
@@ -382,13 +483,41 @@ class _EncodedColumns:
         return self._node_id(self._read("field_values", index, 8))
 
     def _empty_annotation_set(self, index: int) -> bool:
+        _start, length = self._node_set_range(index)
+        return length == 0
+
+    def _node_set_range(self, index: int, *, minimum: int = 0) -> tuple[int, int]:
         if self._read("field_kinds", index, 1) != _COMPONENT_SET:
             raise SnapshotCompatibilityError(
-                "encoded subset annotations field is not a canonical set"
+                "encoded subset collection field is not a canonical set"
             )
-        return not self._read("field_values", index, 8) and not self._read(
-            "field_lengths", index, 8
-        )
+        start = self._read("field_values", index, 8)
+        length = self._read("field_lengths", index, 8)
+        if start > self.item_count or length > self.item_count - start:
+            raise SnapshotCompatibilityError("encoded subset canonical-set range is out of bounds")
+        if length < minimum:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical set has too few items",
+                details={"minimum": minimum, "actual": length},
+            )
+        previous = 0
+        for item_index in range(start, start + length):
+            node_id = self._item_node(item_index)
+            if node_id <= previous:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical-set items are not sorted and unique"
+                )
+            previous = node_id
+        return start, length
+
+    def _item_node(self, index: int) -> int:
+        if self._read("item_kinds", index, 1) != _COMPONENT_NODE or self._read(
+            "item_lengths", index, 8
+        ):
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical-set item is not a node reference"
+            )
+        return self._node_id(self._read("item_values", index, 8))
 
     def _scalar_payload(self, index: int, expected_kind: int) -> memoryview:
         if self._read("field_kinds", index, 1) != expected_kind:
@@ -403,9 +532,7 @@ class _EncodedColumns:
 
     def _iri_text(self, node_id: int) -> tuple[str, int]:
         if self.node_tag(node_id) != _TAG_IRI:
-            raise SnapshotCompatibilityError(
-                "encoded subset entity does not reference an IRI node"
-            )
+            raise SnapshotCompatibilityError("encoded subset entity does not reference an IRI node")
         payload = self._scalar_payload(self._exact_fields(node_id, 1), _COMPONENT_TEXT)
         if payload.nbytes > self._max_iri_bytes:
             raise SnapshotCompatibilityError(
@@ -415,11 +542,9 @@ class _EncodedColumns:
         try:
             return bytes(payload).decode("utf-8"), payload.nbytes
         except UnicodeDecodeError as error:
-            raise SnapshotCompatibilityError(
-                "encoded subset IRI text is not UTF-8"
-            ) from error
+            raise SnapshotCompatibilityError("encoded subset IRI text is not UTF-8") from error
 
-    def _entity(self, node_id: int) -> tuple[bool, int, int]:
+    def _entity(self, node_id: int) -> tuple[bytes, int, int]:
         if self.node_tag(node_id) != _TAG_ENTITY:
             raise SnapshotCompatibilityError(
                 "encoded subset axiom does not reference an entity node"
@@ -436,25 +561,35 @@ class _EncodedColumns:
             raise SnapshotCompatibilityError(
                 "encoded subset entity IRI reference has the wrong tag"
             )
-        return kind == b"class", iri_id, kind_view.nbytes
+        return kind, iri_id, kind_view.nbytes
 
     def _named_class_iri(self, node_id: int) -> str | None:
         if self.node_tag(node_id) != _TAG_ENTITY:
             return None
-        is_class, iri_id, _checked = self._entity(node_id)
-        return self._iri_text(iri_id)[0] if is_class else None
+        kind, iri_id, _checked = self._entity(node_id)
+        return self._iri_text(iri_id)[0] if kind == b"class" else None
+
+    def _named_individual_iri(self, node_id: int) -> str | None:
+        if self.node_tag(node_id) != _TAG_ENTITY:
+            return None
+        kind, iri_id, _checked = self._entity(node_id)
+        return self._iri_text(iri_id)[0] if kind == b"named_individual" else None
 
     def _is_named_class(self, node_id: int) -> bool:
         if self.node_tag(node_id) != _TAG_ENTITY:
             return False
-        is_class, _iri_id, _checked = self._entity(node_id)
-        return is_class
+        kind, _iri_id, _checked = self._entity(node_id)
+        return kind == b"class"
+
+    def _is_named_individual(self, node_id: int) -> bool:
+        if self.node_tag(node_id) != _TAG_ENTITY:
+            return False
+        kind, _iri_id, _checked = self._entity(node_id)
+        return kind == b"named_individual"
 
     def _node_id(self, value: int) -> int:
         if not 1 <= value <= self.node_count:
-            raise SnapshotCompatibilityError(
-                "encoded subset node reference is out of range"
-            )
+            raise SnapshotCompatibilityError("encoded subset node reference is out of range")
         return value
 
     def _read(self, name: str, index: int, width: int) -> int:
@@ -475,6 +610,7 @@ def prepare_encoded_subset_compilation(
     ingestion: EncodedNegotiation,
     *,
     batch_edges: int,
+    asserted_taxonomy_only: bool = False,
 ) -> tuple[
     EncodedSubsetCompilation | None,
     EncodedNegotiation,
@@ -489,6 +625,8 @@ def prepare_encoded_subset_compilation(
         raise SnapshotCompatibilityError("encoded-native ingestion lost its validated lease")
     if batch_edges < 1:
         raise ValueError("batch_edges must be positive")
+    if type(asserted_taxonomy_only) is not bool:
+        raise TypeError("asserted_taxonomy_only must be bool")
 
     columns = _EncodedColumns(lease)
     inspection = columns.inspect()
@@ -509,6 +647,7 @@ def prepare_encoded_subset_compilation(
         options=options,
         lease=lease,
         batch_edges=batch_edges,
+        asserted_taxonomy_only=asserted_taxonomy_only,
         _columns=columns,
         _counters=counters,
     )

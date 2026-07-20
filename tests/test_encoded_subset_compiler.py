@@ -16,7 +16,13 @@ from pyowl_core import BackendPreference, ImportPolicy, LoadOptions
 from pyowl2vec_star_projector import Edge, ProjectionOptions, Projector
 from pyowl2vec_star_projector import api as api_module
 from pyowl2vec_star_projector.backend import BackendSelection
-from pyowl2vec_star_projector.compiler import prepare_streaming_compilation as scalar_compilation
+from pyowl2vec_star_projector.compiler import (
+    RDF_TYPE,
+    SUBCLASS_OF,
+)
+from pyowl2vec_star_projector.compiler import (
+    prepare_streaming_compilation as scalar_compilation,
+)
 from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedNegotiation,
@@ -124,10 +130,13 @@ def test_simple_subset_matches_scalar_without_scalar_axiom_traversal() -> None:
         assert scalar.last_report is not None
         expected.append((edges, scalar.last_report.to_dict()))
 
-    with _forced_encoded(lease), patch.object(
-        api_module,
-        "prepare_streaming_compilation",
-        side_effect=AssertionError("encoded slice crossed scalar axiom traversal"),
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded slice crossed scalar axiom traversal"),
+        ),
     ):
         for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
             projector = Projector()
@@ -153,6 +162,74 @@ def test_simple_subset_matches_scalar_without_scalar_axiom_traversal() -> None:
             )
 
 
+def test_named_equivalence_and_class_assertion_match_scalar_in_bounded_batches() -> None:
+    view = _snapshot(
+        "Declaration(Class(:Z)) Declaration(Class(:AA)) Declaration(Class(:B)) "
+        "Declaration(Class(:Top)) Declaration(NamedIndividual(:i)) "
+        "SubClassOf(:Z :Top) EquivalentClasses(:Z :AA :B) ClassAssertion(:Z :i)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            only_taxonomy=True,
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    lexical_equivalence = Edge("urn:slice#AA", SUBCLASS_OF, "urn:slice#B")
+    class_assertion = Edge("urn:slice#i", RDF_TYPE, "urn:slice#Z")
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded slice crossed scalar axiom traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert lexical_equivalence in actual
+            assert class_assertion in actual
+            assert projector.last_report is not None
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 8
+            assert counters.declaration_axioms == 5
+            assert counters.subclass_axioms == 1
+            assert counters.equivalent_axioms == 1
+            assert counters.class_assertion_axioms == 1
+            assert counters.edge_batches == len(actual)
+            assert counters.raw_edges == len(actual)
+            assert counters.scalar_fallbacks == 0
+
+
 def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -> None:
     view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p :B))")
     lease = _lease(view)
@@ -163,11 +240,14 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
     scalar_report = scalar.last_report.to_dict()
     real_scalar = scalar_compilation
 
-    with _forced_encoded(lease), patch.object(
-        api_module,
-        "prepare_streaming_compilation",
-        wraps=real_scalar,
-    ) as scalar_prepare:
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            wraps=real_scalar,
+        ) as scalar_prepare,
+    ):
         projector = Projector()
         actual = projector.project(
             view,
@@ -181,6 +261,49 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
     ingestion = projector.last_report.provenance.ingestion
     assert ingestion.path == "scalar-native"
     assert "whole-operation scalar compiler" in (ingestion.reason or "")
+    assert projector.last_encoded_counters is not None
+    assert projector.last_encoded_counters.scalar_fallbacks == 1
+    assert projector.last_encoded_counters.edge_batches == 0
+    assert projector.last_encoded_counters.raw_edges == 0
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B))",
+        "ClassAssertion(ObjectSomeValuesFrom(:p :B) :i)",
+        'EquivalentClasses(Annotation(<urn:p> "x") :A :B)',
+        'ClassAssertion(Annotation(<urn:p> "x") :A :i)',
+    ],
+)
+def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
+    view = _snapshot(body)
+    lease = _lease(view)
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    scalar = Projector()
+    expected = scalar.project(view, options=python_options)
+    assert scalar.last_report is not None
+    scalar_report = scalar.last_report.to_dict()
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            wraps=scalar_compilation,
+        ) as scalar_prepare,
+    ):
+        projector = Projector()
+        actual = projector.project(
+            view,
+            options=replace(python_options, backend="native"),
+        )
+
+    assert actual == expected
+    assert scalar_prepare.call_count == 1
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+    assert projector.last_report.provenance.ingestion.path == "scalar-native"
     assert projector.last_encoded_counters is not None
     assert projector.last_encoded_counters.scalar_fallbacks == 1
     assert projector.last_encoded_counters.edge_batches == 0
@@ -217,6 +340,48 @@ def test_asserted_taxonomy_api_uses_the_same_bounded_slice() -> None:
     assert projector.last_encoded_counters is not None
     assert projector.last_encoded_counters.edge_batches == 2
     assert projector.last_encoded_counters.raw_edges == 4
+
+
+def test_asserted_taxonomy_skips_equivalence_and_class_assertion_edges() -> None:
+    view = _snapshot("SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i)")
+    lease = _lease(view)
+    expected = Projector().project_taxonomy(
+        view,
+        bidirectional=True,
+        duplicates="preserve",
+        order="encounter",
+        backend="python",
+        buffer_edges=1,
+    )
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "iter_asserted_taxonomy",
+            side_effect=AssertionError("encoded taxonomy crossed scalar axiom traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+            backend="native",
+            buffer_edges=1,
+        )
+
+    assert actual == expected
+    assert len(actual) == 2
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.subclass_axioms == 1
+    assert counters.equivalent_axioms == 1
+    assert counters.class_assertion_axioms == 1
+    assert counters.edge_batches == 2
+    assert counters.raw_edges == 2
+    assert counters.scalar_fallbacks == 0
 
 
 @pytest.mark.parametrize(
@@ -256,6 +421,55 @@ def test_supported_tag_corruption_fails_before_edge_output(corruption: str) -> N
     with pytest.raises(
         SnapshotCompatibilityError,
         match=r"arity|entity kind|frozen schema|canonical",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize("corruption", ["item-kind", "item-length", "item-order", "set-size"])
+def test_equivalent_class_set_corruption_fails_before_edge_output(corruption: str) -> None:
+    view = _snapshot("EquivalentClasses(:Z :AA :B)")
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    if corruption == "item-kind":
+        kinds = bytearray(buffers["item_kinds"])
+        kinds[0] = 5
+        buffers["item_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "item-length":
+        lengths = bytearray(buffers["item_lengths"])
+        lengths[:8] = (1).to_bytes(8, "little")
+        buffers["item_lengths"] = memoryview(bytes(lengths))
+    elif corruption == "item-order":
+        values = bytearray(buffers["item_values"])
+        first = bytes(values[:8])
+        second = bytes(values[8:16])
+        values[:8] = second
+        values[8:16] = first
+        buffers["item_values"] = memoryview(bytes(values))
+    else:
+        tags = buffers["node_tags"]
+        equivalent_id = next(
+            index
+            for index in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == 62
+        )
+        field_offsets = buffers["node_field_offsets"]
+        field_start = int.from_bytes(
+            field_offsets[(equivalent_id - 1) * 8 : equivalent_id * 8], "little"
+        )
+        lengths = bytearray(buffers["field_lengths"])
+        offset = field_start * 8
+        lengths[offset : offset + 8] = (1).to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"node reference|sorted and unique|too few items",
     ):
         prepare_encoded_subset_compilation(
             view,

@@ -302,6 +302,7 @@ class Projector:
             ),
             ingestion,
             batch_edges=buffer_edges,
+            asserted_taxonomy_only=True,
         )
         with self._metadata_lock:
             self._last_view = checked
