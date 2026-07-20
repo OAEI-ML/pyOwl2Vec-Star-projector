@@ -245,6 +245,7 @@ of the pinned RBox scan at all. Each is counted as a skipped axiom with a groupe
 skipped-axiom contract and cannot mutate object-role state.
 `DataPropertyDomain` is also skipped rather than projected and cannot populate object domains or
 mutate object-role state.
+`DataPropertyRange` follows the same contract and cannot populate object ranges.
 
 ## 11. Mutable instance state
 
