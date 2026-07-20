@@ -7,8 +7,11 @@ pure-Python fallback.
 Implementation note (2026-07-20): this document is the acceptance design, not a statement that
 the production Rust compiler exists. The broad internal structural-columns slice described in
 section 2 is currently implemented in Python. Rust has only the private, unadvertised direct
-exact-`bytes` named-`SubClassOf` foundation recorded in the P7 report; normal projection still
-uses Python semantic compilation followed by the older Rust edge-policy bridge.
+exact-`bytes` unannotated named-class foundation recorded in the P7 report: declarations,
+`SubClassOf`, named-only `EquivalentClasses`, and named `ClassAssertion`. Normal projection still
+uses Python semantic compilation followed by the older Rust edge-policy bridge. Complex class
+expressions, annotations, mmap and segmented exporters, and every other constructor remain outside
+that private Rust slice.
 
 ## 1. Objective
 
