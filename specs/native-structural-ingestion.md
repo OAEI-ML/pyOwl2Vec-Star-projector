@@ -43,7 +43,9 @@ does not advertise or promote the unfinished encoded-native compiler path.
 
 The internal compiler slice additionally preflights canonical direct views containing only
 declarations, simple named-class `SubClassOf` and `EquivalentClasses` axioms, and simple named
-`ClassAssertion` axioms, then emits the existing projector `Edge` IR in caller-bounded batches
+`ClassAssertion` and `ObjectPropertyAssertion` axioms, and named object-property domain/range
+axioms. It emits direct ABox triples and streams domain/range cross-products with the retained
+compatibility role state through the existing projector `Edge` IR in caller-bounded batches,
 without reconstructing core OWL values. The dedicated asserted-taxonomy API preflights the same
 slice but emits only named `SubClassOf` edges. Any other valid constructor, annotation-bearing
 slice, or segmented view selects scalar-native compilation for the complete operation before edge

@@ -373,6 +373,7 @@ class Projector:
                         options,
                         ingestion,
                         batch_edges=native_batch_edges,
+                        role_state=role_state,
                     )
                 )
                 compilation: Compilation | EncodedSubsetCompilation

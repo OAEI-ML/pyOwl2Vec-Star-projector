@@ -33,7 +33,10 @@ from pyowl2vec_star_projector.encoded_compiler import (
     EncodedSubsetCounters,
     prepare_encoded_subset_compilation,
 )
-from pyowl2vec_star_projector.errors import SnapshotCompatibilityError
+from pyowl2vec_star_projector.errors import (
+    SnapshotCompatibilityError,
+    UnsupportedAxiomShapeError,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -230,6 +233,116 @@ def test_named_equivalence_and_class_assertion_match_scalar_in_bounded_batches()
             assert counters.scalar_fallbacks == 0
 
 
+def test_named_object_property_slice_matches_scalar_cross_product_batches() -> None:
+    view = _snapshot(
+        "Declaration(ObjectProperty(:p)) Declaration(ObjectProperty(:q)) "
+        "Declaration(NamedIndividual(:i)) Declaration(NamedIndividual(:j)) "
+        "ObjectPropertyAssertion(:p :i :j) "
+        "ObjectPropertyDomain(:p :D2) ObjectPropertyDomain(:p :D1) "
+        "ObjectPropertyRange(:p :R2) ObjectPropertyRange(:p :R1) "
+        "ObjectPropertyDomain(:q :QD) ObjectPropertyRange(:q :QR)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded property slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=2,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert len(actual) == 6
+            assert Edge("urn:slice#i", "urn:slice#p", "urn:slice#j") in actual
+            assert projector.last_report is not None
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 11
+            assert counters.declaration_axioms == 4
+            assert counters.object_property_assertion_axioms == 1
+            assert counters.object_property_domain_axioms == 3
+            assert counters.object_property_range_axioms == 3
+            assert counters.edge_batches == 3
+            assert counters.raw_edges == 6
+            assert counters.scalar_fallbacks == 0
+
+
+def test_domain_range_slice_preserves_scala_instance_role_expansion() -> None:
+    role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
+    domain_range_view = _snapshot("ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)")
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(role_view, options=options) == []
+    expected = scalar.project(domain_range_view, options=options)
+    assert scalar.last_report is not None
+    scalar_report = scalar.last_report.to_dict()
+
+    projector = Projector()
+    assert projector.project(role_view, options=options) == []
+    lease = _lease(domain_range_view)
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded domain/range crossed scalar traversal"),
+        ),
+    ):
+        actual = projector.project(
+            domain_range_view,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected
+    assert actual == [
+        Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+        Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        Edge("urn:slice#R", "urn:slice#pinv", "urn:slice#D"),
+    ]
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.object_property_domain_axioms == 1
+    assert counters.object_property_range_axioms == 1
+    assert counters.raw_edges == 3
+    assert counters.scalar_fallbacks == 0
+
+
 def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -> None:
     view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p :B))")
     lease = _lease(view)
@@ -274,6 +387,10 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "ClassAssertion(ObjectSomeValuesFrom(:p :B) :i)",
         'EquivalentClasses(Annotation(<urn:p> "x") :A :B)',
         'ClassAssertion(Annotation(<urn:p> "x") :A :i)',
+        "ObjectPropertyAssertion(:p _:anon :i)",
+        "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
+        'ObjectPropertyRange(Annotation(<urn:a> "x") :p :R)',
+        'ObjectPropertyAssertion(Annotation(<urn:a> "x") :p :i :j)',
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -310,6 +427,32 @@ def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> 
     assert projector.last_encoded_counters.raw_edges == 0
 
 
+def test_inverse_object_property_assertion_falls_back_to_scalar_error() -> None:
+    view = _snapshot("ObjectPropertyAssertion(ObjectInverseOf(:p) :i :j)")
+    lease = _lease(view)
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            wraps=scalar_compilation,
+        ) as scalar_prepare,
+    ):
+        projector = Projector()
+        with pytest.raises(UnsupportedAxiomShapeError, match="inverse object-property"):
+            projector.project(
+                view,
+                options=ProjectionOptions(backend="native", order="encounter"),
+            )
+
+    assert scalar_prepare.call_count == 1
+    counters = projector.last_encoded_counters
+    assert counters is not None
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == 0
+    assert counters.raw_edges == 0
+
+
 def test_asserted_taxonomy_api_uses_the_same_bounded_slice() -> None:
     view = _snapshot(
         "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
@@ -342,8 +485,12 @@ def test_asserted_taxonomy_api_uses_the_same_bounded_slice() -> None:
     assert projector.last_encoded_counters.raw_edges == 4
 
 
-def test_asserted_taxonomy_skips_equivalence_and_class_assertion_edges() -> None:
-    view = _snapshot("SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i)")
+def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i) "
+        "ObjectPropertyAssertion(:p :i :j) ObjectPropertyDomain(:p :C) "
+        "ObjectPropertyRange(:p :D)"
+    )
     lease = _lease(view)
     expected = Projector().project_taxonomy(
         view,
@@ -379,6 +526,9 @@ def test_asserted_taxonomy_skips_equivalence_and_class_assertion_edges() -> None
     assert counters.subclass_axioms == 1
     assert counters.equivalent_axioms == 1
     assert counters.class_assertion_axioms == 1
+    assert counters.object_property_assertion_axioms == 1
+    assert counters.object_property_domain_axioms == 1
+    assert counters.object_property_range_axioms == 1
     assert counters.edge_batches == 2
     assert counters.raw_edges == 2
     assert counters.scalar_fallbacks == 0
@@ -477,6 +627,42 @@ def test_equivalent_class_set_corruption_fails_before_edge_output(corruption: st
             EncodedNegotiation("encoded-native", lease=hostile),
             batch_edges=1,
         )
+
+
+@pytest.mark.parametrize(
+    ("tag", "arity"),
+    [(74, 3), (75, 3), (113, 4)],
+)
+def test_named_property_axiom_corruption_fails_before_edge_output(
+    tag: int,
+    arity: int,
+) -> None:
+    view = _snapshot(
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R) ObjectPropertyAssertion(:p :i :j)"
+    )
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    node_id = next(
+        index
+        for index in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == tag
+    )
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = node_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match="arity") as raised:
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+    assert raised.value.details["expected_arity"] == arity
 
 
 def test_incomplete_slice_is_not_advertised_by_the_native_feature_ledger() -> None:
