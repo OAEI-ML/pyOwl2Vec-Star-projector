@@ -297,6 +297,68 @@ def test_named_object_property_slice_matches_scalar_cross_product_batches() -> N
             assert counters.scalar_fallbacks == 0
 
 
+def test_anonymous_object_property_assertions_match_scalar_blank_ids() -> None:
+    view = _snapshot(
+        "ObjectPropertyAssertion(:p _:z :i) "
+        "ObjectPropertyAssertion(:p :i _:a) "
+        "ObjectPropertyAssertion(:p _:z _:a)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            duplicates="unique",
+            order="canonical",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    expected_edges = {
+        Edge("_:genid2147483648", "urn:slice#p", "_:genid2147483649"),
+        Edge("_:genid2147483648", "urn:slice#p", "urn:slice#i"),
+        Edge("urn:slice#i", "urn:slice#p", "_:genid2147483649"),
+    }
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded anonymous slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert set(actual) == expected_edges
+            assert projector.last_report is not None
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 3
+            assert counters.object_property_assertion_axioms == 3
+            assert counters.anonymous_individuals == 2
+            assert counters.edge_batches == 3
+            assert counters.raw_edges == 3
+            assert counters.scalar_fallbacks == 0
+
+
 def test_domain_range_slice_preserves_scala_instance_role_expansion() -> None:
     role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
     domain_range_view = _snapshot("ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)")
@@ -651,9 +713,9 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
     [
         "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B))",
         "ClassAssertion(ObjectSomeValuesFrom(:p :B) :i)",
+        "ClassAssertion(:A _:anon)",
         'EquivalentClasses(Annotation(<urn:p> "x") :A :B)',
         'ClassAssertion(Annotation(<urn:p> "x") :A :i)',
-        "ObjectPropertyAssertion(:p _:anon :i)",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
         'ObjectPropertyRange(Annotation(<urn:a> "x") :p :R)',
         'ObjectPropertyAssertion(Annotation(<urn:a> "x") :p :i :j)',
@@ -763,7 +825,8 @@ def test_asserted_taxonomy_api_uses_the_same_bounded_slice() -> None:
 def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     view = _snapshot(
         "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i) "
-        "ObjectPropertyAssertion(:p :i :j) ObjectPropertyDomain(:p :C) "
+        "ObjectPropertyAssertion(:p :i :j) ObjectPropertyAssertion(:p _:anon :i) "
+        "ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
         "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
         "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D)))"
@@ -807,9 +870,10 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters.class_assertion_axioms == 1
     assert counters.sub_object_property_axioms == 1
     assert counters.inverse_object_property_axioms == 1
-    assert counters.object_property_assertion_axioms == 1
+    assert counters.object_property_assertion_axioms == 2
     assert counters.object_property_domain_axioms == 1
     assert counters.object_property_range_axioms == 1
+    assert counters.anonymous_individuals == 1
     assert counters.edge_batches == 2
     assert counters.raw_edges == 2
     assert counters.scalar_fallbacks == 0
@@ -1053,6 +1117,53 @@ def test_named_property_axiom_corruption_fails_before_edge_output(
             batch_edges=1,
         )
     assert raised.value.details["expected_arity"] == arity
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["arity", "scope-kind", "scope-length", "local-empty"],
+)
+def test_anonymous_individual_corruption_fails_before_edge_output(corruption: str) -> None:
+    view = _snapshot("ObjectPropertyAssertion(:p _:anon :i)")
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    node_id = next(
+        index
+        for index in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == 3
+    )
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(offsets[(node_id - 1) * 8 : node_id * 8], "little")
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = node_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption == "scope-kind":
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[field_index] = 2
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    else:
+        lengths = bytearray(buffers["field_lengths"])
+        target_index = field_index if corruption == "scope-length" else field_index + 1
+        replacement = 31 if corruption == "scope-length" else 0
+        offset = target_index * 8
+        lengths[offset : offset + 8] = replacement.to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"arity|scalar field kind|bytes32|local key",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
 
 
 def test_incomplete_slice_is_not_advertised_by_the_native_feature_ledger() -> None:

@@ -2,12 +2,13 @@
 
 The slice is intentionally narrow: one canonical direct segment containing
 declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
-axioms, simple named ABox assertions, and named object-property domain/range
-and role axioms, plus named-property/named-filler ``SubClassOf`` restrictions,
-and named/aggregate ``EquivalentClasses`` pairs over the same operands, all
-with empty annotation sets.  It preflights the complete encoded view before
-yielding any edge.  A well-formed view outside that subset selects the scalar
-compiler for the whole operation; malformed rows fail closed.
+axioms, named ``ClassAssertion`` axioms, direct ``ObjectPropertyAssertion``
+axioms over named or anonymous individuals, and named object-property
+domain/range and role axioms, plus named-property/named-filler ``SubClassOf``
+restrictions, and named/aggregate ``EquivalentClasses`` pairs over the same
+operands, all with empty annotation sets.  It preflights the complete encoded
+view before yielding any edge.  A well-formed view outside that subset selects
+the scalar compiler for the whole operation; malformed rows fail closed.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from .options import ProjectionOptions
 
 _TAG_IRI = 1
 _TAG_ENTITY = 2
+_TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_OBJECT_INTERSECTION_OF = 30
 _TAG_OBJECT_UNION_OF = 31
 _TAG_OBJECT_SOME_VALUES_FROM = 34
@@ -52,6 +54,7 @@ _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _ROOT_AXIOM = 2
 _COMPONENT_NODE = 1
 _COMPONENT_TEXT = 2
+_COMPONENT_BYTES = 3
 _COMPONENT_INTEGER = 4
 _COMPONENT_ENUM = 5
 _COMPONENT_SET = 6
@@ -183,6 +186,7 @@ class EncodedSubsetCounters:
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
     object_property_range_axioms: int = 0
+    anonymous_individuals: int = 0
     scalar_bytes_checked: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
@@ -203,6 +207,7 @@ class EncodedSubsetCounters:
             self.object_property_assertion_axioms,
             self.object_property_domain_axioms,
             self.object_property_range_axioms,
+            self.anonymous_individuals,
             self.scalar_bytes_checked,
             self.edge_batches,
             self.raw_edges,
@@ -227,6 +232,7 @@ class _MutableCounters:
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
     object_property_range_axioms: int = 0
+    anonymous_individuals: int = 0
     scalar_bytes_checked: int = 0
     edge_batches: int = 0
     raw_edges: int = 0
@@ -247,6 +253,7 @@ class _MutableCounters:
             object_property_assertion_axioms=self.object_property_assertion_axioms,
             object_property_domain_axioms=self.object_property_domain_axioms,
             object_property_range_axioms=self.object_property_range_axioms,
+            anonymous_individuals=self.anonymous_individuals,
             scalar_bytes_checked=self.scalar_bytes_checked,
             edge_batches=self.edge_batches,
             raw_edges=self.raw_edges,
@@ -295,6 +302,7 @@ class EncodedSubsetCompilation:
     _domains: dict[str, tuple[str, ...]]
     _ranges: dict[str, tuple[str, ...]]
     _role_axioms: tuple[_EncodedRoleAxiom, ...]
+    _anonymous_ids: dict[int, str]
     _counters: _MutableCounters
     _roles_prepared: bool = False
     statistics: CompileStatistics = field(default_factory=CompileStatistics)
@@ -393,7 +401,8 @@ class EncodedSubsetCompilation:
                 continue
             if tag == _TAG_OBJECT_PROPERTY_ASSERTION:
                 source, relation, destination = self._columns.object_property_assertion_iris(
-                    root_id
+                    root_id,
+                    self._anonymous_ids,
                 )
                 yield Edge(source, relation, destination)
                 continue
@@ -682,20 +691,46 @@ class _EncodedColumns:
             )
         return individual, class_iri
 
-    def object_property_assertion_iris(self, node_id: int) -> tuple[str, str, str]:
+    def object_property_assertion_iris(
+        self,
+        node_id: int,
+        anonymous_ids: dict[int, str],
+    ) -> tuple[str, str, str]:
         if self.node_tag(node_id) != _TAG_OBJECT_PROPERTY_ASSERTION:
             raise SnapshotCompatibilityError(
                 "encoded subset batch cursor does not reference ObjectPropertyAssertion"
             )
         start = self._exact_fields(node_id, 4)
         property_iri = self._named_object_property_iri(self._field_node(start))
-        source = self._named_individual_iri(self._field_node(start + 1))
-        target = self._named_individual_iri(self._field_node(start + 2))
+        source = self._individual_id(self._field_node(start + 1), anonymous_ids)
+        target = self._individual_id(self._field_node(start + 2), anonymous_ids)
         if property_iri is None or source is None or target is None:  # pragma: no cover
             raise SnapshotCompatibilityError(
                 "encoded subset ObjectPropertyAssertion shape changed after preflight"
             )
         return source, property_iri, target
+
+    def anonymous_ids(self) -> dict[int, str]:
+        result: dict[int, str] = {}
+        next_identifier = 2_147_483_648
+        for node_id in range(1, self.node_count + 1):
+            if self.node_tag(node_id) == _TAG_ANONYMOUS_INDIVIDUAL:
+                result[node_id] = f"_:genid{next_identifier}"
+                next_identifier += 1
+        return result
+
+    def _individual_id(self, node_id: int, anonymous_ids: dict[int, str]) -> str | None:
+        named = self._named_individual_iri(node_id)
+        if named is not None:
+            return named
+        if self.node_tag(node_id) != _TAG_ANONYMOUS_INDIVIDUAL:
+            return None
+        try:
+            return anonymous_ids[node_id]
+        except KeyError as error:  # pragma: no cover - prepared from immutable columns
+            raise SnapshotCompatibilityError(
+                "encoded subset anonymous individual lost its generated identifier"
+            ) from error
 
     def domain_iris(self, node_id: int) -> tuple[str, str]:
         return self._property_class_iris(node_id, _TAG_OBJECT_PROPERTY_DOMAIN)
@@ -792,6 +827,19 @@ class _EncodedColumns:
         if tag == _TAG_ENTITY:
             _kind, _iri_id, checked = self._entity(node_id)
             inspection.counters.scalar_bytes_checked += checked
+            return
+        if tag == _TAG_ANONYMOUS_INDIVIDUAL:
+            start = self._exact_fields(node_id, 2)
+            document_scope = self._scalar_payload(start, _COMPONENT_BYTES)
+            local_key = self._scalar_payload(start + 1, _COMPONENT_BYTES)
+            if document_scope.nbytes != 32:
+                raise SnapshotCompatibilityError(
+                    "encoded subset anonymous document scope is not bytes32"
+                )
+            if not local_key.nbytes:
+                raise SnapshotCompatibilityError("encoded subset anonymous local key is empty")
+            inspection.counters.anonymous_individuals += 1
+            inspection.counters.scalar_bytes_checked += document_scope.nbytes + local_key.nbytes
             return
         if tag in _AGGREGATE_TAGS:
             start = self._exact_fields(node_id, 1)
@@ -921,11 +969,11 @@ class _EncodedColumns:
         if tag == _TAG_OBJECT_PROPERTY_ASSERTION:
             start = self._exact_fields(node_id, 4)
             named_property = self._is_named_object_property(self._field_node(start))
-            named_source = self._is_named_individual(self._field_node(start + 1))
-            named_target = self._is_named_individual(self._field_node(start + 2))
-            if not named_property or not named_source or not named_target:
+            supported_source = self._is_supported_individual(self._field_node(start + 1))
+            supported_target = self._is_supported_individual(self._field_node(start + 2))
+            if not named_property or not supported_source or not supported_target:
                 inspection.fallback(
-                    "encoded subset requires a named object property and named individuals "
+                    "encoded subset requires a named object property and supported individuals "
                     "in ObjectPropertyAssertion"
                 )
             if not self._empty_annotation_set(start + 3):
@@ -1082,6 +1130,11 @@ class _EncodedColumns:
         kind, _iri_id, _checked = self._entity(node_id)
         return kind == b"named_individual"
 
+    def _is_supported_individual(self, node_id: int) -> bool:
+        return self.node_tag(node_id) == _TAG_ANONYMOUS_INDIVIDUAL or self._is_named_individual(
+            node_id
+        )
+
     def _is_named_object_property(self, node_id: int) -> bool:
         if self.node_tag(node_id) != _TAG_ENTITY:
             return False
@@ -1146,6 +1199,7 @@ def prepare_encoded_subset_compilation(
 
     domains, ranges = ({}, {}) if asserted_taxonomy_only else columns.domain_range_index()
     role_axioms = () if asserted_taxonomy_only else columns.role_axioms()
+    anonymous_ids = {} if asserted_taxonomy_only else columns.anonymous_ids()
     ignored_restrictions = (
         counters.restriction_subclass_axioms
         if options.only_taxonomy and not asserted_taxonomy_only
@@ -1162,6 +1216,7 @@ def prepare_encoded_subset_compilation(
         _domains=domains,
         _ranges=ranges,
         _role_axioms=role_axioms,
+        _anonymous_ids=anonymous_ids,
         _counters=counters,
         statistics=CompileStatistics(ignored_shapes=ignored_restrictions),
     )

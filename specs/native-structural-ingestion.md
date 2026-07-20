@@ -42,10 +42,13 @@ over retained read-only byte views. This validation constructs no OWL value or d
 does not advertise or promote the unfinished encoded-native compiler path.
 
 The internal compiler slice additionally preflights canonical direct views containing only
-declarations, simple named-class `SubClassOf` and `EquivalentClasses` axioms, and simple named
-`ClassAssertion` and `ObjectPropertyAssertion` axioms, and named object-property domain/range
-axioms. Named-subject `SubClassOf` axioms over named-property/named-filler some, all, minimum, and
-maximum restrictions use the same role expansion as domain/range edges. A single named class
+declarations, simple named-class `SubClassOf` and `EquivalentClasses` axioms, simple named
+`ClassAssertion` axioms, direct `ObjectPropertyAssertion` axioms over named or anonymous
+individuals, and named object-property domain/range axioms. Anonymous identifiers use the scalar
+profile's `_:genid2147483648` sequence in canonical encoded-node order; the compiler validates but
+does not expose or reinterpret their document scope and local key. Named-subject `SubClassOf`
+axioms over named-property/named-filler some, all, minimum, and maximum restrictions use the same
+role expansion as domain/range edges. A single named class
 paired by `EquivalentClasses` with an intersection or union of named classes and those restrictions
 uses the pinned expression ordering and role expansion. Named `SubObjectPropertyOf` and
 `InverseObjectProperties` axioms update the retained compatibility role state in exact OWLAPI
