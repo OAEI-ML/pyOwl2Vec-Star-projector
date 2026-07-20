@@ -200,8 +200,9 @@ PYOWL2VEC_BUILD_NATIVE=1 python -m build --wheel
 The advertised Rust boundary owns only strings for edge batches. Closing a projection iterator
 cancels and clears its processor; native panics are contained and resource failures become stable
 projector exceptions. An unadvertised P7 foundation additionally retains exact public
-structural-column views and immutable `bytes` exporters for a direct, unannotated named-class
-kernel (`SubClassOf`, `EquivalentClasses`, and `ClassAssertion`); it is not selected by production
-dispatch and is not a complete compiler. See the
+structural-column views and immutable `bytes` exporters for a direct, unannotated named-class and
+named-role kernel (`SubClassOf`, `EquivalentClasses`, `ClassAssertion`, simple restrictions, and
+object-property domain/range products); it is not selected by production dispatch and is not a
+complete compiler. See the
 [P3 report](reports/p3/native-backend.md) for parity, performance, memory, and binary evidence.
 The [P4 report](reports/p4/streaming.md) covers bounded external sorting and artifacts.

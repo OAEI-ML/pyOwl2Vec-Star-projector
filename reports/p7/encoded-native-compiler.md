@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector implementation through `88419dc`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector implementation through `1a181e3`. pyOWLCore candidate revision:
 `cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -23,17 +23,27 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - IRI and Entity nodes plus silent unannotated Declaration roots;
 - unannotated named-to-named `SubClassOf`, named-only n-ary `EquivalentClasses`, and named
   `ClassAssertion` roots;
-- the reference category order (`SubClassOf`, `EquivalentClasses`, then `ClassAssertion`), with
-  the first two equivalent members selected by UTF-8 IRI order;
-- forward `http://subclassof`, optional reverse `http://superclassof`, and `http://type` edges;
+- named-property/named-filler `ObjectSomeValuesFrom`, `ObjectAllValuesFrom`,
+  `ObjectMinCardinality`, and `ObjectMaxCardinality` on either side of a named class in
+  `SubClassOf`; min/max integers are minimally encoded and validated but semantically discarded;
+- paired named `ObjectPropertyDomain`/`ObjectPropertyRange` roots, producing the reference
+  domain-by-range products in UTF-8 property order;
+- the supported reference category order (`SubClassOf`, `EquivalentClasses`, `ClassAssertion`,
+  then domain/range), with the first two equivalent members selected by UTF-8 IRI order;
+- forward `http://subclassof`, optional reverse `http://superclassof`, `http://type`, and direct
+  named object-property edges;
+- the historical `only_taxonomy` behavior: restriction edges are suppressed while named
+  equivalence, class assertions, and domain/range products remain enabled;
 - an asserted-taxonomy mode that preflights the complete supported input but emits only direct
   named `SubClassOf`; and
 - one caller-bounded coarse output batch, with no per-root or per-edge Python call.
 
-Any other valid segment, exporter, constructor, annotation, complex class expression, or anonymous
-individual is rejected as unsupported before output. N-ary equivalents beyond the selected first
-two are still fully validated. Malformed supported columns fail closed. This is kernel version 2
-of a private foundation, not the complete compiler described by WP-P7.
+Any other valid segment, exporter, constructor, annotation, complex/unsupported restriction,
+inverse property, role axiom, object-property assertion, or anonymous individual is rejected as
+unsupported before output. N-ary equivalents beyond the selected first two and unpaired
+domain/range roots are still fully validated. There is no subrole or inverse-role expansion in
+this narrow named-role slice. Malformed supported columns fail closed. This is kernel version 3 of
+a private foundation, not the complete compiler described by WP-P7.
 
 ## What the private kernel actually does
 
@@ -48,17 +58,19 @@ GIL with `Python::detach`. Rust then:
 
 1. validates paired column widths, counts, monotone offsets, canonical roots, component kinds,
    node/item/scalar references, canonical-set ordering/uniqueness, and arena coverage;
-2. preflights every supported constructor, UTF-8 IRI, entity kind, empty annotation set, root
-   kind/tag pairing, output count, and IRI/output limit;
+2. preflights every supported constructor, UTF-8 IRI, entity kind, minimally encoded cardinality,
+   empty annotation set, root kind/tag pairing, output/cross-product count, and IRI/output limit;
 3. allocates output only after the complete preflight succeeds; and
-4. returns one coarse list of edge tuples plus roots, nodes, declarations, subclasses,
-   equivalents, class assertions, edges, and retained-buffer-byte counters.
+4. returns one coarse list of edge tuples plus roots, nodes, declarations, subclasses/restriction
+   subclasses, equivalents, class assertions, domain/range roots and products, edges, and
+   retained-buffer-byte counters.
 
 The Python wrapper exposes an exact call ledger for this kernel: eleven input buffers, eleven
 detached/zero-copy buffers, zero indexed buffers, zero staging/structural copy bytes, zero per-row
 FFI calls, one native boundary call, and GIL release. These counters describe only this private
 call. They are not currently attached to `ProjectionReport`, because the production projector
-does not dispatch to the private kernel.
+does not dispatch to the private kernel. Domain/range counting and ordering use repeated borrowed
+root scans, not a copied structural graph or hidden property index.
 
 The compiler is one-shot. Atomic idle/running/finished/cancelled/failed transitions allow another
 Python thread to cancel detached work. A cancellation racing with successful compilation discards
@@ -81,24 +93,27 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`88419dc`:
+`1a181e3`:
 
 | Gate | Result |
 |---|---|
-| Rust unit tests (`cargo test --no-default-features`) | 11 passed |
+| Rust unit tests (`cargo test --no-default-features`) | 14 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 14 passed |
-| Existing native backend plus private foundation tests | 51 passed |
-| Complete projector test suite | 844 passed |
+| Private PyO3 foundation tests | 25 passed |
+| Existing native backend plus private foundation tests | 62 passed |
+| Complete projector test suite | 855 passed |
 | Focused Python Ruff and mypy checks | passed |
 
-The focused tests cover Python-oracle parity for the three emitting families, bidirectional
-projection, n-ary equivalent lexical selection, reference category order, asserted-taxonomy
-suppression, declarations as non-emitting roots, exact family counters, a 250-axiom single boundary
-call, mixed-family output-limit failure, valid unsupported complex/anonymous/annotated shapes,
-hostile canonical-set order and root references, sliced and non-bytes exporters, descriptor
-mismatch, bytes-exporter and exact-owner lifetime across the expanded slice, GIL release,
-concurrent cancellation, and continued absence of the production encoded feature.
+The focused tests cover Python-oracle parity for named class and role edges; both restriction
+orientations and all four accepted constructors; cardinality discard; bidirectional projection;
+n-ary equivalent lexical selection; class/domain/range category and cross-product ordering; the
+distinct `only_taxonomy` and asserted-taxonomy behaviors; declarations as non-emitting roots;
+exact family counters; a 250-axiom single boundary call; mixed-family and 20-by-20 cross-product
+limit failure; non-minimal integer, canonical-set, and root-reference corruption; valid unsupported
+inverse, exact-cardinality, restriction-pair, complex, anonymous, and annotated shapes; sliced and
+non-bytes exporters; descriptor mismatch; bytes-exporter and exact-owner lifetime across the
+expanded slice; GIL release; concurrent cancellation; and continued absence of the production
+encoded feature.
 
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
@@ -108,7 +123,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only direct unannotated named `SubClassOf`, named-only `EquivalentClasses`, named `ClassAssertion`, and silent declarations |
+| Complete Rust projection rules/options | Open; Rust implements only the direct unannotated named class slice plus named-property/filler subclass restrictions and named domain/range products; role expansion and remaining families are unsupported |
 | Bounded batches without per-row FFI | Proven for one caller-bounded private coarse batch; streaming multi-batch integration remains open |
 | Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
