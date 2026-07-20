@@ -257,6 +257,7 @@ object-role state.
 `NegativeDataPropertyAssertion` follows the same skipped, state-neutral contract.
 `SubAnnotationPropertyOf` is skipped and cannot affect projected annotation or object-role state.
 `AnnotationPropertyDomain` follows the same skipped, state-neutral contract.
+`AnnotationPropertyRange` follows the same skipped, state-neutral contract.
 
 ## 11. Mutable instance state
 

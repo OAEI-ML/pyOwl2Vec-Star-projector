@@ -115,6 +115,7 @@ follows the same bounded skip contract, retaining literal-byte and anonymous-ID 
 `NegativeDataPropertyAssertion` follows the same data-assertion validation and skip contract.
 `SubAnnotationPropertyOf` between named annotation properties is preflighted and skipped.
 `AnnotationPropertyDomain` over a named annotation property and IRI is preflighted and skipped.
+`AnnotationPropertyRange` follows the symmetric named-property/IRI skipped path.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
