@@ -190,6 +190,26 @@ def _expanded_expression_axiom_snapshot() -> object:
     )
 
 
+def _inverse_restriction_domain_snapshot() -> object:
+    return _snapshot(
+        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B)) "
+        "SubClassOf(ObjectAllValuesFrom(ObjectInverseOf(:p) :C) :D) "
+        "SubClassOf(:Min ObjectMinCardinality(1 ObjectInverseOf(:p) :MinF)) "
+        "SubClassOf(ObjectMaxCardinality(2 ObjectInverseOf(:p) :MaxF) :Max) "
+        "EquivalentClasses(:Eq ObjectIntersectionOf(:Named "
+        "ObjectSomeValuesFrom(ObjectInverseOf(:p) :EqF))) "
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "ObjectPropertyDomain(ObjectInverseOf(:p) :IgnoredDomain) "
+        "ObjectPropertyRange(ObjectInverseOf(:p) :IgnoredRange) "
+        "ObjectPropertyDomain(:p ObjectIntersectionOf(:ComplexDomain "
+        'DataHasValue(:dp "value"))) '
+        "ObjectPropertyRange(:p ObjectComplementOf("
+        "ObjectSomeValuesFrom(ObjectInverseOf(:p) :ComplexRange))) "
+        "ObjectPropertyDomain(:p :Domain) ObjectPropertyRange(:p :Range) "
+        "SubClassOf(:TaxA :TaxB)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -711,6 +731,77 @@ def test_named_role_hashset_order_expands_restrictions_and_domains_but_not_asser
         and edge.relation in {"urn:native-direct#p", "urn:native-direct#s"}
         for edge in actual
     )
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_inverse_restrictions_project_and_complex_domain_range_roots_are_ignored(
+    only_taxonomy: bool,
+) -> None:
+    view = _inverse_restriction_domain_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert len(actual) == (5 if only_taxonomy else 20)
+    assert statistics.subclasses == 5
+    assert statistics.restriction_subclasses == 4
+    assert statistics.equivalents == statistics.aggregate_equivalents == 1
+    assert statistics.object_property_domains == 3
+    assert statistics.object_property_ranges == 3
+    assert statistics.domain_range_edges == 1
+    assert statistics.role_expansion_edges == (2 if only_taxonomy else 12)
+    assert not any(
+        edge.source
+        in {
+            "urn:native-direct#IgnoredDomain",
+            "urn:native-direct#ComplexDomain",
+        }
+        or edge.destination
+        in {
+            "urn:native-direct#IgnoredRange",
+            "urn:native-direct#ComplexRange",
+        }
+        for edge in actual
+    )
+
+
+def test_asserted_taxonomy_preflights_inverse_restrictions_and_ignored_domains() -> None:
+    view = _inverse_restriction_domain_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert statistics.restriction_subclasses == 4
+    assert statistics.object_property_domains == 3
+    assert statistics.object_property_ranges == 3
+    assert statistics.domain_range_edges == 0
+    assert statistics.role_expansion_edges == 0
 
 
 def test_inverse_role_operands_and_skipped_object_property_families_match_python() -> None:
@@ -2528,6 +2619,73 @@ def test_hostile_expanded_expression_axiom_fields_fail_before_output(
     assert compiler.state == "failed"
 
 
+@pytest.mark.parametrize(
+    ("target_tag", "field_delta", "replacement", "match"),
+    [
+        (10, 0, "class", "object-property"),
+        (74, 1, "property", "class"),
+        (75, 0, "class", "object-property"),
+        (75, 1, "property", "class"),
+    ],
+    ids=["inverse-inner", "domain-class", "range-property", "range-class"],
+)
+def test_hostile_inverse_restriction_domain_range_fields_fail_before_output(
+    target_tag: int,
+    field_delta: int,
+    replacement: str,
+    match: str,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) "
+            "ObjectPropertyDomain(ObjectInverseOf(:p) :D) "
+            "ObjectPropertyRange(:p ObjectIntersectionOf(:R "
+            'DataHasValue(:dp "value")))'
+        )
+    )
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    inverse_start = field_start(tagged_node(10))
+    domain_start = field_start(tagged_node(74))
+    replacement_field = inverse_start if replacement == "property" else domain_start + 1
+    replacement_id = int.from_bytes(
+        buffers["field_values"][replacement_field * 8 : (replacement_field + 1) * 8],
+        "little",
+    )
+    target_field = field_start(tagged_node(target_tag)) + field_delta
+    field_values = bytearray(buffers["field_values"])
+    field_values[target_field * 8 : (target_field + 1) * 8] = replacement_id.to_bytes(
+        8,
+        "little",
+    )
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(lease, {"field_values": memoryview(bytes(field_values))})
+    )
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
 def test_hostile_complement_operand_fails_before_output() -> None:
     lease = _lease(
         _snapshot(
@@ -2651,13 +2809,14 @@ def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
+        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) "
+        "ObjectComplementOf(:B)))",
         "SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
         "SubClassOf(:A DataSomeValuesFrom("
         ":dp DataComplementOf(DataComplementOf("
         "<http://www.w3.org/2001/XMLSchema#string>))))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
-        "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
+        "ObjectPropertyDomain(:p ObjectIntersectionOf(:A ObjectUnionOf(:B :C)))",
         'ObjectPropertyRange(Annotation(<urn:meta> "unsupported") :p :R)',
         'SubObjectPropertyOf(Annotation(<urn:meta> "unsupported") '
         "ObjectPropertyChain(:p :q) :r)",
@@ -2667,11 +2826,11 @@ def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
         'FunctionalObjectProperty(Annotation(<urn:meta> "unsupported") :p)',
     ],
     ids=[
-        "inverse-property",
+        "inverse-complex-filler",
         "complex-filler",
         "nested-data-restriction",
         "restriction-pair",
-        "complex-domain",
+        "nested-domain",
         "annotated-range",
         "annotated-property-chain",
         "annotated-subproperty",
@@ -2776,7 +2935,9 @@ def test_role_set_corruption_and_expanded_edge_limit_fail_before_publication() -
     assert malformed.state == "failed"
 
     restrictions = " ".join(
-        f"SubClassOf(:A{index:03d} ObjectSomeValuesFrom(:p :B{index:03d}))" for index in range(250)
+        "SubClassOf("
+        f":A{index:03d} ObjectSomeValuesFrom(ObjectInverseOf(:p) :B{index:03d}))"
+        for index in range(250)
     )
     expanded = prepare_native_encoded_direct(
         _lease(

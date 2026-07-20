@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 15
+ENCODED_DIRECT_KERNEL_VERSION = 16
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",

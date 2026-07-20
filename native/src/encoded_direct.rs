@@ -1569,7 +1569,8 @@ impl<'a> DirectColumns<'a> {
                 )));
             }
         };
-        let relation = self.named_object_property_iri(self.field_node(property_index)?, maximum)?;
+        let relation =
+            self.object_property_expression_iri(self.field_node(property_index)?, maximum)?;
         let destination = self.named_class_iri(self.field_node(filler_index)?, maximum)?;
         Ok((relation, destination))
     }
@@ -1819,22 +1820,47 @@ impl<'a> DirectColumns<'a> {
         Ok(projection)
     }
 
-    fn property_class_pair(
+    fn object_property_class_projection(
         self,
         node_id: usize,
         expected_tag: u16,
         maximum: usize,
-    ) -> Result<(&'a str, &'a str), KernelError> {
-        if self.node_tag(node_id)? != expected_tag {
+    ) -> Result<Option<(&'a str, &'a str)>, KernelError> {
+        if self.node_tag(node_id)? != expected_tag
+            || ![TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&expected_tag)
+        {
             return Err(KernelError::malformed(
                 "encoded domain/range cursor has the wrong constructor tag",
             ));
         }
         let start = self.exact_fields(node_id, 3)?;
-        let property = self.named_object_property_iri(self.field_node(start)?, maximum)?;
-        let class = self.named_class_iri(self.field_node(start + 1)?, maximum)?;
+        let property_id = self.field_node(start)?;
+        let property = match self.node_tag(property_id)? {
+            TAG_ENTITY => Some(self.named_object_property_iri(property_id, maximum)?),
+            TAG_OBJECT_INVERSE_OF => {
+                self.object_inverse_iri(property_id, maximum)?;
+                None
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => {
+                return Err(KernelError::unsupported(
+                    "direct native object domain/range property is outside the named/inverse envelope",
+                ));
+            }
+            tag => {
+                return Err(KernelError::malformed(format!(
+                    "encoded object domain/range property tag {tag} is outside structural-columns v1",
+                )));
+            }
+        };
+        let class_id = self.field_node(start + 1)?;
+        let class = if self.node_tag(class_id)? == TAG_ENTITY {
+            Some(self.named_class_iri(class_id, maximum)?)
+        } else {
+            self.class_expression_rank(class_id, maximum)?;
+            None
+        };
         self.empty_annotation_set(start + 2)?;
-        Ok((property, class))
+        Ok(property.zip(class))
     }
 
     fn validate_aggregate_expression(
@@ -2321,10 +2347,18 @@ impl<'a> DirectColumns<'a> {
                     )?;
                 }
                 TAG_OBJECT_PROPERTY_DOMAIN => {
-                    self.property_class_pair(node_id, TAG_OBJECT_PROPERTY_DOMAIN, maximum_iri)?;
+                    self.object_property_class_projection(
+                        node_id,
+                        TAG_OBJECT_PROPERTY_DOMAIN,
+                        maximum_iri,
+                    )?;
                 }
                 TAG_OBJECT_PROPERTY_RANGE => {
-                    self.property_class_pair(node_id, TAG_OBJECT_PROPERTY_RANGE, maximum_iri)?;
+                    self.object_property_class_projection(
+                        node_id,
+                        TAG_OBJECT_PROPERTY_RANGE,
+                        maximum_iri,
+                    )?;
                 }
                 TAG_CLASS_ASSERTION => {
                     self.class_assertion_projection(node_id, maximum_iri)?;
@@ -2861,16 +2895,28 @@ impl<'a> DirectColumns<'a> {
             if self.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
                 continue;
             }
-            let (domain_property, _domain) =
-                self.property_class_pair(domain_id, TAG_OBJECT_PROPERTY_DOMAIN, maximum_iri)?;
+            let Some((domain_property, _domain)) = self.object_property_class_projection(
+                domain_id,
+                TAG_OBJECT_PROPERTY_DOMAIN,
+                maximum_iri,
+            )?
+            else {
+                continue;
+            };
             for range_index in 0..self.root_count() {
                 check_cancel(state, range_index)?;
                 let range_id = self.root_id(range_index)?;
                 if self.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
                     continue;
                 }
-                let (range_property, _range) =
-                    self.property_class_pair(range_id, TAG_OBJECT_PROPERTY_RANGE, maximum_iri)?;
+                let Some((range_property, _range)) = self.object_property_class_projection(
+                    range_id,
+                    TAG_OBJECT_PROPERTY_RANGE,
+                    maximum_iri,
+                )?
+                else {
+                    continue;
+                };
                 if domain_property == range_property {
                     products = products.checked_add(1).ok_or_else(|| {
                         KernelError::resource("encoded domain/range edge-count overflow")
@@ -2899,8 +2945,14 @@ impl<'a> DirectColumns<'a> {
             if self.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
                 continue;
             }
-            let (property, _domain) =
-                self.property_class_pair(domain_id, TAG_OBJECT_PROPERTY_DOMAIN, maximum_iri)?;
+            let Some((property, _domain)) = self.object_property_class_projection(
+                domain_id,
+                TAG_OBJECT_PROPERTY_DOMAIN,
+                maximum_iri,
+            )?
+            else {
+                continue;
+            };
             if after.is_some_and(|previous| property.as_bytes() <= previous.as_bytes())
                 || next.is_some_and(|current| property.as_bytes() >= current.as_bytes())
                 || !self.has_range_for_property(property, maximum_iri, state)?
@@ -2924,8 +2976,14 @@ impl<'a> DirectColumns<'a> {
             if self.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
                 continue;
             }
-            let (candidate, _range) =
-                self.property_class_pair(range_id, TAG_OBJECT_PROPERTY_RANGE, maximum_iri)?;
+            let Some((candidate, _range)) = self.object_property_class_projection(
+                range_id,
+                TAG_OBJECT_PROPERTY_RANGE,
+                maximum_iri,
+            )?
+            else {
+                continue;
+            };
             if candidate == property {
                 return Ok(true);
             }
@@ -3171,11 +3229,14 @@ pub(crate) fn compile_direct_with_options(
                 if columns.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
                     continue;
                 }
-                let (domain_property, domain) = columns.property_class_pair(
+                let Some((domain_property, domain)) = columns.object_property_class_projection(
                     domain_id,
                     TAG_OBJECT_PROPERTY_DOMAIN,
                     max_iri_bytes,
-                )?;
+                )?
+                else {
+                    continue;
+                };
                 if domain_property != property {
                     continue;
                 }
@@ -3185,11 +3246,14 @@ pub(crate) fn compile_direct_with_options(
                     if columns.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
                         continue;
                     }
-                    let (range_property, range) = columns.property_class_pair(
+                    let Some((range_property, range)) = columns.object_property_class_projection(
                         range_id,
                         TAG_OBJECT_PROPERTY_RANGE,
                         max_iri_bytes,
-                    )?;
+                    )?
+                    else {
+                        continue;
+                    };
                     if range_property == property {
                         push_role_edges(&mut edges, &role_state, domain, property, range)?;
                     }
@@ -3848,7 +3912,7 @@ mod tests {
         }
         fixture.push_node_ref(12);
         fixture.finish_node(TAG_OBJECT_INVERSE_OF); // 15
-        fixture.push_node_ref(12);
+        fixture.push_node_ref(15);
         fixture.push_node_ref(9);
         fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM); // 16
         fixture.push_node_ref(8);
@@ -3910,6 +3974,27 @@ mod tests {
         fixture.finish_node(TAG_EQUIVALENT_CLASSES); // 32
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&32_u32.to_le_bytes());
+        fixture
+    }
+
+    fn inverse_restriction_and_ignored_domain_fixture() -> Fixture {
+        let mut fixture = named_role_axiom_fixture();
+        fixture.push_node_set(&[8, 9]);
+        fixture.finish_node(TAG_OBJECT_INTERSECTION_OF); // 31
+        fixture.push_node_ref(15);
+        fixture.push_node_ref(10);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_OBJECT_PROPERTY_DOMAIN); // 32
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(31);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_OBJECT_PROPERTY_RANGE); // 33
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [32_u32, 33] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
         fixture
     }
 
@@ -4713,6 +4798,43 @@ mod tests {
         assert!(asserted.is_empty());
         assert_eq!(stats.skipped_axioms, 0);
         assert_eq!(stats.role_expansion_edges, 0);
+    }
+
+    #[test]
+    fn inverse_restrictions_project_while_complex_domain_range_roots_are_ignored() {
+        let fixture = inverse_restriction_and_ignored_domain_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            6,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 6);
+        assert_eq!(edges[0].relation, "urn:p");
+        assert_eq!(edges[1].relation, "urn:child");
+        assert_eq!(edges[2].relation, "urn:pinv");
+        assert_eq!(stats.object_property_domains, 2);
+        assert_eq!(stats.object_property_ranges, 2);
+        assert_eq!(stats.domain_range_edges, 1);
+        assert_eq!(stats.role_expansion_edges, 4);
+
+        let (only_taxonomy, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            true,
+            3,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(only_taxonomy.len(), 3);
+        assert_eq!(stats.domain_range_edges, 1);
+        assert_eq!(stats.role_expansion_edges, 2);
     }
 
     #[test]
