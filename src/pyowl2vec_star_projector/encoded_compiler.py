@@ -5,7 +5,8 @@ overlay-base segment referencing a canonical direct source and optionally
 followed by one top-local delta segment; or recursively resolved composite
 members with an optional top-local bridge.  Those roots may contain
 declarations; ``SubClassOf``, ``EquivalentClasses``, ``ClassAssertion``, and
-object-property domain/range axioms over the validated named, aggregate, and
+object-property domain/range axioms over the validated named, aggregate,
+non-projecting complement/enumeration/value/self, and
 named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
 skipped ``DisjointClasses`` and ``DisjointUnion`` axioms over that validated
@@ -97,8 +98,12 @@ _TAG_DATA_ONE_OF = 24
 _TAG_DATATYPE_RESTRICTION = 25
 _TAG_OBJECT_INTERSECTION_OF = 30
 _TAG_OBJECT_UNION_OF = 31
+_TAG_OBJECT_COMPLEMENT_OF = 32
+_TAG_OBJECT_ONE_OF = 33
 _TAG_OBJECT_SOME_VALUES_FROM = 34
 _TAG_OBJECT_ALL_VALUES_FROM = 35
+_TAG_OBJECT_HAS_VALUE = 36
+_TAG_OBJECT_HAS_SELF = 37
 _TAG_OBJECT_MIN_CARDINALITY = 38
 _TAG_OBJECT_MAX_CARDINALITY = 39
 _TAG_DECLARATION = 60
@@ -180,6 +185,14 @@ _RESTRICTION_TAGS = frozenset(
     }
 )
 _AGGREGATE_TAGS = frozenset({_TAG_OBJECT_INTERSECTION_OF, _TAG_OBJECT_UNION_OF})
+_NONPROJECTING_CLASS_EXPRESSION_TAGS = frozenset(
+    {
+        _TAG_OBJECT_COMPLEMENT_OF,
+        _TAG_OBJECT_ONE_OF,
+        _TAG_OBJECT_HAS_VALUE,
+        _TAG_OBJECT_HAS_SELF,
+    }
+)
 _COMPOSITE_DATA_RANGE_TAGS = frozenset(
     {
         _TAG_DATA_INTERSECTION_OF,
@@ -193,8 +206,12 @@ _CLASS_EXPRESSION_TAGS = frozenset(range(30, 47))
 _EXPRESSION_ORDER = {
     _TAG_OBJECT_INTERSECTION_OF: 3001,
     _TAG_OBJECT_UNION_OF: 3002,
+    _TAG_OBJECT_COMPLEMENT_OF: 3999,
+    _TAG_OBJECT_ONE_OF: 3999,
     _TAG_OBJECT_SOME_VALUES_FROM: 3005,
     _TAG_OBJECT_ALL_VALUES_FROM: 3006,
+    _TAG_OBJECT_HAS_VALUE: 3999,
+    _TAG_OBJECT_HAS_SELF: 3999,
     _TAG_OBJECT_MIN_CARDINALITY: 3008,
     _TAG_OBJECT_MAX_CARDINALITY: 3010,
 }
@@ -683,6 +700,7 @@ class _EquivalentOperand:
     node_id: int
     first: str
     second: str | None = None
+    ignored: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -851,7 +869,10 @@ class EncodedSubsetCompilation:
                         )
                 else:
                     for operand in equivalent_projection.operands:
-                        if operand.second is None:
+                        if operand.ignored:
+                            if not self.options.only_taxonomy:
+                                self._ignore_shape("EquivalentClasses")
+                        elif operand.second is None:
                             yield Edge(equivalent_projection.subject, SUBCLASS_OF, operand.first)
                             if self.options.bidirectional_taxonomy:
                                 yield Edge(
@@ -990,6 +1011,7 @@ class _EncodedColumns:
         for node_id in range(1, self.node_count + 1):
             self._inspect_node(node_id, inspection)
         self._validate_data_range_graph()
+        self._validate_class_expression_graph()
         previous_root: tuple[int, int] | None = None
         for root_index in range(self.root_count):
             root_kind = self._read("root_kinds", root_index, 1)
@@ -1235,6 +1257,8 @@ class _EncodedColumns:
                         "encoded subset aggregate operand changed after preflight"
                     )
                 operands.append(_EquivalentOperand(tag, item_id, iri))
+            elif tag in _NONPROJECTING_CLASS_EXPRESSION_TAGS:
+                operands.append(_EquivalentOperand(tag, item_id, "", ignored=True))
             else:
                 relation, destination = self._restriction_iris(item_id)
                 operands.append(_EquivalentOperand(tag, item_id, relation, destination))
@@ -1576,6 +1600,48 @@ class _EncodedColumns:
                         "encoded subset DatatypeRestriction item is not a FacetRestriction"
                     )
             return
+        if tag == _TAG_OBJECT_COMPLEMENT_OF:
+            start = self._exact_fields(node_id, 1)
+            operand_id = self._field_node(start)
+            if not self._is_class_expression(operand_id):
+                raise SnapshotCompatibilityError(
+                    "encoded subset ObjectComplementOf operand is not a class expression"
+                )
+            if not self._is_validated_class_expression(operand_id):
+                inspection.fallback(
+                    "encoded subset ObjectComplementOf operand is outside the validated "
+                    "class-expression envelope"
+                )
+            return
+        if tag == _TAG_OBJECT_ONE_OF:
+            start = self._exact_fields(node_id, 1)
+            item_start, length = self._node_set_range(start, minimum=1)
+            for item_index in range(item_start, item_start + length):
+                if not self._is_supported_individual(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset ObjectOneOf item is not an individual"
+                    )
+            return
+        if tag == _TAG_OBJECT_HAS_VALUE:
+            start = self._exact_fields(node_id, 2)
+            if not self._is_supported_object_property_expression(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset ObjectHasValue property is not a supported object property "
+                    "expression"
+                )
+            if not self._is_supported_individual(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset ObjectHasValue value is not an individual"
+                )
+            return
+        if tag == _TAG_OBJECT_HAS_SELF:
+            start = self._exact_fields(node_id, 1)
+            if not self._is_supported_object_property_expression(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset ObjectHasSelf property is not a supported object property "
+                    "expression"
+                )
+            return
         if tag in _AGGREGATE_TAGS:
             start = self._exact_fields(node_id, 1)
             item_start, length = self._node_set_range(start, minimum=2)
@@ -1583,11 +1649,16 @@ class _EncodedColumns:
             for item_index in range(item_start, item_start + length):
                 item_id = self._item_node(item_index)
                 item_tag = self.node_tag(item_id)
-                if not self._is_named_class(item_id) and item_tag not in _RESTRICTION_TAGS:
+                if (
+                    not self._is_named_class(item_id)
+                    and item_tag not in _RESTRICTION_TAGS
+                    and item_tag not in _NONPROJECTING_CLASS_EXPRESSION_TAGS
+                ):
                     supported = False
             if not supported:
                 inspection.fallback(
-                    "encoded subset aggregate expressions require named or restriction operands"
+                    "encoded subset aggregate expressions require named, restriction, or "
+                    "bounded non-projecting operands"
                 )
             return
         if tag in _RESTRICTION_TAGS:
@@ -2477,12 +2548,62 @@ class _EncodedColumns:
         finally:
             active.remove(node_id)
 
+    def _validate_class_expression_graph(self) -> None:
+        """Reject cycles in the recursively owned non-projecting class envelope."""
+
+        validated: set[int] = set()
+        recursive_tags = _AGGREGATE_TAGS | {_TAG_OBJECT_COMPLEMENT_OF}
+        try:
+            for node_id in range(1, self.node_count + 1):
+                if self.node_tag(node_id) in recursive_tags:
+                    self._validate_class_expression_node(node_id, set(), validated)
+        except RecursionError as error:
+            raise SnapshotCompatibilityError(
+                "encoded subset class-expression graph exceeds the safe recursion depth"
+            ) from error
+
+    def _validate_class_expression_node(
+        self,
+        node_id: int,
+        active: set[int],
+        validated: set[int],
+    ) -> None:
+        if self._is_named_class(node_id) or node_id in validated:
+            return
+        tag = self.node_tag(node_id)
+        if tag in _RESTRICTION_TAGS | (
+            _NONPROJECTING_CLASS_EXPRESSION_TAGS - {_TAG_OBJECT_COMPLEMENT_OF}
+        ):
+            validated.add(node_id)
+            return
+        if tag not in _AGGREGATE_TAGS | {_TAG_OBJECT_COMPLEMENT_OF}:
+            return
+        if node_id in active:
+            raise SnapshotCompatibilityError("encoded subset class-expression graph is cyclic")
+        active.add(node_id)
+        try:
+            if tag in _AGGREGATE_TAGS:
+                start = self._exact_fields(node_id, 1)
+                item_start, length = self._node_set_range(start, minimum=2)
+                for item_index in range(item_start, item_start + length):
+                    item_id = self._item_node(item_index)
+                    if self._is_validated_class_expression(item_id):
+                        self._validate_class_expression_node(item_id, active, validated)
+            else:
+                start = self._exact_fields(node_id, 1)
+                operand_id = self._field_node(start)
+                if self._is_validated_class_expression(operand_id):
+                    self._validate_class_expression_node(operand_id, active, validated)
+            validated.add(node_id)
+        finally:
+            active.remove(node_id)
+
     def _is_supported_object_property_expression(self, node_id: int) -> bool:
         return self._projected_object_property_iri(node_id) is not None
 
     def _is_validated_class_expression(self, node_id: int) -> bool:
         return self._is_named_class(node_id) or self.node_tag(node_id) in (
-            _AGGREGATE_TAGS | _RESTRICTION_TAGS
+            _AGGREGATE_TAGS | _RESTRICTION_TAGS | _NONPROJECTING_CLASS_EXPRESSION_TAGS
         )
 
     def _is_class_expression(self, node_id: int) -> bool:
