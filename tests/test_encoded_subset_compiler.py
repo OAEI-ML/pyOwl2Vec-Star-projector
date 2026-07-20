@@ -10688,6 +10688,7 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
     ingestion = projector.last_report.provenance.ingestion
     assert ingestion.path == "scalar-native"
     assert "whole-operation scalar compiler" in (ingestion.reason or "")
+    assert ingestion.encoded_view_publication_seconds is None
     assert projector.last_encoded_counters is not None
     assert projector.last_encoded_counters.scalar_fallbacks == 1
     assert projector.last_encoded_counters.edge_batches == 0

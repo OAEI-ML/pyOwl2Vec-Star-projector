@@ -649,7 +649,9 @@ def _ingestion_provenance(
         encoded_schema_name=None if lease is None else lease.schema_name,
         encoded_schema_version=None if lease is None else lease.schema_version,
         encoded_descriptor_sha256=None if lease is None else lease.descriptor_sha256,
-        encoded_view_publication_seconds=encoded_view_publication_seconds,
+        encoded_view_publication_seconds=(
+            encoded_view_publication_seconds if ingestion.path == "encoded-native" else None
+        ),
         consumer_compile_seconds=consumer_compile_seconds,
         counters=(
             _empty_ingestion_counters()

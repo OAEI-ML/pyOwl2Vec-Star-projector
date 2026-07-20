@@ -156,6 +156,20 @@ class ProvenanceTests(unittest.TestCase):
             IngestionProvenance(counters={"encoded_buffer_bytes": True})
         with self.assertRaises(ValueError):
             IngestionProvenance(counters={"encoded_compiler_gil_released": 0})
+        for path in ("scalar-python", "scalar-native"):
+            with self.subTest(path=path, diagnostic="publication"):
+                with self.assertRaisesRegex(ValueError, "encoded-view publication"):
+                    IngestionProvenance(
+                        path=path,
+                        encoded_view_publication_seconds=0.125,
+                    )
+            for name, value in (
+                ("encoded_buffer_count", 1),
+                ("encoded_compiler_gil_released", True),
+            ):
+                with self.subTest(path=path, diagnostic=name):
+                    with self.assertRaisesRegex(ValueError, "nonzero encoded resources"):
+                        IngestionProvenance(path=path, counters={name: value})
 
     def test_counts_reject_bool_negative_and_float(self) -> None:
         for value in (True, -1, 1.5):

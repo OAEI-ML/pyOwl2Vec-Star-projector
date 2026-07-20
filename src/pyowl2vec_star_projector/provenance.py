@@ -37,6 +37,18 @@ _INGESTION_COUNTERS = frozenset(
         "materialized_scalar_rows",
     }
 )
+_ENCODED_COUNTER_DEFAULTS: Mapping[str, int | bool] = {
+    "encoded_buffer_bytes": 0,
+    "encoded_buffer_count": 0,
+    "encoded_compiler_gil_released": False,
+    "encoded_detached_buffer_count": 0,
+    "encoded_indexed_buffer_count": 0,
+    "encoded_posting_bytes": 0,
+    "encoded_referenced_view_count": 0,
+    "encoded_segment_count": 0,
+    "encoded_staging_copy_bytes": 0,
+    "encoded_zero_copy_buffers": 0,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +134,8 @@ class IngestionProvenance:
             ):
                 raise ValueError(f"{name} must be a finite non-negative duration or None")
             object.__setattr__(self, name, float(value))
+        if self.path != "encoded-native" and self.encoded_view_publication_seconds is not None:
+            raise ValueError("scalar ingestion cannot claim encoded-view publication")
         if not isinstance(self.counters, Mapping):
             raise TypeError("ingestion counters must be a mapping")
         counters = dict(self.counters)
@@ -133,6 +147,11 @@ class IngestionProvenance:
                     raise ValueError("encoded compiler GIL counter must be bool")
             elif type(value) is not int or value < 0:
                 raise ValueError("ingestion counters must be non-negative ints")
+        if self.path != "encoded-native" and any(
+            name in counters and counters[name] != expected
+            for name, expected in _ENCODED_COUNTER_DEFAULTS.items()
+        ):
+            raise ValueError("scalar ingestion cannot claim nonzero encoded resources")
         object.__setattr__(self, "counters", MappingProxyType(dict(sorted(counters.items()))))
 
     def to_dict(self) -> dict[str, object]:
