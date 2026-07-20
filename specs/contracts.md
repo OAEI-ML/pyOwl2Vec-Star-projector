@@ -224,10 +224,13 @@ The versioned ingestion subrecord additionally carries execution-only
 `encoded_view_publication_seconds` and `consumer_compile_seconds` values when measured, plus an
 immutable allowlisted counter map. The map covers consumer-side scalar rows materialized,
 borrowed/zero-copy encoded buffers and bytes, detached/indexed buffers, segment/referenced-view
-and posting counts, bounded structural staging-copy bytes, and whether compilation released the
-GIL. The publication duration includes public encoded-view acquisition and the Projector adapter's
-in-place validation. These fields are monotonic, non-negative, path-free diagnostics; they do not
-enter portable artifact bytes or semantic digests. Reading the report cannot trigger another core
+and posting counts, bounded staging and total structural-copy bytes, parser/resolver/wire calls,
+scalar axiom/term materializations, base flattening, per-row FFI, and whether compilation released
+the GIL. Zero operation counters assert that the projector handoff itself did not perform that
+work; they do not describe acquisition completed before an existing view was supplied. The
+publication duration includes public encoded-view acquisition and the Projector adapter's in-place
+validation. These fields are monotonic, non-negative, path-free diagnostics; they do not enter
+portable artifact bytes or semantic digests. Reading the report cannot trigger another core
 view request.
 
 It never records a secret resolver credential or assumes the original source path is portable.

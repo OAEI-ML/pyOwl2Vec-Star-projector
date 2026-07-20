@@ -81,9 +81,11 @@ assert projector.last_view is ontology_view
 After successful consumption, `projector.last_report.provenance.ingestion` exposes the selected
 path and its path-safe handoff diagnostics. It records monotonic encoded-view
 publication/validation and compiler-setup durations plus bounded scalar-row, borrowed-buffer,
-segment, posting, and staging-copy counters. Scalar paths publish the same counter vocabulary
-with exact zero encoded values. These execution diagnostics are intentionally excluded from
-portable artifact hashes, and reading them never asks core for another encoded view.
+segment, posting, staging/structural-copy, parser/resolver/wire, scalar-materialization,
+base-flattening, per-row-FFI, and GIL counters. The operation-local zero counters document work
+that the projector boundary did not perform; scalar paths publish the same vocabulary with exact
+zero encoded values. These execution diagnostics are intentionally excluded from portable
+artifact hashes, and reading them never asks core for another encoded view.
 
 For low-latency consumption, set `order="encounter"` and use `iter_edges`; for bounded delivery,
 use `project_to_sink` with a batch callback. `project_taxonomy` is the separate asserted named-
@@ -171,7 +173,7 @@ also retain object identity. The benchmark and Exact baseline comparator live un
 
 The successor P7 harness measures an already-loaded public view through the production projector
 path and records first-edge/complete wall and CPU time, RSS, edge hashes, core operation deltas,
-public ingestion phases/counters, and missing acceptance evidence:
+public ingestion phases/counters, and fail-closed acceptance evidence:
 
 ```bash
 PYTHONPATH=src:../pyOWLCore/src python benchmarks/benchmark_encoded_compiler.py ontology.ofn \

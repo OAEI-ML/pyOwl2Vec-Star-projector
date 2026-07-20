@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector revision: `3f0264b`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector revision: `9ee3c52`. pyOWLCore candidate revision:
 `34b9e84`. Exact-OM integration revision: `ebff7be`.
 
 ## Outcome
@@ -33,7 +33,8 @@ evidence required by WP-P7.
   digest, and artifact surfaces. The boundary does not perform a Python call per axiom or edge.
 - Projection provenance records the selected path, encoded schema and descriptor identity,
   monotonic publication/validation/compiler durations, and a bounded public ledger for scalar
-  rows, borrowed/indexed/detached buffers, segments, postings, staging copies, and GIL state.
+  rows, borrowed/indexed/detached buffers, segments, postings, staging/structural copies,
+  parser/resolver/wire work, scalar materialization, base flattening, per-row FFI, and GIL state.
   Scalar paths publish the same counter vocabulary with encoded values fixed at zero.
 - Test-only parity instrumentation compares canonical rule counters, ordered and bag edge digests,
   diagnostics, and fallbacks against the scalar compiler. Hostile segment/descriptor fixtures and
@@ -45,14 +46,14 @@ evidence required by WP-P7.
   absent GIL-release evidence.
 
 The constructor and segmented-view work is represented by the implementation sequence from
-`ab2b809` through `3f0264b`, including direct aggregate/ABox/annotation compilation, overlay and
+`ab2b809` through `9ee3c52`, including direct aggregate/ABox/annotation compilation, overlay and
 composite resolution, compatibility role state, every documented skipped constructor, hostile
 segment fixtures, silent structural extensions, fallback validation, public phase diagnostics,
 path-bound evidence validation, and the load-excluded acceptance harness.
 
 ## Local verification captured at this checkpoint
 
-The source-tree candidate passed the following repository-owned gates at revision `3f0264b`:
+The source-tree candidate passed the following repository-owned gates at revision `9ee3c52`:
 
 | Gate | Result |
 |---|---|
@@ -76,7 +77,7 @@ timings and counters.
 | Preserve scalar paths and versioned diagnostics | Implemented; Python remains complete and encoded-native remains unadvertised |
 | Direct/mmap/overlay/composite parity matrix | Direct and segmented overlay/composite coverage implemented; installed-wheel mmap cross-product remains open |
 | Lifetime, hostile-input, thread/fork/cancel/panic safety | Focused local coverage exists; fuzz, sanitizer, Miri-equivalent ownership evidence, and hosted matrix remain open |
-| Zero parser/resolver/wire/scalar/base-flattening/materialization ledger | Executable fail-closed harness is implemented; missing public counters and labelled direct/mmap proof remain open |
+| Zero parser/resolver/wire/scalar/base-flattening/materialization ledger | Complete public counter vocabulary and fail-closed harness are implemented; labelled direct/mmap proof and released-GIL evidence remain open |
 | NCIT/DOID/GO/million-axiom/licensed-corpus time and RSS gates | Open; no performance threshold is claimed |
 | Exact shared-stack identity, parity, scale, and dependency-DAG gate | Focused source integration passed; full scale matrix and exact released revisions remain open |
 | Wheels, SBOM/licenses, reproducibility, and Python/platform matrix | Open for the encoded capability |
