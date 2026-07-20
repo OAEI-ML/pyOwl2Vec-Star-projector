@@ -14,7 +14,8 @@ functional, inverse-functional, reflexive, irreflexive, symmetric, asymmetric, a
 plus data-property subproperty/equivalence/disjointness axioms, with annotations on those
 declaration/logical axioms, and skipped data-property domains over the validated class-expression
 envelope, data-property ranges over named datatypes, and functional data properties.
-Named-datatype ``DatatypeDefinition`` axioms follow the same bounded skipped path.
+Named-datatype ``DatatypeDefinition`` axioms and ``HasKey`` axioms over the validated
+class-expression/property envelope follow the same bounded skipped path.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -95,6 +96,7 @@ _TAG_DATA_PROPERTY_DOMAIN = 93
 _TAG_DATA_PROPERTY_RANGE = 94
 _TAG_FUNCTIONAL_DATA_PROPERTY = 95
 _TAG_DATATYPE_DEFINITION = 100
+_TAG_HAS_KEY = 101
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -272,6 +274,7 @@ class EncodedSubsetCounters:
     data_property_range_axioms: int = 0
     functional_data_property_axioms: int = 0
     datatype_definition_axioms: int = 0
+    has_key_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -322,6 +325,7 @@ class EncodedSubsetCounters:
             self.data_property_range_axioms,
             self.functional_data_property_axioms,
             self.datatype_definition_axioms,
+            self.has_key_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -376,6 +380,7 @@ class _MutableCounters:
     data_property_range_axioms: int = 0
     functional_data_property_axioms: int = 0
     datatype_definition_axioms: int = 0
+    has_key_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -428,6 +433,7 @@ class _MutableCounters:
             data_property_range_axioms=self.data_property_range_axioms,
             functional_data_property_axioms=self.functional_data_property_axioms,
             datatype_definition_axioms=self.datatype_definition_axioms,
+            has_key_axioms=self.has_key_axioms,
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -923,6 +929,8 @@ class _EncodedColumns:
             counters.functional_data_property_axioms += 1
         elif tag == _TAG_DATATYPE_DEFINITION:
             counters.datatype_definition_axioms += 1
+        elif tag == _TAG_HAS_KEY:
+            counters.has_key_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1540,6 +1548,30 @@ class _EncodedColumns:
                     "encoded subset requires a named data range in DatatypeDefinition"
                 )
             self._annotation_set_range(start + 2)
+            return
+        if tag == _TAG_HAS_KEY:
+            start = self._exact_fields(node_id, 4)
+            if not self._is_validated_class_expression(self._field_node(start)):
+                inspection.fallback(
+                    "encoded subset requires a validated class expression in HasKey"
+                )
+            object_start, object_length = self._node_set_range(start + 1)
+            for item_index in range(object_start, object_start + object_length):
+                if not self._is_supported_object_property_expression(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset HasKey item is not a supported object property expression"
+                    )
+            data_start, data_length = self._node_set_range(start + 2)
+            for item_index in range(data_start, data_start + data_length):
+                if not self._is_named_data_property(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset HasKey item is not a data property"
+                    )
+            if not object_length and not data_length:
+                raise SnapshotCompatibilityError(
+                    "encoded subset HasKey requires at least one property"
+                )
+            self._annotation_set_range(start + 3)
             return
         if tag == _TAG_CLASS_ASSERTION:
             start = self._exact_fields(node_id, 3)
@@ -2958,6 +2990,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_DATA_PROPERTY_RANGE: "DataPropertyRange",
         _TAG_FUNCTIONAL_DATA_PROPERTY: "FunctionalDataProperty",
         _TAG_DATATYPE_DEFINITION: "DatatypeDefinition",
+        _TAG_HAS_KEY: "HasKey",
     }
     result: dict[str, int] = {}
     for root in roots:

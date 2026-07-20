@@ -4299,6 +4299,89 @@ def test_datatype_definitions_match_scalar_skipped_diagnostics() -> None:
             assert counters.scalar_fallbacks == 0
 
 
+def test_has_keys_match_scalar_skipped_diagnostics() -> None:
+    view = _snapshot(
+        "HasKey(:Keyed (:op ObjectInverseOf(:inv)) ()) "
+        "HasKey(Annotation(<urn:meta> _:skipped) ObjectSomeValuesFrom(:aux :F) () (:dp :dq)) "
+        "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>) "
+        "SubObjectPropertyOf(:child :p) ObjectPropertyDomain(:p :D) "
+        "ObjectPropertyRange(:p :R) ObjectPropertyAssertion(:u _:edge :i)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(backend="python", duplicates="unique", order="canonical"),
+        ProjectionOptions(
+            backend="python",
+            compatibility_state="scala-instance",
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("has-key slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert len(actual) == 3
+            assert Edge("urn:slice#D", "urn:slice#p", "urn:slice#R") in actual
+            assert Edge("urn:slice#D", "urn:slice#child", "urn:slice#R") in actual
+            assertion = next(edge for edge in actual if edge.relation == "urn:slice#u")
+            assert assertion.source.startswith("_:genid")
+            assert assertion.destination == "urn:slice#i"
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert projector.last_report.provenance.counts.skipped_axioms == 3
+            assert projector.last_report.provenance.counts.ignored_shapes == 0
+            assert projector.last_report.diagnostics == (
+                ProjectionDiagnostic(
+                    code="MOWL_SKIPPED_AXIOM",
+                    message="axiom category is not visited by the pinned profile",
+                    count=1,
+                    constructor="DatatypeDefinition",
+                ),
+                ProjectionDiagnostic(
+                    code="MOWL_SKIPPED_AXIOM",
+                    message="axiom category is not visited by the pinned profile",
+                    count=2,
+                    constructor="HasKey",
+                ),
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 7
+            assert counters.has_key_axioms == 2
+            assert counters.datatype_definition_axioms == 1
+            assert counters.sub_object_property_axioms == 1
+            assert counters.object_property_assertion_axioms == 1
+            assert counters.anonymous_individuals == 2
+            assert counters.edge_batches == counters.raw_edges == 3
+            assert counters.scalar_fallbacks == 0
+
+
 def test_named_role_axioms_match_scalar_hashset_order_and_same_view_edges() -> None:
     view = _snapshot(
         "SubObjectPropertyOf(:p :r) SubObjectPropertyOf(:q :r) "
@@ -5793,6 +5876,72 @@ def test_skipped_datatype_definition_does_not_leak_scala_instance_state() -> Non
             side_effect=AssertionError(
                 "encoded datatype-definition follow-on crossed scalar traversal"
             ),
+        ),
+    ):
+        actual = projector.project(
+            domain_range_view,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected == [Edge("urn:slice#D", "urn:slice#shared", "urn:slice#R")]
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        second_scalar_report
+    )
+    assert projector.last_report.provenance.invocation_count == 2
+    second_counters = projector.last_encoded_counters
+    assert second_counters is not None
+    assert second_counters.object_property_domain_axioms == 1
+    assert second_counters.object_property_range_axioms == 1
+    assert second_counters.scalar_fallbacks == 0
+
+
+def test_skipped_has_key_does_not_leak_scala_instance_state() -> None:
+    skipped_view = _snapshot('HasKey(Annotation(<urn:meta> "skipped") :C (:child :shared) (:data))')
+    domain_range_view = _snapshot(
+        "ObjectPropertyDomain(:shared :D) ObjectPropertyRange(:shared :R)"
+    )
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(skipped_view, options=options) == []
+    assert scalar.last_report is not None
+    first_scalar_report = scalar.last_report.to_dict()
+    expected = scalar.project(domain_range_view, options=options)
+    assert scalar.last_report is not None
+    second_scalar_report = scalar.last_report.to_dict()
+
+    projector = Projector()
+    with (
+        _forced_encoded(_lease(skipped_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded has-key lifecycle crossed scalar traversal"),
+        ),
+    ):
+        assert projector.project(skipped_view, options=replace(options, backend="native")) == []
+
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        first_scalar_report
+    )
+    assert projector.last_report.provenance.counts.skipped_axioms == 1
+    assert projector.last_report.provenance.invocation_count == 1
+    first_counters = projector.last_encoded_counters
+    assert first_counters is not None
+    assert first_counters.has_key_axioms == 1
+    assert first_counters.scalar_fallbacks == 0
+
+    with (
+        _forced_encoded(_lease(domain_range_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded has-key follow-on crossed scalar traversal"),
         ),
     ):
         actual = projector.project(
@@ -7702,6 +7851,88 @@ def test_segmented_datatype_definitions_preserve_skips_edges_and_leases() -> Non
         assert counters.referenced_segments in {1, 2}
 
 
+def test_segmented_has_keys_preserve_skips_edges_and_leases() -> None:
+    source_body = (
+        "HasKey(:Keyed (:p ObjectInverseOf(:q)) ()) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyAssertion(:u :i :j)"
+    )
+    delta_body = (
+        'HasKey(Annotation(<urn:meta> "skipped") ObjectUnionOf(:A :B) () (:dp)) '
+        "ObjectPropertyRange(:p :R) SubObjectPropertyOf(:child :p)"
+    )
+    source = _snapshot(source_body)
+    delta = _snapshot(delta_body)
+    overlay = _snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(backend="python", duplicates="unique", order="canonical")
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert prepared.statistics.skipped_axioms == 2
+        assert len(prepared._role_axioms) == 1
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("segmented has-key axioms crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected
+        assert set(actual) == {
+            Edge("urn:slice#i", "urn:slice#u", "urn:slice#j"),
+            Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+            Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        }
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        assert projector.last_report.provenance.counts.skipped_axioms == 2
+        assert projector.last_report.provenance.counts.ignored_shapes == 0
+        assert projector.last_report.diagnostics == (
+            ProjectionDiagnostic(
+                code="MOWL_SKIPPED_AXIOM",
+                message="axiom category is not visited by the pinned profile",
+                count=2,
+                constructor="HasKey",
+            ),
+        )
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.has_key_axioms == 2
+        assert counters.scalar_fallbacks == 0
+        assert counters.referenced_segments in {1, 2}
+
+
 def test_segmented_inverse_properties_preserve_order_diagnostics_and_leases() -> None:
     source_body = (
         'SubClassOf(Annotation(<urn:meta> "inverse-source") '
@@ -7855,6 +8086,8 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "DataUnionOf(<http://www.w3.org/2001/XMLSchema#string> "
         "<http://www.w3.org/2001/XMLSchema#integer>)) "
         "ObjectPropertyAssertion(:p _:edge :i)",
+        "HasKey(Annotation(<urn:meta> _:skipped) ObjectComplementOf(:C) (:p) ()) "
+        "ObjectPropertyAssertion(:u _:edge :i)",
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -7972,6 +8205,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
         "FunctionalDataProperty(:dp) "
         "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>) "
+        "HasKey(ObjectSomeValuesFrom(:key :C) (:p ObjectInverseOf(:q)) (:dp)) "
         "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
         "SubClassOf(ObjectSomeValuesFrom(:p :D) ObjectAllValuesFrom(:q :E)) "
         "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D))) "
@@ -8038,6 +8272,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters.data_property_range_axioms == 1
     assert counters.functional_data_property_axioms == 1
     assert counters.datatype_definition_axioms == 1
+    assert counters.has_key_axioms == 1
     assert counters.annotation_assertion_axioms == 1
     assert counters.anonymous_individuals == 1
     assert counters.literal_nodes == 1
@@ -9358,6 +9593,202 @@ def test_wrong_kind_datatype_definition_range_selects_scalar_before_output() -> 
     )
     values = bytearray(buffers["field_values"])
     values[(field_index + 1) * 8 : (field_index + 2) * 8] = wrong_id.to_bytes(8, "little")
+    buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        view,
+        ProjectionOptions(backend="native"),
+        EncodedNegotiation("encoded-native", lease=hostile),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert counters is not None
+    assert counters.scalar_fallbacks == 1
+    assert counters.raw_edges == counters.edge_batches == 0
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "arity",
+        "class-kind",
+        "class-length",
+        "class-reference",
+        "object-set-kind",
+        "object-set-range",
+        "object-item-kind",
+        "object-item-length",
+        "object-item-order",
+        "object-item-range",
+        "object-wrong-item",
+        "data-set-kind",
+        "data-set-range",
+        "data-item-kind",
+        "data-item-length",
+        "data-item-order",
+        "data-item-range",
+        "data-wrong-item",
+        "both-empty",
+        "annotation-kind",
+        "annotation-item",
+    ],
+)
+def test_has_key_corruption_fails_before_output(corruption: str) -> None:
+    view = _snapshot(
+        'HasKey(Annotation(<urn:a> "x") :C (:p ObjectInverseOf(:q) :r) '
+        "(:dp :dq :dr)) SubClassOf(:A :B) Declaration(Class(:Wrong))"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    axiom_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 101
+    )
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_class_iri(node_id) == "urn:slice#Wrong"
+    )
+    buffers = dict(lease.buffers)
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(
+        offsets[(axiom_id - 1) * 8 : axiom_id * 8],
+        "little",
+    )
+    object_index = field_index + 1
+    data_index = field_index + 2
+    annotation_index = field_index + 3
+    object_item = int.from_bytes(
+        buffers["field_values"][object_index * 8 : (object_index + 1) * 8],
+        "little",
+    )
+    data_item = int.from_bytes(
+        buffers["field_values"][data_index * 8 : (data_index + 1) * 8],
+        "little",
+    )
+    annotation_item = int.from_bytes(
+        buffers["field_values"][annotation_index * 8 : (annotation_index + 1) * 8],
+        "little",
+    )
+    object_property_id = columns._item_node(object_item)
+
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = axiom_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption in {"class-kind", "object-set-kind", "data-set-kind", "annotation-kind"}:
+        index = {
+            "class-kind": field_index,
+            "object-set-kind": object_index,
+            "data-set-kind": data_index,
+            "annotation-kind": annotation_index,
+        }[corruption]
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[index] = 7 if corruption != "class-kind" else 2
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "class-length":
+        lengths = bytearray(buffers["field_lengths"])
+        lengths[field_index * 8 : (field_index + 1) * 8] = (1).to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    elif corruption in {"class-reference", "object-set-range", "data-set-range"}:
+        index = {
+            "class-reference": field_index,
+            "object-set-range": object_index,
+            "data-set-range": data_index,
+        }[corruption]
+        replacement = (
+            columns.node_count + 1 if corruption == "class-reference" else columns.item_count + 1
+        )
+        values = bytearray(buffers["field_values"])
+        values[index * 8 : (index + 1) * 8] = replacement.to_bytes(8, "little")
+        buffers["field_values"] = memoryview(bytes(values))
+    elif corruption in {"object-item-kind", "data-item-kind"}:
+        item = object_item if corruption.startswith("object") else data_item
+        kinds = bytearray(buffers["item_kinds"])
+        kinds[item] = 5
+        buffers["item_kinds"] = memoryview(bytes(kinds))
+    elif corruption in {"object-item-length", "data-item-length"}:
+        item = object_item if corruption.startswith("object") else data_item
+        lengths = bytearray(buffers["item_lengths"])
+        lengths[item * 8 : (item + 1) * 8] = (1).to_bytes(8, "little")
+        buffers["item_lengths"] = memoryview(bytes(lengths))
+    elif corruption in {"object-item-order", "data-item-order"}:
+        item = object_item if corruption.startswith("object") else data_item
+        values = bytearray(buffers["item_values"])
+        first = bytes(values[item * 8 : (item + 1) * 8])
+        second = bytes(values[(item + 1) * 8 : (item + 2) * 8])
+        values[item * 8 : (item + 1) * 8] = second
+        values[(item + 1) * 8 : (item + 2) * 8] = first
+        buffers["item_values"] = memoryview(bytes(values))
+    elif corruption in {"object-item-range", "data-item-range"}:
+        item = object_item if corruption.startswith("object") else data_item
+        values = bytearray(buffers["item_values"])
+        values[item * 8 : (item + 1) * 8] = (columns.node_count + 1).to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    elif corruption in {"object-wrong-item", "data-wrong-item"}:
+        item = object_item if corruption.startswith("object") else data_item
+        replacement = wrong_id if corruption.startswith("object") else object_property_id
+        values = bytearray(buffers["item_values"])
+        item_ids = [
+            int.from_bytes(values[index * 8 : (index + 1) * 8], "little")
+            for index in range(item, item + 3)
+        ]
+        item_ids[-1] = replacement
+        item_ids.sort()
+        assert len(set(item_ids)) == 3
+        for index, node_id in enumerate(item_ids, item):
+            values[index * 8 : (index + 1) * 8] = node_id.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    elif corruption == "both-empty":
+        lengths = bytearray(buffers["field_lengths"])
+        lengths[object_index * 8 : (object_index + 1) * 8] = (0).to_bytes(8, "little")
+        lengths[data_index * 8 : (data_index + 1) * 8] = (0).to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    else:
+        values = bytearray(buffers["item_values"])
+        values[annotation_item * 8 : (annotation_item + 1) * 8] = wrong_id.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=(
+            r"arity|node reference|canonical.set|out of bounds|sorted and unique|"
+            r"supported object property|data property|at least one property|annotation set"
+        ),
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+def test_wrong_kind_has_key_class_expression_selects_scalar_before_output() -> None:
+    view = _snapshot("HasKey(:C (:p) (:dp)) SubClassOf(:A :B)")
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    axiom_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 101
+    )
+    buffers = dict(lease.buffers)
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(
+        offsets[(axiom_id - 1) * 8 : axiom_id * 8],
+        "little",
+    )
+    data_item = int.from_bytes(
+        buffers["field_values"][(field_index + 2) * 8 : (field_index + 3) * 8],
+        "little",
+    )
+    data_property_id = columns._item_node(data_item)
+    values = bytearray(buffers["field_values"])
+    values[field_index * 8 : (field_index + 1) * 8] = data_property_id.to_bytes(8, "little")
     buffers["field_values"] = memoryview(bytes(values))
     hostile = replace(lease, buffers=MappingProxyType(buffers))
 

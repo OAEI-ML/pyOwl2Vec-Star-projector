@@ -102,6 +102,9 @@ composite data ranges retain whole-operation scalar fallback.
 Unary named `FunctionalDataProperty` axioms follow the same skipped-only native path.
 `DatatypeDefinition` between named datatypes is preflighted and skipped; composite defining data
 ranges retain whole-operation scalar fallback.
+`HasKey` over a validated class expression, supported object-property expressions, and named data
+properties is likewise preflighted and skipped; either property set may be empty, but not both.
+Class expressions outside the bounded envelope retain whole-operation scalar fallback.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.

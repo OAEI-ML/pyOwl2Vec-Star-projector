@@ -248,6 +248,7 @@ mutate object-role state.
 `DataPropertyRange` follows the same contract and cannot populate object ranges.
 `FunctionalDataProperty` is likewise skipped and cannot mutate object-role state.
 `DatatypeDefinition` is skipped and cannot affect projected datatype or role state.
+`HasKey` is skipped and cannot affect projected class, data-property, or object-role state.
 
 ## 11. Mutable instance state
 
