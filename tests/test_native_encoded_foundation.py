@@ -90,6 +90,20 @@ def _annotation_snapshot() -> object:
     )
 
 
+def _skipped_logical_snapshot() -> object:
+    return _snapshot(
+        'HasKey(Annotation(<urn:key-meta> "key") '
+        "ObjectIntersectionOf(:Keyed ObjectSomeValuesFrom(:aux :F)) "
+        "(:op ObjectInverseOf(:inv)) (:dp :dq)) "
+        "SameIndividual(Annotation(<urn:same-meta> <urn:value>) :same _:z _:a) "
+        'DifferentIndividuals(Annotation(<urn:different-meta> "different") '
+        ":different _:z _:a) SubObjectPropertyOf(:child :p) "
+        "SubClassOf(:TaxA :TaxB) "
+        "SubClassOf(:Source ObjectSomeValuesFrom(:p :Target)) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -152,6 +166,9 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.aggregate_equivalents == 0
     assert statistics.disjoint_classes == 0
     assert statistics.disjoint_unions == 0
+    assert statistics.has_keys == 0
+    assert statistics.same_individuals == 0
+    assert statistics.different_individuals == 0
     assert statistics.class_assertions == 0
     assert statistics.object_property_assertions == 0
     assert statistics.negative_object_property_assertions == 0
@@ -1199,10 +1216,215 @@ def test_hostile_annotation_assertion_rows_fail_before_output(
     assert compiler.state == "failed"
 
 
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_key_and_individual_set_roots_match_scalar_state_neutral_skips(
+    only_taxonomy: bool,
+) -> None:
+    view = _skipped_logical_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert statistics.roots == 8
+    assert statistics.has_keys == 1
+    assert statistics.same_individuals == 1
+    assert statistics.different_individuals == 1
+    assert statistics.skipped_axioms == 3
+    assert statistics.role_expansion_edges == (1 if only_taxonomy else 2)
+    assert len(actual) == (3 if only_taxonomy else 5)
+
+
+def test_asserted_taxonomy_preflights_key_and_individual_sets_without_leakage() -> None:
+    view = _skipped_logical_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert all(edge.relation in {SUBCLASS_OF, SUPERCLASS_OF} for edge in actual)
+    assert statistics.has_keys == 1
+    assert statistics.same_individuals == 1
+    assert statistics.different_individuals == 1
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 0
+
+
+def test_many_individual_set_roots_cross_one_zero_output_bounded_call() -> None:
+    axioms = " ".join(
+        (
+            f"SameIndividual(:left{index:03d} _:anonymous{index:03d})"
+            if index % 2 == 0
+            else f"DifferentIndividuals(:left{index:03d} _:anonymous{index:03d})"
+        )
+        for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(axioms)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == 250
+    assert statistics.same_individuals == 125
+    assert statistics.different_individuals == 125
+    assert statistics.skipped_axioms == 250
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize(
+    ("body", "target_tag", "field_delta", "replacement_kind", "match"),
+    [
+        (
+            "HasKey(:Keyed (:p) ())",
+            101,
+            1,
+            "declared-class",
+            "object-property",
+        ),
+        (
+            "SameIndividual(:i :j)",
+            110,
+            0,
+            "declared-class",
+            "individual",
+        ),
+        (
+            'DifferentIndividuals(Annotation(<urn:meta> "m") :i :j)',
+            111,
+            1,
+            "literal",
+            "annotation set item",
+        ),
+    ],
+    ids=["has-key-property", "same-individual-member", "different-annotation"],
+)
+def test_hostile_key_and_individual_set_rows_fail_before_output(
+    body: str,
+    target_tag: int,
+    field_delta: int,
+    replacement_kind: str,
+    match: str,
+) -> None:
+    lease = _lease(_snapshot(f"SubClassOf(:Before :After) {body} Declaration(Class(:Wrong))"))
+    tags = lease.buffers["node_tags"]
+
+    def tagged_nodes(tag: int) -> list[int]:
+        return [
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        ]
+
+    offsets = lease.buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    field_values = lease.buffers["field_values"]
+    target_field = field_start(tagged_nodes(target_tag)[0]) + field_delta
+    collection_start = int.from_bytes(
+        field_values[target_field * 8 : (target_field + 1) * 8],
+        "little",
+    )
+    field_lengths = lease.buffers["field_lengths"]
+    collection_length = int.from_bytes(
+        field_lengths[target_field * 8 : (target_field + 1) * 8],
+        "little",
+    )
+    item_values = bytearray(lease.buffers["item_values"])
+    if replacement_kind == "declared-class":
+        declaration_field = field_start(tagged_nodes(60)[0])
+        replacement = int.from_bytes(
+            field_values[declaration_field * 8 : (declaration_field + 1) * 8],
+            "little",
+        )
+    else:
+        assert replacement_kind == "literal"
+        replacement = tagged_nodes(4)[0]
+    collection = [
+        int.from_bytes(item_values[index * 8 : (index + 1) * 8], "little")
+        for index in range(collection_start, collection_start + collection_length)
+    ]
+    collection[0] = replacement
+    collection.sort()
+    for index, node_id in enumerate(collection, start=collection_start):
+        item_values[index * 8 : (index + 1) * 8] = node_id.to_bytes(8, "little")
+    hostile = _replace_buffers(
+        lease,
+        {"item_values": memoryview(bytes(item_values))},
+    )
+    compiler = prepare_native_encoded_direct(hostile)
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+def test_hostile_anonymous_individual_shape_fails_before_output() -> None:
+    lease = _lease(_snapshot("SubClassOf(:Before :After) SameIndividual(:i _:anonymous)"))
+    tags = lease.buffers["node_tags"]
+    anonymous_id = next(
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 3
+    )
+    offsets = lease.buffers["node_field_offsets"]
+    field_start = int.from_bytes(
+        offsets[(anonymous_id - 1) * 8 : anonymous_id * 8],
+        "little",
+    )
+    kinds = bytearray(lease.buffers["field_kinds"])
+    kinds[field_start] = 2
+    hostile = _replace_buffers(
+        lease,
+        {"field_kinds": memoryview(bytes(kinds))},
+    )
+    compiler = prepare_native_encoded_direct(hostile)
+    with pytest.raises(SnapshotCompatibilityError, match="scalar field"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
-    constructor_lease = _lease(_snapshot("SameIndividual(:i :j)"))
+    constructor_lease = _lease(_snapshot("SubAnnotationPropertyOf(:a :b)"))
     compiler = prepare_native_encoded_direct(constructor_lease)
-    with pytest.raises(NativeEncodedDirectUnsupported, match="schema tag 110"):
+    with pytest.raises(NativeEncodedDirectUnsupported, match="schema tag 121"):
         compiler.compile_batch(
             bidirectional=False,
             max_edges=10,

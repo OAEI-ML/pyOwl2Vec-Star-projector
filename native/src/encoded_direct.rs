@@ -43,6 +43,7 @@ const COMPONENT_SEQUENCE: u8 = 7;
 
 const TAG_IRI: u16 = 1;
 const TAG_ENTITY: u16 = 2;
+const TAG_ANONYMOUS_INDIVIDUAL: u16 = 3;
 const TAG_LITERAL: u16 = 4;
 const TAG_ANNOTATION: u16 = 5;
 const TAG_OBJECT_INVERSE_OF: u16 = 10;
@@ -78,6 +79,9 @@ const TAG_DATA_PROPERTY_DOMAIN: u16 = 93;
 const TAG_DATA_PROPERTY_RANGE: u16 = 94;
 const TAG_FUNCTIONAL_DATA_PROPERTY: u16 = 95;
 const TAG_DATATYPE_DEFINITION: u16 = 100;
+const TAG_HAS_KEY: u16 = 101;
+const TAG_SAME_INDIVIDUAL: u16 = 110;
+const TAG_DIFFERENT_INDIVIDUALS: u16 = 111;
 const TAG_CLASS_ASSERTION: u16 = 112;
 const TAG_OBJECT_PROPERTY_ASSERTION: u16 = 113;
 const TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: u16 = 114;
@@ -196,6 +200,9 @@ pub(crate) struct DirectCompileStats {
     pub(crate) aggregate_equivalents: usize,
     pub(crate) disjoint_classes: usize,
     pub(crate) disjoint_unions: usize,
+    pub(crate) has_keys: usize,
+    pub(crate) same_individuals: usize,
+    pub(crate) different_individuals: usize,
     pub(crate) class_assertions: usize,
     pub(crate) object_property_assertions: usize,
     pub(crate) negative_object_property_assertions: usize,
@@ -308,6 +315,9 @@ struct RootCounts {
     aggregate_equivalents: usize,
     disjoint_classes: usize,
     disjoint_unions: usize,
+    has_keys: usize,
+    same_individuals: usize,
+    different_individuals: usize,
     class_assertions: usize,
     object_property_assertions: usize,
     negative_object_property_assertions: usize,
@@ -348,6 +358,9 @@ impl RootCounts {
             self.negative_object_property_assertions,
             self.disjoint_classes,
             self.disjoint_unions,
+            self.has_keys,
+            self.same_individuals,
+            self.different_individuals,
             self.equivalent_object_properties,
             self.disjoint_object_properties,
             self.functional_object_properties,
@@ -767,6 +780,38 @@ impl<'a> DirectColumns<'a> {
         Ok((kind, iri_id))
     }
 
+    fn validate_anonymous_individual(self, node_id: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_ANONYMOUS_INDIVIDUAL {
+            return Err(KernelError::malformed(
+                "encoded anonymous-individual cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        let document_scope = self.scalar_payload(start, COMPONENT_BYTES)?;
+        let local_key = self.scalar_payload(start + 1, COMPONENT_BYTES)?;
+        if document_scope.len() != 32 {
+            return Err(KernelError::malformed(
+                "encoded anonymous individual document scope is not bytes32",
+            ));
+        }
+        if local_key.is_empty() {
+            return Err(KernelError::malformed(
+                "encoded anonymous individual local key is empty",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_individual(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => self.named_individual_iri(node_id, maximum).map(|_iri| ()),
+            TAG_ANONYMOUS_INDIVIDUAL => self.validate_anonymous_individual(node_id),
+            _ => Err(KernelError::malformed(
+                "encoded individual set item is not an individual",
+            )),
+        }
+    }
+
     fn named_class_iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
         let tag = self.node_tag(node_id)?;
         if tag != TAG_ENTITY {
@@ -1171,6 +1216,51 @@ impl<'a> DirectColumns<'a> {
         self.named_datatype_iri(self.field_node(start)?, maximum)?;
         self.named_datatype_iri(self.field_node(start + 1)?, maximum)?;
         self.empty_annotation_set(start + 2)
+    }
+
+    fn validate_has_key(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_HAS_KEY {
+            return Err(KernelError::malformed(
+                "encoded has-key cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 4)?;
+        self.class_expression_rank(self.field_node(start)?, maximum)?;
+        let (object_start, object_length) = self.node_set_range(start + 1, 0)?;
+        for item_index in object_start..object_start + object_length {
+            self.object_property_expression(self.item_node(item_index)?, maximum)?;
+        }
+        let (data_start, data_length) = self.node_set_range(start + 2, 0)?;
+        for item_index in data_start..data_start + data_length {
+            self.named_data_property_iri(self.item_node(item_index)?, maximum)?;
+        }
+        if object_length == 0 && data_length == 0 {
+            return Err(KernelError::malformed(
+                "encoded HasKey requires at least one property",
+            ));
+        }
+        self.validate_annotation_set(start + 3)
+    }
+
+    fn validate_individual_set_axiom(
+        self,
+        node_id: usize,
+        expected_tag: u16,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != expected_tag
+            || ![TAG_SAME_INDIVIDUAL, TAG_DIFFERENT_INDIVIDUALS].contains(&expected_tag)
+        {
+            return Err(KernelError::malformed(
+                "encoded individual-set cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        let (item_start, length) = self.node_set_range(start, 2)?;
+        for item_index in item_start..item_start + length {
+            self.validate_individual(self.item_node(item_index)?, maximum)?;
+        }
+        self.validate_annotation_set(start + 1)
     }
 
     fn validate_data_property_assertion(
@@ -1828,6 +1918,9 @@ impl<'a> DirectColumns<'a> {
                     let (_kind, iri_id) = self.entity(node_id)?;
                     self.iri(iri_id, maximum_iri)?;
                 }
+                TAG_ANONYMOUS_INDIVIDUAL => {
+                    self.validate_anonymous_individual(node_id)?;
+                }
                 TAG_LITERAL => {
                     self.validate_literal(node_id, maximum_iri)?;
                 }
@@ -1913,6 +2006,16 @@ impl<'a> DirectColumns<'a> {
                 }
                 TAG_DATATYPE_DEFINITION => {
                     self.validate_datatype_definition(node_id, maximum_iri)?;
+                }
+                TAG_HAS_KEY => {
+                    self.validate_has_key(node_id, maximum_iri)?;
+                }
+                TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS => {
+                    self.validate_individual_set_axiom(
+                        node_id,
+                        self.node_tag(node_id)?,
+                        maximum_iri,
+                    )?;
                 }
                 TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
                     self.validate_data_property_assertion(
@@ -2041,6 +2144,11 @@ impl<'a> DirectColumns<'a> {
                 }
                 (ROOT_AXIOM, TAG_DATATYPE_DEFINITION) => {
                     counts.datatype_definitions += 1;
+                }
+                (ROOT_AXIOM, TAG_HAS_KEY) => counts.has_keys += 1,
+                (ROOT_AXIOM, TAG_SAME_INDIVIDUAL) => counts.same_individuals += 1,
+                (ROOT_AXIOM, TAG_DIFFERENT_INDIVIDUALS) => {
+                    counts.different_individuals += 1;
                 }
                 (ROOT_AXIOM, TAG_DATA_PROPERTY_ASSERTION) => {
                     counts.data_property_assertions += 1;
@@ -2714,6 +2822,9 @@ pub(crate) fn compile_direct_with_options(
         aggregate_equivalents: counts.aggregate_equivalents,
         disjoint_classes: counts.disjoint_classes,
         disjoint_unions: counts.disjoint_unions,
+        has_keys: counts.has_keys,
+        same_individuals: counts.same_individuals,
+        different_individuals: counts.different_individuals,
         class_assertions: counts.class_assertions,
         object_property_assertions: counts.object_property_assertions,
         negative_object_property_assertions: counts.negative_object_property_assertions,
@@ -3507,6 +3618,45 @@ mod tests {
         fixture
     }
 
+    fn skipped_logical_fixture() -> Fixture {
+        let mut fixture = named_annotation_fixture();
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"anonymous");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 21
+        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+        fixture.push_node_ref(4);
+        fixture.finish_node(TAG_ENTITY); // 22
+        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 23
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 24
+        fixture.push_scalar(COMPONENT_ENUM, b"data_property");
+        fixture.push_node_ref(3);
+        fixture.finish_node(TAG_ENTITY); // 25
+        fixture.push_node_ref(24);
+        fixture.push_node_ref(7);
+        fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM); // 26
+
+        fixture.push_node_ref(26);
+        fixture.push_node_set(&[24]);
+        fixture.push_node_set(&[25]);
+        fixture.push_node_set(&[15]);
+        fixture.finish_node(TAG_HAS_KEY); // 27
+        fixture.push_node_set(&[21, 22]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SAME_INDIVIDUAL); // 28
+        fixture.push_node_set(&[21, 23]);
+        fixture.push_node_set(&[15]);
+        fixture.finish_node(TAG_DIFFERENT_INDIVIDUALS); // 29
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 3]);
+        for root_id in 27_u32..=29 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
     fn running_state() -> AtomicU8 {
         AtomicU8::new(STATE_RUNNING)
     }
@@ -4132,6 +4282,43 @@ mod tests {
             ),
             Err(KernelError::Resource(_))
         ));
+    }
+
+    #[test]
+    fn key_and_individual_set_axioms_are_validated_state_neutral_skips() {
+        let fixture = skipped_logical_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(edges.is_empty());
+        assert_eq!(stats.has_keys, 1);
+        assert_eq!(stats.same_individuals, 1);
+        assert_eq!(stats.different_individuals, 1);
+        assert_eq!(stats.annotation_assertions, 4);
+        assert_eq!(stats.skipped_axioms, 3);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.has_keys, 1);
+        assert_eq!(stats.same_individuals, 1);
+        assert_eq!(stats.different_individuals, 1);
+        assert_eq!(stats.skipped_axioms, 0);
     }
 
     #[test]
