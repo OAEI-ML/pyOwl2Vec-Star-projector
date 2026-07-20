@@ -100,11 +100,16 @@ def _snapshot(body: str) -> object:
     )
 
 
-def _lease(view: object) -> EncodedStructuralLease:
+def _lease(
+    view: object,
+    *,
+    materialize_segments: bool = False,
+) -> EncodedStructuralLease:
     encoded = view.view(  # type: ignore[attr-defined]
         pyowl_core.EncodedStructuralView,
         schema_version=1,
         scope=pyowl_core.AxiomScope.CLOSURE,
+        materialize_segments=materialize_segments,
     )
     return _validate_encoded_view(
         view,
@@ -151,7 +156,11 @@ def _overlay_base_lease(
     scope_map: memoryview | None = None,
     local_columns_empty: bool = True,
 ) -> EncodedStructuralLease:
-    top = _lease(view) if hasattr(view, "view") else _lease(_snapshot(""))
+    top = (
+        _lease(view, materialize_segments=not local_columns_empty)
+        if hasattr(view, "view")
+        else _lease(_snapshot(""))
+    )
     empty = _lease(_snapshot(""))
     segment = _SegmentFixture(
         2,
@@ -1761,7 +1770,7 @@ def test_composite_order_changing_scope_map_falls_back_after_full_preflight() ->
     left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
     right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
     source = compose_views(left, right)  # type: ignore[arg-type]
-    source_lease = _lease(source)
+    source_lease = _lease(source, materialize_segments=True)
     anonymous_nodes = _anonymous_node_ids(source_lease)
     assert len(anonymous_nodes) == 2
     scopes = tuple(_anonymous_scope(source_lease, node_id) for node_id in anonymous_nodes)
@@ -1806,7 +1815,7 @@ def test_composite_scope_fallback_does_not_mask_later_hostile_source() -> None:
     left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
     right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
     source = compose_views(left, right)  # type: ignore[arg-type]
-    source_lease = _lease(source)
+    source_lease = _lease(source, materialize_segments=True)
     anonymous_nodes = _anonymous_node_ids(source_lease)
     scopes = tuple(_anonymous_scope(source_lease, node_id) for node_id in anonymous_nodes)
     assert len(scopes) == 2
@@ -1878,7 +1887,7 @@ def test_segmented_overlay_order_changing_scope_map_falls_back_after_preflight()
     anonymous_left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
     anonymous_right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
     anonymous = compose_views(anonymous_left, anonymous_right)
-    anonymous_lease = _lease(anonymous)
+    anonymous_lease = _lease(anonymous, materialize_segments=True)
     other = _snapshot("SubClassOf(:Other :Top)")
     inner = compose_views(anonymous, other)
     inner_lease = _composite_lease(
@@ -1927,7 +1936,7 @@ def test_segmented_overlay_scope_fallback_does_not_mask_hostile_nested_source() 
     anonymous_left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
     anonymous_right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
     anonymous = compose_views(anonymous_left, anonymous_right)
-    anonymous_lease = _lease(anonymous)
+    anonymous_lease = _lease(anonymous, materialize_segments=True)
     other = _snapshot("SubClassOf(:A :Top) SubClassOf(:B :Top)")
     other_lease = _lease(other)
     hostile_buffers = dict(other_lease.buffers)
@@ -2182,7 +2191,7 @@ def test_overlay_scope_remap_that_reorders_identities_falls_back_before_output()
     left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
     right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
     source = compose_views(left, right)  # type: ignore[arg-type]
-    source_lease = _lease(source)
+    source_lease = _lease(source, materialize_segments=True)
     anonymous_nodes = _anonymous_node_ids(source_lease)
     assert len(anonymous_nodes) == 2
     scopes = tuple(_anonymous_scope(source_lease, node_id) for node_id in anonymous_nodes)
@@ -2219,7 +2228,7 @@ def test_overlay_delta_order_changing_scope_map_falls_back_after_full_preflight(
     left = _snapshot("ObjectPropertyAssertion(:left _:a :i)")
     right = _snapshot("ObjectPropertyAssertion(:right _:b :j)")
     source = compose_views(left, right)  # type: ignore[arg-type]
-    source_lease = _lease(source)
+    source_lease = _lease(source, materialize_segments=True)
     anonymous_nodes = _anonymous_node_ids(source_lease)
     assert len(anonymous_nodes) == 2
     scopes = tuple(_anonymous_scope(source_lease, node_id) for node_id in anonymous_nodes)
