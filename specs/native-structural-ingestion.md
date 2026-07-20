@@ -58,7 +58,13 @@ expansion as domain/range edges. A single named class
 paired by `EquivalentClasses` with an intersection or union of named classes and those restrictions
 uses the pinned expression ordering and role expansion. Named `SubObjectPropertyOf` and
 `InverseObjectProperties` axioms update the retained compatibility role state in exact OWLAPI
-hash-set visitation order. The slice emits direct ABox triples and streams restriction and
+hash-set visitation order. Annotations on every otherwise-executable declaration/logical axiom are
+fully preflighted and remain part of canonical root identity, preserving annotated-variant
+multiplicity and cross-table structural deduplication. Annotation property/value hashes contribute
+to role-axiom visitation exactly as in the scalar compiler; nested annotation sets remain validated
+but, matching OWLAPI 4.5.22, do not contribute to `OWLAnnotation.hashCode`. A role annotation value
+whose anonymous key cannot reproduce the scalar Java-string hash selects whole-operation scalar
+compilation before output. The slice emits direct ABox triples and streams restriction and
 domain/range edges with that state through the existing projector `Edge` IR in caller-bounded
 batches, without reconstructing core OWL values. The dedicated asserted-taxonomy API preflights
 the same slice but emits only named-to-named `SubClassOf` edges.
@@ -91,8 +97,8 @@ revalidated once, and every required lease/owner remains retained by the prepare
 A valid order-changing scope map selects whole-operation scalar-native compilation before output.
 Malformed posting bounds/layout, scope rows, owner links, base/delta/member/bridge metadata, member
 tokens, recursive cycles, local-root order, empty-local claims, or referenced columns fail closed.
-Any other valid constructor or annotations on the supported declaration/logical-axiom families
-also select scalar-native compilation for the complete operation before edge output. Test-visible
+Any other valid constructor or unsupported shape in the declaration/logical-axiom families also
+selects scalar-native compilation for the complete operation before edge output. Test-visible
 counters cover inspected roots/nodes/scalar bytes,
 supported axiom kinds, referenced/member segments, posting/scope rows,
 source/delta/bridge/selected and deduplicated roots, canonical bytes compared, batches, raw edges,

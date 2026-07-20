@@ -29,6 +29,7 @@ from pyowl2vec_star_projector.backend import BackendSelection
 from pyowl2vec_star_projector.compiler import (
     RDF_TYPE,
     SUBCLASS_OF,
+    _owlapi_hash,
 )
 from pyowl2vec_star_projector.compiler import (
     prepare_streaming_compilation as scalar_compilation,
@@ -954,6 +955,77 @@ def test_overlay_delta_deduplicates_after_anonymous_scope_remap() -> None:
     assert counters.canonical_bytes_compared > 0
     assert counters.raw_edges == 1
     assert counters.scalar_fallbacks == 0
+
+
+def test_annotated_overlay_roots_preserve_semantic_duplicates_and_owner_lifetime() -> None:
+    source = _snapshot(
+        'SubClassOf(Annotation(<urn:meta> "base") :A :B) '
+        'SubClassOf(Annotation(<urn:meta> "shared") :A :B)'
+    )
+    delta = _snapshot(
+        'SubClassOf(Annotation(<urn:meta> "delta") :A :B) '
+        'SubClassOf(Annotation(<urn:meta> "shared") :A :B)'
+    )
+    overlay = _snapshot(
+        'SubClassOf(Annotation(<urn:meta> "base") :A :B) '
+        'SubClassOf(Annotation(<urn:meta> "delta") :A :B) '
+        'SubClassOf(Annotation(<urn:meta> "shared") :A :B)'
+    )
+    lease = _overlay_delta_lease(overlay, _lease(source), _lease(delta))
+    prepared, negotiation, initial = prepare_encoded_subset_compilation(
+        overlay,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert initial is not None
+    assert len(prepared._retained_leases) == 1
+    assert prepared._retained_leases[0].owner is source
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(backend="python", duplicates="unique", order="canonical"),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(overlay, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("annotated overlay crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = projector.project(
+                overlay,
+                options=replace(options, backend="native"),
+            )
+
+            assert actual == scalar_edges
+            assert len(actual) == (1 if options.duplicates == "unique" else 3)
+            assert set(actual) == {Edge("urn:slice#A", SUBCLASS_OF, "urn:slice#B")}
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 4
+            assert counters.source_roots_inspected == 2
+            assert counters.delta_roots_inspected == 2
+            assert counters.selected_roots == counters.subclass_axioms == 3
+            assert counters.deduplicated_roots == 1
+            assert counters.annotation_nodes == counters.literal_nodes == 4
+            assert counters.raw_edges == 3
+            assert counters.scalar_fallbacks == 0
 
 
 def test_overlay_recursively_resolves_segmented_overlay_source() -> None:
@@ -2493,6 +2565,90 @@ def test_selected_class_annotations_match_scalar_order_rendering_and_diagnostics
                 assert projector.last_report.provenance.counts.warnings == 0
 
 
+def test_annotations_on_supported_axioms_match_scalar_edges_blanks_and_reports() -> None:
+    view = _snapshot(
+        "Declaration(Annotation(<urn:meta> _:metadata) Class(:A)) "
+        'SubClassOf(Annotation(<urn:meta> "named") :A :B) '
+        'SubClassOf(Annotation(<urn:meta> "restriction") '
+        ":B ObjectSomeValuesFrom(:p :C)) "
+        'EquivalentClasses(Annotation(<urn:meta> "named-equivalent") :E :F) '
+        'EquivalentClasses(Annotation(<urn:meta> "aggregate") '
+        ":G ObjectIntersectionOf(:H ObjectSomeValuesFrom(:p :I))) "
+        'ClassAssertion(Annotation(<urn:meta> "class") :A :individual) '
+        'ObjectPropertyAssertion(Annotation(<urn:meta> "one") :p _:edge :individual) '
+        'ObjectPropertyAssertion(Annotation(<urn:meta> "two") :p _:edge :individual) '
+        'ObjectPropertyDomain(Annotation(<urn:meta> "domain") :p :D) '
+        'ObjectPropertyRange(Annotation(<urn:meta> "range") :p :R)'
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(backend="python", only_taxonomy=True, order="encounter"),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("annotated supported axioms crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=2,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 10
+            assert counters.declaration_axioms == 1
+            assert counters.subclass_axioms == 2
+            assert counters.restriction_subclass_axioms == 1
+            assert counters.equivalent_axioms == 2
+            assert counters.aggregate_equivalent_axioms == 1
+            assert counters.class_assertion_axioms == 1
+            assert counters.object_property_assertion_axioms == 2
+            assert counters.object_property_domain_axioms == 1
+            assert counters.object_property_range_axioms == 1
+            assert counters.annotation_nodes == 10
+            assert counters.literal_nodes == 9
+            assert counters.anonymous_individuals == 2
+            assert counters.scalar_fallbacks == 0
+            if options.duplicates == "preserve" and not options.only_taxonomy:
+                duplicate = [
+                    edge
+                    for edge in actual
+                    if edge.relation == "urn:slice#p"
+                    and edge.destination == "urn:slice#individual"
+                    and edge.source.startswith("_:genid")
+                ]
+                assert len(duplicate) == 2
+                assert duplicate[0] == duplicate[1]
+
+
 def test_annotation_oracle_fixture_matches_scalar_without_structural_traversal() -> None:
     view = pyowl_core.load_snapshot(
         ROOT / "tests" / "fixtures" / "oracle" / "annotations.ofn",
@@ -2737,6 +2893,148 @@ def test_named_role_axioms_match_scalar_hashset_order_and_same_view_edges() -> N
         assert counters.edge_batches == 3
         assert counters.raw_edges == 5
         assert counters.scalar_fallbacks == 0
+
+
+def test_annotated_role_axioms_match_scalar_hashset_order_exactly() -> None:
+    view = _snapshot(
+        'SubObjectPropertyOf(Annotation(Annotation(<urn:nested> "ignored") '
+        '<urn:meta> "0") :a :p) '
+        'SubObjectPropertyOf(Annotation(<urn:meta> "4") :c :a) '
+        'InverseObjectProperties(Annotation(<urn:meta> "0") :p :x) '
+        'InverseObjectProperties(Annotation(<urn:meta> "0") :p :y) '
+        'ObjectPropertyDomain(Annotation(<urn:meta> "domain") :p :D) '
+        'ObjectPropertyRange(Annotation(<urn:meta> "range") :p :R)'
+    )
+    lease = _lease(view)
+    expected_edges = [
+        Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+        Edge("urn:slice#D", "urn:slice#a", "urn:slice#R"),
+        Edge("urn:slice#R", "urn:slice#y", "urn:slice#D"),
+    ]
+    for compatibility_state in ("isolated", "scala-instance"):
+        options = ProjectionOptions(
+            backend="python",
+            compatibility_state=compatibility_state,
+            order="encounter",
+        )
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert expected == expected_edges
+        assert scalar.last_report is not None
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("annotated role axioms crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=2,
+                )
+            )
+
+        assert actual == expected
+        assert Edge("urn:slice#D", "urn:slice#c", "urn:slice#R") not in actual
+        assert Edge("urn:slice#R", "urn:slice#x", "urn:slice#D") not in actual
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+            scalar.last_report.to_dict()
+        )
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == 6
+        assert counters.sub_object_property_axioms == 2
+        assert counters.inverse_object_property_axioms == 2
+        assert counters.annotation_nodes == 6
+        assert counters.literal_nodes == 5
+        assert counters.raw_edges == 3
+        assert counters.scalar_fallbacks == 0
+
+
+def test_encoded_role_annotation_hashes_match_scalar_value_variants() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(Annotation(<urn:meta> <urn:value>) :iri :p) "
+        'SubObjectPropertyOf(Annotation(<urn:meta> "typed"^^<urn:datatype>) :typed :p) '
+        'SubObjectPropertyOf(Annotation(<urn:a> "first") '
+        'Annotation(<urn:b> "second") :multi :p) '
+        'InverseObjectProperties(Annotation(Annotation(<urn:nested> "ignored") '
+        '<urn:meta> "plain") :p :inverse)'
+    )
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        view,
+        ProjectionOptions(backend="native"),
+        EncodedNegotiation("encoded-native", lease=_lease(view)),
+        batch_edges=1,
+    )
+    assert compilation is not None
+    assert negotiation.path == "encoded-native"
+    assert counters is not None
+    encoded_hashes = {(row.first, row.second): row.owlapi_hash for row in compilation._role_axioms}
+    scalar_hashes: dict[tuple[str, str], int] = {}
+    for axiom in view.iter_axioms():  # type: ignore[attr-defined]
+        if type(axiom).__name__ == "SubObjectPropertyOf":
+            typed = cast(Any, axiom)
+            first = typed.sub_property.iri.value
+            second = typed.super_property.iri.value
+        elif type(axiom).__name__ == "InverseObjectProperties":
+            typed = cast(Any, axiom)
+            first = typed.first.iri.value
+            second = typed.second.iri.value
+        else:  # pragma: no cover - fixture contains only role axioms
+            continue
+        scalar_hashes[(first, second)] = _owlapi_hash(axiom)
+
+    assert encoded_hashes == scalar_hashes
+    assert counters.sub_object_property_axioms == 3
+    assert counters.inverse_object_property_axioms == 1
+    assert counters.scalar_fallbacks == 0
+
+
+def test_unhashable_annotated_role_value_selects_scalar_before_output() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(Annotation(<urn:meta> _:annotation) :child :p) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    lease = _lease(view)
+    compilation, negotiation, counters = prepare_encoded_subset_compilation(
+        view,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=lease),
+        batch_edges=1,
+    )
+
+    assert compilation is None
+    assert negotiation.path == "scalar-native"
+    assert "cannot reproduce scalar hashing" in (negotiation.reason or "")
+    assert counters is not None
+    assert counters.roots_inspected == 3
+    assert counters.sub_object_property_axioms == 1
+    assert counters.annotation_nodes == counters.anonymous_individuals == 1
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == counters.raw_edges == 0
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            wraps=scalar_compilation,
+        ) as scalar_prepare,
+    ):
+        projector = Projector()
+        with pytest.raises(UnicodeEncodeError):
+            projector.project(
+                view,
+                options=ProjectionOptions(backend="native", order="encounter"),
+            )
+
+    assert scalar_prepare.call_count == 1
 
 
 def test_encoded_role_state_is_reused_by_a_later_scala_instance_call() -> None:
@@ -2988,20 +3286,19 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B))",
         "ClassAssertion(ObjectSomeValuesFrom(:p :B) :i)",
         "ClassAssertion(:A _:anon)",
-        'EquivalentClasses(Annotation(<urn:p> "x") :A :B)',
-        'ClassAssertion(Annotation(<urn:p> "x") :A :i)',
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
-        'ObjectPropertyRange(Annotation(<urn:a> "x") :p :R)',
-        'ObjectPropertyAssertion(Annotation(<urn:a> "x") :p :i :j)',
         "EquivalentObjectProperties(:p :q)",
         "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
-        'SubObjectPropertyOf(Annotation(<urn:a> "x") :p :q)',
-        'InverseObjectProperties(Annotation(<urn:a> "x") :p :q)',
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
-        'SubClassOf(Annotation(<urn:a> "x") :A ObjectSomeValuesFrom(:p :B))',
         "EquivalentClasses(:A :B ObjectIntersectionOf(:C :D))",
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
+        'EquivalentClasses(Annotation(<urn:a> "x") :A ObjectSomeValuesFrom(:p :B))',
+        'ClassAssertion(Annotation(<urn:a> "x") ObjectSomeValuesFrom(:p :B) :i)',
+        'ObjectPropertyRange(Annotation(<urn:a> "x") :p ObjectIntersectionOf(:R :S))',
+        'SubObjectPropertyOf(Annotation(<urn:a> "x") ObjectPropertyChain(:p :q) :r)',
+        'SubClassOf(Annotation(<urn:a> "x") '
+        "ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -3435,6 +3732,93 @@ def test_anonymous_individual_corruption_fails_before_edge_output(corruption: st
         SnapshotCompatibilityError,
         match=r"arity|scalar field kind|bytes32|local key",
     ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    ("corruption", "match"),
+    [
+        ("root-set-kind", "node reference"),
+        ("root-set-item", "annotation set"),
+        ("annotation-arity", "arity"),
+        ("annotation-property", "property"),
+        ("annotation-value", "value"),
+        ("nested-set-item", "annotation set"),
+    ],
+)
+def test_annotated_logical_axiom_corruption_fails_before_output(
+    corruption: str,
+    match: str,
+) -> None:
+    view = _snapshot(
+        'SubClassOf(Annotation(Annotation(<urn:nested> "inner") <urn:meta> "outer") :A :B)'
+    )
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+
+    def tagged_nodes(tag: int) -> tuple[int, ...]:
+        return tuple(
+            index
+            for index in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == tag
+        )
+
+    offsets = buffers["node_field_offsets"]
+    values = buffers["field_values"]
+    lengths = buffers["field_lengths"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(offsets[(node_id - 1) * 8 : node_id * 8], "little")
+
+    axiom_id = tagged_nodes(61)[0]
+    axiom_start = field_start(axiom_id)
+    annotation_ids = tagged_nodes(5)
+    outer_annotation_id = next(
+        node_id
+        for node_id in annotation_ids
+        if int.from_bytes(
+            lengths[(field_start(node_id) + 2) * 8 : (field_start(node_id) + 3) * 8],
+            "little",
+        )
+        == 1
+    )
+    outer_start = field_start(outer_annotation_id)
+    literal_id = tagged_nodes(4)[0]
+    class_entity_id = int.from_bytes(
+        values[axiom_start * 8 : (axiom_start + 1) * 8],
+        "little",
+    )
+    if corruption == "root-set-kind":
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[axiom_start + 2] = 1
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption in {"root-set-item", "nested-set-item"}:
+        set_field = axiom_start + 2 if corruption == "root-set-item" else outer_start + 2
+        item_start = int.from_bytes(values[set_field * 8 : (set_field + 1) * 8], "little")
+        item_values = bytearray(buffers["item_values"])
+        item_values[item_start * 8 : (item_start + 1) * 8] = literal_id.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(item_values))
+    elif corruption == "annotation-arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = outer_annotation_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    else:
+        field_delta = 0 if corruption == "annotation-property" else 1
+        changed_values = bytearray(values)
+        field_offset = (outer_start + field_delta) * 8
+        changed_values[field_offset : field_offset + 8] = class_entity_id.to_bytes(8, "little")
+        buffers["field_values"] = memoryview(bytes(changed_values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match=match):
         prepare_encoded_subset_compilation(
             view,
             ProjectionOptions(backend="native"),

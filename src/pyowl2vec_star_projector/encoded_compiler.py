@@ -9,7 +9,7 @@ axioms, named ``ClassAssertion`` axioms, direct ``ObjectPropertyAssertion``
 axioms over named or anonymous individuals, and named object-property
 domain/range and role axioms, plus named-property/named-filler ``SubClassOf``
 restrictions, and named/aggregate ``EquivalentClasses`` pairs over the same
-operands, with empty annotation sets on those declaration/logical axioms.
+operands, including annotations on those declaration/logical axioms.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
 closure proves the pinned root-only lookup semantics.  It preflights the
 complete encoded view before yielding any edge.  A well-formed view outside
@@ -36,6 +36,7 @@ from .compiler import (
     RoleState,
     _combine,
     _int32,
+    _java_string_hash,
     _owlapi_escape_literal,
     _owlapi_iri_hash,
     _render_datatype,
@@ -1081,7 +1082,11 @@ class _EncodedColumns:
     def range_iris(self, node_id: int) -> tuple[str, str]:
         return self._property_class_iris(node_id, _TAG_OBJECT_PROPERTY_RANGE)
 
-    def _property_pair_iris(self, node_id: int, expected_tag: int) -> tuple[str, str]:
+    def _role_axiom_parts(
+        self,
+        node_id: int,
+        expected_tag: int,
+    ) -> tuple[str, str, int]:
         if self.node_tag(node_id) != expected_tag:
             raise SnapshotCompatibilityError(
                 "encoded subset batch cursor does not reference a role axiom"
@@ -1093,7 +1098,7 @@ class _EncodedColumns:
             raise SnapshotCompatibilityError(
                 "encoded subset role axiom shape changed after successful preflight"
             )
-        return first, second
+        return first, second, self._annotation_set_hash(start + 2)
 
     def _property_class_iris(self, node_id: int, expected_tag: int) -> tuple[str, str]:
         if self.node_tag(node_id) != expected_tag:
@@ -1194,8 +1199,7 @@ class _EncodedColumns:
         if tag == _TAG_DECLARATION:
             start = self._exact_fields(node_id, 2)
             self._entity(self._field_node(start))
-            if not self._empty_annotation_set(start + 1):
-                inspection.fallback("encoded subset does not yet support annotated declarations")
+            self._annotation_set_range(start + 1)
             return
         if tag == _TAG_SUB_CLASS_OF:
             start = self._exact_fields(node_id, 3)
@@ -1213,10 +1217,7 @@ class _EncodedColumns:
                 inspection.fallback(
                     "encoded subset requires a named taxonomy or named restriction SubClassOf"
                 )
-            if not self._empty_annotation_set(start + 2):
-                inspection.fallback(
-                    "encoded subset does not yet support annotated SubClassOf axioms"
-                )
+            self._annotation_set_range(start + 2)
             return
         if tag == _TAG_EQUIVALENT_CLASSES:
             start = self._exact_fields(node_id, 2)
@@ -1241,10 +1242,7 @@ class _EncodedColumns:
                     "encoded subset requires named classes or one named/aggregate "
                     "EquivalentClasses pair"
                 )
-            if not self._empty_annotation_set(start + 1):
-                inspection.fallback(
-                    "encoded subset does not yet support annotated EquivalentClasses axioms"
-                )
+            self._annotation_set_range(start + 1)
             return
         if tag in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
             start = self._exact_fields(node_id, 3)
@@ -1254,8 +1252,12 @@ class _EncodedColumns:
                 inspection.fallback(
                     "encoded subset requires named object properties in role axioms"
                 )
-            if not self._empty_annotation_set(start + 2):
-                inspection.fallback("encoded subset does not yet support annotated role axioms")
+            try:
+                self._annotation_set_hash(start + 2)
+            except UnicodeEncodeError:
+                inspection.fallback(
+                    "encoded subset role annotation value cannot reproduce scalar hashing"
+                )
             return
         if tag in {_TAG_OBJECT_PROPERTY_DOMAIN, _TAG_OBJECT_PROPERTY_RANGE}:
             start = self._exact_fields(node_id, 3)
@@ -1266,10 +1268,7 @@ class _EncodedColumns:
                     "encoded subset requires a named object property and named class "
                     "in domain/range axioms"
                 )
-            if not self._empty_annotation_set(start + 2):
-                inspection.fallback(
-                    "encoded subset does not yet support annotated domain/range axioms"
-                )
+            self._annotation_set_range(start + 2)
             return
         if tag == _TAG_CLASS_ASSERTION:
             start = self._exact_fields(node_id, 3)
@@ -1279,10 +1278,7 @@ class _EncodedColumns:
                 inspection.fallback(
                     "encoded subset requires a named class and named individual in ClassAssertion"
                 )
-            if not self._empty_annotation_set(start + 2):
-                inspection.fallback(
-                    "encoded subset does not yet support annotated ClassAssertion axioms"
-                )
+            self._annotation_set_range(start + 2)
             return
         if tag == _TAG_OBJECT_PROPERTY_ASSERTION:
             start = self._exact_fields(node_id, 4)
@@ -1294,10 +1290,7 @@ class _EncodedColumns:
                     "encoded subset requires a named object property and supported individuals "
                     "in ObjectPropertyAssertion"
                 )
-            if not self._empty_annotation_set(start + 3):
-                inspection.fallback(
-                    "encoded subset does not yet support annotated ObjectPropertyAssertion axioms"
-                )
+            self._annotation_set_range(start + 3)
             return
         if tag == _TAG_ANNOTATION_ASSERTION:
             start = self._exact_fields(node_id, 4)
@@ -1352,10 +1345,6 @@ class _EncodedColumns:
             )
         return self._node_id(self._read("field_values", index, 8))
 
-    def _empty_annotation_set(self, index: int) -> bool:
-        _start, length = self._annotation_set_range(index)
-        return length == 0
-
     def _annotation_set_range(self, index: int) -> tuple[int, int]:
         start, length = self._node_set_range(index)
         for item_index in range(start, start + length):
@@ -1364,6 +1353,47 @@ class _EncodedColumns:
                     "encoded subset annotation set contains a non-Annotation node"
                 )
         return start, length
+
+    def _annotation_set_hash(self, index: int) -> int:
+        """Return the scalar compiler's order-independent OWL annotation-set hash."""
+
+        start, length = self._annotation_set_range(index)
+        result = 0
+        for item_index in range(start, start + length):
+            result = _int32(result + self._annotation_hash(self._item_node(item_index)))
+        return result
+
+    def _annotation_hash(self, node_id: int) -> int:
+        if self.node_tag(node_id) != _TAG_ANNOTATION:
+            raise SnapshotCompatibilityError(
+                "encoded subset annotation hash does not reference an Annotation"
+            )
+        start = self._exact_fields(node_id, 3)
+        property_iri = self._named_annotation_property_iri(self._field_node(start))
+        if property_iri is None:  # pragma: no cover - guarded by preflight
+            raise SnapshotCompatibilityError(
+                "encoded subset Annotation property changed after successful preflight"
+            )
+        value_hash = self._annotation_value_hash(self._field_node(start + 1))
+        # OWLAPI 4.5.22 does not include nested annotations in OWLAnnotation.hashCode,
+        # but the nested set remains structurally validated before compilation.
+        self._annotation_set_range(start + 2)
+        return _combine(6311, _owlapi_iri_hash(property_iri), value_hash)
+
+    def _annotation_value_hash(self, node_id: int) -> int:
+        tag = self.node_tag(node_id)
+        if tag == _TAG_IRI:
+            return _owlapi_iri_hash(self._iri_text(node_id)[0])
+        if tag == _TAG_LITERAL:
+            lexical, _datatype, _checked = self._literal_parts(node_id)
+            return _java_string_hash(lexical)
+        if tag == _TAG_ANONYMOUS_INDIVIDUAL:
+            start = self._exact_fields(node_id, 2)
+            local_key = bytes(self._scalar_payload(start + 1, _COMPONENT_BYTES))
+            return _java_string_hash(local_key.decode("utf-8", "surrogateescape"))
+        raise SnapshotCompatibilityError(
+            "encoded subset Annotation value has the wrong constructor for hashing"
+        )
 
     def _node_set_range(self, index: int, *, minimum: int = 0) -> tuple[int, int]:
         if self._read("field_kinds", index, 1) != _COMPONENT_SET:
@@ -2571,13 +2601,13 @@ def _role_axioms(roots: tuple[_EncodedRootRef, ...]) -> tuple[_EncodedRoleAxiom,
         tag = root.columns.node_tag(root.node_id)
         if tag not in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
             continue
-        first, second = root.columns._property_pair_iris(root.node_id, tag)
+        first, second, annotation_hash = root.columns._role_axiom_parts(root.node_id, tag)
         first_hash = _combine(4153, _owlapi_iri_hash(first))
         second_hash = _combine(4153, _owlapi_iri_hash(second))
         owlapi_hash = (
-            _combine(1823, first_hash, second_hash, 0)
+            _combine(1823, first_hash, second_hash, annotation_hash)
             if tag == _TAG_SUB_OBJECT_PROPERTY_OF
-            else _combine(1229, _int32(first_hash + second_hash), 0)
+            else _combine(1229, _int32(first_hash + second_hash), annotation_hash)
         )
         rows.append(
             _EncodedRoleAxiom(
