@@ -15,10 +15,11 @@ and validated skipped equivalent/disjoint/property-characteristic axioms, includ
 functional, inverse-functional, reflexive, irreflexive, symmetric, asymmetric, and transitive,
 plus data-property subproperty/equivalence/disjointness axioms, with annotations on those
 declaration/logical axioms, and skipped data-property domains over the validated class-expression
-envelope, data-property ranges over named datatypes, and functional data properties.
-Named-datatype ``DatatypeDefinition`` axioms, ``HasKey`` axioms over the validated
-class-expression/property envelope, and ``SameIndividual`` axioms follow the same bounded skipped
-path. ``DifferentIndividuals`` uses the same validated individual-set path.
+envelope, data-property ranges over recursively validated data ranges, and functional data
+properties. ``DatatypeDefinition`` axioms over that same complete data-range envelope, ``HasKey``
+axioms over the validated class-expression/property envelope, and ``SameIndividual`` axioms follow
+the same bounded skipped path. ``DifferentIndividuals`` uses the same validated individual-set
+path.
 ``NegativeObjectPropertyAssertion`` also uses a bounded skipped path over validated object-property
 expressions and individuals.
 ``DataPropertyAssertion`` uses a bounded skipped path over named data properties, supported
@@ -32,8 +33,9 @@ edge or diagnostic, cannot mutate role state, and their anonymous values stay ou
 blank-ID pool.
 Structurally validated ``SWRLRule`` extension roots are ignored silently, matching
 the scalar projector: the compiler validates variables and atoms but does not
-execute rules or report them as skipped axioms.  Class and data-range predicates
-outside the bounded expression envelope retain whole-operation scalar fallback.
+execute rules or report them as skipped axioms.  Class predicates outside the bounded expression
+envelope retain whole-operation scalar fallback; data-range predicates use the complete frozen
+data-range constructor family.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document closure proves
@@ -87,6 +89,12 @@ _TAG_LITERAL = 4
 _TAG_ANNOTATION = 5
 _TAG_OBJECT_INVERSE_OF = 10
 _TAG_OBJECT_PROPERTY_CHAIN = 11
+_TAG_FACET_RESTRICTION = 20
+_TAG_DATA_INTERSECTION_OF = 21
+_TAG_DATA_UNION_OF = 22
+_TAG_DATA_COMPLEMENT_OF = 23
+_TAG_DATA_ONE_OF = 24
+_TAG_DATATYPE_RESTRICTION = 25
 _TAG_OBJECT_INTERSECTION_OF = 30
 _TAG_OBJECT_UNION_OF = 31
 _TAG_OBJECT_SOME_VALUES_FROM = 34
@@ -172,6 +180,15 @@ _RESTRICTION_TAGS = frozenset(
     }
 )
 _AGGREGATE_TAGS = frozenset({_TAG_OBJECT_INTERSECTION_OF, _TAG_OBJECT_UNION_OF})
+_COMPOSITE_DATA_RANGE_TAGS = frozenset(
+    {
+        _TAG_DATA_INTERSECTION_OF,
+        _TAG_DATA_UNION_OF,
+        _TAG_DATA_COMPLEMENT_OF,
+        _TAG_DATA_ONE_OF,
+        _TAG_DATATYPE_RESTRICTION,
+    }
+)
 _CLASS_EXPRESSION_TAGS = frozenset(range(30, 47))
 _EXPRESSION_ORDER = {
     _TAG_OBJECT_INTERSECTION_OF: 3001,
@@ -972,6 +989,7 @@ class _EncodedColumns:
         inspection = _Inspection(counters)
         for node_id in range(1, self.node_count + 1):
             self._inspect_node(node_id, inspection)
+        self._validate_data_range_graph()
         previous_root: tuple[int, int] | None = None
         for root_index in range(self.root_count):
             root_kind = self._read("root_kinds", root_index, 1)
@@ -1501,6 +1519,63 @@ class _EncodedColumns:
                         "object property expression"
                     )
             return
+        if tag == _TAG_FACET_RESTRICTION:
+            start = self._exact_fields(node_id, 2)
+            if self.node_tag(self._field_node(start)) != _TAG_IRI:
+                raise SnapshotCompatibilityError(
+                    "encoded subset FacetRestriction facet does not reference an IRI"
+                )
+            if self.node_tag(self._field_node(start + 1)) != _TAG_LITERAL:
+                raise SnapshotCompatibilityError(
+                    "encoded subset FacetRestriction value does not reference a Literal"
+                )
+            return
+        if tag in {_TAG_DATA_INTERSECTION_OF, _TAG_DATA_UNION_OF}:
+            start = self._exact_fields(node_id, 1)
+            item_start, length = self._node_set_range(start, minimum=2)
+            constructor = (
+                "DataIntersectionOf" if tag == _TAG_DATA_INTERSECTION_OF else "DataUnionOf"
+            )
+            for item_index in range(item_start, item_start + length):
+                item_id = self._item_node(item_index)
+                if self.node_tag(item_id) == tag:
+                    raise SnapshotCompatibilityError(
+                        f"encoded subset {constructor} operands are not flattened"
+                    )
+                if not self._is_data_range(item_id):
+                    raise SnapshotCompatibilityError(
+                        f"encoded subset {constructor} operand is not a data range"
+                    )
+            return
+        if tag == _TAG_DATA_COMPLEMENT_OF:
+            start = self._exact_fields(node_id, 1)
+            if not self._is_data_range(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DataComplementOf operand is not a data range"
+                )
+            return
+        if tag == _TAG_DATA_ONE_OF:
+            start = self._exact_fields(node_id, 1)
+            item_start, length = self._node_set_range(start, minimum=1)
+            for item_index in range(item_start, item_start + length):
+                if self.node_tag(self._item_node(item_index)) != _TAG_LITERAL:
+                    raise SnapshotCompatibilityError(
+                        "encoded subset DataOneOf value does not reference a Literal"
+                    )
+            return
+        if tag == _TAG_DATATYPE_RESTRICTION:
+            start = self._exact_fields(node_id, 2)
+            if not self._is_named_datatype(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DatatypeRestriction datatype is not a named datatype"
+                )
+            item_start, length = self._node_set_range(start + 1, minimum=1)
+            for item_index in range(item_start, item_start + length):
+                if self.node_tag(self._item_node(item_index)) != _TAG_FACET_RESTRICTION:
+                    raise SnapshotCompatibilityError(
+                        "encoded subset DatatypeRestriction item is not a FacetRestriction"
+                    )
+            return
         if tag in _AGGREGATE_TAGS:
             start = self._exact_fields(node_id, 1)
             item_start, length = self._node_set_range(start, minimum=2)
@@ -1556,9 +1631,9 @@ class _EncodedColumns:
             return
         if tag == _TAG_DATA_RANGE_ATOM:
             start = self._exact_fields(node_id, 2)
-            if not self._is_named_datatype(self._field_node(start)):
-                inspection.fallback(
-                    "encoded subset requires a named datatype predicate in DataRangeAtom"
+            if not self._is_data_range(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DataRangeAtom predicate is not a data range"
                 )
             if not self._is_swrl_data_argument(self._field_node(start + 1)):
                 raise SnapshotCompatibilityError(
@@ -1816,8 +1891,10 @@ class _EncodedColumns:
                 raise SnapshotCompatibilityError(
                     "encoded subset DataPropertyRange property is not a data property"
                 )
-            if not self._is_named_datatype(self._field_node(start + 1)):
-                inspection.fallback("encoded subset requires a named datatype in DataPropertyRange")
+            if not self._is_data_range(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DataPropertyRange range is not a data range"
+                )
             self._annotation_set_range(start + 2)
             return
         if tag == _TAG_FUNCTIONAL_DATA_PROPERTY:
@@ -1834,9 +1911,9 @@ class _EncodedColumns:
                 raise SnapshotCompatibilityError(
                     "encoded subset DatatypeDefinition datatype is not a named datatype"
                 )
-            if not self._is_named_datatype(self._field_node(start + 1)):
-                inspection.fallback(
-                    "encoded subset requires a named data range in DatatypeDefinition"
+            if not self._is_data_range(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DatatypeDefinition definition is not a data range"
                 )
             self._annotation_set_range(start + 2)
             return
@@ -2344,6 +2421,61 @@ class _EncodedColumns:
             return False
         kind, _iri_id, _checked = self._entity(node_id)
         return kind == b"datatype"
+
+    def _is_data_range(self, node_id: int) -> bool:
+        return (
+            self._is_named_datatype(node_id) or self.node_tag(node_id) in _COMPOSITE_DATA_RANGE_TAGS
+        )
+
+    def _validate_data_range_graph(self) -> None:
+        """Reject cycles in recursive data ranges even when their consumer falls back."""
+
+        validated: set[int] = set()
+        try:
+            for node_id in range(1, self.node_count + 1):
+                if self.node_tag(node_id) in _COMPOSITE_DATA_RANGE_TAGS:
+                    self._validate_data_range_node(node_id, set(), validated)
+        except RecursionError as error:
+            raise SnapshotCompatibilityError(
+                "encoded subset data-range graph exceeds the safe recursion depth"
+            ) from error
+
+    def _validate_data_range_node(
+        self,
+        node_id: int,
+        active: set[int],
+        validated: set[int],
+    ) -> None:
+        if self._is_named_datatype(node_id) or node_id in validated:
+            return
+        if self.node_tag(node_id) not in _COMPOSITE_DATA_RANGE_TAGS:
+            raise SnapshotCompatibilityError(
+                "encoded subset recursive data-range reference has the wrong constructor"
+            )
+        if node_id in active:
+            raise SnapshotCompatibilityError("encoded subset data-range graph is cyclic")
+        active.add(node_id)
+        try:
+            tag = self.node_tag(node_id)
+            if tag in {_TAG_DATA_INTERSECTION_OF, _TAG_DATA_UNION_OF}:
+                start = self._exact_fields(node_id, 1)
+                item_start, length = self._node_set_range(start, minimum=2)
+                for item_index in range(item_start, item_start + length):
+                    self._validate_data_range_node(
+                        self._item_node(item_index),
+                        active,
+                        validated,
+                    )
+            elif tag == _TAG_DATA_COMPLEMENT_OF:
+                start = self._exact_fields(node_id, 1)
+                self._validate_data_range_node(
+                    self._field_node(start),
+                    active,
+                    validated,
+                )
+            validated.add(node_id)
+        finally:
+            active.remove(node_id)
 
     def _is_supported_object_property_expression(self, node_id: int) -> bool:
         return self._projected_object_property_iri(node_id) is not None

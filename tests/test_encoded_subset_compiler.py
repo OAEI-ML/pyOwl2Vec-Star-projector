@@ -4455,6 +4455,99 @@ def test_data_property_domains_match_scalar_skipped_diagnostics() -> None:
             assert counters.scalar_fallbacks == 0
 
 
+def test_composite_data_ranges_match_scalar_skipped_and_silent_semantics() -> None:
+    view = _swrl_snapshot(
+        "DataPropertyRange(Annotation(<urn:meta> _:rangeMetadata) :dp "
+        "DataIntersectionOf("
+        "DataComplementOf(<http://www.w3.org/2001/XMLSchema#string>) "
+        "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
+        'DataOneOf("alpha" "beta")))) '
+        "DatatypeDefinition(Annotation(<urn:meta> _:definitionMetadata) :bounded "
+        "DatatypeRestriction(<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#minInclusive> "0"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#maxInclusive> "9"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer>)) "
+        "SWRLRule(Annotation(<urn:meta> _:ruleMetadata) "
+        '(DataRangeAtom(DataComplementOf(DataOneOf("blocked")) Variable(:value))) ()) '
+        "ObjectPropertyAssertion(:p _:projected :i)"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    assert {
+        columns.node_tag(node_id)
+        for node_id in range(1, columns.node_count + 1)
+        if 20 <= columns.node_tag(node_id) <= 25
+    } == set(range(20, 26))
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            compatibility_state="scala-instance",
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("composite data ranges crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+            assert (
+                actual == scalar_edges == [Edge("_:genid2147483648", "urn:slice#p", "urn:slice#i")]
+            )
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert projector.last_report.provenance.counts.skipped_axioms == 2
+            assert projector.last_report.provenance.counts.ignored_shapes == 0
+            assert projector.last_report.diagnostics == (
+                ProjectionDiagnostic(
+                    code="MOWL_SKIPPED_AXIOM",
+                    message="axiom category is not visited by the pinned profile",
+                    count=1,
+                    constructor="DataPropertyRange",
+                ),
+                ProjectionDiagnostic(
+                    code="MOWL_SKIPPED_AXIOM",
+                    message="axiom category is not visited by the pinned profile",
+                    count=1,
+                    constructor="DatatypeDefinition",
+                ),
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 4
+            assert counters.data_property_range_axioms == 1
+            assert counters.datatype_definition_axioms == 1
+            assert counters.swrl_rules == 1
+            assert counters.literal_nodes == 5
+            assert counters.anonymous_individuals == 4
+            assert counters.edge_batches == counters.raw_edges == 1
+            assert counters.scalar_fallbacks == 0
+
+
 def test_data_property_ranges_match_scalar_skipped_diagnostics() -> None:
     view = _snapshot(
         "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
@@ -9257,12 +9350,16 @@ def test_segmented_data_property_domains_preserve_skips_edges_and_leases() -> No
 
 def test_segmented_data_property_ranges_preserve_skips_edges_and_leases() -> None:
     source_body = (
-        "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
+        "DataPropertyRange(:dp DataUnionOf("
+        "<http://www.w3.org/2001/XMLSchema#string> "
+        "<http://www.w3.org/2001/XMLSchema#integer>)) "
         "ObjectPropertyDomain(:p :D) ObjectPropertyAssertion(:u :i :j)"
     )
     delta_body = (
         'DataPropertyRange(Annotation(<urn:meta> "skipped") :dq '
-        "<http://www.w3.org/2001/XMLSchema#integer>) "
+        "DatatypeRestriction(<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#minInclusive> "0"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer>)) "
         "ObjectPropertyRange(:p :R) SubObjectPropertyOf(:child :p)"
     )
     source = _snapshot(source_body)
@@ -10427,14 +10524,10 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
         "DataPropertyDomain(Annotation(<urn:meta> _:skipped) :dp ObjectComplementOf(:C)) "
         "ObjectPropertyAssertion(:p _:edge :i)",
-        "DataPropertyRange(Annotation(<urn:meta> _:skipped) :dp "
+        "SubClassOf(:A DataSomeValuesFrom(:dp "
         "DataUnionOf(<http://www.w3.org/2001/XMLSchema#string> "
-        "<http://www.w3.org/2001/XMLSchema#integer>)) "
-        "ObjectPropertyAssertion(:p _:edge :i)",
-        "DatatypeDefinition(Annotation(<urn:meta> _:skipped) :custom "
-        "DataUnionOf(<http://www.w3.org/2001/XMLSchema#string> "
-        "<http://www.w3.org/2001/XMLSchema#integer>)) "
-        "ObjectPropertyAssertion(:p _:edge :i)",
+        "<http://www.w3.org/2001/XMLSchema#integer>))) "
+        "ObjectPropertyAssertion(:p :i :j)",
         "HasKey(Annotation(<urn:meta> _:skipped) ObjectComplementOf(:C) (:p) ()) "
         "ObjectPropertyAssertion(:u _:edge :i)",
         "DisjointClasses(Annotation(<urn:meta> _:skipped) :A ObjectComplementOf(:C)) "
@@ -10557,9 +10650,12 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "EquivalentDataProperties(:dp :dq :dr) "
         "DisjointDataProperties(:dp :dq :dr) "
         "DataPropertyDomain(:dp ObjectUnionOf(:C :D)) "
-        "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
+        "DataPropertyRange(:dp DataUnionOf("
+        "<http://www.w3.org/2001/XMLSchema#string> "
+        "<http://www.w3.org/2001/XMLSchema#integer>)) "
         "FunctionalDataProperty(:dp) "
-        "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>) "
+        "DatatypeDefinition(:custom "
+        "DataComplementOf(<http://www.w3.org/2001/XMLSchema#string>)) "
         "HasKey(ObjectSomeValuesFrom(:key :C) (:p ObjectInverseOf(:q)) (:dp)) "
         "SameIndividual(:sameA :sameB) "
         "DifferentIndividuals(:differentA :differentB) "
@@ -11724,7 +11820,7 @@ def test_data_property_range_corruption_fails_before_output(corruption: str) -> 
         )
 
 
-def test_wrong_kind_data_property_range_selects_scalar_before_output() -> None:
+def test_wrong_kind_data_property_range_fails_before_output() -> None:
     view = _snapshot(
         "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) SubClassOf(:A :B)"
     )
@@ -11745,18 +11841,194 @@ def test_wrong_kind_data_property_range_selects_scalar_before_output() -> None:
     buffers["field_values"] = memoryview(bytes(values))
     hostile = replace(lease, buffers=MappingProxyType(buffers))
 
-    compilation, negotiation, counters = prepare_encoded_subset_compilation(
-        view,
-        ProjectionOptions(backend="native"),
-        EncodedNegotiation("encoded-native", lease=hostile),
-        batch_edges=1,
-    )
+    with pytest.raises(SnapshotCompatibilityError, match="DataPropertyRange range"):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
 
-    assert compilation is None
-    assert negotiation.path == "scalar-native"
-    assert counters is not None
-    assert counters.scalar_fallbacks == 1
-    assert counters.raw_edges == counters.edge_batches == 0
+
+@pytest.mark.parametrize("tag", range(20, 26))
+def test_data_range_constructor_arity_corruption_fails_before_output(tag: int) -> None:
+    view = _snapshot(
+        "DataPropertyRange(:dp DataIntersectionOf("
+        "DataComplementOf(<http://www.w3.org/2001/XMLSchema#string>) "
+        "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
+        'DataOneOf("alpha" "beta")))) '
+        "DatatypeDefinition(:bounded DatatypeRestriction("
+        "<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#minInclusive> "0"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#maxInclusive> "9"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer>))"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    node_id = next(
+        candidate
+        for candidate in range(1, columns.node_count + 1)
+        if columns.node_tag(candidate) == tag
+    )
+    buffers = dict(lease.buffers)
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = node_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match="arity"):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "facet-iri",
+        "facet-value",
+        "intersection-minimum",
+        "union-operand",
+        "union-item-kind",
+        "complement-operand",
+        "complement-field-kind",
+        "one-of-minimum",
+        "one-of-value",
+        "one-of-set-kind",
+        "restriction-datatype",
+        "restriction-minimum",
+        "restriction-item",
+        "unflattened-intersection",
+        "cycle",
+    ],
+)
+def test_data_range_structural_corruption_fails_before_output(corruption: str) -> None:
+    view = _snapshot(
+        "DataPropertyRange(:dp DataIntersectionOf("
+        "DataComplementOf(<http://www.w3.org/2001/XMLSchema#string>) "
+        "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
+        'DataOneOf("alpha" "beta")))) '
+        "DatatypeDefinition(:bounded DatatypeRestriction("
+        "<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#minInclusive> "0"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#maxInclusive> "9"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer>)) "
+        "Declaration(Class(:Wrong)) "
+        "SubClassOf(:Outside DataSomeValuesFrom(:outsideDp "
+        "<http://www.w3.org/2001/XMLSchema#string>))"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, columns.node_count + 1)
+            if columns.node_tag(node_id) == tag
+        )
+
+    def field_start(node_id: int) -> int:
+        return columns._field_range(node_id)[0]
+
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_class_iri(node_id) == "urn:slice#Wrong"
+    )
+    literal_id = tagged_node(4)
+    facet_id = tagged_node(20)
+    intersection_id = tagged_node(21)
+    union_id = tagged_node(22)
+    complement_id = tagged_node(23)
+    one_of_id = tagged_node(24)
+    restriction_id = tagged_node(25)
+    buffers = dict(lease.buffers)
+
+    if corruption == "unflattened-intersection":
+        tags = bytearray(buffers["node_tags"])
+        tags[(union_id - 1) * 2 : union_id * 2] = (21).to_bytes(2, "little")
+        buffers["node_tags"] = memoryview(bytes(tags))
+    elif corruption in {"union-item-kind", "one-of-set-kind", "complement-field-kind"}:
+        if corruption == "union-item-kind":
+            union_start = field_start(union_id)
+            item_index = int.from_bytes(
+                buffers["field_values"][union_start * 8 : (union_start + 1) * 8],
+                "little",
+            )
+            kinds = bytearray(buffers["item_kinds"])
+            kinds[item_index] = 2
+            buffers["item_kinds"] = memoryview(bytes(kinds))
+        else:
+            node_id = one_of_id if corruption == "one-of-set-kind" else complement_id
+            kinds = bytearray(buffers["field_kinds"])
+            kinds[field_start(node_id)] = 7 if corruption == "one-of-set-kind" else 2
+            buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption in {
+        "intersection-minimum",
+        "one-of-minimum",
+        "restriction-minimum",
+    }:
+        if corruption == "intersection-minimum":
+            index = field_start(intersection_id)
+            replacement = 1
+        elif corruption == "one-of-minimum":
+            index = field_start(one_of_id)
+            replacement = 0
+        else:
+            index = field_start(restriction_id) + 1
+            replacement = 0
+        lengths = bytearray(buffers["field_lengths"])
+        lengths[index * 8 : (index + 1) * 8] = replacement.to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    elif corruption in {"union-operand", "one-of-value", "restriction-item"}:
+        node_id = {
+            "union-operand": union_id,
+            "one-of-value": one_of_id,
+            "restriction-item": restriction_id,
+        }[corruption]
+        field_index = field_start(node_id) + (corruption == "restriction-item")
+        item_index = int.from_bytes(
+            buffers["field_values"][field_index * 8 : (field_index + 1) * 8],
+            "little",
+        )
+        values = bytearray(buffers["item_values"])
+        replacement = literal_id if corruption == "restriction-item" else wrong_id
+        values[item_index * 8 : (item_index + 1) * 8] = replacement.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    else:
+        node_id, field_delta, replacement = {
+            "facet-iri": (facet_id, 0, wrong_id),
+            "facet-value": (facet_id, 1, wrong_id),
+            "complement-operand": (complement_id, 0, wrong_id),
+            "restriction-datatype": (restriction_id, 0, wrong_id),
+            "cycle": (complement_id, 0, complement_id),
+        }[corruption]
+        index = field_start(node_id) + field_delta
+        values = bytearray(buffers["field_values"])
+        values[index * 8 : (index + 1) * 8] = replacement.to_bytes(8, "little")
+        buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=(
+            r"FacetRestriction|DataIntersectionOf|DataUnionOf|DataComplementOf|DataOneOf|"
+            r"DatatypeRestriction|canonical set|node reference|cyclic"
+        ),
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
 
 
 @pytest.mark.parametrize(
@@ -11943,7 +12215,7 @@ def test_datatype_definition_corruption_fails_before_output(corruption: str) -> 
         )
 
 
-def test_wrong_kind_datatype_definition_range_selects_scalar_before_output() -> None:
+def test_wrong_kind_datatype_definition_range_fails_before_output() -> None:
     view = _snapshot(
         "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>) "
         "SubClassOf(:A :B) Declaration(Class(:Wrong))"
@@ -11969,18 +12241,13 @@ def test_wrong_kind_datatype_definition_range_selects_scalar_before_output() -> 
     buffers["field_values"] = memoryview(bytes(values))
     hostile = replace(lease, buffers=MappingProxyType(buffers))
 
-    compilation, negotiation, counters = prepare_encoded_subset_compilation(
-        view,
-        ProjectionOptions(backend="native"),
-        EncodedNegotiation("encoded-native", lease=hostile),
-        batch_edges=1,
-    )
-
-    assert compilation is None
-    assert negotiation.path == "scalar-native"
-    assert counters is not None
-    assert counters.scalar_fallbacks == 1
-    assert counters.raw_edges == counters.edge_batches == 0
+    with pytest.raises(SnapshotCompatibilityError, match="DatatypeDefinition definition"):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
 
 
 @pytest.mark.parametrize(
@@ -13332,15 +13599,8 @@ def test_swrl_rules_do_not_mutate_scala_instance_role_state() -> None:
     assert projector.last_report.provenance.invocation_count == 2
 
 
-@pytest.mark.parametrize(
-    "atom",
-    [
-        "ClassAtom(ObjectComplementOf(:A) Variable(:x))",
-        "DataRangeAtom(DataUnionOf(<http://www.w3.org/2001/XMLSchema#string> "
-        "<http://www.w3.org/2001/XMLSchema#integer>) Variable(:x))",
-    ],
-)
-def test_unsupported_swrl_predicates_fallback_once_before_output(atom: str) -> None:
+def test_unsupported_swrl_class_predicate_fallback_once_before_output() -> None:
+    atom = "ClassAtom(ObjectComplementOf(:A) Variable(:x))"
     view = _swrl_snapshot(
         f"SWRLRule(({atom}) (ClassAtom(:B Variable(:x)))) ObjectPropertyAssertion(:p :i :j)"
     )
@@ -13377,6 +13637,38 @@ def test_unsupported_swrl_predicates_fallback_once_before_output(atom: str) -> N
     assert counters.edge_batches == counters.raw_edges == 0
 
 
+def test_wrong_kind_data_range_atom_predicate_fails_before_output() -> None:
+    view = _swrl_snapshot(
+        "Declaration(Class(:Wrong)) "
+        "SWRLRule((DataRangeAtom(<http://www.w3.org/2001/XMLSchema#string> "
+        "Variable(:value))) ()) ObjectPropertyAssertion(:p :i :j)"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    atom_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 142
+    )
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_class_iri(node_id) == "urn:slice#Wrong"
+    )
+    buffers = dict(lease.buffers)
+    predicate_index = columns._field_range(atom_id)[0]
+    values = bytearray(buffers["field_values"])
+    values[predicate_index * 8 : (predicate_index + 1) * 8] = wrong_id.to_bytes(8, "little")
+    buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match="DataRangeAtom predicate"):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
 def test_segmented_swrl_rules_preserve_silent_extensions_edges_and_leases() -> None:
     source_body = (
         "SWRLRule(Annotation(<urn:meta> _:sourceRuleMeta) "
@@ -13385,7 +13677,7 @@ def test_segmented_swrl_rules_preserve_silent_extensions_edges_and_leases() -> N
         "ObjectPropertyDomain(:p :D) ObjectPropertyAssertion(:u _:projected :i)"
     )
     delta_body = (
-        "SWRLRule((DataRangeAtom(<http://www.w3.org/2001/XMLSchema#string> "
+        'SWRLRule((DataRangeAtom(DataComplementOf(DataOneOf("excluded")) '
         "Variable(:value))) (BuiltInAtom(<urn:check> Variable(:value)))) "
         "ObjectPropertyRange(:p :R) SubObjectPropertyOf(:child :p)"
     )
