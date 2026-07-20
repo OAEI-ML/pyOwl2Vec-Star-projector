@@ -10,8 +10,8 @@ named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
 named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
 and validated skipped equivalent/disjoint/property-characteristic axioms, including
-functional, inverse-functional, and reflexive, with annotations on those declaration/logical
-axioms.
+functional, inverse-functional, reflexive, and irreflexive, with annotations on those
+declaration/logical axioms.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -81,6 +81,7 @@ _TAG_OBJECT_PROPERTY_RANGE = 75
 _TAG_FUNCTIONAL_OBJECT_PROPERTY = 76
 _TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY = 77
 _TAG_REFLEXIVE_OBJECT_PROPERTY = 78
+_TAG_IRREFLEXIVE_OBJECT_PROPERTY = 79
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -247,6 +248,7 @@ class EncodedSubsetCounters:
     functional_object_property_axioms: int = 0
     inverse_functional_object_property_axioms: int = 0
     reflexive_object_property_axioms: int = 0
+    irreflexive_object_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -286,6 +288,7 @@ class EncodedSubsetCounters:
             self.functional_object_property_axioms,
             self.inverse_functional_object_property_axioms,
             self.reflexive_object_property_axioms,
+            self.irreflexive_object_property_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -329,6 +332,7 @@ class _MutableCounters:
     functional_object_property_axioms: int = 0
     inverse_functional_object_property_axioms: int = 0
     reflexive_object_property_axioms: int = 0
+    irreflexive_object_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -370,6 +374,7 @@ class _MutableCounters:
                 self.inverse_functional_object_property_axioms
             ),
             reflexive_object_property_axioms=self.reflexive_object_property_axioms,
+            irreflexive_object_property_axioms=self.irreflexive_object_property_axioms,
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -843,6 +848,8 @@ class _EncodedColumns:
             counters.inverse_functional_object_property_axioms += 1
         elif tag == _TAG_REFLEXIVE_OBJECT_PROPERTY:
             counters.reflexive_object_property_axioms += 1
+        elif tag == _TAG_IRREFLEXIVE_OBJECT_PROPERTY:
+            counters.irreflexive_object_property_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1370,12 +1377,14 @@ class _EncodedColumns:
             _TAG_FUNCTIONAL_OBJECT_PROPERTY,
             _TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
             _TAG_REFLEXIVE_OBJECT_PROPERTY,
+            _TAG_IRREFLEXIVE_OBJECT_PROPERTY,
         }:
             start = self._exact_fields(node_id, 2)
             constructor = {
                 _TAG_FUNCTIONAL_OBJECT_PROPERTY: "FunctionalObjectProperty",
                 _TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY: "InverseFunctionalObjectProperty",
                 _TAG_REFLEXIVE_OBJECT_PROPERTY: "ReflexiveObjectProperty",
+                _TAG_IRREFLEXIVE_OBJECT_PROPERTY: "IrreflexiveObjectProperty",
             }[tag]
             if not self._is_supported_object_property_expression(self._field_node(start)):
                 raise SnapshotCompatibilityError(
@@ -2778,6 +2787,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_FUNCTIONAL_OBJECT_PROPERTY: "FunctionalObjectProperty",
         _TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY: "InverseFunctionalObjectProperty",
         _TAG_REFLEXIVE_OBJECT_PROPERTY: "ReflexiveObjectProperty",
+        _TAG_IRREFLEXIVE_OBJECT_PROPERTY: "IrreflexiveObjectProperty",
     }
     result: dict[str, int] = {}
     for root in roots:
