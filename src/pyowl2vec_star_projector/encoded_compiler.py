@@ -23,6 +23,7 @@ expressions and individuals.
 individuals, and structurally validated literals.
 ``NegativeDataPropertyAssertion`` follows the same bounded validation and skip contract.
 Named ``SubAnnotationPropertyOf`` axioms also use a bounded skipped path.
+Named-property/IRI ``AnnotationPropertyDomain`` axioms follow the same bounded skipped path.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -113,6 +114,7 @@ _TAG_DATA_PROPERTY_ASSERTION = 115
 _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION = 116
 _TAG_ANNOTATION_ASSERTION = 120
 _TAG_SUB_ANNOTATION_PROPERTY_OF = 121
+_TAG_ANNOTATION_PROPERTY_DOMAIN = 122
 
 _SEGMENT_DIRECT = 1
 _SEGMENT_OVERLAY_BASE = 2
@@ -295,6 +297,7 @@ class EncodedSubsetCounters:
     negative_data_property_assertion_axioms: int = 0
     annotation_assertion_axioms: int = 0
     sub_annotation_property_axioms: int = 0
+    annotation_property_domain_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
     annotation_nodes: int = 0
@@ -352,6 +355,7 @@ class EncodedSubsetCounters:
             self.negative_data_property_assertion_axioms,
             self.annotation_assertion_axioms,
             self.sub_annotation_property_axioms,
+            self.annotation_property_domain_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
             self.annotation_nodes,
@@ -413,6 +417,7 @@ class _MutableCounters:
     negative_data_property_assertion_axioms: int = 0
     annotation_assertion_axioms: int = 0
     sub_annotation_property_axioms: int = 0
+    annotation_property_domain_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
     annotation_nodes: int = 0
@@ -474,6 +479,7 @@ class _MutableCounters:
             negative_data_property_assertion_axioms=(self.negative_data_property_assertion_axioms),
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             sub_annotation_property_axioms=self.sub_annotation_property_axioms,
+            annotation_property_domain_axioms=self.annotation_property_domain_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
             annotation_nodes=self.annotation_nodes,
@@ -988,6 +994,8 @@ class _EncodedColumns:
             counters.annotation_assertion_axioms += 1
         elif tag == _TAG_SUB_ANNOTATION_PROPERTY_OF:
             counters.sub_annotation_property_axioms += 1
+        elif tag == _TAG_ANNOTATION_PROPERTY_DOMAIN:
+            counters.annotation_property_domain_axioms += 1
         else:
             inspection.fallback("encoded subset root is outside the executable axiom slice")
 
@@ -1750,6 +1758,18 @@ class _EncodedColumns:
                 raise SnapshotCompatibilityError(
                     "encoded subset SubAnnotationPropertyOf super-property is not an annotation "
                     "property"
+                )
+            self._annotation_set_range(start + 2)
+            return
+        if tag == _TAG_ANNOTATION_PROPERTY_DOMAIN:
+            start = self._exact_fields(node_id, 3)
+            if not self._is_named_annotation_property(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset AnnotationPropertyDomain property is not an annotation property"
+                )
+            if self.node_tag(self._field_node(start + 1)) != _TAG_IRI:
+                raise SnapshotCompatibilityError(
+                    "encoded subset AnnotationPropertyDomain domain is not an IRI"
                 )
             self._annotation_set_range(start + 2)
             return
@@ -3131,6 +3151,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_DATA_PROPERTY_ASSERTION: "DataPropertyAssertion",
         _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION: "NegativeDataPropertyAssertion",
         _TAG_SUB_ANNOTATION_PROPERTY_OF: "SubAnnotationPropertyOf",
+        _TAG_ANNOTATION_PROPERTY_DOMAIN: "AnnotationPropertyDomain",
     }
     result: dict[str, int] = {}
     for root in roots:
