@@ -48,6 +48,12 @@ const TAG_LITERAL: u16 = 4;
 const TAG_ANNOTATION: u16 = 5;
 const TAG_OBJECT_INVERSE_OF: u16 = 10;
 const TAG_OBJECT_PROPERTY_CHAIN: u16 = 11;
+const TAG_FACET_RESTRICTION: u16 = 20;
+const TAG_DATA_INTERSECTION_OF: u16 = 21;
+const TAG_DATA_UNION_OF: u16 = 22;
+const TAG_DATA_COMPLEMENT_OF: u16 = 23;
+const TAG_DATA_ONE_OF: u16 = 24;
+const TAG_DATATYPE_RESTRICTION: u16 = 25;
 const TAG_OBJECT_INTERSECTION_OF: u16 = 30;
 const TAG_OBJECT_UNION_OF: u16 = 31;
 const TAG_OBJECT_COMPLEMENT_OF: u16 = 32;
@@ -59,6 +65,12 @@ const TAG_OBJECT_HAS_SELF: u16 = 37;
 const TAG_OBJECT_MIN_CARDINALITY: u16 = 38;
 const TAG_OBJECT_MAX_CARDINALITY: u16 = 39;
 const TAG_OBJECT_EXACT_CARDINALITY: u16 = 40;
+const TAG_DATA_SOME_VALUES_FROM: u16 = 41;
+const TAG_DATA_ALL_VALUES_FROM: u16 = 42;
+const TAG_DATA_HAS_VALUE: u16 = 43;
+const TAG_DATA_MIN_CARDINALITY: u16 = 44;
+const TAG_DATA_MAX_CARDINALITY: u16 = 45;
+const TAG_DATA_EXACT_CARDINALITY: u16 = 46;
 const TAG_DECLARATION: u16 = 60;
 const TAG_SUB_CLASS_OF: u16 = 61;
 const TAG_EQUIVALENT_CLASSES: u16 = 62;
@@ -1561,6 +1573,118 @@ impl<'a> DirectColumns<'a> {
         Ok((relation, destination))
     }
 
+    fn validate_facet_restriction(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_FACET_RESTRICTION {
+            return Err(KernelError::malformed(
+                "encoded facet-restriction cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 2)?;
+        self.iri(self.field_node(start)?, maximum)?;
+        self.validate_literal(self.field_node(start + 1)?, maximum)
+    }
+
+    fn validate_atomic_data_range(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => self.named_datatype_iri(node_id, maximum).map(|_iri| ()),
+            TAG_DATA_ONE_OF => {
+                let start = self.exact_fields(node_id, 1)?;
+                let (item_start, length) = self.node_set_range(start, 1)?;
+                for item_index in item_start..item_start + length {
+                    self.validate_literal(self.item_node(item_index)?, maximum)?;
+                }
+                Ok(())
+            }
+            TAG_DATATYPE_RESTRICTION => {
+                let start = self.exact_fields(node_id, 2)?;
+                self.named_datatype_iri(self.field_node(start)?, maximum)?;
+                let (item_start, length) = self.node_set_range(start + 1, 1)?;
+                for item_index in item_start..item_start + length {
+                    self.validate_facet_restriction(self.item_node(item_index)?, maximum)?;
+                }
+                Ok(())
+            }
+            tag if is_data_range_tag(tag) => Err(KernelError::unsupported(
+                "direct native data range is outside the bounded atomic envelope",
+            )),
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
+                "encoded data-range reference has the wrong constructor tag",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded data-range tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn validate_nonrecursive_data_range(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_DATA_COMPLEMENT_OF {
+            return self.validate_atomic_data_range(node_id, maximum);
+        }
+        let start = self.exact_fields(node_id, 1)?;
+        self.validate_atomic_data_range(self.field_node(start)?, maximum)
+    }
+
+    fn validate_bounded_data_range(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        let tag = self.node_tag(node_id)?;
+        if ![TAG_DATA_INTERSECTION_OF, TAG_DATA_UNION_OF].contains(&tag) {
+            return self.validate_nonrecursive_data_range(node_id, maximum);
+        }
+        let start = self.exact_fields(node_id, 1)?;
+        let (item_start, length) = self.node_set_range(start, 2)?;
+        for item_index in item_start..item_start + length {
+            let operand_id = self.item_node(item_index)?;
+            if self.node_tag(operand_id)? == tag {
+                return Err(KernelError::malformed(
+                    "encoded data-range aggregate operands are not flattened",
+                ));
+            }
+            self.validate_nonrecursive_data_range(operand_id, maximum)?;
+        }
+        Ok(())
+    }
+
+    fn validate_data_class_expression(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<(), KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_DATA_SOME_VALUES_FROM | TAG_DATA_ALL_VALUES_FROM => {
+                let start = self.exact_fields(node_id, 2)?;
+                let (item_start, length) = self.node_sequence_range(start, 1)?;
+                for item_index in item_start..item_start + length {
+                    self.named_data_property_iri(self.item_node(item_index)?, maximum)?;
+                }
+                self.validate_bounded_data_range(self.field_node(start + 1)?, maximum)
+            }
+            TAG_DATA_HAS_VALUE => {
+                let start = self.exact_fields(node_id, 2)?;
+                self.named_data_property_iri(self.field_node(start)?, maximum)?;
+                self.validate_literal(self.field_node(start + 1)?, maximum)
+            }
+            TAG_DATA_MIN_CARDINALITY | TAG_DATA_MAX_CARDINALITY | TAG_DATA_EXACT_CARDINALITY => {
+                let start = self.exact_fields(node_id, 3)?;
+                self.canonical_integer(start)?;
+                self.named_data_property_iri(self.field_node(start + 1)?, maximum)?;
+                self.validate_bounded_data_range(self.field_node(start + 2)?, maximum)
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
+                "encoded data class-expression cursor has the wrong constructor tag",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded data class-expression tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
     fn validate_nonprojecting_class_expression(
         self,
         node_id: usize,
@@ -1591,6 +1715,9 @@ impl<'a> DirectColumns<'a> {
                 self.object_property_expression(self.field_node(start + 1)?, maximum)?;
                 self.named_class_iri(self.field_node(start + 2)?, maximum)?;
                 Ok(())
+            }
+            tag if is_data_class_expression_tag(tag) => {
+                self.validate_data_class_expression(node_id, maximum)
             }
             TAG_OBJECT_COMPLEMENT_OF => {
                 let start = self.exact_fields(node_id, 1)?;
@@ -2114,6 +2241,16 @@ impl<'a> DirectColumns<'a> {
                 TAG_OBJECT_PROPERTY_CHAIN => {
                     self.validate_object_property_chain(node_id, maximum_iri)?;
                 }
+                TAG_FACET_RESTRICTION => {
+                    self.validate_facet_restriction(node_id, maximum_iri)?;
+                }
+                TAG_DATA_INTERSECTION_OF
+                | TAG_DATA_UNION_OF
+                | TAG_DATA_COMPLEMENT_OF
+                | TAG_DATA_ONE_OF
+                | TAG_DATATYPE_RESTRICTION => {
+                    self.validate_bounded_data_range(node_id, maximum_iri)?;
+                }
                 TAG_OBJECT_INTERSECTION_OF | TAG_OBJECT_UNION_OF => {
                     self.validate_aggregate_expression(node_id, maximum_iri)?;
                 }
@@ -2132,7 +2269,13 @@ impl<'a> DirectColumns<'a> {
                 | TAG_OBJECT_ONE_OF
                 | TAG_OBJECT_HAS_VALUE
                 | TAG_OBJECT_HAS_SELF
-                | TAG_OBJECT_EXACT_CARDINALITY => {
+                | TAG_OBJECT_EXACT_CARDINALITY
+                | TAG_DATA_SOME_VALUES_FROM
+                | TAG_DATA_ALL_VALUES_FROM
+                | TAG_DATA_HAS_VALUE
+                | TAG_DATA_MIN_CARDINALITY
+                | TAG_DATA_MAX_CARDINALITY
+                | TAG_DATA_EXACT_CARDINALITY => {
                     self.validate_nonprojecting_class_expression(node_id, maximum_iri)?;
                 }
                 TAG_SUB_CLASS_OF => {
@@ -3135,6 +3278,12 @@ fn is_nonprojecting_class_tag(tag: u16) -> bool {
         TAG_OBJECT_HAS_VALUE,
         TAG_OBJECT_HAS_SELF,
         TAG_OBJECT_EXACT_CARDINALITY,
+        TAG_DATA_SOME_VALUES_FROM,
+        TAG_DATA_ALL_VALUES_FROM,
+        TAG_DATA_HAS_VALUE,
+        TAG_DATA_MIN_CARDINALITY,
+        TAG_DATA_MAX_CARDINALITY,
+        TAG_DATA_EXACT_CARDINALITY,
     ]
     .contains(&tag)
 }
@@ -3145,6 +3294,35 @@ fn is_nonrecursive_nonprojecting_class_tag(tag: u16) -> bool {
         TAG_OBJECT_HAS_VALUE,
         TAG_OBJECT_HAS_SELF,
         TAG_OBJECT_EXACT_CARDINALITY,
+        TAG_DATA_SOME_VALUES_FROM,
+        TAG_DATA_ALL_VALUES_FROM,
+        TAG_DATA_HAS_VALUE,
+        TAG_DATA_MIN_CARDINALITY,
+        TAG_DATA_MAX_CARDINALITY,
+        TAG_DATA_EXACT_CARDINALITY,
+    ]
+    .contains(&tag)
+}
+
+fn is_data_class_expression_tag(tag: u16) -> bool {
+    [
+        TAG_DATA_SOME_VALUES_FROM,
+        TAG_DATA_ALL_VALUES_FROM,
+        TAG_DATA_HAS_VALUE,
+        TAG_DATA_MIN_CARDINALITY,
+        TAG_DATA_MAX_CARDINALITY,
+        TAG_DATA_EXACT_CARDINALITY,
+    ]
+    .contains(&tag)
+}
+
+fn is_data_range_tag(tag: u16) -> bool {
+    [
+        TAG_DATA_INTERSECTION_OF,
+        TAG_DATA_UNION_OF,
+        TAG_DATA_COMPLEMENT_OF,
+        TAG_DATA_ONE_OF,
+        TAG_DATATYPE_RESTRICTION,
     ]
     .contains(&tag)
 }
@@ -3907,6 +4085,72 @@ mod tests {
         fixture
     }
 
+    fn data_class_expression_fixture() -> Fixture {
+        let mut fixture = named_data_property_fixture();
+        fixture.push_node_set(&[17, 18]);
+        fixture.finish_node(TAG_DATA_ONE_OF); // 28
+        fixture.push_node_ref(8);
+        fixture.push_node_ref(17);
+        fixture.finish_node(TAG_FACET_RESTRICTION); // 29
+        fixture.push_node_ref(16);
+        fixture.push_node_set(&[29]);
+        fixture.finish_node(TAG_DATATYPE_RESTRICTION); // 30
+        fixture.push_node_ref(28);
+        fixture.finish_node(TAG_DATA_COMPLEMENT_OF); // 31
+        fixture.push_node_set(&[15, 30, 31]);
+        fixture.finish_node(TAG_DATA_INTERSECTION_OF); // 32
+
+        fixture.push_node_sequence(&[10, 11]);
+        fixture.push_node_ref(32);
+        fixture.finish_node(TAG_DATA_SOME_VALUES_FROM); // 33
+        fixture.push_node_sequence(&[12]);
+        fixture.push_node_ref(15);
+        fixture.finish_node(TAG_DATA_ALL_VALUES_FROM); // 34
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(18);
+        fixture.finish_node(TAG_DATA_HAS_VALUE); // 35
+        fixture.push_scalar(COMPONENT_INTEGER, &[2]);
+        fixture.push_node_ref(11);
+        fixture.push_node_ref(30);
+        fixture.finish_node(TAG_DATA_MIN_CARDINALITY); // 36
+        fixture.push_scalar(COMPONENT_INTEGER, &[3]);
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(28);
+        fixture.finish_node(TAG_DATA_MAX_CARDINALITY); // 37
+        fixture.push_scalar(COMPONENT_INTEGER, &[4]);
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(31);
+        fixture.finish_node(TAG_DATA_EXACT_CARDINALITY); // 38
+        fixture.push_node_ref(33);
+        fixture.finish_node(TAG_OBJECT_COMPLEMENT_OF); // 39
+
+        for (sub, sup) in [
+            (9_u64, 33_u64),
+            (34, 9),
+            (9, 35),
+            (9, 36),
+            (37, 9),
+            (9, 38),
+            (9, 39),
+        ] {
+            fixture.push_node_ref(sub);
+            fixture.push_node_ref(sup);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_SUB_CLASS_OF); // 40..=46
+        }
+        for class in [35_u64, 39] {
+            fixture.push_node_ref(class);
+            fixture.push_node_ref(13);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_CLASS_ASSERTION); // 47..=48
+        }
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 9]);
+        for root_id in 40_u32..=48 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
     fn named_annotation_fixture() -> Fixture {
         let mut fixture = Fixture::default();
         for iri in [
@@ -4633,6 +4877,44 @@ mod tests {
         )
         .unwrap();
         assert!(asserted.is_empty());
+        assert_eq!(stats.skipped_axioms, 0);
+    }
+
+    #[test]
+    fn bounded_data_class_expressions_validate_and_remain_state_neutral() {
+        let fixture = data_class_expression_fixture();
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(edges.is_empty());
+        assert_eq!(stats.roots, 18);
+        assert_eq!(stats.subclasses, 7);
+        assert_eq!(stats.ignored_subclasses, 7);
+        assert_eq!(stats.class_assertions, 2);
+        assert_eq!(stats.ignored_class_assertions, 2);
+        assert_eq!(stats.skipped_axioms, 9);
+        assert_eq!(stats.role_expansion_edges, 0);
+
+        let (asserted, stats) = compile_direct(
+            fixture.columns(),
+            true,
+            true,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.ignored_subclasses, 7);
+        assert_eq!(stats.ignored_class_assertions, 2);
         assert_eq!(stats.skipped_axioms, 0);
     }
 

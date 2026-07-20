@@ -131,6 +131,37 @@ def _nonprojecting_class_snapshot() -> object:
     )
 
 
+def _data_class_expression_snapshot() -> object:
+    return _snapshot(
+        "SubClassOf(:Some DataSomeValuesFrom(:dp :dq DataIntersectionOf("
+        "<http://www.w3.org/2001/XMLSchema#string> "
+        'DataComplementOf(DataOneOf("one" "two"@en)) '
+        "DatatypeRestriction(<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#minInclusive> "1"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer>)))) "
+        "SubClassOf(DataAllValuesFrom(:dp "
+        "<http://www.w3.org/2001/XMLSchema#string>) :All) "
+        'SubClassOf(:Has DataHasValue(:dp "value"^^'
+        "<http://www.w3.org/2001/XMLSchema#string>)) "
+        "SubClassOf(:Min DataMinCardinality(2 :dp "
+        "DatatypeRestriction(<http://www.w3.org/2001/XMLSchema#integer> "
+        '<http://www.w3.org/2001/XMLSchema#maxInclusive> "9"^^'
+        "<http://www.w3.org/2001/XMLSchema#integer>))) "
+        'SubClassOf(DataMaxCardinality(3 :dp DataUnionOf(DataOneOf("x" "y"@fr) '
+        "<http://www.w3.org/2001/XMLSchema#string>)) :Max) "
+        "SubClassOf(:Exact DataExactCardinality(4 :dp "
+        "DataComplementOf(<http://www.w3.org/2001/XMLSchema#integer>))) "
+        "SubClassOf(:Wrapped ObjectComplementOf(DataSomeValuesFrom(:dp "
+        "<http://www.w3.org/2001/XMLSchema#string>))) "
+        'ClassAssertion(DataHasValue(:dp "asserted") :i) '
+        "ClassAssertion(ObjectComplementOf(DataExactCardinality(1 :dp "
+        "<http://www.w3.org/2001/XMLSchema#string>)) :j) "
+        "SubClassOf(:TaxA :TaxB) ClassAssertion(:Type :named) "
+        "SubObjectPropertyOf(:child :r) "
+        "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -1966,6 +1997,64 @@ def test_asserted_taxonomy_preflights_nonprojecting_expressions_without_leakage(
     assert statistics.role_expansion_edges == 0
 
 
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_bounded_data_class_expressions_match_scalar_state_neutral_ignores(
+    only_taxonomy: bool,
+) -> None:
+    view = _data_class_expression_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            only_taxonomy=only_taxonomy,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert len(actual) == 4
+    assert not any(edge.relation == "urn:native-direct#dp" for edge in actual)
+    assert statistics.roots == 14
+    assert statistics.subclasses == 8
+    assert statistics.restriction_subclasses == 0
+    assert statistics.ignored_subclasses == 7
+    assert statistics.class_assertions == 3
+    assert statistics.ignored_class_assertions == 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.role_expansion_edges == 1
+
+
+def test_asserted_taxonomy_preflights_bounded_data_class_expressions() -> None:
+    view = _data_class_expression_snapshot()
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+    )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert statistics.ignored_subclasses == 7
+    assert statistics.ignored_class_assertions == 2
+    assert statistics.role_expansion_edges == 0
+
+
 def test_many_nonprojecting_roots_cross_one_zero_output_bounded_call() -> None:
     axioms = " ".join(
         (
@@ -1975,6 +2064,32 @@ def test_many_nonprojecting_roots_cross_one_zero_output_bounded_call() -> None:
             else "ClassAssertion("
             f"ObjectComplementOf(ObjectOneOf(:member{index:03d} "
             f"_:anonymous{index:03d})) :i{index:03d})"
+        )
+        for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(axioms)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert edges == []
+    assert statistics.roots == 250
+    assert statistics.subclasses == statistics.ignored_subclasses == 125
+    assert statistics.class_assertions == statistics.ignored_class_assertions == 125
+    assert statistics.skipped_axioms == 0
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_many_data_class_expression_roots_cross_one_zero_output_bounded_call() -> None:
+    axioms = " ".join(
+        (
+            f"SubClassOf(:A{index:03d} DataExactCardinality("
+            f"{index} :p{index:03d} DataOneOf(\"{index}\")))"
+            if index % 2 == 0
+            else "ClassAssertion(ObjectComplementOf("
+            f"DataHasValue(:p{index:03d} \"value{index:03d}\"@en)) :i{index:03d})"
         )
         for index in range(250)
     )
@@ -2085,6 +2200,98 @@ def test_hostile_nonprojecting_expression_rows_fail_before_output(
     assert compiler.state == "failed"
 
 
+@pytest.mark.parametrize(
+    ("target_tag", "field_delta", "collection", "match"),
+    [
+        (41, 0, True, "data-property"),
+        (43, 0, False, "data-property"),
+        (43, 1, False, "Literal"),
+        (46, 2, False, "datatype"),
+        (20, 0, False, "IRI"),
+        (25, 1, True, "facet-restriction"),
+    ],
+    ids=[
+        "quantifier-property-sequence",
+        "has-value-property",
+        "has-value-literal",
+        "cardinality-filler",
+        "facet-iri",
+        "datatype-restriction-facet",
+    ],
+)
+def test_hostile_data_class_expression_rows_fail_before_output(
+    target_tag: int,
+    field_delta: int,
+    collection: bool,
+    match: str,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) "
+            "SubClassOf(:A DataSomeValuesFrom(:dp :dq "
+            "<http://www.w3.org/2001/XMLSchema#string>)) "
+            'SubClassOf(:B DataHasValue(:dp "value")) '
+            "SubClassOf(:C DataExactCardinality(2 :dp "
+            "<http://www.w3.org/2001/XMLSchema#string>)) "
+            "SubClassOf(:D DataMinCardinality(1 :dp "
+            "DatatypeRestriction(<http://www.w3.org/2001/XMLSchema#integer> "
+            '<http://www.w3.org/2001/XMLSchema#minInclusive> "0"^^'
+            "<http://www.w3.org/2001/XMLSchema#integer>))) "
+            "Declaration(Class(:Wrong))"
+        )
+    )
+    buffers = lease.buffers
+    tags = buffers["node_tags"]
+
+    def tagged_nodes(tag: int) -> list[int]:
+        return [
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        ]
+
+    offsets = buffers["node_field_offsets"]
+
+    def field_start(node_id: int) -> int:
+        return int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+
+    declaration_field = field_start(tagged_nodes(60)[0])
+    wrong_class = int.from_bytes(
+        buffers["field_values"][declaration_field * 8 : (declaration_field + 1) * 8],
+        "little",
+    )
+    target_field = field_start(tagged_nodes(target_tag)[0]) + field_delta
+    if collection:
+        item_start = int.from_bytes(
+            buffers["field_values"][target_field * 8 : (target_field + 1) * 8],
+            "little",
+        )
+        item_values = bytearray(buffers["item_values"])
+        item_values[item_start * 8 : (item_start + 1) * 8] = wrong_class.to_bytes(
+            8,
+            "little",
+        )
+        replacements = {"item_values": memoryview(bytes(item_values))}
+    else:
+        field_values = bytearray(buffers["field_values"])
+        field_values[target_field * 8 : (target_field + 1) * 8] = wrong_class.to_bytes(
+            8,
+            "little",
+        )
+        replacements = {"field_values": memoryview(bytes(field_values))}
+    compiler = prepare_native_encoded_direct(_replace_buffers(lease, replacements))
+    with pytest.raises(SnapshotCompatibilityError, match=match):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
 def test_hostile_complement_operand_fails_before_output() -> None:
     lease = _lease(
         _snapshot(
@@ -2132,10 +2339,17 @@ def test_hostile_complement_operand_fails_before_output() -> None:
     assert compiler.state == "failed"
 
 
-def test_nonminimal_exact_cardinality_fails_before_output() -> None:
-    lease = _lease(
-        _snapshot("SubClassOf(:A ObjectExactCardinality(256 ObjectInverseOf(:p) :B))")
-    )
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SubClassOf(:A ObjectExactCardinality(256 ObjectInverseOf(:p) :B))",
+        "SubClassOf(:A DataExactCardinality(256 :p "
+        "<http://www.w3.org/2001/XMLSchema#integer>))",
+    ],
+    ids=["object", "data"],
+)
+def test_nonminimal_exact_cardinality_fails_before_output(body: str) -> None:
+    lease = _lease(_snapshot(body))
     scalar = bytearray(lease.buffers["scalar_bytes"])
     offset = scalar.index(b"\x00\x01")
     scalar[offset + 1] = 0
@@ -2175,10 +2389,37 @@ def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str
 @pytest.mark.parametrize(
     "body",
     [
+        "SubClassOf(:A DataSomeValuesFrom(:dp "
+        "DataComplementOf(DataComplementOf("
+        "<http://www.w3.org/2001/XMLSchema#string>))))",
+        "SubClassOf(:A DataMinCardinality(1 :dp "
+        "DataIntersectionOf(<http://www.w3.org/2001/XMLSchema#string> "
+        "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
+        "<http://www.w3.org/2001/XMLSchema#decimal>))))",
+    ],
+    ids=["nested-data-complement", "nested-data-aggregate"],
+)
+def test_recursive_data_range_variants_fallback_whole_call(body: str) -> None:
+    compiler = prepare_native_encoded_direct(
+        _lease(_snapshot(f"SubClassOf(:Before :After) {body}"))
+    )
+    with pytest.raises(NativeEncodedDirectUnsupported):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
         "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
         "SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
         "SubClassOf(:A DataSomeValuesFrom("
-        ":dp <http://www.w3.org/2001/XMLSchema#string>))",
+        ":dp DataComplementOf(DataComplementOf("
+        "<http://www.w3.org/2001/XMLSchema#string>))))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
         "ObjectPropertyDomain(:p ObjectIntersectionOf(:A :B))",
         'ObjectPropertyRange(Annotation(<urn:meta> "unsupported") :p :R)',
@@ -2192,7 +2433,7 @@ def test_recursive_or_exact_nonprojecting_variants_fallback_whole_call(body: str
     ids=[
         "inverse-property",
         "complex-filler",
-        "data-restriction",
+        "nested-data-restriction",
         "restriction-pair",
         "complex-domain",
         "annotated-range",
