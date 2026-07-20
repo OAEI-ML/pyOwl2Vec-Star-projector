@@ -8,7 +8,8 @@ declarations; ``SubClassOf``, ``EquivalentClasses``, ``ClassAssertion``, and
 object-property domain/range axioms over the validated named, aggregate, and
 named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
-named-or-inverse role axioms, including annotations on those
+named-or-inverse role axioms plus validated ignored property-chain subproperty
+axioms, including annotations on those
 declaration/logical axioms.
 The compiler reproduces both emitted edges and grouped ignored-shape outcomes
 for that envelope.
@@ -60,6 +61,7 @@ _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_LITERAL = 4
 _TAG_ANNOTATION = 5
 _TAG_OBJECT_INVERSE_OF = 10
+_TAG_OBJECT_PROPERTY_CHAIN = 11
 _TAG_OBJECT_INTERSECTION_OF = 30
 _TAG_OBJECT_UNION_OF = 31
 _TAG_OBJECT_SOME_VALUES_FROM = 34
@@ -1189,6 +1191,16 @@ class _EncodedColumns:
                     "encoded subset ObjectInverseOf property is not a named object property"
                 )
             return
+        if tag == _TAG_OBJECT_PROPERTY_CHAIN:
+            start = self._exact_fields(node_id, 1)
+            item_start, length = self._node_sequence_range(start, minimum=2)
+            for item_index in range(item_start, item_start + length):
+                if not self._is_supported_object_property_expression(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset ObjectPropertyChain item is not a supported "
+                        "object property expression"
+                    )
+            return
         if tag in _AGGREGATE_TAGS:
             start = self._exact_fields(node_id, 1)
             item_start, length = self._node_set_range(start, minimum=2)
@@ -1254,7 +1266,11 @@ class _EncodedColumns:
             return
         if tag in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
             start = self._exact_fields(node_id, 3)
-            first_supported = self._is_supported_object_property_expression(self._field_node(start))
+            first_id = self._field_node(start)
+            first_supported = self._is_supported_object_property_expression(first_id) or (
+                tag == _TAG_SUB_OBJECT_PROPERTY_OF
+                and self.node_tag(first_id) == _TAG_OBJECT_PROPERTY_CHAIN
+            )
             second_supported = self._is_supported_object_property_expression(
                 self._field_node(start + 1)
             )
@@ -1430,6 +1446,24 @@ class _EncodedColumns:
                     "encoded subset canonical-set items are not sorted and unique"
                 )
             previous = node_id
+        return start, length
+
+    def _node_sequence_range(self, index: int, *, minimum: int = 0) -> tuple[int, int]:
+        if self._read("field_kinds", index, 1) != _COMPONENT_SEQUENCE:
+            raise SnapshotCompatibilityError(
+                "encoded subset collection field is not an ordered sequence"
+            )
+        start = self._read("field_values", index, 8)
+        length = self._read("field_lengths", index, 8)
+        if start > self.item_count or length > self.item_count - start:
+            raise SnapshotCompatibilityError("encoded subset sequence range is out of bounds")
+        if length < minimum:
+            raise SnapshotCompatibilityError(
+                "encoded subset sequence has too few items",
+                details={"minimum": minimum, "actual": length},
+            )
+        for item_index in range(start, start + length):
+            self._item_node(item_index)
         return start, length
 
     def _item_node(self, index: int) -> int:
@@ -2651,12 +2685,23 @@ def _domain_range_index(
     )
 
 
-def _role_axioms(roots: tuple[_EncodedRootRef, ...]) -> tuple[_EncodedRoleAxiom, ...]:
+def _role_axioms(
+    roots: tuple[_EncodedRootRef, ...],
+) -> tuple[tuple[_EncodedRoleAxiom, ...], int]:
     rows: list[_EncodedRoleAxiom] = []
+    ignored_property_chains = 0
+    role_axiom_count = 0
     for canonical_order, root in enumerate(roots):
         tag = root.columns.node_tag(root.node_id)
         if tag not in {_TAG_SUB_OBJECT_PROPERTY_OF, _TAG_INVERSE_OBJECT_PROPERTIES}:
             continue
+        role_axiom_count += 1
+        if tag == _TAG_SUB_OBJECT_PROPERTY_OF:
+            start = root.columns._exact_fields(root.node_id, 3)
+            first_id = root.columns._field_node(start)
+            if root.columns.node_tag(first_id) == _TAG_OBJECT_PROPERTY_CHAIN:
+                ignored_property_chains += 1
+                continue
         first, second, first_hash, second_hash, annotation_hash = root.columns._role_axiom_parts(
             root.node_id,
             tag,
@@ -2677,7 +2722,9 @@ def _role_axioms(roots: tuple[_EncodedRootRef, ...]) -> tuple[_EncodedRoleAxiom,
             )
         )
     capacity = 16
-    while len(rows) > int(capacity * 0.75):
+    # Ignored chains still occupy the scalar OWLAPI HashSet and can therefore
+    # grow its table, changing the visitation order of unrelated role axioms.
+    while role_axiom_count > int(capacity * 0.75):
         capacity *= 2
 
     def order_key(row: _EncodedRoleAxiom) -> tuple[int, int, int]:
@@ -2686,7 +2733,7 @@ def _role_axioms(roots: tuple[_EncodedRootRef, ...]) -> tuple[_EncodedRoleAxiom,
         return spread & (capacity - 1), spread, row.canonical_order
 
     rows.sort(key=order_key)
-    return tuple(rows)
+    return tuple(rows), ignored_property_chains
 
 
 def _anonymous_id_maps(
@@ -2955,7 +3002,11 @@ def prepare_encoded_subset_compilation(
     domains, ranges, ignored_shapes = (
         ({}, {}, {}) if asserted_taxonomy_only else _domain_range_index(roots)
     )
-    role_axioms = () if asserted_taxonomy_only else _role_axioms(roots)
+    if asserted_taxonomy_only:
+        role_axioms: tuple[_EncodedRoleAxiom, ...] = ()
+        ignored_property_chains = 0
+    else:
+        role_axioms, ignored_property_chains = _role_axioms(roots)
     anonymous_ids = (
         {cursor: {} for _columns, cursor, _reachable in column_groups}
         if asserted_taxonomy_only
@@ -2969,7 +3020,7 @@ def prepare_encoded_subset_compilation(
         else frozenset()
     )
     counters.canonical_bytes_compared = comparator.bytes_compared
-    ignored_shape_count = sum(ignored_shapes.values())
+    ignored_shape_count = sum(ignored_shapes.values()) + ignored_property_chains
     compilation = EncodedSubsetCompilation(
         view=view,
         options=options,

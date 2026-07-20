@@ -672,11 +672,35 @@ def test_canonical_cursor_matches_core_bytes_for_the_executable_graph() -> None:
 
 
 def test_canonical_cursor_matches_core_bytes_for_sequence_components() -> None:
-    view = _snapshot("SubObjectPropertyOf(ObjectPropertyChain(:p :q :r) :super)")
+    view = _snapshot("SubObjectPropertyOf(ObjectPropertyChain(:z ObjectInverseOf(:a) :m) :super)")
     lease = _lease(view)
     columns = _EncodedColumns(lease)
     assert 7 in bytes(lease.buffers["field_kinds"])
-    assert columns.inspect().fallback_reason is not None
+    assert columns.inspect().fallback_reason is None
+    chain_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 11
+    )
+    field_offsets = lease.buffers["node_field_offsets"]
+    field_index = int.from_bytes(
+        field_offsets[(chain_id - 1) * 8 : chain_id * 8],
+        "little",
+    )
+    item_start = int.from_bytes(
+        lease.buffers["field_values"][field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    item_length = int.from_bytes(
+        lease.buffers["field_lengths"][field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    item_ids = tuple(
+        int.from_bytes(
+            lease.buffers["item_values"][item_index * 8 : (item_index + 1) * 8],
+            "little",
+        )
+        for item_index in range(item_start, item_start + item_length)
+    )
+    assert item_ids != tuple(sorted(item_ids))
     cursor = _CanonicalCursor(columns, {})
 
     actual = tuple(
@@ -2868,6 +2892,77 @@ def test_domain_range_slice_preserves_scala_instance_role_expansion() -> None:
     assert counters.scalar_fallbacks == 0
 
 
+def test_property_chain_role_axioms_match_scalar_without_role_state_mutation() -> None:
+    unrelated_roles = " ".join(f"SubObjectPropertyOf(:x{index} :y{index})" for index in range(9))
+    view = _snapshot(
+        "SubObjectPropertyOf(:c0 :r) SubObjectPropertyOf(:c4 :r) "
+        f"{unrelated_roles} "
+        "SubObjectPropertyOf(ObjectPropertyChain(:z ObjectInverseOf(:a)) :r) "
+        'SubObjectPropertyOf(Annotation(<urn:meta> "chain") '
+        "ObjectPropertyChain(ObjectInverseOf(:q) :p :s) :r) "
+        "ObjectPropertyDomain(:r :D) ObjectPropertyRange(:r :R)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            compatibility_state="scala-instance",
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("property-chain slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert set(actual) == {
+                Edge("urn:slice#D", "urn:slice#r", "urn:slice#R"),
+                Edge("urn:slice#D", "urn:slice#c0", "urn:slice#R"),
+            }
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert projector.last_report.provenance.counts.ignored_shapes == 2
+            assert projector.last_report.diagnostics == ()
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 15
+            assert counters.sub_object_property_axioms == 13
+            assert counters.object_property_domain_axioms == 1
+            assert counters.object_property_range_axioms == 1
+            assert counters.edge_batches == counters.raw_edges == 2
+            assert counters.scalar_fallbacks == 0
+
+
 def test_named_role_axioms_match_scalar_hashset_order_and_same_view_edges() -> None:
     view = _snapshot(
         "SubObjectPropertyOf(:p :r) SubObjectPropertyOf(:q :r) "
@@ -3195,6 +3290,76 @@ def test_inverse_encoded_role_state_is_reused_by_a_later_scala_instance_call() -
         Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
         Edge("urn:slice#R", "urn:slice#pinv", "urn:slice#D"),
     ]
+
+
+def test_property_chain_does_not_leak_role_state_across_scala_instance_calls() -> None:
+    role_view = _snapshot(
+        'SubObjectPropertyOf(Annotation(<urn:meta> "ignored") '
+        "ObjectPropertyChain(:first ObjectInverseOf(:second)) :shared)"
+    )
+    domain_range_view = _snapshot(
+        "ObjectPropertyDomain(:shared :D) ObjectPropertyRange(:shared :R)"
+    )
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(role_view, options=options) == []
+    assert scalar.last_report is not None
+    first_scalar_report = scalar.last_report.to_dict()
+    expected = scalar.project(domain_range_view, options=options)
+    assert scalar.last_report is not None
+    second_scalar_report = scalar.last_report.to_dict()
+
+    projector = Projector()
+    with (
+        _forced_encoded(_lease(role_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded chain lifecycle crossed scalar traversal"),
+        ),
+    ):
+        assert projector.project(role_view, options=replace(options, backend="native")) == []
+
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        first_scalar_report
+    )
+    assert projector.last_report.provenance.counts.ignored_shapes == 1
+    assert projector.last_report.provenance.invocation_count == 1
+    assert projector.last_report.diagnostics == ()
+    first_counters = projector.last_encoded_counters
+    assert first_counters is not None
+    assert first_counters.sub_object_property_axioms == 1
+    assert first_counters.scalar_fallbacks == 0
+
+    with (
+        _forced_encoded(_lease(domain_range_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded chain follow-on crossed scalar traversal"),
+        ),
+    ):
+        actual = projector.project(
+            domain_range_view,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected == [Edge("urn:slice#D", "urn:slice#shared", "urn:slice#R")]
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        second_scalar_report
+    )
+    assert projector.last_report.provenance.invocation_count == 2
+    second_counters = projector.last_encoded_counters
+    assert second_counters is not None
+    assert second_counters.object_property_domain_axioms == 1
+    assert second_counters.object_property_range_axioms == 1
+    assert second_counters.scalar_fallbacks == 0
 
 
 def test_named_subclass_restrictions_match_scalar_options_and_role_expansion() -> None:
@@ -3663,6 +3828,82 @@ def test_segmented_ignored_shapes_preserve_differential_diagnostics_and_leases()
         assert counters.referenced_segments in {1, 2}
 
 
+def test_segmented_property_chains_preserve_unrelated_edges_reports_and_leases() -> None:
+    source_body = (
+        "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r) "
+        "ObjectPropertyDomain(:r :D) ObjectPropertyAssertion(:u :i :j)"
+    )
+    delta_body = (
+        'SubObjectPropertyOf(Annotation(<urn:meta> "chain") '
+        "ObjectPropertyChain(ObjectInverseOf(:z) :a) :r) "
+        "ObjectPropertyRange(:r :R) SubObjectPropertyOf(:child :r)"
+    )
+    source = _snapshot(source_body)
+    delta = _snapshot(delta_body)
+    overlay = _snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(backend="python", duplicates="unique", order="canonical")
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert prepared.statistics.ignored_shapes == 2
+        assert prepared.diagnostics == ()
+        assert len(prepared._role_axioms) == 1
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError("segmented chains crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected
+        assert set(actual) == {
+            Edge("urn:slice#i", "urn:slice#u", "urn:slice#j"),
+            Edge("urn:slice#D", "urn:slice#r", "urn:slice#R"),
+            Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        }
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        assert projector.last_report.provenance.counts.ignored_shapes == 2
+        assert projector.last_report.diagnostics == ()
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.sub_object_property_axioms == 3
+        assert counters.scalar_fallbacks == 0
+        assert counters.referenced_segments in {1, 2}
+
+
 def test_segmented_inverse_properties_preserve_order_diagnostics_and_leases() -> None:
     source_body = (
         'SubClassOf(Annotation(<urn:meta> "inverse-source") '
@@ -3806,9 +4047,7 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
     "body",
     [
         "EquivalentObjectProperties(:p :q)",
-        "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
-        'SubObjectPropertyOf(Annotation(<urn:a> "x") ObjectPropertyChain(:p :q) :r)',
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -3909,6 +4148,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "ObjectPropertyAssertion(:p :i :j) ObjectPropertyAssertion(:p _:anon :i) "
         "ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
+        "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r) "
         "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
         "SubClassOf(ObjectSomeValuesFrom(:p :D) ObjectAllValuesFrom(:q :E)) "
         "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D))) "
@@ -3954,7 +4194,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters.equivalent_axioms == 2
     assert counters.aggregate_equivalent_axioms == 1
     assert counters.class_assertion_axioms == 2
-    assert counters.sub_object_property_axioms == 1
+    assert counters.sub_object_property_axioms == 2
     assert counters.inverse_object_property_axioms == 1
     assert counters.object_property_assertion_axioms == 2
     assert counters.object_property_domain_axioms == 2
@@ -4278,6 +4518,100 @@ def test_restriction_arity_corruption_fails_before_edge_output(
             batch_edges=1,
         )
     assert raised.value.details["expected_arity"] == arity
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "arity",
+        "field-kind",
+        "sequence-size",
+        "sequence-range",
+        "item-kind",
+        "item-length",
+        "item-range",
+        "wrong-item",
+        "nested-chain",
+    ],
+)
+def test_property_chain_corruption_fails_before_edge_output(corruption: str) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(ObjectPropertyChain(:z ObjectInverseOf(:a) :m) :r) "
+        "SubClassOf(:A :B) Declaration(Class(:Wrong))"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    chain_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 11
+    )
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_class_iri(node_id) == "urn:slice#Wrong"
+    )
+    buffers = dict(lease.buffers)
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(
+        offsets[(chain_id - 1) * 8 : chain_id * 8],
+        "little",
+    )
+    item_start = int.from_bytes(
+        buffers["field_values"][field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = chain_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption == "field-kind":
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[field_index] = 6
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "sequence-size":
+        lengths = bytearray(buffers["field_lengths"])
+        lengths[field_index * 8 : (field_index + 1) * 8] = (1).to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    elif corruption == "sequence-range":
+        values = bytearray(buffers["field_values"])
+        values[field_index * 8 : (field_index + 1) * 8] = (columns.item_count + 1).to_bytes(
+            8,
+            "little",
+        )
+        buffers["field_values"] = memoryview(bytes(values))
+    elif corruption == "item-kind":
+        kinds = bytearray(buffers["item_kinds"])
+        kinds[item_start] = 5
+        buffers["item_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "item-length":
+        lengths = bytearray(buffers["item_lengths"])
+        lengths[item_start * 8 : (item_start + 1) * 8] = (1).to_bytes(8, "little")
+        buffers["item_lengths"] = memoryview(bytes(lengths))
+    else:
+        values = bytearray(buffers["item_values"])
+        replacement = {
+            "item-range": columns.node_count + 1,
+            "wrong-item": wrong_id,
+            "nested-chain": chain_id,
+        }[corruption]
+        values[item_start * 8 : (item_start + 1) * 8] = replacement.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=(
+            r"arity|ordered sequence|too few items|out of bounds|node reference|"
+            r"node id is out of range|sorted and unique|ObjectPropertyChain item"
+        ),
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
 
 
 @pytest.mark.parametrize(

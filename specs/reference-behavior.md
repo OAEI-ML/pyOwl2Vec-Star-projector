@@ -229,7 +229,8 @@ The pinned implementation produces no edges for, among others:
 - data restrictions and data-property assertions;
 - complex restriction fillers;
 - general concept inclusions whose accepted named/restriction pattern is absent;
-- property chains and most property characteristics; and
+- property chains (counted once during the role scan, without a grouped diagnostic) and most
+  property characteristics; and
 - annotations outside named classes.
 
 Ignored shapes are not normalized into accepted ones. A diagnostic count is allowed, but no

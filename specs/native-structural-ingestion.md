@@ -63,7 +63,12 @@ uses the pinned expression ordering and role expansion. Named-or-inverse
 `SubObjectPropertyOf` and `InverseObjectProperties` axioms update the retained compatibility role
 state in exact OWLAPI hash-set visitation order. Their projected state uses the underlying named
 IRI while their distinct named/inverse OWLAPI expression hashes continue to control visitation and
-overwrite behavior. Annotations on every otherwise-executable declaration/logical axiom are
+overwrite behavior. `SubObjectPropertyOf` axioms whose subproperty is an ordered
+`ObjectPropertyChain` of named or inverse property expressions are fully preflighted but do not
+mutate that role state. Each increments `ignored_shapes` once without adding a grouped diagnostic,
+matching the scalar role scan. Ignored chains still contribute to OWLAPI hash-set capacity, so
+unrelated executable role axioms retain their exact scalar visitation and overwrite order.
+Annotations on every otherwise-executable declaration/logical axiom are
 fully preflighted and remain part of canonical root identity, preserving annotated-variant
 multiplicity and cross-table structural deduplication. Annotation property/value hashes contribute
 to role-axiom visitation exactly as in the scalar compiler; nested annotation sets remain validated
@@ -85,7 +90,8 @@ Consequently, an n-ary axiom whose first two expressions are named emits only th
 silently ignores a later aggregate or restriction. Inverse object-property assertions remain on
 the whole-operation scalar error path. Other constructors not semantically validated by this
 bounded slice, including complex restriction fillers, complement expressions, and property
-chains, continue to select whole-operation scalar compilation before output.
+constructors outside the validated role envelope, continue to select whole-operation scalar
+compilation before output.
 
 One bounded segmented form uses the same compiler: an overlay-base manifest may reference a fully
 revalidated canonical direct closure with `ALL` or sorted `EXCLUDE` root postings. It may either
