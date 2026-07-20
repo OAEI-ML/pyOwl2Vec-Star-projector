@@ -202,7 +202,9 @@ cancels and clears its processor; native panics are contained and resource failu
 projector exceptions. An unadvertised P7 foundation additionally retains exact public
 structural-column views and immutable `bytes` exporters for a direct, unannotated named-class and
 named-role kernel (`SubClassOf`, `EquivalentClasses`, `ClassAssertion`, simple restrictions, and
-object-property domain/range products); it is not selected by production dispatch and is not a
-complete compiler. See the
+named-individual object-property assertions plus domain/range products); negative named/inverse
+object-property assertions are validated and skipped, while positive inverse assertions preserve
+the pinned typed failure. It is not selected by production dispatch and is not a complete compiler.
+See the
 [P3 report](reports/p3/native-backend.md) for parity, performance, memory, and binary evidence.
 The [P4 report](reports/p4/streaming.md) covers bounded external sorting and artifacts.

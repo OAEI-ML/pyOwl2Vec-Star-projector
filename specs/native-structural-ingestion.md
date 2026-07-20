@@ -9,11 +9,13 @@ the production Rust compiler exists. The broad internal structural-columns slice
 section 2 is currently implemented in Python. Rust has only the private, unadvertised direct
 exact-`bytes` unannotated named-class foundation recorded in the P7 report: declarations,
 named taxonomy and simple named-property/named-filler restriction `SubClassOf`, named-only
-`EquivalentClasses`, named `ClassAssertion`, and paired named object-property domain/range roots.
-Normal projection still uses Python semantic compilation followed by the older Rust edge-policy
-bridge. Role axioms and inverse expansion, object-property assertions, complex class expressions,
-annotations, mmap and segmented exporters, and every other constructor remain outside that private
-Rust slice.
+`EquivalentClasses`, named `ClassAssertion`, named-property `ObjectPropertyAssertion` over named
+individuals, skipped named-or-inverse `NegativeObjectPropertyAssertion`, and paired named
+object-property domain/range roots. Positive inverse assertions reproduce the pinned typed
+reference failure. Normal projection still uses Python semantic compilation followed by the older
+Rust edge-policy bridge. Role axioms and inverse expansion, anonymous assertion operands, complex
+class expressions, annotations, mmap and segmented exporters, and every other constructor remain
+outside that private Rust slice.
 
 ## 1. Objective
 
