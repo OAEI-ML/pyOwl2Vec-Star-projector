@@ -236,8 +236,9 @@ The pinned implementation produces no edges for, among others:
 Ignored shapes are not normalized into accepted ones. A diagnostic count is allowed, but no
 warning flood or stdout print is part of the public contract.
 
-`DisjointClasses` is outside the pinned class-axiom scans. Each root is counted as a skipped axiom
-with a grouped `MOWL_SKIPPED_AXIOM` diagnostic and cannot emit edges or mutate role state.
+`DisjointClasses` and `DisjointUnion` are outside the pinned class-axiom scans. Each root is counted
+as a skipped axiom with a grouped `MOWL_SKIPPED_AXIOM` diagnostic under its constructor and cannot
+emit edges or mutate role state.
 `EquivalentObjectProperties`, `DisjointObjectProperties`, `FunctionalObjectProperty`,
 `InverseFunctionalObjectProperty`, `ReflexiveObjectProperty`, `IrreflexiveObjectProperty`,
 `SymmetricObjectProperty`, `AsymmetricObjectProperty`, and `TransitiveObjectProperty` are not part

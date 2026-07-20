@@ -88,6 +88,9 @@ ignored once under the root constructor, matching the scalar named-property type
 `DisjointClasses` canonical sets over the same validated class-expression envelope are fully
 preflighted and skipped. Valid members outside that bounded envelope retain one whole-operation
 scalar fallback.
+`DisjointUnion` axioms with a named defined class and a canonical set over that same validated
+class-expression envelope follow the same skipped, state-neutral path. A valid member outside the
+bounded envelope retains one whole-operation scalar fallback before output.
 `EquivalentObjectProperties` and `DisjointObjectProperties` sets over named or inverse property
 expressions are fully preflighted and stay encoded-native, but the pinned projector never visits
 them as role axioms. The unary named-or-inverse `FunctionalObjectProperty`,

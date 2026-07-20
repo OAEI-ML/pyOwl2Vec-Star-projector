@@ -8,7 +8,8 @@ declarations; ``SubClassOf``, ``EquivalentClasses``, ``ClassAssertion``, and
 object-property domain/range axioms over the validated named, aggregate, and
 named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
-skipped ``DisjointClasses`` axioms over that validated class-expression envelope;
+skipped ``DisjointClasses`` and ``DisjointUnion`` axioms over that validated
+class-expression envelope;
 named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
 and validated skipped equivalent/disjoint/property-characteristic axioms, including
 functional, inverse-functional, reflexive, irreflexive, symmetric, asymmetric, and transitive,
@@ -91,6 +92,7 @@ _TAG_DECLARATION = 60
 _TAG_SUB_CLASS_OF = 61
 _TAG_EQUIVALENT_CLASSES = 62
 _TAG_DISJOINT_CLASSES = 63
+_TAG_DISJOINT_UNION = 64
 _TAG_SUB_OBJECT_PROPERTY_OF = 70
 _TAG_EQUIVALENT_OBJECT_PROPERTIES = 71
 _TAG_DISJOINT_OBJECT_PROPERTIES = 72
@@ -298,6 +300,7 @@ class EncodedSubsetCounters:
     equivalent_axioms: int = 0
     aggregate_equivalent_axioms: int = 0
     disjoint_class_axioms: int = 0
+    disjoint_union_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
     equivalent_object_property_axioms: int = 0
@@ -359,6 +362,7 @@ class EncodedSubsetCounters:
             self.equivalent_axioms,
             self.aggregate_equivalent_axioms,
             self.disjoint_class_axioms,
+            self.disjoint_union_axioms,
             self.class_assertion_axioms,
             self.sub_object_property_axioms,
             self.equivalent_object_property_axioms,
@@ -424,6 +428,7 @@ class _MutableCounters:
     equivalent_axioms: int = 0
     aggregate_equivalent_axioms: int = 0
     disjoint_class_axioms: int = 0
+    disjoint_union_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
     equivalent_object_property_axioms: int = 0
@@ -485,6 +490,7 @@ class _MutableCounters:
             equivalent_axioms=self.equivalent_axioms,
             aggregate_equivalent_axioms=self.aggregate_equivalent_axioms,
             disjoint_class_axioms=self.disjoint_class_axioms,
+            disjoint_union_axioms=self.disjoint_union_axioms,
             class_assertion_axioms=self.class_assertion_axioms,
             sub_object_property_axioms=self.sub_object_property_axioms,
             equivalent_object_property_axioms=self.equivalent_object_property_axioms,
@@ -987,6 +993,8 @@ class _EncodedColumns:
                 counters.aggregate_equivalent_axioms += 1
         elif tag == _TAG_DISJOINT_CLASSES:
             counters.disjoint_class_axioms += 1
+        elif tag == _TAG_DISJOINT_UNION:
+            counters.disjoint_union_axioms += 1
         elif tag == _TAG_SUB_OBJECT_PROPERTY_OF:
             counters.sub_object_property_axioms += 1
         elif tag == _TAG_EQUIVALENT_OBJECT_PROPERTIES:
@@ -1627,6 +1635,25 @@ class _EncodedColumns:
                         "encoded subset requires validated class expressions in DisjointClasses"
                     )
             self._annotation_set_range(start + 1)
+            return
+        if tag == _TAG_DISJOINT_UNION:
+            start = self._exact_fields(node_id, 3)
+            if not self._is_named_class(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset DisjointUnion defined class is not a named class"
+                )
+            item_start, length = self._node_set_range(start + 1, minimum=2)
+            for item_index in range(item_start, item_start + length):
+                item_id = self._item_node(item_index)
+                if not self._is_class_expression(item_id):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset DisjointUnion item is not a class expression"
+                    )
+                if not self._is_validated_class_expression(item_id):
+                    inspection.fallback(
+                        "encoded subset requires validated class expressions in DisjointUnion"
+                    )
+            self._annotation_set_range(start + 2)
             return
         if tag in {
             _TAG_EQUIVALENT_OBJECT_PROPERTIES,
@@ -3335,6 +3362,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_DATATYPE_DEFINITION: "DatatypeDefinition",
         _TAG_HAS_KEY: "HasKey",
         _TAG_DISJOINT_CLASSES: "DisjointClasses",
+        _TAG_DISJOINT_UNION: "DisjointUnion",
         _TAG_SAME_INDIVIDUAL: "SameIndividual",
         _TAG_DIFFERENT_INDIVIDUALS: "DifferentIndividuals",
         _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: "NegativeObjectPropertyAssertion",
