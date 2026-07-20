@@ -83,12 +83,57 @@ const TAG_OBJECT_PROPERTY_ASSERTION: u16 = 113;
 const TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: u16 = 114;
 const TAG_DATA_PROPERTY_ASSERTION: u16 = 115;
 const TAG_NEGATIVE_DATA_PROPERTY_ASSERTION: u16 = 116;
+const TAG_ANNOTATION_ASSERTION: u16 = 120;
 const TAG_SWRL_RULE: u16 = 148;
 
 const SUBCLASS_OF: &str = "http://subclassof";
 const SUPERCLASS_OF: &str = "http://superclassof";
 const RDF_TYPE: &str = "http://type";
 const RDF_PLAIN_LITERAL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#PlainLiteral";
+const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
+const XSD_NAMESPACE: &str = "http://www.w3.org/2001/XMLSchema#";
+
+const ANNOTATION_PROPERTIES: &[&str] = &[
+    "http://www.w3.org/2000/01/rdf-schema#label",
+    "http://www.w3.org/2004/02/skos/core#prefLabel",
+    "rdfs:label",
+    "rdfs:comment",
+    "http://purl.obolibrary.org/obo/IAO_0000111",
+    "http://purl.obolibrary.org/obo/IAO_0000589",
+    "http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym",
+    "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym",
+    "http://www.geneontology.org/formats/oboInOWL#hasExactSynonym",
+    "http://purl.bioontology.org/ontology/SYN#synonym",
+    "http://scai.fraunhofer.de/CSEO#Synonym",
+    "http://purl.obolibrary.org/obo/synonym",
+    "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#FULL_SYN",
+    "http://www.ebi.ac.uk/efo/alternative_term",
+    "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#Synonym",
+    "http://bioontology.org/projects/ontologies/fma/fmaOwlDlComponent_2_0#Synonym",
+    "http://www.geneontology.org/formats/oboInOwl#hasDefinition",
+    "http://bioontology.org/projects/ontologies/birnlex#preferred_label",
+    "http://bioontology.org/projects/ontologies/birnlex#synonyms",
+    "http://www.w3.org/2004/02/skos/core#altLabel",
+    "https://cfpub.epa.gov/ecotox#latinName",
+    "https://cfpub.epa.gov/ecotox#commonName",
+    "https://www.ncbi.nlm.nih.gov/taxonomy#scientific_name",
+    "https://www.ncbi.nlm.nih.gov/taxonomy#synonym",
+    "https://www.ncbi.nlm.nih.gov/taxonomy#equivalent_name",
+    "https://www.ncbi.nlm.nih.gov/taxonomy#genbank_synonym",
+    "https://www.ncbi.nlm.nih.gov/taxonomy#common_name",
+    "http://purl.obolibrary.org/obo/IAO_0000118",
+    "http://www.w3.org/2000/01/rdf-schema#comment",
+    "http://www.geneontology.org/formats/oboInOwl#hasDbXref",
+    "http://purl.org/dc/elements/1.1/description",
+    "http://purl.org/dc/terms/description",
+    "http://purl.org/dc/elements/1.1/title",
+    "http://purl.org/dc/terms/title",
+    "http://purl.obolibrary.org/obo/IAO_0000115",
+    "http://purl.obolibrary.org/obo/IAO_0000600",
+    "http://purl.obolibrary.org/obo/IAO_0000602",
+    "http://purl.obolibrary.org/obo/IAO_0000601",
+    "http://www.geneontology.org/formats/oboInOwl#hasOBONamespace",
+];
 
 const ENTITY_KINDS: [&[u8]; 6] = [
     b"class",
@@ -174,6 +219,9 @@ pub(crate) struct DirectCompileStats {
     pub(crate) datatype_definitions: usize,
     pub(crate) data_property_assertions: usize,
     pub(crate) negative_data_property_assertions: usize,
+    pub(crate) annotation_assertions: usize,
+    pub(crate) annotation_edges: usize,
+    pub(crate) non_string_literal_renderings: usize,
     pub(crate) skipped_axioms: usize,
     pub(crate) object_property_domains: usize,
     pub(crate) object_property_ranges: usize,
@@ -208,6 +256,19 @@ enum EquivalentProjection<'a> {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AnnotationValue<'a> {
+    Borrowed(&'a str),
+    Typed { lexical: &'a str, datatype: &'a str },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AnnotationProjection<'a> {
+    source: &'a str,
+    relation: &'a str,
+    value: AnnotationValue<'a>,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct EquivalentEdgeCounts {
     edges: usize,
@@ -215,11 +276,27 @@ struct EquivalentEdgeCounts {
     expanded_role_edges: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct AnnotationEdgeCounts {
+    edges: usize,
+    non_string_literals: usize,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct EquivalentEmitOptions {
     bidirectional: bool,
     only_taxonomy: bool,
     maximum_iri: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DirectCompileOptions {
+    pub(crate) bidirectional: bool,
+    pub(crate) asserted_taxonomy_only: bool,
+    pub(crate) only_taxonomy: bool,
+    pub(crate) include_literals: bool,
+    pub(crate) max_edges: usize,
+    pub(crate) max_iri_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -254,6 +331,7 @@ struct RootCounts {
     datatype_definitions: usize,
     data_property_assertions: usize,
     negative_data_property_assertions: usize,
+    annotation_assertions: usize,
     object_property_domains: usize,
     object_property_ranges: usize,
 }
@@ -781,6 +859,31 @@ impl<'a> DirectColumns<'a> {
         self.iri(iri_id, maximum)
     }
 
+    fn named_annotation_property_iri(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<&'a str, KernelError> {
+        let tag = self.node_tag(node_id)?;
+        if tag != TAG_ENTITY {
+            if SCHEMA_TAGS.contains(&tag) {
+                return Err(KernelError::unsupported(
+                    "direct native slice supports only named annotation properties",
+                ));
+            }
+            return Err(KernelError::malformed(
+                "encoded annotation property has an unknown node tag",
+            ));
+        }
+        let (kind, iri_id) = self.entity(node_id)?;
+        if kind != b"annotation_property" {
+            return Err(KernelError::malformed(
+                "encoded annotation-property entity has the wrong kind",
+            ));
+        }
+        self.iri(iri_id, maximum)
+    }
+
     fn named_datatype_iri(self, node_id: usize, maximum: usize) -> Result<&'a str, KernelError> {
         let tag = self.node_tag(node_id)?;
         if tag != TAG_ENTITY {
@@ -802,15 +905,19 @@ impl<'a> DirectColumns<'a> {
         self.iri(iri_id, maximum)
     }
 
-    fn validate_literal(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
+    fn literal_parts(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<(&'a str, &'a str), KernelError> {
         if self.node_tag(node_id)? != TAG_LITERAL {
             return Err(KernelError::malformed(
-                "encoded data assertion value does not reference a Literal",
+                "encoded value does not reference a Literal",
             ));
         }
         let start = self.exact_fields(node_id, 3)?;
         let lexical = self.scalar_payload(start, COMPONENT_TEXT)?;
-        std::str::from_utf8(lexical)
+        let lexical = std::str::from_utf8(lexical)
             .map_err(|_| KernelError::malformed("encoded literal lexical form is not UTF-8"))?;
         let datatype = self.named_datatype_iri(self.field_node(start + 1)?, maximum_iri)?;
         match self.field_kind(start + 2)? {
@@ -841,7 +948,127 @@ impl<'a> DirectColumns<'a> {
                 ));
             }
         }
+        Ok((lexical, datatype))
+    }
+
+    fn validate_literal(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
+        self.literal_parts(node_id, maximum_iri).map(|_parts| ())
+    }
+
+    fn annotation_value(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<AnnotationValue<'a>, KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_IRI => Ok(AnnotationValue::Borrowed(self.iri(node_id, maximum_iri)?)),
+            TAG_LITERAL => {
+                let (lexical, datatype) = self.literal_parts(node_id, maximum_iri)?;
+                if [XSD_STRING, RDF_PLAIN_LITERAL].contains(&datatype) {
+                    Ok(AnnotationValue::Borrowed(lexical))
+                } else {
+                    Ok(AnnotationValue::Typed { lexical, datatype })
+                }
+            }
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
+                "direct native annotations support only IRI or literal values",
+            )),
+            tag => Err(KernelError::malformed(format!(
+                "encoded annotation value tag {tag} is outside structural-columns v1",
+            ))),
+        }
+    }
+
+    fn validate_annotation_set(self, index: usize) -> Result<(), KernelError> {
+        let (item_start, length) = self.node_set_range(index, 0)?;
+        for item_index in item_start..item_start + length {
+            if self.node_tag(self.item_node(item_index)?)? != TAG_ANNOTATION {
+                return Err(KernelError::malformed(
+                    "encoded annotation set item does not reference an Annotation",
+                ));
+            }
+        }
         Ok(())
+    }
+
+    fn validate_annotation(self, node_id: usize, maximum_iri: usize) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_ANNOTATION {
+            return Err(KernelError::malformed(
+                "encoded annotation cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 3)?;
+        self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
+        self.annotation_value(self.field_node(start + 1)?, maximum_iri)?;
+        self.validate_annotation_set(start + 2)
+    }
+
+    fn validate_annotation_assertion(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+    ) -> Result<(), KernelError> {
+        if self.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
+            return Err(KernelError::malformed(
+                "encoded annotation-assertion cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 4)?;
+        self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
+        self.iri(self.field_node(start + 1)?, maximum_iri)?;
+        self.annotation_value(self.field_node(start + 2)?, maximum_iri)?;
+        self.validate_annotation_set(start + 3)
+    }
+
+    fn contains_class_iri(
+        self,
+        target: &str,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<bool, KernelError> {
+        for node_id in 1..=self.node_count() {
+            check_cancel(state, node_id)?;
+            if self.node_tag(node_id)? != TAG_ENTITY {
+                continue;
+            }
+            let (kind, iri_id) = self.entity(node_id)?;
+            if kind == b"class" && self.iri(iri_id, maximum_iri)? == target {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn annotation_projection(
+        self,
+        node_id: usize,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<Option<AnnotationProjection<'a>>, KernelError> {
+        if self.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
+            return Err(KernelError::malformed(
+                "encoded annotation projection cursor has the wrong constructor tag",
+            ));
+        }
+        let start = self.exact_fields(node_id, 4)?;
+        let property = self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
+        if !ANNOTATION_PROPERTIES.contains(&property) {
+            return Ok(None);
+        }
+        let source = self.iri(self.field_node(start + 1)?, maximum_iri)?;
+        if !self.contains_class_iri(source, maximum_iri, state)? {
+            return Ok(None);
+        }
+        let relation = match property {
+            "http://www.w3.org/2000/01/rdf-schema#label" => "rdfs:label",
+            "http://www.w3.org/2000/01/rdf-schema#comment" => "rdfs:comment",
+            _ => property,
+        };
+        Ok(Some(AnnotationProjection {
+            source,
+            relation,
+            value: self.annotation_value(self.field_node(start + 2)?, maximum_iri)?,
+        }))
     }
 
     fn validate_binary_data_property_axiom(
@@ -1604,6 +1831,9 @@ impl<'a> DirectColumns<'a> {
                 TAG_LITERAL => {
                     self.validate_literal(node_id, maximum_iri)?;
                 }
+                TAG_ANNOTATION => {
+                    self.validate_annotation(node_id, maximum_iri)?;
+                }
                 TAG_OBJECT_INVERSE_OF => {
                     self.object_inverse_iri(node_id, maximum_iri)?;
                 }
@@ -1690,6 +1920,9 @@ impl<'a> DirectColumns<'a> {
                         self.node_tag(node_id)?,
                         maximum_iri,
                     )?;
+                }
+                TAG_ANNOTATION_ASSERTION => {
+                    self.validate_annotation_assertion(node_id, maximum_iri)?;
                 }
                 tag if is_object_property_characteristic(tag) => {
                     self.validate_object_property_characteristic(node_id, maximum_iri)?;
@@ -1814,6 +2047,9 @@ impl<'a> DirectColumns<'a> {
                 }
                 (ROOT_AXIOM, TAG_NEGATIVE_DATA_PROPERTY_ASSERTION) => {
                     counts.negative_data_property_assertions += 1;
+                }
+                (ROOT_AXIOM, TAG_ANNOTATION_ASSERTION) => {
+                    counts.annotation_assertions += 1;
                 }
                 (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) | (ROOT_EXTENSION, TAG_SWRL_RULE) => {
                     return Err(KernelError::unsupported(
@@ -1978,6 +2214,37 @@ impl<'a> DirectColumns<'a> {
                         }
                     }
                 }
+            }
+        }
+        Ok(counts)
+    }
+
+    fn annotation_edge_counts(
+        self,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<AnnotationEdgeCounts, KernelError> {
+        let mut counts = AnnotationEdgeCounts::default();
+        for root_index in 0..self.root_count() {
+            check_cancel(state, root_index)?;
+            let node_id = self.root_id(root_index)?;
+            if self.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
+                continue;
+            }
+            let Some(projection) = self.annotation_projection(node_id, maximum_iri, state)? else {
+                continue;
+            };
+            counts.edges = counts
+                .edges
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded annotation edge-count overflow"))?;
+            if matches!(projection.value, AnnotationValue::Typed { .. }) {
+                counts.non_string_literals =
+                    counts.non_string_literals.checked_add(1).ok_or_else(|| {
+                        KernelError::resource(
+                            "encoded non-string annotation-literal count overflow",
+                        )
+                    })?;
             }
         }
         Ok(counts)
@@ -2177,15 +2444,19 @@ impl<'a> DirectColumns<'a> {
     }
 }
 
-pub(crate) fn compile_direct(
+pub(crate) fn compile_direct_with_options(
     columns: DirectColumns<'_>,
-    bidirectional: bool,
-    asserted_taxonomy_only: bool,
-    only_taxonomy: bool,
-    max_edges: usize,
-    max_iri_bytes: usize,
+    options: DirectCompileOptions,
     state: &AtomicU8,
 ) -> Result<(Vec<DirectEdge>, DirectCompileStats), KernelError> {
+    let DirectCompileOptions {
+        bidirectional,
+        asserted_taxonomy_only,
+        only_taxonomy,
+        include_literals,
+        max_edges,
+        max_iri_bytes,
+    } = options;
     check_cancel(state, 0)?;
     columns.validate_generic(state)?;
     columns.validate_supported_nodes(max_iri_bytes, state)?;
@@ -2230,6 +2501,11 @@ pub(crate) fn compile_direct(
     } else {
         counts.object_property_assertions
     };
+    let annotation_counts = if asserted_taxonomy_only || !include_literals {
+        AnnotationEdgeCounts::default()
+    } else {
+        columns.annotation_edge_counts(max_iri_bytes, state)?
+    };
     let skipped_axioms = if asserted_taxonomy_only {
         0
     } else {
@@ -2264,6 +2540,7 @@ pub(crate) fn compile_direct(
     let projected = direct_taxonomy_edges
         .checked_add(equivalent_counts.edges)
         .and_then(|total| total.checked_add(subclass_restriction_edges))
+        .and_then(|total| total.checked_add(annotation_counts.edges))
         .and_then(|total| total.checked_add(class_assertion_edges))
         .and_then(|total| total.checked_add(object_assertion_edges))
         .and_then(|total| total.checked_add(expanded_domain_range_edges))
@@ -2316,8 +2593,9 @@ pub(crate) fn compile_direct(
     }
 
     // The reference compiler emits the class-axiom categories explicitly:
-    // asserted subclasses, equivalents, then ABox class assertions.  Separate
-    // bounded scans preserve that order even for hostile-but-monotone root IDs.
+    // asserted subclasses, equivalents, selected annotations, then ABox class
+    // assertions. Separate bounded scans preserve that order even for
+    // hostile-but-monotone root IDs.
     if !asserted_taxonomy_only {
         for index in 0..columns.root_count() {
             check_cancel(state, index)?;
@@ -2337,6 +2615,21 @@ pub(crate) fn compile_direct(
                 },
                 state,
             )?;
+        }
+
+        if include_literals {
+            for index in 0..columns.root_count() {
+                check_cancel(state, index)?;
+                let node_id = columns.root_id(index)?;
+                if columns.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
+                    continue;
+                }
+                if let Some(projection) =
+                    columns.annotation_projection(node_id, max_iri_bytes, state)?
+                {
+                    push_annotation_edge(&mut edges, projection)?;
+                }
+            }
         }
 
         for index in 0..columns.root_count() {
@@ -2444,6 +2737,9 @@ pub(crate) fn compile_direct(
         datatype_definitions: counts.datatype_definitions,
         data_property_assertions: counts.data_property_assertions,
         negative_data_property_assertions: counts.negative_data_property_assertions,
+        annotation_assertions: counts.annotation_assertions,
+        annotation_edges: annotation_counts.edges,
+        non_string_literal_renderings: annotation_counts.non_string_literals,
         skipped_axioms,
         object_property_domains: counts.object_property_domains,
         object_property_ranges: counts.object_property_ranges,
@@ -2453,6 +2749,30 @@ pub(crate) fn compile_direct(
         buffer_bytes,
     };
     Ok((edges, stats))
+}
+
+#[cfg(test)]
+fn compile_direct(
+    columns: DirectColumns<'_>,
+    bidirectional: bool,
+    asserted_taxonomy_only: bool,
+    only_taxonomy: bool,
+    max_edges: usize,
+    max_iri_bytes: usize,
+    state: &AtomicU8,
+) -> Result<(Vec<DirectEdge>, DirectCompileStats), KernelError> {
+    compile_direct_with_options(
+        columns,
+        DirectCompileOptions {
+            bidirectional,
+            asserted_taxonomy_only,
+            only_taxonomy,
+            include_literals: false,
+            max_edges,
+            max_iri_bytes,
+        },
+        state,
+    )
 }
 
 fn is_restriction_tag(tag: u16) -> bool {
@@ -2565,6 +2885,63 @@ fn clone_text(value: &str) -> Result<String, KernelError> {
         .map_err(|_| KernelError::resource("encoded edge-string allocation failed"))?;
     output.push_str(value);
     Ok(output)
+}
+
+fn render_typed_annotation_literal(lexical: &str, datatype: &str) -> Result<String, KernelError> {
+    let datatype_capacity = datatype
+        .len()
+        .checked_add(5)
+        .ok_or_else(|| KernelError::resource("encoded annotation rendering size overflow"))?;
+    let capacity = lexical
+        .len()
+        .checked_add(3)
+        .and_then(|size| size.checked_add(datatype_capacity))
+        .ok_or_else(|| KernelError::resource("encoded annotation rendering size overflow"))?;
+    let mut output = String::new();
+    output
+        .try_reserve_exact(capacity)
+        .map_err(|_| KernelError::resource("encoded annotation rendering allocation failed"))?;
+
+    // This is intentionally the pinned mOWL defect: OWLAPI escaping is
+    // immediately followed by removal of every backslash.  The surrounding
+    // render then loses its first quote and final datatype character.
+    for character in lexical.chars() {
+        match character {
+            '\\' => {}
+            '\n' => output.push('n'),
+            '\r' => output.push('r'),
+            '\t' => output.push('t'),
+            _ => output.push(character),
+        }
+    }
+    output.push_str("\"^^");
+    if let Some(suffix) = datatype.strip_prefix(XSD_NAMESPACE) {
+        output.push_str("xsd:");
+        output.push_str(suffix);
+        let _ = output.pop();
+    } else {
+        output.push('<');
+        output.push_str(datatype);
+    }
+    Ok(output)
+}
+
+fn push_annotation_edge(
+    edges: &mut Vec<DirectEdge>,
+    projection: AnnotationProjection<'_>,
+) -> Result<(), KernelError> {
+    let destination = match projection.value {
+        AnnotationValue::Borrowed(value) => clone_text(value)?,
+        AnnotationValue::Typed { lexical, datatype } => {
+            render_typed_annotation_literal(lexical, datatype)?
+        }
+    };
+    edges.push(DirectEdge {
+        source: clone_text(projection.source)?,
+        relation: clone_text(projection.relation)?,
+        destination,
+    });
+    Ok(())
 }
 
 fn check_cancel(state: &AtomicU8, index: usize) -> Result<(), KernelError> {
@@ -3057,6 +3434,74 @@ mod tests {
 
         fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 9]);
         for root_id in 19_u32..=27 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
+    fn named_annotation_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"http://www.w3.org/2000/01/rdf-schema#label",
+            b"urn:datatype",
+            b"urn:value",
+            b"urn:meta",
+            XSD_STRING.as_bytes(),
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=6
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 7
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(2);
+        fixture.finish_node(TAG_ENTITY); // 8
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(3);
+        fixture.finish_node(TAG_ENTITY); // 9
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 10
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(6);
+        fixture.finish_node(TAG_ENTITY); // 11
+
+        fixture.push_scalar(COMPONENT_TEXT, b"a\\b");
+        fixture.push_node_ref(9);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 12
+        fixture.push_scalar(COMPONENT_TEXT, b"duplicate");
+        fixture.push_node_ref(11);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 13
+        fixture.push_scalar(COMPONENT_TEXT, b"metadata");
+        fixture.push_node_ref(11);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 14
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(14);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_ANNOTATION); // 15
+
+        fixture.push_node_ref(7);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DECLARATION); // 16
+        for (value, annotations) in [
+            (4_u64, &[][..]),
+            (12, &[][..]),
+            (13, &[][..]),
+            (13, &[15][..]),
+        ] {
+            fixture.push_node_ref(8);
+            fixture.push_node_ref(1);
+            fixture.push_node_ref(value);
+            fixture.push_node_set(annotations);
+            fixture.finish_node(TAG_ANNOTATION_ASSERTION); // 17..=20
+        }
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 5]);
+        for root_id in 16_u32..=20 {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
@@ -3608,6 +4053,85 @@ mod tests {
         .unwrap();
         assert!(asserted.is_empty());
         assert_eq!(stats.skipped_axioms, 0);
+    }
+
+    #[test]
+    fn selected_annotations_render_duplicates_and_keep_taxonomy_modes_distinct() {
+        let fixture = named_annotation_fixture();
+        let (edges, stats) = compile_direct_with_options(
+            fixture.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: true,
+                include_literals: true,
+                max_edges: 4,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "rdfs:label".into(),
+                    destination: "urn:value".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "rdfs:label".into(),
+                    destination: "ab\"^^<urn:datatype".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "rdfs:label".into(),
+                    destination: "duplicate".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "rdfs:label".into(),
+                    destination: "duplicate".into(),
+                },
+            ]
+        );
+        assert_eq!(stats.annotation_assertions, 4);
+        assert_eq!(stats.annotation_edges, 4);
+        assert_eq!(stats.non_string_literal_renderings, 1);
+
+        let (asserted, stats) = compile_direct_with_options(
+            fixture.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: true,
+                only_taxonomy: false,
+                include_literals: true,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+        )
+        .unwrap();
+        assert!(asserted.is_empty());
+        assert_eq!(stats.annotation_assertions, 4);
+        assert_eq!(stats.annotation_edges, 0);
+
+        assert!(matches!(
+            compile_direct_with_options(
+                fixture.columns(),
+                DirectCompileOptions {
+                    bidirectional: false,
+                    asserted_taxonomy_only: false,
+                    only_taxonomy: false,
+                    include_literals: true,
+                    max_edges: 3,
+                    max_iri_bytes: 1024,
+                },
+                &running_state(),
+            ),
+            Err(KernelError::Resource(_))
+        ));
     }
 
     #[test]

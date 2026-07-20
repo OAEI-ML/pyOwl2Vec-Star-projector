@@ -62,6 +62,34 @@ def _snapshot(body: str) -> object:
     )
 
 
+def _annotation_snapshot() -> object:
+    return _snapshot(
+        "Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B) "
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> "
+        ":A <urn:value>) "
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#comment> "
+        ':A "bonjour"@fr) '
+        "AnnotationAssertion(<http://www.w3.org/2004/02/skos/core#prefLabel> "
+        ':A "text") '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "
+        '"7"^^<http://www.w3.org/2001/XMLSchema#integer>) '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "
+        '"a\\\\b"^^<urn:datatype>) '
+        'AnnotationAssertion(<urn:unsupported> :A "ignored") '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> "
+        '<urn:not-class> "ignored") '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> "
+        ':A "duplicate") '
+        'AnnotationAssertion(Annotation(<urn:meta> "one") '
+        "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+        '"duplicate") '
+        "AnnotationAssertion(Annotation(Annotation(<urn:nested> <urn:nested-value>) "
+        '<urn:meta> "two") <http://www.w3.org/2000/01/rdf-schema#label> '
+        ':A "duplicate") '
+        "ClassAssertion(:A :i) ObjectPropertyAssertion(:p :i :j)"
+    )
+
+
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
@@ -147,6 +175,9 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.datatype_definitions == 0
     assert statistics.data_property_assertions == 0
     assert statistics.negative_data_property_assertions == 0
+    assert statistics.annotation_assertions == 0
+    assert statistics.annotation_edges == 0
+    assert statistics.non_string_literal_renderings == 0
     assert statistics.skipped_axioms == 0
     assert statistics.object_property_domains == 0
     assert statistics.object_property_ranges == 0
@@ -951,6 +982,223 @@ def test_data_literal_datatype_iri_limit_fails_before_taxonomy_publication() -> 
     assert compiler.state == "failed"
 
 
+def test_annotation_assertions_match_scalar_rendering_order_and_annotated_duplicates() -> None:
+    view = _annotation_snapshot()
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    actual, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        include_literals=True,
+    )
+
+    assert actual == expected
+    assert statistics.roots == 15
+    assert statistics.annotation_assertions == 10
+    assert statistics.annotation_edges == 8
+    assert statistics.non_string_literal_renderings == 2
+    assert statistics.skipped_axioms == 0
+    assert actual[1] == Edge("urn:native-direct#A", "rdfs:label", "urn:value")
+    assert actual[2:4] == [
+        Edge("urn:native-direct#A", "rdfs:label", 'ab"^^<urn:datatype'),
+        Edge("urn:native-direct#A", "rdfs:label", '7"^^xsd:intege'),
+    ]
+    duplicate = Edge("urn:native-direct#A", "rdfs:label", "duplicate")
+    assert actual.count(duplicate) == 3
+    assert actual[-2:] == [
+        Edge("urn:native-direct#i", RDF_TYPE, "urn:native-direct#A"),
+        Edge("urn:native-direct#i", "urn:native-direct#p", "urn:native-direct#j"),
+    ]
+
+
+def test_annotation_options_pin_historical_only_taxonomy_and_asserted_suppression() -> None:
+    view = _annotation_snapshot()
+    cases = (
+        ProjectionOptions(
+            backend="python",
+            include_literals=False,
+            duplicates="preserve",
+            order="encounter",
+        ),
+        ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            only_taxonomy=True,
+            duplicates="preserve",
+            order="encounter",
+        ),
+    )
+    for options in cases:
+        expected = Projector().project(view, options=options)
+        actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+            bidirectional=False,
+            max_edges=len(expected),
+            max_iri_bytes=1024 * 1024,
+            only_taxonomy=options.only_taxonomy,
+            include_literals=options.include_literals,
+        )
+        assert actual == expected
+        assert statistics.annotation_assertions == 10
+        assert statistics.annotation_edges == (8 if options.include_literals else 0)
+        assert statistics.non_string_literal_renderings == (2 if options.include_literals else 0)
+
+    historical = Projector().project(view, options=cases[1])
+    assert Edge("urn:native-direct#A", "rdfs:label", "urn:value") in historical
+
+    expected_taxonomy = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=len(expected_taxonomy),
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+        only_taxonomy=True,
+        include_literals=True,
+    )
+    assert actual == expected_taxonomy
+    assert all(edge.relation in {SUBCLASS_OF, SUPERCLASS_OF} for edge in actual)
+    assert statistics.annotation_assertions == 10
+    assert statistics.annotation_edges == 0
+    assert statistics.non_string_literal_renderings == 0
+
+    invalid = prepare_native_encoded_direct(_lease(view))
+    with pytest.raises(TypeError, match="include_literals must be bool"):
+        invalid.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024 * 1024,
+            include_literals=1,  # type: ignore[arg-type]
+        )
+    assert invalid.state == "idle"
+
+
+def test_annotation_edge_limit_and_nonrenderable_values_fail_before_publication() -> None:
+    assertions = " ".join(
+        f'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "value-{index:03d}")'
+        for index in range(250)
+    )
+    view = _snapshot(f"Declaration(Class(:A)) {assertions}")
+    limited = prepare_native_encoded_direct(_lease(view))
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        limited.compile_batch(
+            bidirectional=False,
+            max_edges=249,
+            max_iri_bytes=1024 * 1024,
+            include_literals=True,
+        )
+    assert limited.state == "failed"
+
+    for body in (
+        "Declaration(Class(:A)) AnnotationAssertion("
+        "<http://www.w3.org/2000/01/rdf-schema#label> :A _:anonymous)",
+        "Declaration(Class(:A)) AnnotationAssertion(Annotation("
+        "<urn:meta> _:anonymous) "
+        '<http://www.w3.org/2000/01/rdf-schema#label> :A "value")',
+    ):
+        unsupported = prepare_native_encoded_direct(_lease(_snapshot(body)))
+        with pytest.raises(
+            NativeEncodedDirectUnsupported,
+            match=r"schema tag 3|IRI or literal",
+        ):
+            unsupported.compile_batch(
+                bidirectional=False,
+                max_edges=1,
+                max_iri_bytes=1024 * 1024,
+                include_literals=True,
+            )
+        assert unsupported.state == "failed"
+
+
+@pytest.mark.parametrize(
+    ("corruption", "match"),
+    [
+        ("property", "annotation-property"),
+        ("subject", "IRI"),
+        ("value", "IRI or literal"),
+        ("annotation-item", "annotation set item"),
+    ],
+)
+def test_hostile_annotation_assertion_rows_fail_before_output(
+    corruption: str,
+    match: str,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            "SubClassOf(:Before :After) Declaration(Class(:A)) "
+            'AnnotationAssertion(Annotation(<urn:meta> "m") '
+            "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+            '"value")'
+        )
+    )
+    tags = lease.buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            node_id
+            for node_id in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == tag
+        )
+
+    assertion_id = tagged_node(120)
+    offsets = lease.buffers["node_field_offsets"]
+    field_start = int.from_bytes(
+        offsets[(assertion_id - 1) * 8 : assertion_id * 8],
+        "little",
+    )
+    values = bytearray(lease.buffers["field_values"])
+    if corruption == "annotation-item":
+        item_start = int.from_bytes(
+            values[(field_start + 3) * 8 : (field_start + 4) * 8],
+            "little",
+        )
+        item_values = bytearray(lease.buffers["item_values"])
+        item_values[item_start * 8 : (item_start + 1) * 8] = tagged_node(4).to_bytes(
+            8,
+            "little",
+        )
+        hostile = _replace_buffers(
+            lease,
+            {"item_values": memoryview(bytes(item_values))},
+        )
+    else:
+        field_delta = {"property": 0, "subject": 1, "value": 2}[corruption]
+        replacement = tagged_node(2)
+        values[(field_start + field_delta) * 8 : (field_start + field_delta + 1) * 8] = (
+            replacement.to_bytes(8, "little")
+        )
+        hostile = _replace_buffers(
+            lease,
+            {"field_values": memoryview(bytes(values))},
+        )
+    compiler = prepare_native_encoded_direct(hostile)
+    with pytest.raises(
+        (SnapshotCompatibilityError, NativeEncodedDirectUnsupported),
+        match=match,
+    ):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=10,
+            max_iri_bytes=1024 * 1024,
+            include_literals=True,
+        )
+    assert compiler.state == "failed"
+
+
 def test_unsupported_constructor_and_exporters_are_rejected_before_output() -> None:
     constructor_lease = _lease(_snapshot("SameIndividual(:i :j)"))
     compiler = prepare_native_encoded_direct(constructor_lease)
@@ -1513,4 +1761,6 @@ def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:
 
 
 def test_encoded_capability_remains_unadvertised() -> None:
-    assert ENCODED_NATIVE_FEATURE not in frozenset(load_native_module().FEATURES)
+    features = tuple(load_native_module().FEATURES)
+    assert features == ("abi3-py310", "bounded-batches")
+    assert ENCODED_NATIVE_FEATURE not in frozenset(features)

@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 8
+ENCODED_DIRECT_KERNEL_VERSION = 9
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -94,6 +94,9 @@ class NativeEncodedDirectStatistics:
     datatype_definitions: int
     data_property_assertions: int
     negative_data_property_assertions: int
+    annotation_assertions: int
+    annotation_edges: int
+    non_string_literal_renderings: int
     skipped_axioms: int
     object_property_domains: int
     object_property_ranges: int
@@ -136,6 +139,9 @@ class NativeEncodedDirectStatistics:
             self.datatype_definitions,
             self.data_property_assertions,
             self.negative_data_property_assertions,
+            self.annotation_assertions,
+            self.annotation_edges,
+            self.non_string_literal_renderings,
             self.skipped_axioms,
             self.object_property_domains,
             self.object_property_ranges,
@@ -197,6 +203,7 @@ class NativeEncodedDirectCompiler:
         max_iri_bytes: int,
         asserted_taxonomy_only: bool = False,
         only_taxonomy: bool = False,
+        include_literals: bool = False,
     ) -> tuple[list[Edge], NativeEncodedDirectStatistics]:
         if type(bidirectional) is not bool:
             raise TypeError("bidirectional must be bool")
@@ -204,6 +211,8 @@ class NativeEncodedDirectCompiler:
             raise TypeError("asserted_taxonomy_only must be bool")
         if type(only_taxonomy) is not bool:
             raise TypeError("only_taxonomy must be bool")
+        if type(include_literals) is not bool:
+            raise TypeError("include_literals must be bool")
         if type(max_edges) is not int or max_edges < 1:
             raise ValueError("max_edges must be a positive int")
         if type(max_iri_bytes) is not int or max_iri_bytes < 1:
@@ -215,6 +224,7 @@ class NativeEncodedDirectCompiler:
                 max_iri_bytes,
                 asserted_taxonomy_only,
                 only_taxonomy,
+                include_literals,
             )
         except MemoryError as error:
             raise _resource_error(error) from error
@@ -237,7 +247,7 @@ class NativeEncodedDirectCompiler:
         except Exception as error:
             raise _execution_error(error) from error
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 39:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 42:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)

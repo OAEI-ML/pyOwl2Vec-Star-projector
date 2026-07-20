@@ -17,8 +17,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use encoded_direct::{
-    compile_direct, DirectColumns, KernelError, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED,
-    STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    compile_direct_with_options, DirectColumns, DirectCompileOptions, KernelError, BUFFER_COUNT,
+    BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -27,7 +27,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyMapping, PyMemoryView, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 8;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 9;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -456,15 +456,16 @@ impl EncodedDirectCompiler {
         max_iri_bytes,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
+        include_literals=false,
     ))]
     fn compile_batch(
         &self,
-        py: Python<'_>,
         bidirectional: bool,
         max_edges: usize,
         max_iri_bytes: usize,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
+        include_literals: bool,
     ) -> PyResult<EncodedDirectBatch> {
         if max_edges == 0 {
             return Err(PyValueError::new_err("max_edges must be positive"));
@@ -476,75 +477,78 @@ impl EncodedDirectCompiler {
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_ref());
         let columns = DirectColumns::from_ordered(slices);
+        let options = DirectCompileOptions {
+            bidirectional,
+            asserted_taxonomy_only,
+            only_taxonomy,
+            include_literals,
+            max_edges,
+            max_iri_bytes,
+        };
         let result = guarded(|| {
-            py.detach(|| {
-                compile_direct(
-                    columns,
-                    bidirectional,
-                    asserted_taxonomy_only,
-                    only_taxonomy,
-                    max_edges,
-                    max_iri_bytes,
-                    &self.state,
-                )
-            })
-            .map_err(kernel_error)
-            .and_then(|(edges, stats)| {
-                let mut output = Vec::new();
-                output.try_reserve_exact(edges.len()).map_err(|_| {
-                    PyMemoryError::new_err("encoded native tuple-batch allocation failed")
-                })?;
-                output.extend(
-                    edges
-                        .into_iter()
-                        .map(|edge| (edge.source, edge.relation, edge.destination)),
-                );
-                let statistics = PyTuple::new(
-                    py,
-                    [
-                        stats.roots,
-                        stats.nodes,
-                        stats.declarations,
-                        stats.subclasses,
-                        stats.restriction_subclasses,
-                        stats.equivalents,
-                        stats.aggregate_equivalents,
-                        stats.disjoint_classes,
-                        stats.disjoint_unions,
-                        stats.class_assertions,
-                        stats.object_property_assertions,
-                        stats.negative_object_property_assertions,
-                        stats.sub_object_properties,
-                        stats.equivalent_object_properties,
-                        stats.disjoint_object_properties,
-                        stats.inverse_object_properties,
-                        stats.functional_object_properties,
-                        stats.inverse_functional_object_properties,
-                        stats.reflexive_object_properties,
-                        stats.irreflexive_object_properties,
-                        stats.symmetric_object_properties,
-                        stats.asymmetric_object_properties,
-                        stats.transitive_object_properties,
-                        stats.sub_data_properties,
-                        stats.equivalent_data_properties,
-                        stats.disjoint_data_properties,
-                        stats.data_property_domains,
-                        stats.data_property_ranges,
-                        stats.functional_data_properties,
-                        stats.datatype_definitions,
-                        stats.data_property_assertions,
-                        stats.negative_data_property_assertions,
-                        stats.skipped_axioms,
-                        stats.object_property_domains,
-                        stats.object_property_ranges,
-                        stats.domain_range_edges,
-                        stats.role_expansion_edges,
-                        stats.edges,
-                        stats.buffer_bytes,
-                    ],
-                )?
-                .unbind();
-                Ok((output, statistics))
+            Python::attach(|py| {
+                py.detach(|| compile_direct_with_options(columns, options, &self.state))
+                    .map_err(kernel_error)
+                    .and_then(|(edges, stats)| {
+                        let mut output = Vec::new();
+                        output.try_reserve_exact(edges.len()).map_err(|_| {
+                            PyMemoryError::new_err("encoded native tuple-batch allocation failed")
+                        })?;
+                        output.extend(
+                            edges
+                                .into_iter()
+                                .map(|edge| (edge.source, edge.relation, edge.destination)),
+                        );
+                        let statistics = PyTuple::new(
+                            py,
+                            [
+                                stats.roots,
+                                stats.nodes,
+                                stats.declarations,
+                                stats.subclasses,
+                                stats.restriction_subclasses,
+                                stats.equivalents,
+                                stats.aggregate_equivalents,
+                                stats.disjoint_classes,
+                                stats.disjoint_unions,
+                                stats.class_assertions,
+                                stats.object_property_assertions,
+                                stats.negative_object_property_assertions,
+                                stats.sub_object_properties,
+                                stats.equivalent_object_properties,
+                                stats.disjoint_object_properties,
+                                stats.inverse_object_properties,
+                                stats.functional_object_properties,
+                                stats.inverse_functional_object_properties,
+                                stats.reflexive_object_properties,
+                                stats.irreflexive_object_properties,
+                                stats.symmetric_object_properties,
+                                stats.asymmetric_object_properties,
+                                stats.transitive_object_properties,
+                                stats.sub_data_properties,
+                                stats.equivalent_data_properties,
+                                stats.disjoint_data_properties,
+                                stats.data_property_domains,
+                                stats.data_property_ranges,
+                                stats.functional_data_properties,
+                                stats.datatype_definitions,
+                                stats.data_property_assertions,
+                                stats.negative_data_property_assertions,
+                                stats.annotation_assertions,
+                                stats.annotation_edges,
+                                stats.non_string_literal_renderings,
+                                stats.skipped_axioms,
+                                stats.object_property_domains,
+                                stats.object_property_ranges,
+                                stats.domain_range_edges,
+                                stats.role_expansion_edges,
+                                stats.edges,
+                                stats.buffer_bytes,
+                            ],
+                        )?
+                        .unbind();
+                        Ok((output, statistics))
+                    })
             })
         });
         self.finish_result(result)
