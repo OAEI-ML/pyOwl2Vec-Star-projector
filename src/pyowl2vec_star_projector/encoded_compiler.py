@@ -8,11 +8,11 @@ declarations; ``SubClassOf``, ``EquivalentClasses``, ``ClassAssertion``, and
 object-property domain/range axioms over the validated named, aggregate, and
 named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
-named-or-inverse role axioms plus validated ignored property-chain subproperty
-axioms, including annotations on those
+named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
+and validated skipped equivalent-object-property axioms, including annotations on those
 declaration/logical axioms.
-The compiler reproduces both emitted edges and grouped ignored-shape outcomes
-for that envelope.
+The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
+outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
 closure proves the pinned root-only lookup semantics.  It preflights the
 complete encoded view before yielding any edge.  A well-formed view outside
@@ -72,6 +72,7 @@ _TAG_DECLARATION = 60
 _TAG_SUB_CLASS_OF = 61
 _TAG_EQUIVALENT_CLASSES = 62
 _TAG_SUB_OBJECT_PROPERTY_OF = 70
+_TAG_EQUIVALENT_OBJECT_PROPERTIES = 71
 _TAG_INVERSE_OBJECT_PROPERTIES = 73
 _TAG_OBJECT_PROPERTY_DOMAIN = 74
 _TAG_OBJECT_PROPERTY_RANGE = 75
@@ -232,6 +233,7 @@ class EncodedSubsetCounters:
     aggregate_equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
+    equivalent_object_property_axioms: int = 0
     inverse_object_property_axioms: int = 0
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
@@ -266,6 +268,7 @@ class EncodedSubsetCounters:
             self.aggregate_equivalent_axioms,
             self.class_assertion_axioms,
             self.sub_object_property_axioms,
+            self.equivalent_object_property_axioms,
             self.inverse_object_property_axioms,
             self.object_property_assertion_axioms,
             self.object_property_domain_axioms,
@@ -304,6 +307,7 @@ class _MutableCounters:
     aggregate_equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
+    equivalent_object_property_axioms: int = 0
     inverse_object_property_axioms: int = 0
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
@@ -338,6 +342,7 @@ class _MutableCounters:
             aggregate_equivalent_axioms=self.aggregate_equivalent_axioms,
             class_assertion_axioms=self.class_assertion_axioms,
             sub_object_property_axioms=self.sub_object_property_axioms,
+            equivalent_object_property_axioms=self.equivalent_object_property_axioms,
             inverse_object_property_axioms=self.inverse_object_property_axioms,
             object_property_assertion_axioms=self.object_property_assertion_axioms,
             object_property_domain_axioms=self.object_property_domain_axioms,
@@ -491,6 +496,7 @@ class EncodedSubsetCompilation:
     _counters: _MutableCounters
     _retained_leases: tuple[EncodedStructuralLease, ...] = ()
     _ignored_shapes: dict[str, int] = field(default_factory=dict)
+    _skipped_axioms: dict[str, int] = field(default_factory=dict)
     _non_string_literal_renderings: int = 0
     _roles_prepared: bool = False
     statistics: CompileStatistics = field(default_factory=CompileStatistics)
@@ -521,6 +527,16 @@ class EncodedSubsetCompilation:
                     constructor="Literal",
                 )
             )
+        result.extend(
+            ProjectionDiagnostic(
+                code="MOWL_SKIPPED_AXIOM",
+                message="axiom category is not visited by the pinned profile",
+                count=count,
+                constructor=constructor,
+            )
+            for constructor, count in sorted(self._skipped_axioms.items())
+            if count
+        )
         return tuple(result)
 
     def _ignore_shape(self, constructor: str) -> None:
@@ -788,6 +804,8 @@ class _EncodedColumns:
                 counters.aggregate_equivalent_axioms += 1
         elif tag == _TAG_SUB_OBJECT_PROPERTY_OF:
             counters.sub_object_property_axioms += 1
+        elif tag == _TAG_EQUIVALENT_OBJECT_PROPERTIES:
+            counters.equivalent_object_property_axioms += 1
         elif tag == _TAG_INVERSE_OBJECT_PROPERTIES:
             counters.inverse_object_property_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_DOMAIN:
@@ -1261,6 +1279,17 @@ class _EncodedColumns:
                 if not self._is_validated_class_expression(item_id):
                     inspection.fallback(
                         "encoded subset requires validated class expressions in EquivalentClasses"
+                    )
+            self._annotation_set_range(start + 1)
+            return
+        if tag == _TAG_EQUIVALENT_OBJECT_PROPERTIES:
+            start = self._exact_fields(node_id, 2)
+            item_start, length = self._node_set_range(start, minimum=2)
+            for item_index in range(item_start, item_start + length):
+                if not self._is_supported_object_property_expression(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset EquivalentObjectProperties item is not a supported "
+                        "object property expression"
                     )
             self._annotation_set_range(start + 1)
             return
@@ -2685,6 +2714,17 @@ def _domain_range_index(
     )
 
 
+def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
+    equivalent_object_properties = sum(
+        root.columns.node_tag(root.node_id) == _TAG_EQUIVALENT_OBJECT_PROPERTIES for root in roots
+    )
+    return (
+        {"EquivalentObjectProperties": equivalent_object_properties}
+        if equivalent_object_properties
+        else {}
+    )
+
+
 def _role_axioms(
     roots: tuple[_EncodedRootRef, ...],
 ) -> tuple[tuple[_EncodedRoleAxiom, ...], int]:
@@ -3002,6 +3042,7 @@ def prepare_encoded_subset_compilation(
     domains, ranges, ignored_shapes = (
         ({}, {}, {}) if asserted_taxonomy_only else _domain_range_index(roots)
     )
+    skipped_axioms = {} if asserted_taxonomy_only else _skipped_axiom_index(roots)
     if asserted_taxonomy_only:
         role_axioms: tuple[_EncodedRoleAxiom, ...] = ()
         ignored_property_chains = 0
@@ -3021,6 +3062,7 @@ def prepare_encoded_subset_compilation(
     )
     counters.canonical_bytes_compared = comparator.bytes_compared
     ignored_shape_count = sum(ignored_shapes.values()) + ignored_property_chains
+    skipped_axiom_count = sum(skipped_axioms.values())
     compilation = EncodedSubsetCompilation(
         view=view,
         options=options,
@@ -3037,7 +3079,11 @@ def prepare_encoded_subset_compilation(
         _counters=counters,
         _retained_leases=retained_leases,
         _ignored_shapes=ignored_shapes,
-        statistics=CompileStatistics(ignored_shapes=ignored_shape_count),
+        _skipped_axioms=skipped_axioms,
+        statistics=CompileStatistics(
+            skipped_axioms=skipped_axiom_count,
+            ignored_shapes=ignored_shape_count,
+        ),
     )
     return compilation, ingestion, compilation.counters
 

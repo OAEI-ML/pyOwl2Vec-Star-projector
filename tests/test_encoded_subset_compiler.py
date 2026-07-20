@@ -34,6 +34,7 @@ from pyowl2vec_star_projector.compiler import (
 from pyowl2vec_star_projector.compiler import (
     prepare_streaming_compilation as scalar_compilation,
 )
+from pyowl2vec_star_projector.diagnostics import ProjectionDiagnostic
 from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedNegotiation,
@@ -2963,6 +2964,91 @@ def test_property_chain_role_axioms_match_scalar_without_role_state_mutation() -
             assert counters.scalar_fallbacks == 0
 
 
+def test_equivalent_object_properties_match_scalar_skipped_diagnostics() -> None:
+    view = _snapshot(
+        "EquivalentObjectProperties(:p ObjectInverseOf(:q) :r) "
+        "EquivalentObjectProperties(Annotation(<urn:meta> _:skipped) "
+        "ObjectInverseOf(:p) :q) "
+        "SubObjectPropertyOf(:child :p) ObjectPropertyDomain(:p :D) "
+        "ObjectPropertyRange(:p :R) SubClassOf(:A :B) "
+        "ObjectPropertyDomain(ObjectInverseOf(:p) :Ignored) "
+        "ObjectPropertyAssertion(:u _:edge :i)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(backend="python", duplicates="unique", order="canonical"),
+        ProjectionOptions(
+            backend="python",
+            compatibility_state="scala-instance",
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("equivalent-object-property slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert set(actual) == {
+                Edge("urn:slice#A", SUBCLASS_OF, "urn:slice#B"),
+                Edge("_:genid2147483648", "urn:slice#u", "urn:slice#i"),
+                Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+                Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+            }
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert projector.last_report.provenance.counts.skipped_axioms == 2
+            assert projector.last_report.provenance.counts.ignored_shapes == 1
+            assert projector.last_report.diagnostics == (
+                ProjectionDiagnostic(
+                    code="MOWL_IGNORED_SHAPE",
+                    message="constructor does not emit an edge in the pinned profile",
+                    count=1,
+                    constructor="ObjectPropertyDomain",
+                ),
+                ProjectionDiagnostic(
+                    code="MOWL_SKIPPED_AXIOM",
+                    message="axiom category is not visited by the pinned profile",
+                    count=2,
+                    constructor="EquivalentObjectProperties",
+                ),
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 8
+            assert counters.equivalent_object_property_axioms == 2
+            assert counters.sub_object_property_axioms == 1
+            assert counters.object_property_assertion_axioms == 1
+            assert counters.object_property_domain_axioms == 2
+            assert counters.anonymous_individuals == 2
+            assert counters.edge_batches == counters.raw_edges == 4
+            assert counters.scalar_fallbacks == 0
+
+
 def test_named_role_axioms_match_scalar_hashset_order_and_same_view_edges() -> None:
     view = _snapshot(
         "SubObjectPropertyOf(:p :r) SubObjectPropertyOf(:q :r) "
@@ -3342,6 +3428,75 @@ def test_property_chain_does_not_leak_role_state_across_scala_instance_calls() -
             api_module,
             "prepare_streaming_compilation",
             side_effect=AssertionError("encoded chain follow-on crossed scalar traversal"),
+        ),
+    ):
+        actual = projector.project(
+            domain_range_view,
+            options=replace(options, backend="native"),
+        )
+
+    assert actual == expected == [Edge("urn:slice#D", "urn:slice#shared", "urn:slice#R")]
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        second_scalar_report
+    )
+    assert projector.last_report.provenance.invocation_count == 2
+    second_counters = projector.last_encoded_counters
+    assert second_counters is not None
+    assert second_counters.object_property_domain_axioms == 1
+    assert second_counters.object_property_range_axioms == 1
+    assert second_counters.scalar_fallbacks == 0
+
+
+def test_skipped_equivalent_properties_do_not_leak_scala_instance_state() -> None:
+    skipped_view = _snapshot(
+        'EquivalentObjectProperties(Annotation(<urn:meta> "skipped") '
+        "ObjectInverseOf(:first) :shared)"
+    )
+    domain_range_view = _snapshot(
+        "ObjectPropertyDomain(:shared :D) ObjectPropertyRange(:shared :R)"
+    )
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    scalar = Projector()
+    assert scalar.project(skipped_view, options=options) == []
+    assert scalar.last_report is not None
+    first_scalar_report = scalar.last_report.to_dict()
+    expected = scalar.project(domain_range_view, options=options)
+    assert scalar.last_report is not None
+    second_scalar_report = scalar.last_report.to_dict()
+
+    projector = Projector()
+    with (
+        _forced_encoded(_lease(skipped_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded skipped lifecycle crossed scalar traversal"),
+        ),
+    ):
+        assert projector.project(skipped_view, options=replace(options, backend="native")) == []
+
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+        first_scalar_report
+    )
+    assert projector.last_report.provenance.counts.skipped_axioms == 1
+    assert projector.last_report.provenance.invocation_count == 1
+    first_counters = projector.last_encoded_counters
+    assert first_counters is not None
+    assert first_counters.equivalent_object_property_axioms == 1
+    assert first_counters.scalar_fallbacks == 0
+
+    with (
+        _forced_encoded(_lease(domain_range_view)),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded skipped follow-on crossed scalar traversal"),
         ),
     ):
         actual = projector.project(
@@ -3904,6 +4059,91 @@ def test_segmented_property_chains_preserve_unrelated_edges_reports_and_leases()
         assert counters.referenced_segments in {1, 2}
 
 
+def test_segmented_equivalent_properties_preserve_skips_edges_and_leases() -> None:
+    source_body = (
+        "EquivalentObjectProperties(:p ObjectInverseOf(:q) :r) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyAssertion(:u :i :j)"
+    )
+    delta_body = (
+        'EquivalentObjectProperties(Annotation(<urn:meta> "skipped") '
+        "ObjectInverseOf(:z) :a) "
+        "ObjectPropertyRange(:p :R) SubObjectPropertyOf(:child :p)"
+    )
+    source = _snapshot(source_body)
+    delta = _snapshot(delta_body)
+    overlay = _snapshot(f"{source_body} {delta_body}")
+    composite = compose_views(source, delta)
+    rows = (
+        (
+            overlay,
+            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            {id(source)},
+        ),
+        (
+            composite,
+            _semantic_composite_lease(composite, (_lease(source), _lease(delta))),
+            {id(source), id(delta)},
+        ),
+    )
+    options = ProjectionOptions(backend="python", duplicates="unique", order="canonical")
+
+    for view, lease, retained_owner_ids in rows:
+        scalar = Projector()
+        expected = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        scalar_report = scalar.last_report.to_dict()
+        prepared, negotiation, initial = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None
+        assert negotiation.path == "encoded-native"
+        assert initial is not None
+        assert prepared.statistics.skipped_axioms == 2
+        assert len(prepared._role_axioms) == 1
+        assert {id(item.owner) for item in prepared._retained_leases} == retained_owner_ids
+
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError(
+                    "segmented equivalent properties crossed scalar traversal"
+                ),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected
+        assert set(actual) == {
+            Edge("urn:slice#i", "urn:slice#u", "urn:slice#j"),
+            Edge("urn:slice#D", "urn:slice#p", "urn:slice#R"),
+            Edge("urn:slice#D", "urn:slice#child", "urn:slice#R"),
+        }
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        assert projector.last_report.provenance.counts.skipped_axioms == 2
+        assert projector.last_report.provenance.counts.ignored_shapes == 0
+        assert projector.last_report.diagnostics == (
+            ProjectionDiagnostic(
+                code="MOWL_SKIPPED_AXIOM",
+                message="axiom category is not visited by the pinned profile",
+                count=2,
+                constructor="EquivalentObjectProperties",
+            ),
+        )
+        counters = projector.last_encoded_counters
+        assert counters is not None
+        assert counters.roots_inspected == counters.selected_roots == 6
+        assert counters.equivalent_object_property_axioms == 2
+        assert counters.scalar_fallbacks == 0
+        assert counters.referenced_segments in {1, 2}
+
+
 def test_segmented_inverse_properties_preserve_order_diagnostics_and_leases() -> None:
     source_body = (
         'SubClassOf(Annotation(<urn:meta> "inverse-source") '
@@ -4046,7 +4286,6 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
 @pytest.mark.parametrize(
     "body",
     [
-        "EquivalentObjectProperties(:p :q)",
         "EquivalentClasses(:A ObjectIntersectionOf(:B ObjectComplementOf(:C)))",
     ],
 )
@@ -4149,6 +4388,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
         "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r) "
+        "EquivalentObjectProperties(:p ObjectInverseOf(:q)) "
         "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
         "SubClassOf(ObjectSomeValuesFrom(:p :D) ObjectAllValuesFrom(:q :E)) "
         "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D))) "
@@ -4195,6 +4435,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters.aggregate_equivalent_axioms == 1
     assert counters.class_assertion_axioms == 2
     assert counters.sub_object_property_axioms == 2
+    assert counters.equivalent_object_property_axioms == 1
     assert counters.inverse_object_property_axioms == 1
     assert counters.object_property_assertion_axioms == 2
     assert counters.object_property_domain_axioms == 2
@@ -4604,6 +4845,116 @@ def test_property_chain_corruption_fails_before_edge_output(corruption: str) -> 
         match=(
             r"arity|ordered sequence|too few items|out of bounds|node reference|"
             r"node id is out of range|sorted and unique|ObjectPropertyChain item"
+        ),
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "arity",
+        "field-kind",
+        "set-size",
+        "set-range",
+        "item-kind",
+        "item-length",
+        "item-order",
+        "item-range",
+        "wrong-item",
+        "property-chain-item",
+    ],
+)
+def test_equivalent_object_property_corruption_fails_before_output(corruption: str) -> None:
+    view = _snapshot(
+        "EquivalentObjectProperties(:p ObjectInverseOf(:q) :r) "
+        "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :s) "
+        "SubClassOf(:A :B) Declaration(Class(:Wrong))"
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    equivalent_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 71
+    )
+    chain_id = next(
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 11
+    )
+    wrong_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns._named_class_iri(node_id) == "urn:slice#Wrong"
+    )
+    buffers = dict(lease.buffers)
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(
+        offsets[(equivalent_id - 1) * 8 : equivalent_id * 8],
+        "little",
+    )
+    item_start = int.from_bytes(
+        buffers["field_values"][field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    item_length = int.from_bytes(
+        buffers["field_lengths"][field_index * 8 : (field_index + 1) * 8],
+        "little",
+    )
+    assert item_length == 3
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = equivalent_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption == "field-kind":
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[field_index] = 7
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "set-size":
+        lengths = bytearray(buffers["field_lengths"])
+        lengths[field_index * 8 : (field_index + 1) * 8] = (1).to_bytes(8, "little")
+        buffers["field_lengths"] = memoryview(bytes(lengths))
+    elif corruption == "set-range":
+        values = bytearray(buffers["field_values"])
+        values[field_index * 8 : (field_index + 1) * 8] = (columns.item_count + 1).to_bytes(
+            8,
+            "little",
+        )
+        buffers["field_values"] = memoryview(bytes(values))
+    elif corruption == "item-kind":
+        kinds = bytearray(buffers["item_kinds"])
+        kinds[item_start] = 5
+        buffers["item_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "item-length":
+        lengths = bytearray(buffers["item_lengths"])
+        lengths[item_start * 8 : (item_start + 1) * 8] = (1).to_bytes(8, "little")
+        buffers["item_lengths"] = memoryview(bytes(lengths))
+    else:
+        values = bytearray(buffers["item_values"])
+        if corruption == "item-order":
+            first = bytes(values[item_start * 8 : (item_start + 1) * 8])
+            second = bytes(values[(item_start + 1) * 8 : (item_start + 2) * 8])
+            values[item_start * 8 : (item_start + 1) * 8] = second
+            values[(item_start + 1) * 8 : (item_start + 2) * 8] = first
+        else:
+            replacement = {
+                "item-range": columns.node_count + 1,
+                "wrong-item": wrong_id,
+                "property-chain-item": chain_id,
+            }[corruption]
+            values[item_start * 8 : (item_start + 1) * 8] = replacement.to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=(
+            r"arity|canonical set|too few items|out of bounds|node reference|"
+            r"node id is out of range|sorted and unique|EquivalentObjectProperties item"
         ),
     ):
         prepare_encoded_subset_compilation(
