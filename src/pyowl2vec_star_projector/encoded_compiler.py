@@ -11,7 +11,7 @@ named-or-inverse-property/named-filler restriction envelope; direct
 named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
 and validated skipped equivalent/disjoint/property-characteristic axioms, including
 functional, inverse-functional, reflexive, irreflexive, symmetric, asymmetric, and transitive,
-with annotations on those declaration/logical axioms.
+plus data-property subproperty axioms, with annotations on those declaration/logical axioms.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -85,6 +85,7 @@ _TAG_IRREFLEXIVE_OBJECT_PROPERTY = 79
 _TAG_SYMMETRIC_OBJECT_PROPERTY = 80
 _TAG_ASYMMETRIC_OBJECT_PROPERTY = 81
 _TAG_TRANSITIVE_OBJECT_PROPERTY = 82
+_TAG_SUB_DATA_PROPERTY_OF = 90
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -255,6 +256,7 @@ class EncodedSubsetCounters:
     symmetric_object_property_axioms: int = 0
     asymmetric_object_property_axioms: int = 0
     transitive_object_property_axioms: int = 0
+    sub_data_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -298,6 +300,7 @@ class EncodedSubsetCounters:
             self.symmetric_object_property_axioms,
             self.asymmetric_object_property_axioms,
             self.transitive_object_property_axioms,
+            self.sub_data_property_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -345,6 +348,7 @@ class _MutableCounters:
     symmetric_object_property_axioms: int = 0
     asymmetric_object_property_axioms: int = 0
     transitive_object_property_axioms: int = 0
+    sub_data_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -390,6 +394,7 @@ class _MutableCounters:
             symmetric_object_property_axioms=self.symmetric_object_property_axioms,
             asymmetric_object_property_axioms=self.asymmetric_object_property_axioms,
             transitive_object_property_axioms=self.transitive_object_property_axioms,
+            sub_data_property_axioms=self.sub_data_property_axioms,
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -871,6 +876,8 @@ class _EncodedColumns:
             counters.asymmetric_object_property_axioms += 1
         elif tag == _TAG_TRANSITIVE_OBJECT_PROPERTY:
             counters.transitive_object_property_axioms += 1
+        elif tag == _TAG_SUB_DATA_PROPERTY_OF:
+            counters.sub_data_property_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1420,6 +1427,18 @@ class _EncodedColumns:
                 )
             self._annotation_set_range(start + 1)
             return
+        if tag == _TAG_SUB_DATA_PROPERTY_OF:
+            start = self._exact_fields(node_id, 3)
+            if not self._is_named_data_property(self._field_node(start)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset SubDataPropertyOf sub-property is not a data property"
+                )
+            if not self._is_named_data_property(self._field_node(start + 1)):
+                raise SnapshotCompatibilityError(
+                    "encoded subset SubDataPropertyOf super-property is not a data property"
+                )
+            self._annotation_set_range(start + 2)
+            return
         if tag == _TAG_CLASS_ASSERTION:
             start = self._exact_fields(node_id, 3)
             validated_expression = self._is_validated_class_expression(self._field_node(start))
@@ -1775,6 +1794,12 @@ class _EncodedColumns:
             return False
         kind, _iri_id, _checked = self._entity(node_id)
         return kind == b"object_property"
+
+    def _is_named_data_property(self, node_id: int) -> bool:
+        if self.node_tag(node_id) != _TAG_ENTITY:
+            return False
+        kind, _iri_id, _checked = self._entity(node_id)
+        return kind == b"data_property"
 
     def _is_supported_object_property_expression(self, node_id: int) -> bool:
         return self._projected_object_property_iri(node_id) is not None
@@ -2818,6 +2843,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_SYMMETRIC_OBJECT_PROPERTY: "SymmetricObjectProperty",
         _TAG_ASYMMETRIC_OBJECT_PROPERTY: "AsymmetricObjectProperty",
         _TAG_TRANSITIVE_OBJECT_PROPERTY: "TransitiveObjectProperty",
+        _TAG_SUB_DATA_PROPERTY_OF: "SubDataPropertyOf",
     }
     result: dict[str, int] = {}
     for root in roots:
