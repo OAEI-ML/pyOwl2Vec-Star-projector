@@ -11,7 +11,8 @@ named-or-inverse-property/named-filler restriction envelope; direct
 named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
 and validated skipped equivalent/disjoint/property-characteristic axioms, including
 functional, inverse-functional, reflexive, irreflexive, symmetric, asymmetric, and transitive,
-plus data-property subproperty axioms, with annotations on those declaration/logical axioms.
+plus data-property subproperty/equivalence axioms, with annotations on those
+declaration/logical axioms.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -86,6 +87,7 @@ _TAG_SYMMETRIC_OBJECT_PROPERTY = 80
 _TAG_ASYMMETRIC_OBJECT_PROPERTY = 81
 _TAG_TRANSITIVE_OBJECT_PROPERTY = 82
 _TAG_SUB_DATA_PROPERTY_OF = 90
+_TAG_EQUIVALENT_DATA_PROPERTIES = 91
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -257,6 +259,7 @@ class EncodedSubsetCounters:
     asymmetric_object_property_axioms: int = 0
     transitive_object_property_axioms: int = 0
     sub_data_property_axioms: int = 0
+    equivalent_data_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -301,6 +304,7 @@ class EncodedSubsetCounters:
             self.asymmetric_object_property_axioms,
             self.transitive_object_property_axioms,
             self.sub_data_property_axioms,
+            self.equivalent_data_property_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -349,6 +353,7 @@ class _MutableCounters:
     asymmetric_object_property_axioms: int = 0
     transitive_object_property_axioms: int = 0
     sub_data_property_axioms: int = 0
+    equivalent_data_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -395,6 +400,7 @@ class _MutableCounters:
             asymmetric_object_property_axioms=self.asymmetric_object_property_axioms,
             transitive_object_property_axioms=self.transitive_object_property_axioms,
             sub_data_property_axioms=self.sub_data_property_axioms,
+            equivalent_data_property_axioms=self.equivalent_data_property_axioms,
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -878,6 +884,8 @@ class _EncodedColumns:
             counters.transitive_object_property_axioms += 1
         elif tag == _TAG_SUB_DATA_PROPERTY_OF:
             counters.sub_data_property_axioms += 1
+        elif tag == _TAG_EQUIVALENT_DATA_PROPERTIES:
+            counters.equivalent_data_property_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1438,6 +1446,16 @@ class _EncodedColumns:
                     "encoded subset SubDataPropertyOf super-property is not a data property"
                 )
             self._annotation_set_range(start + 2)
+            return
+        if tag == _TAG_EQUIVALENT_DATA_PROPERTIES:
+            start = self._exact_fields(node_id, 2)
+            item_start, length = self._node_set_range(start, minimum=2)
+            for item_index in range(item_start, item_start + length):
+                if not self._is_named_data_property(self._item_node(item_index)):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset EquivalentDataProperties item is not a data property"
+                    )
+            self._annotation_set_range(start + 1)
             return
         if tag == _TAG_CLASS_ASSERTION:
             start = self._exact_fields(node_id, 3)
@@ -2844,6 +2862,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_ASYMMETRIC_OBJECT_PROPERTY: "AsymmetricObjectProperty",
         _TAG_TRANSITIVE_OBJECT_PROPERTY: "TransitiveObjectProperty",
         _TAG_SUB_DATA_PROPERTY_OF: "SubDataPropertyOf",
+        _TAG_EQUIVALENT_DATA_PROPERTIES: "EquivalentDataProperties",
     }
     result: dict[str, int] = {}
     for root in roots:
