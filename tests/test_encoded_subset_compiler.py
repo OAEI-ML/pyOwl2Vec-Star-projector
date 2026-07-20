@@ -359,6 +359,270 @@ def test_anonymous_object_property_assertions_match_scalar_blank_ids() -> None:
             assert counters.scalar_fallbacks == 0
 
 
+def test_selected_class_annotations_match_scalar_order_rendering_and_diagnostics() -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "plain") '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#comment> :A "
+        '"typed"^^<http://www.w3.org/2001/XMLSchema#string>) '
+        "AnnotationAssertion(<http://www.w3.org/2004/02/skos/core#prefLabel> "
+        ":A <urn:value>) "
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "
+        '"7"^^<http://www.w3.org/2001/XMLSchema#integer>) '
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "café") '
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "bonjour"@fr) '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "
+        '"a\\\\b"^^<urn:datatype>) '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A _:anon) "
+        'AnnotationAssertion(<urn:unsupported> :A "ignored-property") '
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> "
+        '<urn:not-class> "ignored-subject") '
+        'AnnotationAssertion(Annotation(<urn:meta> "m") '
+        '<http://www.w3.org/2000/01/rdf-schema#label> :A "annotated") '
+        'AnnotationAssertion(Annotation(<urn:meta> "duplicate") '
+        '<http://www.w3.org/2000/01/rdf-schema#label> :A "plain") '
+        "ClassAssertion(:A :i) ObjectPropertyAssertion(:p :i :j)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", include_literals=True, order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            only_taxonomy=True,
+            order="encounter",
+        ),
+        ProjectionOptions(backend="python", include_literals=False, order="encounter"),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded annotation slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=2,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert projector.last_report is not None
+            assert projector.last_report.provenance.ingestion.path == "encoded-native"
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 17
+            assert counters.annotation_assertion_axioms == 12
+            assert counters.anonymous_individuals == 1
+            assert counters.literal_nodes == 11
+            assert counters.annotation_nodes == 2
+            assert counters.scalar_fallbacks == 0
+            if options.include_literals:
+                assert counters.edge_batches == 7
+                assert counters.raw_edges == 13
+                assert len(actual) == (12 if options.duplicates == "unique" else 13)
+                assert (
+                    Edge(
+                        "urn:slice#A",
+                        "rdfs:label",
+                        '7"^^xsd:intege',
+                    )
+                    in actual
+                )
+                assert (
+                    Edge(
+                        "urn:slice#A",
+                        "rdfs:label",
+                        "_:genid2147483648",
+                    )
+                    in actual
+                )
+                assert Edge("urn:slice#A", "rdfs:label", "café") in actual
+                assert Edge("urn:slice#A", "rdfs:label", "bonjour") in actual
+                assert (
+                    Edge(
+                        "urn:slice#A",
+                        "rdfs:label",
+                        'ab"^^<urn:datatype',
+                    )
+                    in actual
+                )
+                if options.order == "encounter":
+                    assert actual[0] == Edge("urn:slice#A", SUBCLASS_OF, "urn:slice#B")
+                    assert actual[-2:] == [
+                        Edge("urn:slice#i", RDF_TYPE, "urn:slice#A"),
+                        Edge("urn:slice#i", "urn:slice#p", "urn:slice#j"),
+                    ]
+            else:
+                assert len(actual) == 3
+                assert counters.edge_batches == 2
+                assert counters.raw_edges == 3
+                assert projector.last_report.provenance.counts.ignored_shapes == 0
+                assert projector.last_report.provenance.counts.warnings == 0
+
+
+def test_annotation_oracle_fixture_matches_scalar_without_structural_traversal() -> None:
+    view = pyowl_core.load_snapshot(
+        ROOT / "tests" / "fixtures" / "oracle" / "annotations.ofn",
+        options=LoadOptions(
+            imports=ImportPolicy.IGNORE,
+            backend=BackendPreference.PYTHON,
+        ),
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", include_literals=True, order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(backend="python", include_literals=False, order="encounter"),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("annotation oracle crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=7,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.annotation_assertion_axioms == 46
+            assert counters.literal_nodes == 44
+            assert counters.scalar_fallbacks == 0
+            if options.include_literals:
+                assert projector.last_report.provenance.counts.ignored_shapes == 2
+                assert projector.last_report.provenance.counts.warnings == 3
+            else:
+                assert actual == []
+                assert projector.last_report.provenance.counts.ignored_shapes == 0
+                assert projector.last_report.provenance.counts.warnings == 0
+
+
+def test_imported_annotation_provenance_falls_back_only_when_observable() -> None:
+    root = (
+        b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
+        b"Declaration(Class(:A)) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
+    )
+    leaf = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> Declaration(Class(:L)) "
+        b"SubClassOf(:L <urn:root#A>) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :L "leaf"))'
+    )
+    view = pyowl_core.load_snapshot(
+        root,
+        options=LoadOptions(
+            imports=ImportPolicy.RESOLVE_LOCAL,
+            backend=BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
+    )
+    lease = _lease(view)
+
+    hidden_options = ProjectionOptions(backend="python", include_literals=False, order="encounter")
+    hidden_expected = Projector().project(view, options=hidden_options)
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("unobserved annotations crossed scalar traversal"),
+        ),
+    ):
+        hidden_projector = Projector()
+        hidden_actual = hidden_projector.project(
+            view,
+            options=replace(hidden_options, backend="native"),
+        )
+    assert hidden_actual == hidden_expected
+    assert hidden_projector.last_report is not None
+    assert hidden_projector.last_report.provenance.ingestion.path == "encoded-native"
+
+    visible_options = replace(hidden_options, include_literals=True)
+    scalar = Projector()
+    visible_expected = scalar.project(view, options=visible_options)
+    assert scalar.last_report is not None
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            wraps=scalar_compilation,
+        ) as scalar_prepare,
+    ):
+        visible_projector = Projector()
+        visible_actual = visible_projector.project(
+            view,
+            options=replace(visible_options, backend="native"),
+        )
+
+    assert visible_actual == visible_expected
+    assert {edge.destination for edge in visible_actual} >= {"urn:root#A", "root"}
+    assert "leaf" not in {edge.destination for edge in visible_actual}
+    assert scalar_prepare.call_count == 1
+    assert visible_projector.last_report is not None
+    assert _semantic_report(visible_projector.last_report.to_dict()) == _semantic_report(
+        scalar.last_report.to_dict()
+    )
+    ingestion = visible_projector.last_report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert "root-only annotation provenance" in (ingestion.reason or "")
+    counters = visible_projector.last_encoded_counters
+    assert counters is not None
+    assert counters.annotation_assertion_axioms == 2
+    assert counters.scalar_fallbacks == 1
+    assert counters.edge_batches == 0
+    assert counters.raw_edges == 0
+
+
 def test_domain_range_slice_preserves_scala_instance_role_expansion() -> None:
     role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
     domain_range_view = _snapshot("ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)")
@@ -829,7 +1093,8 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
         "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
-        "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D)))"
+        "EquivalentClasses(:E ObjectIntersectionOf(:F ObjectSomeValuesFrom(:p :D))) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "label")'
     )
     lease = _lease(view)
     expected = Projector().project_taxonomy(
@@ -873,7 +1138,9 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert counters.object_property_assertion_axioms == 2
     assert counters.object_property_domain_axioms == 1
     assert counters.object_property_range_axioms == 1
+    assert counters.annotation_assertion_axioms == 1
     assert counters.anonymous_individuals == 1
+    assert counters.literal_nodes == 1
     assert counters.edge_batches == 2
     assert counters.raw_edges == 2
     assert counters.scalar_fallbacks == 0
@@ -1161,6 +1428,147 @@ def test_anonymous_individual_corruption_fails_before_edge_output(corruption: st
         prepare_encoded_subset_compilation(
             view,
             ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["arity", "property-node", "subject-node", "value-node", "annotation-item"],
+)
+def test_annotation_assertion_corruption_fails_before_edge_output(corruption: str) -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) "
+        'AnnotationAssertion(Annotation(<urn:meta> "m") '
+        '<http://www.w3.org/2000/01/rdf-schema#label> :A "text")'
+    )
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            index
+            for index in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == tag
+        )
+
+    axiom_id = tagged_node(120)
+    declaration_id = tagged_node(60)
+    offsets = buffers["node_field_offsets"]
+    axiom_start = int.from_bytes(offsets[(axiom_id - 1) * 8 : axiom_id * 8], "little")
+    declaration_start = int.from_bytes(
+        offsets[(declaration_id - 1) * 8 : declaration_id * 8], "little"
+    )
+    values = buffers["field_values"]
+    class_entity_id = int.from_bytes(
+        values[declaration_start * 8 : (declaration_start + 1) * 8],
+        "little",
+    )
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = axiom_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption == "annotation-item":
+        annotation_item_start = int.from_bytes(
+            values[(axiom_start + 3) * 8 : (axiom_start + 4) * 8],
+            "little",
+        )
+        item_values = bytearray(buffers["item_values"])
+        item_offset = annotation_item_start * 8
+        item_values[item_offset : item_offset + 8] = tagged_node(4).to_bytes(8, "little")
+        buffers["item_values"] = memoryview(bytes(item_values))
+    else:
+        changed_values = bytearray(values)
+        field_delta = {"property-node": 0, "subject-node": 1, "value-node": 2}[corruption]
+        field_offset = (axiom_start + field_delta) * 8
+        changed_values[field_offset : field_offset + 8] = class_entity_id.to_bytes(8, "little")
+        buffers["field_values"] = memoryview(bytes(changed_values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"arity|property|subject|value|annotation set",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native", include_literals=True),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["arity", "lexical-kind", "lexical-utf8", "datatype-node", "language-kind"],
+)
+def test_literal_corruption_fails_before_edge_output(corruption: str) -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "text")'
+    )
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+
+    def tagged_node(tag: int) -> int:
+        return next(
+            index
+            for index in range(1, tags.nbytes // 2 + 1)
+            if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == tag
+        )
+
+    literal_id = tagged_node(4)
+    declaration_id = tagged_node(60)
+    offsets = buffers["node_field_offsets"]
+    literal_start = int.from_bytes(offsets[(literal_id - 1) * 8 : literal_id * 8], "little")
+    declaration_start = int.from_bytes(
+        offsets[(declaration_id - 1) * 8 : declaration_id * 8], "little"
+    )
+    values = buffers["field_values"]
+    class_entity_id = int.from_bytes(
+        values[declaration_start * 8 : (declaration_start + 1) * 8],
+        "little",
+    )
+    if corruption == "arity":
+        changed_offsets = bytearray(offsets)
+        end_offset = literal_id * 8
+        end = int.from_bytes(changed_offsets[end_offset : end_offset + 8], "little")
+        changed_offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+        buffers["node_field_offsets"] = memoryview(bytes(changed_offsets))
+    elif corruption in {"lexical-kind", "language-kind"}:
+        kinds = bytearray(buffers["field_kinds"])
+        field_delta = 0 if corruption == "lexical-kind" else 2
+        kinds[literal_start + field_delta] = 3
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    elif corruption == "lexical-utf8":
+        scalar_offset = int.from_bytes(
+            values[literal_start * 8 : (literal_start + 1) * 8],
+            "little",
+        )
+        scalars = bytearray(buffers["scalar_bytes"])
+        scalars[scalar_offset] = 0xFF
+        buffers["scalar_bytes"] = memoryview(bytes(scalars))
+    else:
+        changed_values = bytearray(values)
+        datatype_offset = (literal_start + 1) * 8
+        changed_values[datatype_offset : datatype_offset + 8] = class_entity_id.to_bytes(
+            8,
+            "little",
+        )
+        buffers["field_values"] = memoryview(bytes(changed_values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"arity|scalar field kind|UTF-8|datatype|language field kind",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native", include_literals=True),
             EncodedNegotiation("encoded-native", lease=hostile),
             batch_edges=1,
         )

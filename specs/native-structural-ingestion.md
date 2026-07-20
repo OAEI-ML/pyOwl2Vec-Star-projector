@@ -46,9 +46,15 @@ declarations, simple named-class `SubClassOf` and `EquivalentClasses` axioms, si
 `ClassAssertion` axioms, direct `ObjectPropertyAssertion` axioms over named or anonymous
 individuals, and named object-property domain/range axioms. Anonymous identifiers use the scalar
 profile's `_:genid2147483648` sequence in canonical encoded-node order; the compiler validates but
-does not expose or reinterpret their document scope and local key. Named-subject `SubClassOf`
-axioms over named-property/named-filler some, all, minimum, and maximum restrictions use the same
-role expansion as domain/range edges. A single named class
+does not expose or reinterpret their document scope and local key. For a single-document closure,
+the slice also emits allowlisted class `AnnotationAssertion` edges in the pinned category order,
+including raw string/plain values, IRI and anonymous values, malformed non-string rendering, and
+the matching grouped diagnostics. With `include_literals=False` the same annotation rows are
+preflighted but unobserved. An annotation-bearing multi-document closure selects whole-operation
+scalar compilation when `include_literals=True`, because schema v1 closure columns do not identify
+which assertion roots belong to the root ontology. Named-subject `SubClassOf` axioms over
+named-property/named-filler some, all, minimum, and maximum restrictions use the same role
+expansion as domain/range edges. A single named class
 paired by `EquivalentClasses` with an intersection or union of named classes and those restrictions
 uses the pinned expression ordering and role expansion. Named `SubObjectPropertyOf` and
 `InverseObjectProperties` axioms update the retained compatibility role state in exact OWLAPI
@@ -56,10 +62,11 @@ hash-set visitation order. The slice emits direct ABox triples and streams restr
 domain/range edges with that state through the existing projector `Edge` IR in caller-bounded
 batches, without reconstructing core OWL values. The dedicated asserted-taxonomy API preflights
 the same slice but emits only named-to-named `SubClassOf` edges. Any other valid constructor,
-annotation-bearing slice, or segmented view selects scalar-native compilation for the complete
-operation before edge output. Test-visible counters cover inspected roots/nodes/scalar bytes,
-supported axiom kinds, batches, raw edges, and scalar fallbacks. This slice is intentionally absent
-from the native feature ledger; it does not change public backend promotion.
+annotations on the supported declaration/logical-axiom families, or segmented view selects
+scalar-native compilation for the complete operation before edge output. Test-visible counters
+cover inspected roots/nodes/scalar bytes, supported axiom kinds, batches, raw edges, and scalar
+fallbacks. This slice is intentionally absent from the native feature ledger; it does not change
+public backend promotion.
 
 ## 3. Native projection compiler
 
