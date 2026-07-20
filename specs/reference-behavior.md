@@ -243,6 +243,8 @@ of the pinned RBox scan at all. Each is counted as a skipped axiom with a groupe
 `MOWL_SKIPPED_AXIOM` diagnostic and cannot mutate retained role state.
 `SubDataPropertyOf`, `EquivalentDataProperties`, and `DisjointDataProperties` follow the same
 skipped-axiom contract and cannot mutate object-role state.
+`DataPropertyDomain` is also skipped rather than projected and cannot populate object domains or
+mutate object-role state.
 
 ## 11. Mutable instance state
 

@@ -94,6 +94,9 @@ follow the same non-projecting path.
 Named `SubDataPropertyOf` axioms and canonical `EquivalentDataProperties` or
 `DisjointDataProperties` sets are likewise fully preflighted and skipped without entering the
 object-role closure.
+`DataPropertyDomain` over a named data property and a class expression in the validated native
+envelope follows that skipped-only path; other valid class expressions retain whole-operation
+scalar fallback.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
 `MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
