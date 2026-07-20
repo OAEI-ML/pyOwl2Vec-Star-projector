@@ -9,8 +9,8 @@ object-property domain/range axioms over the validated named, aggregate, and
 named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
 named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
-and validated skipped equivalent-object-property axioms, including annotations on those
-declaration/logical axioms.
+and validated skipped equivalent/disjoint-object-property axioms, including annotations
+on those declaration/logical axioms.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -73,6 +73,7 @@ _TAG_SUB_CLASS_OF = 61
 _TAG_EQUIVALENT_CLASSES = 62
 _TAG_SUB_OBJECT_PROPERTY_OF = 70
 _TAG_EQUIVALENT_OBJECT_PROPERTIES = 71
+_TAG_DISJOINT_OBJECT_PROPERTIES = 72
 _TAG_INVERSE_OBJECT_PROPERTIES = 73
 _TAG_OBJECT_PROPERTY_DOMAIN = 74
 _TAG_OBJECT_PROPERTY_RANGE = 75
@@ -234,6 +235,7 @@ class EncodedSubsetCounters:
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
     equivalent_object_property_axioms: int = 0
+    disjoint_object_property_axioms: int = 0
     inverse_object_property_axioms: int = 0
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
@@ -269,6 +271,7 @@ class EncodedSubsetCounters:
             self.class_assertion_axioms,
             self.sub_object_property_axioms,
             self.equivalent_object_property_axioms,
+            self.disjoint_object_property_axioms,
             self.inverse_object_property_axioms,
             self.object_property_assertion_axioms,
             self.object_property_domain_axioms,
@@ -308,6 +311,7 @@ class _MutableCounters:
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
     equivalent_object_property_axioms: int = 0
+    disjoint_object_property_axioms: int = 0
     inverse_object_property_axioms: int = 0
     object_property_assertion_axioms: int = 0
     object_property_domain_axioms: int = 0
@@ -343,6 +347,7 @@ class _MutableCounters:
             class_assertion_axioms=self.class_assertion_axioms,
             sub_object_property_axioms=self.sub_object_property_axioms,
             equivalent_object_property_axioms=self.equivalent_object_property_axioms,
+            disjoint_object_property_axioms=self.disjoint_object_property_axioms,
             inverse_object_property_axioms=self.inverse_object_property_axioms,
             object_property_assertion_axioms=self.object_property_assertion_axioms,
             object_property_domain_axioms=self.object_property_domain_axioms,
@@ -806,6 +811,8 @@ class _EncodedColumns:
             counters.sub_object_property_axioms += 1
         elif tag == _TAG_EQUIVALENT_OBJECT_PROPERTIES:
             counters.equivalent_object_property_axioms += 1
+        elif tag == _TAG_DISJOINT_OBJECT_PROPERTIES:
+            counters.disjoint_object_property_axioms += 1
         elif tag == _TAG_INVERSE_OBJECT_PROPERTIES:
             counters.inverse_object_property_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_DOMAIN:
@@ -1282,13 +1289,21 @@ class _EncodedColumns:
                     )
             self._annotation_set_range(start + 1)
             return
-        if tag == _TAG_EQUIVALENT_OBJECT_PROPERTIES:
+        if tag in {
+            _TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            _TAG_DISJOINT_OBJECT_PROPERTIES,
+        }:
             start = self._exact_fields(node_id, 2)
             item_start, length = self._node_set_range(start, minimum=2)
+            constructor = (
+                "EquivalentObjectProperties"
+                if tag == _TAG_EQUIVALENT_OBJECT_PROPERTIES
+                else "DisjointObjectProperties"
+            )
             for item_index in range(item_start, item_start + length):
                 if not self._is_supported_object_property_expression(self._item_node(item_index)):
                     raise SnapshotCompatibilityError(
-                        "encoded subset EquivalentObjectProperties item is not a supported "
+                        f"encoded subset {constructor} item is not a supported "
                         "object property expression"
                     )
             self._annotation_set_range(start + 1)
@@ -2715,14 +2730,16 @@ def _domain_range_index(
 
 
 def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
-    equivalent_object_properties = sum(
-        root.columns.node_tag(root.node_id) == _TAG_EQUIVALENT_OBJECT_PROPERTIES for root in roots
-    )
-    return (
-        {"EquivalentObjectProperties": equivalent_object_properties}
-        if equivalent_object_properties
-        else {}
-    )
+    constructors = {
+        _TAG_EQUIVALENT_OBJECT_PROPERTIES: "EquivalentObjectProperties",
+        _TAG_DISJOINT_OBJECT_PROPERTIES: "DisjointObjectProperties",
+    }
+    result: dict[str, int] = {}
+    for root in roots:
+        constructor = constructors.get(root.columns.node_tag(root.node_id))
+        if constructor is not None:
+            result[constructor] = result.get(constructor, 0) + 1
+    return result
 
 
 def _role_axioms(

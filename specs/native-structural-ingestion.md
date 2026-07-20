@@ -85,10 +85,11 @@ named/aggregate `SubClassOf`, direct restriction or otherwise unsupported ordere
 `EquivalentClasses` pairs, complex or anonymous-individual `ClassAssertion`, and complex
 domain/range expressions. An inverse property in a domain/range axiom is likewise preflighted but
 ignored once under the root constructor, matching the scalar named-property type check.
-`EquivalentObjectProperties` sets over named or inverse property expressions are also fully
-preflighted and stay encoded-native, but the pinned projector never visits them as role axioms.
+`EquivalentObjectProperties` and `DisjointObjectProperties` sets over named or inverse property
+expressions are fully preflighted and stay encoded-native, but the pinned projector never visits
+them as role axioms.
 Each distinct root increments `skipped_axioms`, contributes to the grouped
-`MOWL_SKIPPED_AXIOM` diagnostic for `EquivalentObjectProperties`, and leaves role state unchanged.
+`MOWL_SKIPPED_AXIOM` diagnostic for its constructor, and leaves role state unchanged.
 `EquivalentClasses` still examines only the first two expressions in pinned expression order.
 Consequently, an n-ary axiom whose first two expressions are named emits only that named pair and
 silently ignores a later aggregate or restriction. Inverse object-property assertions remain on
