@@ -1544,15 +1544,11 @@ def test_annotated_data_property_families_are_state_neutral_skips(body: str) -> 
         "<http://www.w3.org/2001/XMLSchema#string> "
         "DataUnionOf(<http://www.w3.org/2001/XMLSchema#integer> "
         "<http://www.w3.org/2001/XMLSchema#decimal>)))",
-        'DataPropertyAssertion(:dp _:anonymous "value")',
-        'NegativeDataPropertyAssertion(:dp _:anonymous "value")',
     ],
     ids=[
         "nested-domain",
         "nested-range",
         "nested-definition",
-        "anonymous-positive",
-        "anonymous-negative",
     ],
 )
 def test_out_of_slice_data_shapes_are_transactionally_unsupported(body: str) -> None:
@@ -1564,6 +1560,38 @@ def test_out_of_slice_data_shapes_are_transactionally_unsupported(body: str) -> 
             max_iri_bytes=1024 * 1024,
         )
     assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    ("body", "counter"),
+    [
+        ('DataPropertyAssertion(:dp _:anonymous "value")', "data_property_assertions"),
+        (
+            'NegativeDataPropertyAssertion(:dp _:anonymous "value")',
+            "negative_data_property_assertions",
+        ),
+    ],
+    ids=["positive", "negative"],
+)
+def test_anonymous_data_assertions_are_state_neutral_skips(
+    body: str,
+    counter: str,
+) -> None:
+    view = _snapshot(body)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == []
+    assert getattr(statistics, counter) == 1
+    assert statistics.anonymous_individuals == 1
+    assert statistics.skipped_axioms == 1
 
 
 def test_hostile_data_set_and_literal_language_fail_closed() -> None:
@@ -2001,7 +2029,7 @@ def test_many_annotation_metadata_roots_cross_one_zero_output_bounded_call() -> 
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
 
 
-def test_annotation_edge_limit_and_nonrenderable_values_fail_before_publication() -> None:
+def test_annotation_edge_limit_and_anonymous_values_match_scalar_ids() -> None:
     assertions = " ".join(
         f'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "value-{index:03d}")'
         for index in range(250)
@@ -2017,25 +2045,32 @@ def test_annotation_edge_limit_and_nonrenderable_values_fail_before_publication(
         )
     assert limited.state == "failed"
 
-    unsupported = prepare_native_encoded_direct(
-        _lease(
-            _snapshot(
-                "Declaration(Class(:A)) AnnotationAssertion("
-                "<http://www.w3.org/2000/01/rdf-schema#label> :A _:anonymous)"
-            )
-        )
+    anonymous_view = _snapshot(
+        "Declaration(Class(:A)) AnnotationAssertion("
+        "<http://www.w3.org/2000/01/rdf-schema#label> :A _:anonymous)"
     )
-    with pytest.raises(
-        NativeEncodedDirectUnsupported,
-        match=r"schema tag 3|IRI or literal",
-    ):
-        unsupported.compile_batch(
-            bidirectional=False,
-            max_edges=1,
-            max_iri_bytes=1024 * 1024,
+    expected = Projector().project(
+        anonymous_view,
+        options=ProjectionOptions(
+            backend="python",
             include_literals=True,
-        )
-    assert unsupported.state == "failed"
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(
+        _lease(anonymous_view)
+    ).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+        include_literals=True,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#A", "rdfs:label", "_:genid2147483648")
+    ]
+    assert statistics.anonymous_individuals == 1
+    assert statistics.annotation_edges == 1
 
 
 @pytest.mark.parametrize(
@@ -3821,24 +3856,250 @@ def test_valid_but_out_of_slice_role_shapes_are_transactionally_unsupported(body
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "projected"),
     [
-        "ObjectPropertyAssertion(:p _:anonymous :i)",
-        "NegativeObjectPropertyAssertion(:p :i _:anonymous)",
+        ("ObjectPropertyAssertion(:p _:anonymous :i)", True),
+        ("ObjectPropertyAssertion(:p :i _:anonymous)", True),
+        ("NegativeObjectPropertyAssertion(:p _:anonymous :i)", False),
+        ("NegativeObjectPropertyAssertion(:p :i _:anonymous)", False),
     ],
     ids=[
-        "anonymous-positive",
-        "anonymous-negative",
+        "positive-source",
+        "positive-target",
+        "negative-source",
+        "negative-target",
     ],
 )
-def test_out_of_slice_object_assertion_boundaries_are_transactionally_unsupported(
+def test_anonymous_object_assertion_boundaries_match_scalar(
     body: str,
+    projected: bool,
 ) -> None:
-    compiler = prepare_native_encoded_direct(_lease(_snapshot(body)))
-    with pytest.raises(NativeEncodedDirectUnsupported):
+    view = _snapshot(body)
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected
+    assert len(actual) == int(projected)
+    if projected:
+        assert "_:genid2147483648" in {actual[0].source, actual[0].destination}
+    assert statistics.anonymous_individuals == 1
+    assert statistics.skipped_axioms == int(not projected)
+
+
+def test_anonymous_object_assertions_match_exact_scalar_blank_id_order() -> None:
+    view = _snapshot(
+        "ObjectPropertyAssertion(:p _:z :i) "
+        "ObjectPropertyAssertion(:p :i _:a) "
+        "ObjectPropertyAssertion(:p _:z _:a)"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=3,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected
+    assert set(actual) == {
+        Edge("_:genid2147483649", "urn:native-direct#p", "_:genid2147483648"),
+        Edge("_:genid2147483649", "urn:native-direct#p", "urn:native-direct#i"),
+        Edge("urn:native-direct#i", "urn:native-direct#p", "_:genid2147483648"),
+    }
+    assert statistics.anonymous_individuals == 2
+    assert statistics.object_property_assertions == 3
+
+
+def test_non_axiom_anonymous_individuals_do_not_shift_scalar_blank_ids() -> None:
+    view = _swrl_snapshot(
+        "Annotation(<urn:ontology-meta> _:ontologyOnly) "
+        "SWRLRule((SameIndividualAtom(_:ruleOnly :named)) ()) "
+        "ObjectPropertyAssertion(:p _:axiomOnly :named)"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected == [
+        Edge("_:genid2147483648", "urn:native-direct#p", "urn:native-direct#named")
+    ]
+    assert statistics.anonymous_individuals == 1
+    assert statistics.ontology_annotations == 1
+    assert statistics.swrl_rules == 1
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True])
+def test_all_axiom_reachable_anonymous_individuals_share_one_scalar_id_space(
+    only_taxonomy: bool,
+) -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) "
+        "AnnotationAssertion("
+        "<http://www.w3.org/2000/01/rdf-schema#label> _:silentSubject \"ignored\") "
+        "ObjectPropertyAssertion(Annotation(<urn:meta> _:metadata) "
+        ":p _:edge :named) "
+        "AnnotationAssertion("
+        "<http://www.w3.org/2000/01/rdf-schema#label> :A _:value)"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            include_literals=True,
+            only_taxonomy=only_taxonomy,
+            order="encounter",
+        ),
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=False,
+        max_edges=2,
+        max_iri_bytes=1024 * 1024,
+        include_literals=True,
+        only_taxonomy=only_taxonomy,
+    )
+
+    assert actual == expected
+    assert len(actual) == 2
+    generated = {
+        value
+        for edge in actual
+        for value in (edge.source, edge.destination)
+        if value.startswith("_:genid")
+    }
+    assert len(generated) == 2
+    assert generated <= {
+        f"_:genid{2_147_483_648 + index}" for index in range(4)
+    }
+    assert statistics.anonymous_individuals == 4
+    assert statistics.annotation_edges == 1
+
+
+def test_asserted_taxonomy_preflights_anonymous_axioms_without_leakage() -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) "
+        "ObjectPropertyAssertion(:p _:source :named) "
+        "NegativeObjectPropertyAssertion(:p _:negative :named) "
+        'DataPropertyAssertion(:dp _:data "value") '
+        "Declaration(Class(:A)) AnnotationAssertion("
+        "<http://www.w3.org/2000/01/rdf-schema#label> :A _:label)"
+    )
+    expected = list(
+        iter_asserted_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="preserve",
+            order="encounter",
+        )
+    )
+    actual, statistics = prepare_native_encoded_direct(_lease(view)).compile_batch(
+        bidirectional=True,
+        max_edges=2,
+        max_iri_bytes=1024 * 1024,
+        asserted_taxonomy_only=True,
+        include_literals=True,
+    )
+
+    assert actual == expected == [
+        Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B"),
+        Edge("urn:native-direct#B", SUPERCLASS_OF, "urn:native-direct#A"),
+    ]
+    assert statistics.anonymous_individuals == 4
+    assert statistics.annotation_edges == 0
+    assert statistics.skipped_axioms == 0
+
+
+def test_many_anonymous_assertions_use_one_bounded_call_and_contiguous_ids() -> None:
+    assertions = " ".join(
+        f"ObjectPropertyAssertion(:p _:source{index:03d} :named{index:03d})"
+        for index in range(250)
+    )
+    compiler = prepare_native_encoded_direct(_lease(_snapshot(assertions)))
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=250,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert len(edges) == 250
+    assert {edge.source for edge in edges} == {
+        f"_:genid{2_147_483_648 + index}" for index in range(250)
+    }
+    assert statistics.anonymous_individuals == 250
+    assert statistics.object_property_assertions == 250
+    assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+def test_noncanonical_axiom_anonymous_order_fails_before_output() -> None:
+    lease = _lease(
+        _snapshot(
+            "ObjectPropertyAssertion(:p _:first :named) "
+            "ObjectPropertyAssertion(:p _:third :named)"
+        )
+    )
+    tags = lease.buffers["node_tags"]
+    anonymous_ids = [
+        node_id
+        for node_id in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little") == 3
+    ]
+    assert len(anonymous_ids) == 2
+    offsets = lease.buffers["node_field_offsets"]
+    field_values = lease.buffers["field_values"]
+    field_lengths = lease.buffers["field_lengths"]
+
+    def scalar_range(node_id: int, field_delta: int) -> tuple[int, int]:
+        field_start = int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+        field_index = field_start + field_delta
+        start = int.from_bytes(
+            field_values[field_index * 8 : (field_index + 1) * 8],
+            "little",
+        )
+        length = int.from_bytes(
+            field_lengths[field_index * 8 : (field_index + 1) * 8],
+            "little",
+        )
+        return start, length
+
+    scalar = bytearray(lease.buffers["scalar_bytes"])
+    first_scope = scalar_range(anonymous_ids[0], 0)
+    second_scope = scalar_range(anonymous_ids[1], 0)
+    assert scalar[first_scope[0] : first_scope[0] + first_scope[1]] == scalar[
+        second_scope[0] : second_scope[0] + second_scope[1]
+    ]
+    first_key = scalar_range(anonymous_ids[0], 1)
+    second_key = scalar_range(anonymous_ids[1], 1)
+    assert first_key[1] == second_key[1] > 0
+    scalar[first_key[0] : first_key[0] + first_key[1]] = b"z" * first_key[1]
+    scalar[second_key[0] : second_key[0] + second_key[1]] = b"a" * second_key[1]
+    compiler = prepare_native_encoded_direct(
+        _replace_buffers(
+            lease,
+            {"scalar_bytes": memoryview(bytes(scalar))},
+        )
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match="anonymous individuals are not canonical"):
         compiler.compile_batch(
             bidirectional=False,
-            max_edges=10,
+            max_edges=2,
             max_iri_bytes=1024 * 1024,
         )
     assert compiler.state == "failed"
@@ -3863,7 +4124,7 @@ def test_hostile_object_assertion_individual_and_edge_limit_fail_before_publicat
     values[source_offset : source_offset + 8] = property_id
     hostile = _replace_buffers(lease, {"field_values": memoryview(bytes(values))})
     malformed = prepare_native_encoded_direct(hostile)
-    with pytest.raises(SnapshotCompatibilityError, match="named individual"):
+    with pytest.raises(SnapshotCompatibilityError, match="individual"):
         malformed.compile_batch(
             bidirectional=False,
             max_edges=10,

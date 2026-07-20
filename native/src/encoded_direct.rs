@@ -221,6 +221,7 @@ pub(crate) struct DirectEdge {
 pub(crate) struct DirectCompileStats {
     pub(crate) roots: usize,
     pub(crate) nodes: usize,
+    pub(crate) anonymous_individuals: usize,
     pub(crate) ontology_annotations: usize,
     pub(crate) swrl_rules: usize,
     pub(crate) declarations: usize,
@@ -310,7 +311,37 @@ enum EquivalentProjection<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AnnotationValue<'a> {
     Borrowed(&'a str),
+    Anonymous(usize),
     Typed { lexical: &'a str, datatype: &'a str },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndividualValue<'a> {
+    Named(&'a str),
+    Anonymous(usize),
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+struct AnonymousIds {
+    node_ids: Vec<usize>,
+}
+
+impl AnonymousIds {
+    fn render(&self, node_id: usize) -> Result<String, KernelError> {
+        let position = self.node_ids.binary_search(&node_id).map_err(|_| {
+            KernelError::malformed("encoded anonymous individual lost its axiom-derived identifier")
+        })?;
+        let identifier = 2_147_483_648_usize
+            .checked_add(position)
+            .ok_or_else(|| KernelError::resource("encoded anonymous identifier overflow"))?;
+        let mut output = String::new();
+        output
+            .try_reserve_exact(27)
+            .map_err(|_| KernelError::resource("encoded anonymous identifier allocation failed"))?;
+        std::fmt::Write::write_fmt(&mut output, format_args!("_:genid{identifier}"))
+            .map_err(|_| KernelError::resource("encoded anonymous identifier rendering failed"))?;
+        Ok(output)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -871,12 +902,145 @@ impl<'a> DirectColumns<'a> {
         Ok(())
     }
 
+    fn anonymous_parts(self, node_id: usize) -> Result<(&'a [u8], &'a [u8]), KernelError> {
+        self.validate_anonymous_individual(node_id)?;
+        let start = self.exact_fields(node_id, 2)?;
+        Ok((
+            self.scalar_payload(start, COMPONENT_BYTES)?,
+            self.scalar_payload(start + 1, COMPONENT_BYTES)?,
+        ))
+    }
+
+    fn compare_anonymous_nodes(
+        self,
+        left: usize,
+        right: usize,
+    ) -> Result<std::cmp::Ordering, KernelError> {
+        let (left_scope, left_key) = self.anonymous_parts(left)?;
+        let (right_scope, right_key) = self.anonymous_parts(right)?;
+        let scope_order = left_scope.cmp(right_scope);
+        if scope_order != std::cmp::Ordering::Equal {
+            return Ok(scope_order);
+        }
+        let length_order = compare_canonical_varints(left_key.len(), right_key.len());
+        if length_order != std::cmp::Ordering::Equal {
+            return Ok(length_order);
+        }
+        Ok(left_key.cmp(right_key))
+    }
+
+    fn axiom_anonymous_ids(self, state: &AtomicU8) -> Result<AnonymousIds, KernelError> {
+        let mut has_anonymous_individual = false;
+        for node_id in 1..=self.node_count() {
+            check_cancel(state, node_id)?;
+            if self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL {
+                has_anonymous_individual = true;
+                break;
+            }
+        }
+        if !has_anonymous_individual {
+            return Ok(AnonymousIds::default());
+        }
+        let reachable_length = self
+            .node_count()
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded reachability length overflow"))?;
+        let mut reachable = Vec::new();
+        reachable
+            .try_reserve_exact(reachable_length)
+            .map_err(|_| KernelError::resource("encoded reachability allocation failed"))?;
+        reachable.resize(reachable_length, false);
+        let mut stack = Vec::new();
+        for root_index in 0..self.root_count() {
+            check_cancel(state, root_index)?;
+            if self.root_kind(root_index)? != ROOT_AXIOM {
+                continue;
+            }
+            let root_id = self.root_id(root_index)?;
+            queue_reachable_node(&mut stack, &mut reachable, root_id)?;
+        }
+        while let Some(node_id) = stack.pop() {
+            check_cancel(state, node_id)?;
+            let (start, end) = self.field_range(node_id)?;
+            for field_index in start..end {
+                let kind = self.field_kind(field_index)?;
+                if kind == COMPONENT_NODE {
+                    let child = self.field_node(field_index)?;
+                    queue_reachable_node(&mut stack, &mut reachable, child)?;
+                    continue;
+                }
+                if ![COMPONENT_SET, COMPONENT_SEQUENCE].contains(&kind) {
+                    continue;
+                }
+                let item_start = self.field_value(field_index)?;
+                let length = self.field_length(field_index)?;
+                for item_index in item_start..item_start + length {
+                    if self.item_kinds[item_index] != COMPONENT_NODE {
+                        continue;
+                    }
+                    let child = self.item_node(item_index)?;
+                    queue_reachable_node(&mut stack, &mut reachable, child)?;
+                }
+            }
+        }
+
+        let mut anonymous_count = 0_usize;
+        let mut previous = None;
+        for (node_id, is_reachable) in reachable.iter().copied().enumerate().skip(1) {
+            check_cancel(state, node_id)?;
+            if is_reachable && self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL {
+                if let Some(previous_id) = previous {
+                    if self.compare_anonymous_nodes(previous_id, node_id)?
+                        != std::cmp::Ordering::Less
+                    {
+                        return Err(KernelError::malformed(
+                            "encoded axiom-derived anonymous individuals are not canonical and unique",
+                        ));
+                    }
+                }
+                previous = Some(node_id);
+                anonymous_count = anonymous_count.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded anonymous index length overflow")
+                })?;
+            }
+        }
+        let mut node_ids = Vec::new();
+        node_ids
+            .try_reserve_exact(anonymous_count)
+            .map_err(|_| KernelError::resource("encoded anonymous index allocation failed"))?;
+        for (node_id, is_reachable) in reachable.iter().copied().enumerate().skip(1) {
+            if is_reachable && self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL {
+                node_ids.push(node_id);
+            }
+        }
+        Ok(AnonymousIds { node_ids })
+    }
+
     fn validate_individual(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
         match self.node_tag(node_id)? {
             TAG_ENTITY => self.named_individual_iri(node_id, maximum).map(|_iri| ()),
             TAG_ANONYMOUS_INDIVIDUAL => self.validate_anonymous_individual(node_id),
             _ => Err(KernelError::malformed(
                 "encoded individual set item is not an individual",
+            )),
+        }
+    }
+
+    fn individual_value(
+        self,
+        node_id: usize,
+        maximum: usize,
+    ) -> Result<IndividualValue<'a>, KernelError> {
+        match self.node_tag(node_id)? {
+            TAG_ENTITY => Ok(IndividualValue::Named(
+                self.named_individual_iri(node_id, maximum)?,
+            )),
+            TAG_ANONYMOUS_INDIVIDUAL => {
+                self.validate_anonymous_individual(node_id)?;
+                Ok(IndividualValue::Anonymous(node_id))
+            }
+            _ => Err(KernelError::malformed(
+                "encoded assertion argument is not an individual",
             )),
         }
     }
@@ -1076,6 +1240,10 @@ impl<'a> DirectColumns<'a> {
     ) -> Result<AnnotationValue<'a>, KernelError> {
         match self.node_tag(node_id)? {
             TAG_IRI => Ok(AnnotationValue::Borrowed(self.iri(node_id, maximum_iri)?)),
+            TAG_ANONYMOUS_INDIVIDUAL => {
+                self.validate_anonymous_individual(node_id)?;
+                Ok(AnnotationValue::Anonymous(node_id))
+            }
             TAG_LITERAL => {
                 let (lexical, datatype) = self.literal_parts(node_id, maximum_iri)?;
                 if [XSD_STRING, RDF_PLAIN_LITERAL].contains(&datatype) {
@@ -1084,8 +1252,8 @@ impl<'a> DirectColumns<'a> {
                     Ok(AnnotationValue::Typed { lexical, datatype })
                 }
             }
-            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::unsupported(
-                "direct native annotations support only IRI or literal values",
+            tag if SCHEMA_TAGS.contains(&tag) => Err(KernelError::malformed(
+                "encoded annotation value is not an IRI or literal or anonymous individual",
             )),
             tag => Err(KernelError::malformed(format!(
                 "encoded annotation value tag {tag} is outside structural-columns v1",
@@ -1199,7 +1367,20 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 4)?;
         self.named_annotation_property_iri(self.field_node(start)?, maximum_iri)?;
-        self.iri(self.field_node(start + 1)?, maximum_iri)?;
+        let subject_id = self.field_node(start + 1)?;
+        match self.node_tag(subject_id)? {
+            TAG_IRI => {
+                self.iri(subject_id, maximum_iri)?;
+            }
+            TAG_ANONYMOUS_INDIVIDUAL => {
+                self.validate_anonymous_individual(subject_id)?;
+            }
+            _ => {
+                return Err(KernelError::malformed(
+                    "encoded annotation subject is not an IRI or anonymous individual",
+                ));
+            }
+        }
         self.annotation_value(self.field_node(start + 2)?, maximum_iri)?;
         self.validate_annotation_set(start + 3)
     }
@@ -1278,7 +1459,19 @@ impl<'a> DirectColumns<'a> {
         if !ANNOTATION_PROPERTIES.contains(&property) {
             return Ok(None);
         }
-        let source = self.iri(self.field_node(start + 1)?, maximum_iri)?;
+        let subject_id = self.field_node(start + 1)?;
+        let source = match self.node_tag(subject_id)? {
+            TAG_IRI => self.iri(subject_id, maximum_iri)?,
+            TAG_ANONYMOUS_INDIVIDUAL => {
+                self.validate_anonymous_individual(subject_id)?;
+                return Ok(None);
+            }
+            _ => {
+                return Err(KernelError::malformed(
+                    "encoded annotation subject changed after successful preflight",
+                ));
+            }
+        };
         if !self.contains_class_iri(source, maximum_iri, state)? {
             return Ok(None);
         }
@@ -1460,7 +1653,7 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 4)?;
         self.named_data_property_iri(self.field_node(start)?, maximum)?;
-        self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
+        self.validate_individual(self.field_node(start + 1)?, maximum)?;
         self.validate_literal(self.field_node(start + 2)?, maximum)?;
         self.validate_annotation_set(start + 3)
     }
@@ -1623,7 +1816,7 @@ impl<'a> DirectColumns<'a> {
         self,
         node_id: usize,
         maximum: usize,
-    ) -> Result<(&'a str, &'a str, &'a str), KernelError> {
+    ) -> Result<(IndividualValue<'a>, &'a str, IndividualValue<'a>), KernelError> {
         if self.node_tag(node_id)? != TAG_OBJECT_PROPERTY_ASSERTION {
             return Err(KernelError::malformed(
                 "encoded object-property assertion cursor has the wrong constructor tag",
@@ -1645,8 +1838,8 @@ impl<'a> DirectColumns<'a> {
                 ));
             }
         };
-        let source = self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
-        let destination = self.named_individual_iri(self.field_node(start + 2)?, maximum)?;
+        let source = self.individual_value(self.field_node(start + 1)?, maximum)?;
+        let destination = self.individual_value(self.field_node(start + 2)?, maximum)?;
         self.validate_annotation_set(start + 3)?;
         Ok((source, relation, destination))
     }
@@ -1663,8 +1856,8 @@ impl<'a> DirectColumns<'a> {
         }
         let start = self.exact_fields(node_id, 4)?;
         self.object_property_expression_iri(self.field_node(start)?, maximum)?;
-        self.named_individual_iri(self.field_node(start + 1)?, maximum)?;
-        self.named_individual_iri(self.field_node(start + 2)?, maximum)?;
+        self.validate_individual(self.field_node(start + 1)?, maximum)?;
+        self.validate_individual(self.field_node(start + 2)?, maximum)?;
         self.validate_annotation_set(start + 3)?;
         Ok(())
     }
@@ -3360,6 +3553,7 @@ pub(crate) fn compile_direct_with_options(
     columns.validate_generic(state)?;
     columns.validate_supported_nodes(max_iri_bytes, state)?;
     let counts = columns.classify_roots(max_iri_bytes, state)?;
+    let anonymous_ids = columns.axiom_anonymous_ids(state)?;
     let buffer_bytes = columns.buffer_bytes()?;
     let role_state = if asserted_taxonomy_only {
         RoleState::default()
@@ -3533,7 +3727,7 @@ pub(crate) fn compile_direct_with_options(
                 if let Some(projection) =
                     columns.annotation_projection(node_id, max_iri_bytes, state)?
                 {
-                    push_annotation_edge(&mut edges, projection)?;
+                    push_annotation_edge(&mut edges, projection, &anonymous_ids)?;
                 }
             }
         }
@@ -3564,9 +3758,9 @@ pub(crate) fn compile_direct_with_options(
             let (source, relation, destination) =
                 columns.object_property_assertion_parts(node_id, max_iri_bytes)?;
             edges.push(DirectEdge {
-                source: clone_text(source)?,
+                source: render_individual(source, &anonymous_ids)?,
                 relation: clone_text(relation)?,
-                destination: clone_text(destination)?,
+                destination: render_individual(destination, &anonymous_ids)?,
             });
         }
 
@@ -3622,6 +3816,7 @@ pub(crate) fn compile_direct_with_options(
     let stats = DirectCompileStats {
         roots: columns.root_count(),
         nodes: columns.node_count(),
+        anonymous_individuals: anonymous_ids.node_ids.len(),
         ontology_annotations: counts.ontology_annotations,
         swrl_rules: counts.swrl_rules,
         declarations: counts.declarations,
@@ -3823,6 +4018,26 @@ fn combine_hash(seed: i32, components: &[i32]) -> i32 {
     })
 }
 
+fn compare_canonical_varints(left: usize, right: usize) -> std::cmp::Ordering {
+    fn encode(mut value: usize) -> ([u8; 10], usize) {
+        let mut output = [0_u8; 10];
+        let mut length = 0_usize;
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            output[length] = byte | if value == 0 { 0 } else { 0x80 };
+            length += 1;
+            if value == 0 {
+                return (output, length);
+            }
+        }
+    }
+
+    let (left_bytes, left_length) = encode(left);
+    let (right_bytes, right_length) = encode(right);
+    left_bytes[..left_length].cmp(&right_bytes[..right_length])
+}
+
 fn push_role_edges(
     edges: &mut Vec<DirectEdge>,
     role_state: &RoleState<'_>,
@@ -3882,6 +4097,16 @@ fn clone_text(value: &str) -> Result<String, KernelError> {
     Ok(output)
 }
 
+fn render_individual(
+    value: IndividualValue<'_>,
+    anonymous_ids: &AnonymousIds,
+) -> Result<String, KernelError> {
+    match value {
+        IndividualValue::Named(iri) => clone_text(iri),
+        IndividualValue::Anonymous(node_id) => anonymous_ids.render(node_id),
+    }
+}
+
 fn render_typed_annotation_literal(lexical: &str, datatype: &str) -> Result<String, KernelError> {
     let datatype_capacity = datatype
         .len()
@@ -3924,9 +4149,11 @@ fn render_typed_annotation_literal(lexical: &str, datatype: &str) -> Result<Stri
 fn push_annotation_edge(
     edges: &mut Vec<DirectEdge>,
     projection: AnnotationProjection<'_>,
+    anonymous_ids: &AnonymousIds,
 ) -> Result<(), KernelError> {
     let destination = match projection.value {
         AnnotationValue::Borrowed(value) => clone_text(value)?,
+        AnnotationValue::Anonymous(node_id) => anonymous_ids.render(node_id)?,
         AnnotationValue::Typed { lexical, datatype } => {
             render_typed_annotation_literal(lexical, datatype)?
         }
@@ -3936,6 +4163,21 @@ fn push_annotation_edge(
         relation: clone_text(projection.relation)?,
         destination,
     });
+    Ok(())
+}
+
+fn queue_reachable_node(
+    stack: &mut Vec<usize>,
+    reachable: &mut [bool],
+    node_id: usize,
+) -> Result<(), KernelError> {
+    if !reachable[node_id] {
+        stack
+            .try_reserve(1)
+            .map_err(|_| KernelError::resource("encoded reachability stack allocation failed"))?;
+        reachable[node_id] = true;
+        stack.push(node_id);
+    }
     Ok(())
 }
 
