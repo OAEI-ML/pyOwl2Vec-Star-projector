@@ -10,8 +10,8 @@ named-or-inverse-property/named-filler restriction envelope; direct
 ``ObjectPropertyAssertion`` axioms over named or anonymous individuals; and
 named-or-inverse role axioms, validated ignored property-chain subproperty axioms,
 and validated skipped equivalent/disjoint/property-characteristic axioms, including
-functional, inverse-functional, reflexive, irreflexive, symmetric, and asymmetric, with
-annotations on those declaration/logical axioms.
+functional, inverse-functional, reflexive, irreflexive, symmetric, asymmetric, and transitive,
+with annotations on those declaration/logical axioms.
 The compiler reproduces emitted edges plus grouped ignored-shape and skipped-axiom
 outcomes for that envelope.
 Selected class ``AnnotationAssertion`` edges are compiled when a single-document
@@ -84,6 +84,7 @@ _TAG_REFLEXIVE_OBJECT_PROPERTY = 78
 _TAG_IRREFLEXIVE_OBJECT_PROPERTY = 79
 _TAG_SYMMETRIC_OBJECT_PROPERTY = 80
 _TAG_ASYMMETRIC_OBJECT_PROPERTY = 81
+_TAG_TRANSITIVE_OBJECT_PROPERTY = 82
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_ANNOTATION_ASSERTION = 120
@@ -253,6 +254,7 @@ class EncodedSubsetCounters:
     irreflexive_object_property_axioms: int = 0
     symmetric_object_property_axioms: int = 0
     asymmetric_object_property_axioms: int = 0
+    transitive_object_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -295,6 +297,7 @@ class EncodedSubsetCounters:
             self.irreflexive_object_property_axioms,
             self.symmetric_object_property_axioms,
             self.asymmetric_object_property_axioms,
+            self.transitive_object_property_axioms,
             self.annotation_assertion_axioms,
             self.anonymous_individuals,
             self.literal_nodes,
@@ -341,6 +344,7 @@ class _MutableCounters:
     irreflexive_object_property_axioms: int = 0
     symmetric_object_property_axioms: int = 0
     asymmetric_object_property_axioms: int = 0
+    transitive_object_property_axioms: int = 0
     annotation_assertion_axioms: int = 0
     anonymous_individuals: int = 0
     literal_nodes: int = 0
@@ -385,6 +389,7 @@ class _MutableCounters:
             irreflexive_object_property_axioms=self.irreflexive_object_property_axioms,
             symmetric_object_property_axioms=self.symmetric_object_property_axioms,
             asymmetric_object_property_axioms=self.asymmetric_object_property_axioms,
+            transitive_object_property_axioms=self.transitive_object_property_axioms,
             annotation_assertion_axioms=self.annotation_assertion_axioms,
             anonymous_individuals=self.anonymous_individuals,
             literal_nodes=self.literal_nodes,
@@ -864,6 +869,8 @@ class _EncodedColumns:
             counters.symmetric_object_property_axioms += 1
         elif tag == _TAG_ASYMMETRIC_OBJECT_PROPERTY:
             counters.asymmetric_object_property_axioms += 1
+        elif tag == _TAG_TRANSITIVE_OBJECT_PROPERTY:
+            counters.transitive_object_property_axioms += 1
         elif tag == _TAG_CLASS_ASSERTION:
             counters.class_assertion_axioms += 1
         elif tag == _TAG_OBJECT_PROPERTY_ASSERTION:
@@ -1394,6 +1401,7 @@ class _EncodedColumns:
             _TAG_IRREFLEXIVE_OBJECT_PROPERTY,
             _TAG_SYMMETRIC_OBJECT_PROPERTY,
             _TAG_ASYMMETRIC_OBJECT_PROPERTY,
+            _TAG_TRANSITIVE_OBJECT_PROPERTY,
         }:
             start = self._exact_fields(node_id, 2)
             constructor = {
@@ -1403,6 +1411,7 @@ class _EncodedColumns:
                 _TAG_IRREFLEXIVE_OBJECT_PROPERTY: "IrreflexiveObjectProperty",
                 _TAG_SYMMETRIC_OBJECT_PROPERTY: "SymmetricObjectProperty",
                 _TAG_ASYMMETRIC_OBJECT_PROPERTY: "AsymmetricObjectProperty",
+                _TAG_TRANSITIVE_OBJECT_PROPERTY: "TransitiveObjectProperty",
             }[tag]
             if not self._is_supported_object_property_expression(self._field_node(start)):
                 raise SnapshotCompatibilityError(
@@ -2808,6 +2817,7 @@ def _skipped_axiom_index(roots: tuple[_EncodedRootRef, ...]) -> dict[str, int]:
         _TAG_IRREFLEXIVE_OBJECT_PROPERTY: "IrreflexiveObjectProperty",
         _TAG_SYMMETRIC_OBJECT_PROPERTY: "SymmetricObjectProperty",
         _TAG_ASYMMETRIC_OBJECT_PROPERTY: "AsymmetricObjectProperty",
+        _TAG_TRANSITIVE_OBJECT_PROPERTY: "TransitiveObjectProperty",
     }
     result: dict[str, int] = {}
     for root in roots:
