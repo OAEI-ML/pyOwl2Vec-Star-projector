@@ -451,8 +451,90 @@ def test_encoded_role_state_is_reused_by_a_later_scala_instance_call() -> None:
     ]
 
 
+def test_named_subclass_restrictions_match_scalar_options_and_role_expansion() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "SubClassOf(ObjectAllValuesFrom(:p :C) :D) "
+        "SubClassOf(:E ObjectMinCardinality(2 :p :F)) "
+        "SubClassOf(ObjectMaxCardinality(3 :p :G) :H) "
+        "SubClassOf(:I ObjectMinCardinality(1 :q)) "
+        "SubClassOf(ObjectMaxCardinality(2 :q) :J)"
+    )
+    lease = _lease(view)
+    cases = (
+        ProjectionOptions(backend="python", order="encounter"),
+        ProjectionOptions(
+            backend="python",
+            bidirectional_taxonomy=True,
+            duplicates="unique",
+            order="canonical",
+        ),
+        ProjectionOptions(
+            backend="python",
+            only_taxonomy=True,
+            order="encounter",
+        ),
+    )
+    expected: list[tuple[list[Edge], dict[str, object]]] = []
+    for options in cases:
+        scalar = Projector()
+        edges = scalar.project(view, options=options)
+        assert scalar.last_report is not None
+        expected.append((edges, scalar.last_report.to_dict()))
+
+    with (
+        _forced_encoded(lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("encoded restriction slice crossed scalar traversal"),
+        ),
+    ):
+        for options, (scalar_edges, scalar_report) in zip(cases, expected, strict=True):
+            projector = Projector()
+            actual = list(
+                projector.iter_edges(
+                    view,
+                    options=replace(options, backend="native"),
+                    buffer_edges=3,
+                )
+            )
+
+            assert actual == scalar_edges
+            assert projector.last_report is not None
+            assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(
+                scalar_report
+            )
+            counters = projector.last_encoded_counters
+            assert counters is not None
+            assert counters.roots_inspected == 8
+            assert counters.subclass_axioms == 6
+            assert counters.restriction_subclass_axioms == 6
+            assert counters.sub_object_property_axioms == 1
+            assert counters.inverse_object_property_axioms == 1
+            assert counters.raw_edges == len(actual)
+            assert counters.edge_batches == (len(actual) + 2) // 3
+            assert counters.scalar_fallbacks == 0
+            if options.only_taxonomy:
+                assert actual == []
+                assert projector.last_report.provenance.counts.ignored_shapes == 6
+            else:
+                assert len(actual) == 14
+                assert Edge("urn:slice#D", "urn:slice#p", "urn:slice#C") in actual
+                assert Edge("urn:slice#C", "urn:slice#pinv", "urn:slice#D") in actual
+                assert (
+                    Edge(
+                        "urn:slice#I",
+                        "urn:slice#q",
+                        "http://www.w3.org/2002/07/owl#Thing",
+                    )
+                    in actual
+                )
+
+
 def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -> None:
-    view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p :B))")
+    view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))")
     lease = _lease(view)
     python_options = ProjectionOptions(backend="python", order="encounter")
     scalar = Projector()
@@ -503,6 +585,9 @@ def test_unsupported_constructor_selects_one_whole_operation_scalar_fallback() -
         "SubObjectPropertyOf(ObjectPropertyChain(:p :q) :r)",
         'SubObjectPropertyOf(Annotation(<urn:a> "x") :p :q)',
         'InverseObjectProperties(Annotation(<urn:a> "x") :p :q)',
+        "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
+        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) :B))",
+        'SubClassOf(Annotation(<urn:a> "x") :A ObjectSomeValuesFrom(:p :B))',
     ],
 )
 def test_new_slice_unsupported_shapes_fallback_once_before_output(body: str) -> None:
@@ -602,7 +687,7 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
         "SubClassOf(:A :B) EquivalentClasses(:A :C :D) ClassAssertion(:A :i) "
         "ObjectPropertyAssertion(:p :i :j) ObjectPropertyDomain(:p :C) "
         "ObjectPropertyRange(:p :D) SubObjectPropertyOf(:q :p) "
-        "InverseObjectProperties(:p :pinv)"
+        "InverseObjectProperties(:p :pinv) SubClassOf(:C ObjectSomeValuesFrom(:p :D))"
     )
     lease = _lease(view)
     expected = Projector().project_taxonomy(
@@ -636,7 +721,8 @@ def test_asserted_taxonomy_skips_other_supported_axiom_edges() -> None:
     assert len(actual) == 2
     counters = projector.last_encoded_counters
     assert counters is not None
-    assert counters.subclass_axioms == 1
+    assert counters.subclass_axioms == 2
+    assert counters.restriction_subclass_axioms == 1
     assert counters.equivalent_axioms == 1
     assert counters.class_assertion_axioms == 1
     assert counters.sub_object_property_axioms == 1
@@ -735,6 +821,82 @@ def test_equivalent_class_set_corruption_fails_before_edge_output(corruption: st
     with pytest.raises(
         SnapshotCompatibilityError,
         match=r"node reference|sorted and unique|too few items",
+    ):
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+
+
+@pytest.mark.parametrize(
+    ("tag", "arity"),
+    [(34, 2), (35, 2), (38, 3), (39, 3)],
+)
+def test_restriction_arity_corruption_fails_before_edge_output(
+    tag: int,
+    arity: int,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "SubClassOf(:C ObjectAllValuesFrom(:p :D)) "
+        "SubClassOf(:E ObjectMinCardinality(2 :p :F)) "
+        "SubClassOf(:G ObjectMaxCardinality(3 :p :H))"
+    )
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    node_id = next(
+        index
+        for index in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == tag
+    )
+    offsets = bytearray(buffers["node_field_offsets"])
+    end_offset = node_id * 8
+    end = int.from_bytes(offsets[end_offset : end_offset + 8], "little")
+    offsets[end_offset : end_offset + 8] = (end - 1).to_bytes(8, "little")
+    buffers["node_field_offsets"] = memoryview(bytes(offsets))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(SnapshotCompatibilityError, match="arity") as raised:
+        prepare_encoded_subset_compilation(
+            view,
+            ProjectionOptions(backend="native"),
+            EncodedNegotiation("encoded-native", lease=hostile),
+            batch_edges=1,
+        )
+    assert raised.value.details["expected_arity"] == arity
+
+
+@pytest.mark.parametrize("corruption", ["integer-kind", "integer-minimal"])
+def test_restriction_integer_corruption_fails_before_edge_output(corruption: str) -> None:
+    view = _snapshot("SubClassOf(:A ObjectMinCardinality(256 :p :B))")
+    lease = _lease(view)
+    buffers = dict(lease.buffers)
+    tags = buffers["node_tags"]
+    node_id = next(
+        index
+        for index in range(1, tags.nbytes // 2 + 1)
+        if int.from_bytes(tags[(index - 1) * 2 : index * 2], "little") == 38
+    )
+    offsets = buffers["node_field_offsets"]
+    field_index = int.from_bytes(offsets[(node_id - 1) * 8 : node_id * 8], "little")
+    if corruption == "integer-kind":
+        kinds = bytearray(buffers["field_kinds"])
+        kinds[field_index] = 2
+        buffers["field_kinds"] = memoryview(bytes(kinds))
+    else:
+        values = buffers["field_values"]
+        scalar_offset = int.from_bytes(values[field_index * 8 : (field_index + 1) * 8], "little")
+        scalars = bytearray(buffers["scalar_bytes"])
+        scalars[scalar_offset + 1] = 0
+        buffers["scalar_bytes"] = memoryview(bytes(scalars))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match=r"scalar field kind|minimally encoded",
     ):
         prepare_encoded_subset_compilation(
             view,

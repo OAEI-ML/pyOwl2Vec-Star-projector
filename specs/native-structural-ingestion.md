@@ -44,13 +44,15 @@ does not advertise or promote the unfinished encoded-native compiler path.
 The internal compiler slice additionally preflights canonical direct views containing only
 declarations, simple named-class `SubClassOf` and `EquivalentClasses` axioms, and simple named
 `ClassAssertion` and `ObjectPropertyAssertion` axioms, and named object-property domain/range
-axioms. Named `SubObjectPropertyOf` and `InverseObjectProperties` axioms update the retained
-compatibility role state in exact OWLAPI hash-set visitation order. The slice emits direct ABox
-triples and streams domain/range cross-products with that state through the existing projector
-`Edge` IR in caller-bounded batches, without reconstructing core OWL values. The dedicated
-asserted-taxonomy API preflights the same slice but emits only named `SubClassOf` edges. Any other
-valid constructor, annotation-bearing slice, or segmented view selects scalar-native compilation
-for the complete operation before edge output. Test-visible counters cover inspected
+axioms. Named-subject `SubClassOf` axioms over named-property/named-filler some, all, minimum, and
+maximum restrictions use the same role expansion as domain/range edges. Named
+`SubObjectPropertyOf` and `InverseObjectProperties` axioms update the retained compatibility role
+state in exact OWLAPI hash-set visitation order. The slice emits direct ABox triples and streams
+restriction and domain/range edges with that state through the existing projector `Edge` IR in
+caller-bounded batches, without reconstructing core OWL values. The dedicated asserted-taxonomy
+API preflights the same slice but emits only named-to-named `SubClassOf` edges. Any other valid
+constructor, annotation-bearing slice, or segmented view selects scalar-native compilation for
+the complete operation before edge output. Test-visible counters cover inspected
 roots/nodes/scalar bytes, supported axiom kinds, batches, raw edges, and scalar fallbacks. This
 slice is intentionally absent from the native feature ledger; it does not change public backend
 promotion.

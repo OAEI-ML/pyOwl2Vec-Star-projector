@@ -3,10 +3,10 @@
 The slice is intentionally narrow: one canonical direct segment containing
 declarations, simple named-class ``SubClassOf`` and ``EquivalentClasses``
 axioms, simple named ABox assertions, and named object-property domain/range
-and role axioms, all with empty annotation sets.  It preflights the complete
-encoded view before yielding any edge.  A well-formed view outside that subset
-selects the scalar compiler for the whole operation; malformed rows fail
-closed.
+and role axioms, plus named-property/named-filler ``SubClassOf`` restrictions,
+all with empty annotation sets.  It preflights the complete encoded view before
+yielding any edge.  A well-formed view outside that subset selects the scalar
+compiler for the whole operation; malformed rows fail closed.
 """
 
 from __future__ import annotations
@@ -32,6 +32,10 @@ from .options import ProjectionOptions
 
 _TAG_IRI = 1
 _TAG_ENTITY = 2
+_TAG_OBJECT_SOME_VALUES_FROM = 34
+_TAG_OBJECT_ALL_VALUES_FROM = 35
+_TAG_OBJECT_MIN_CARDINALITY = 38
+_TAG_OBJECT_MAX_CARDINALITY = 39
 _TAG_DECLARATION = 60
 _TAG_SUB_CLASS_OF = 61
 _TAG_EQUIVALENT_CLASSES = 62
@@ -45,9 +49,19 @@ _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _ROOT_AXIOM = 2
 _COMPONENT_NODE = 1
 _COMPONENT_TEXT = 2
+_COMPONENT_INTEGER = 4
 _COMPONENT_ENUM = 5
 _COMPONENT_SET = 6
 _DEFAULT_MAX_IRI_BYTES = 1024 * 1024
+
+_RESTRICTION_TAGS = frozenset(
+    {
+        _TAG_OBJECT_SOME_VALUES_FROM,
+        _TAG_OBJECT_ALL_VALUES_FROM,
+        _TAG_OBJECT_MIN_CARDINALITY,
+        _TAG_OBJECT_MAX_CARDINALITY,
+    }
+)
 
 _SCHEMA_TAGS = frozenset(
     {
@@ -150,6 +164,7 @@ class EncodedSubsetCounters:
     nodes_inspected: int = 0
     declaration_axioms: int = 0
     subclass_axioms: int = 0
+    restriction_subclass_axioms: int = 0
     equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
@@ -168,6 +183,7 @@ class EncodedSubsetCounters:
             self.nodes_inspected,
             self.declaration_axioms,
             self.subclass_axioms,
+            self.restriction_subclass_axioms,
             self.equivalent_axioms,
             self.class_assertion_axioms,
             self.sub_object_property_axioms,
@@ -190,6 +206,7 @@ class _MutableCounters:
     nodes_inspected: int = 0
     declaration_axioms: int = 0
     subclass_axioms: int = 0
+    restriction_subclass_axioms: int = 0
     equivalent_axioms: int = 0
     class_assertion_axioms: int = 0
     sub_object_property_axioms: int = 0
@@ -208,6 +225,7 @@ class _MutableCounters:
             nodes_inspected=self.nodes_inspected,
             declaration_axioms=self.declaration_axioms,
             subclass_axioms=self.subclass_axioms,
+            restriction_subclass_axioms=self.restriction_subclass_axioms,
             equivalent_axioms=self.equivalent_axioms,
             class_assertion_axioms=self.class_assertion_axioms,
             sub_object_property_axioms=self.sub_object_property_axioms,
@@ -265,7 +283,16 @@ class EncodedSubsetCompilation:
 
     @property
     def diagnostics(self) -> tuple[ProjectionDiagnostic, ...]:
-        return ()
+        if not self.statistics.ignored_shapes:
+            return ()
+        return (
+            ProjectionDiagnostic(
+                code="MOWL_IGNORED_SHAPE",
+                message="constructor does not emit an edge in the pinned profile",
+                count=self.statistics.ignored_shapes,
+                constructor="SubClassOf",
+            ),
+        )
 
     def prepare_role_state(self) -> None:
         """Eagerly apply exact named role-map constructors for stateful calls."""
@@ -298,10 +325,14 @@ class EncodedSubsetCompilation:
             root_id = self._columns.root_id(root_index)
             tag = self._columns.node_tag(root_id)
             if tag == _TAG_SUB_CLASS_OF:
-                source, destination = self._columns.subclass_iris(root_id)
-                yield Edge(source, SUBCLASS_OF, destination)
-                if self.options.bidirectional_taxonomy:
-                    yield Edge(destination, SUPERCLASS_OF, source)
+                restriction = self._columns.restriction_subclass_iris(root_id)
+                if restriction is None:
+                    source, destination = self._columns.subclass_iris(root_id)
+                    yield Edge(source, SUBCLASS_OF, destination)
+                    if self.options.bidirectional_taxonomy:
+                        yield Edge(destination, SUPERCLASS_OF, source)
+                elif not self.asserted_taxonomy_only and not self.options.only_taxonomy:
+                    yield from self._iter_role_edges(*restriction)
                 continue
             if self.asserted_taxonomy_only:
                 continue
@@ -336,7 +367,6 @@ class EncodedSubsetCompilation:
             yield from self._iter_domain_range_edges()
 
     def _iter_domain_range_edges(self) -> Iterator[Edge]:
-        self._ensure_roles()
         properties = sorted(
             (property_iri for property_iri in self._domains if property_iri in self._ranges),
             key=lambda item: item.encode("utf-8"),
@@ -344,12 +374,21 @@ class EncodedSubsetCompilation:
         for property_iri in properties:
             for domain in self._domains[property_iri]:
                 for range_iri in self._ranges[property_iri]:
-                    yield Edge(domain, property_iri, range_iri)
-                    for subrole in self.role_state.subroles.get(property_iri, ()):
-                        yield Edge(domain, subrole, range_iri)
-                    inverse = self.role_state.inverse_roles.get(property_iri)
-                    if inverse is not None:
-                        yield Edge(range_iri, inverse, domain)
+                    yield from self._iter_role_edges(domain, property_iri, range_iri)
+
+    def _iter_role_edges(
+        self,
+        source: str,
+        relation: str,
+        destination: str,
+    ) -> Iterator[Edge]:
+        self._ensure_roles()
+        yield Edge(source, relation, destination)
+        for subrole in self.role_state.subroles.get(relation, ()):
+            yield Edge(source, subrole, destination)
+        inverse = self.role_state.inverse_roles.get(relation)
+        if inverse is not None:
+            yield Edge(destination, inverse, source)
 
     def _ensure_roles(self) -> None:
         if self._roles_prepared:
@@ -405,6 +444,11 @@ class _EncodedColumns:
                 counters.declaration_axioms += 1
             elif tag == _TAG_SUB_CLASS_OF:
                 counters.subclass_axioms += 1
+                start = self._exact_fields(root_id, 3)
+                sub_tag = self.node_tag(self._field_node(start))
+                super_tag = self.node_tag(self._field_node(start + 1))
+                if sub_tag in _RESTRICTION_TAGS or super_tag in _RESTRICTION_TAGS:
+                    counters.restriction_subclass_axioms += 1
             elif tag == _TAG_EQUIVALENT_CLASSES:
                 counters.equivalent_axioms += 1
             elif tag == _TAG_SUB_OBJECT_PROPERTY_OF:
@@ -445,6 +489,52 @@ class _EncodedColumns:
                 "encoded subset SubClassOf shape changed after successful preflight"
             )
         return sub, sup
+
+    def restriction_subclass_iris(self, node_id: int) -> tuple[str, str, str] | None:
+        if self.node_tag(node_id) != _TAG_SUB_CLASS_OF:
+            raise SnapshotCompatibilityError(
+                "encoded subset batch cursor does not reference SubClassOf"
+            )
+        start = self._exact_fields(node_id, 3)
+        sub_id = self._field_node(start)
+        super_id = self._field_node(start + 1)
+        if self.node_tag(super_id) in _RESTRICTION_TAGS:
+            subject = self._named_class_iri(sub_id)
+            expression_id = super_id
+        elif self.node_tag(sub_id) in _RESTRICTION_TAGS:
+            subject = self._named_class_iri(super_id)
+            expression_id = sub_id
+        else:
+            return None
+        if subject is None:  # pragma: no cover - guarded by preflight
+            raise SnapshotCompatibilityError(
+                "encoded subset restriction SubClassOf shape changed after preflight"
+            )
+        relation, destination = self._restriction_iris(expression_id)
+        return subject, relation, destination
+
+    def _restriction_iris(self, node_id: int) -> tuple[str, str]:
+        tag = self.node_tag(node_id)
+        if tag in {_TAG_OBJECT_SOME_VALUES_FROM, _TAG_OBJECT_ALL_VALUES_FROM}:
+            start = self._exact_fields(node_id, 2)
+            property_index = start
+            filler_index = start + 1
+        elif tag in {_TAG_OBJECT_MIN_CARDINALITY, _TAG_OBJECT_MAX_CARDINALITY}:
+            start = self._exact_fields(node_id, 3)
+            self._canonical_integer_bytes(start)
+            property_index = start + 1
+            filler_index = start + 2
+        else:  # pragma: no cover - guarded by caller
+            raise SnapshotCompatibilityError(
+                "encoded subset batch cursor does not reference a supported restriction"
+            )
+        relation = self._named_object_property_iri(self._field_node(property_index))
+        destination = self._named_class_iri(self._field_node(filler_index))
+        if relation is None or destination is None:  # pragma: no cover - preflight
+            raise SnapshotCompatibilityError(
+                "encoded subset restriction shape changed after successful preflight"
+            )
+        return relation, destination
 
     def equivalent_iris(self, node_id: int) -> tuple[str, str]:
         if self.node_tag(node_id) != _TAG_EQUIVALENT_CLASSES:
@@ -598,6 +688,24 @@ class _EncodedColumns:
             _kind, _iri_id, checked = self._entity(node_id)
             inspection.counters.scalar_bytes_checked += checked
             return
+        if tag in _RESTRICTION_TAGS:
+            if tag in {_TAG_OBJECT_SOME_VALUES_FROM, _TAG_OBJECT_ALL_VALUES_FROM}:
+                start = self._exact_fields(node_id, 2)
+                property_index = start
+                filler_index = start + 1
+            else:
+                start = self._exact_fields(node_id, 3)
+                checked = self._canonical_integer_bytes(start)
+                inspection.counters.scalar_bytes_checked += checked
+                property_index = start + 1
+                filler_index = start + 2
+            named_property = self._is_named_object_property(self._field_node(property_index))
+            named_filler = self._is_named_class(self._field_node(filler_index))
+            if not named_property or not named_filler:
+                inspection.fallback(
+                    "encoded subset requires a named property and filler in restrictions"
+                )
+            return
         if tag == _TAG_DECLARATION:
             start = self._exact_fields(node_id, 2)
             self._entity(self._field_node(start))
@@ -608,9 +716,17 @@ class _EncodedColumns:
             start = self._exact_fields(node_id, 3)
             sub_id = self._field_node(start)
             super_id = self._field_node(start + 1)
-            if not self._is_named_class(sub_id) or not self._is_named_class(super_id):
+            sub_named = self._is_named_class(sub_id)
+            super_named = self._is_named_class(super_id)
+            sub_restriction = self.node_tag(sub_id) in _RESTRICTION_TAGS
+            super_restriction = self.node_tag(super_id) in _RESTRICTION_TAGS
+            if not (
+                (sub_named and super_named)
+                or (sub_named and super_restriction)
+                or (sub_restriction and super_named)
+            ):
                 inspection.fallback(
-                    "encoded subset requires named classes on both SubClassOf sides"
+                    "encoded subset requires a named taxonomy or named restriction SubClassOf"
                 )
             if not self._empty_annotation_set(start + 2):
                 inspection.fallback(
@@ -762,6 +878,14 @@ class _EncodedColumns:
             raise SnapshotCompatibilityError("encoded subset scalar range is out of bounds")
         return arena[offset:end]
 
+    def _canonical_integer_bytes(self, index: int) -> int:
+        payload = self._scalar_payload(index, _COMPONENT_INTEGER)
+        if not payload.nbytes or (payload.nbytes > 1 and payload[-1] == 0):
+            raise SnapshotCompatibilityError(
+                "encoded subset integer field is not minimally encoded"
+            )
+        return payload.nbytes
+
     def _iri_text(self, node_id: int) -> tuple[str, int]:
         if self.node_tag(node_id) != _TAG_IRI:
             raise SnapshotCompatibilityError("encoded subset entity does not reference an IRI node")
@@ -889,6 +1013,11 @@ def prepare_encoded_subset_compilation(
 
     domains, ranges = ({}, {}) if asserted_taxonomy_only else columns.domain_range_index()
     role_axioms = () if asserted_taxonomy_only else columns.role_axioms()
+    ignored_restrictions = (
+        counters.restriction_subclass_axioms
+        if options.only_taxonomy and not asserted_taxonomy_only
+        else 0
+    )
     compilation = EncodedSubsetCompilation(
         view=view,
         options=options,
@@ -901,6 +1030,7 @@ def prepare_encoded_subset_compilation(
         _ranges=ranges,
         _role_axioms=role_axioms,
         _counters=counters,
+        statistics=CompileStatistics(ignored_shapes=ignored_restrictions),
     )
     return compilation, ingestion, compilation.counters
 
