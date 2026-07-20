@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-20. Projector implementation through `2ad682f`. pyOWLCore candidate revision:
+Date: 2026-07-20. Projector implementation through `da6df97`. pyOWLCore candidate revision:
 `cb86ab1`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -41,10 +41,11 @@ semantic slice across the actual PyO3 boundary without changing the production c
   roots: nonempty ordered named-property sequences for `DataSomeValuesFrom`/`DataAllValuesFrom`,
   named-property/literal `DataHasValue`, and minimally encoded cardinality plus named property for
   `DataMinCardinality`, `DataMaxCardinality`, and `DataExactCardinality`;
-- bounded data-range fillers for those expressions: named datatypes, canonical nonempty literal
+- recursive data-range fillers for those expressions: named datatypes, canonical nonempty literal
   `DataOneOf`, named-datatype `DatatypeRestriction` with canonical nonempty facet restrictions,
-  non-recursive `DataComplementOf`, and flat `DataIntersectionOf`/`DataUnionOf` over atomic or
-  non-recursive operands, all validated and ignored without output or role-state mutation;
+  and arbitrarily nested `DataComplementOf`, `DataIntersectionOf`, and `DataUnionOf` graphs over
+  those leaves; aggregates retain their canonical same-constructor flattening invariant, cycles
+  fail before output, and valid ranges are ignored without output or role-state mutation;
 - named-class `ClassAssertion` roots over anonymous individuals follow the same scalar ignored-shape
   contract, while named-class/named-individual assertions retain their existing `http://type` edge;
 - scalar-selected `ObjectIntersectionOf`/`ObjectUnionOf` expressions in `EquivalentClasses`, with
@@ -94,8 +95,8 @@ semantic slice across the actual PyO3 boundary without changing the production c
   `IrreflexiveObjectProperty`, `SymmetricObjectProperty`, `AsymmetricObjectProperty`, and
   `TransitiveObjectProperty`, fully validated, counted, skipped, and state-neutral;
 - named `SubDataPropertyOf`, canonical named `EquivalentDataProperties` and
-  `DisjointDataProperties` sets, bounded-class-expression `DataPropertyDomain`, bounded-data-range
-  `DataPropertyRange`, named `FunctionalDataProperty`, and named-to-bounded-range
+  `DisjointDataProperties` sets, bounded-class-expression `DataPropertyDomain`, recursive-data-range
+  `DataPropertyRange`, named `FunctionalDataProperty`, and named-to-recursive-range
   `DatatypeDefinition`, fully validated, counted, skipped, and unable to mutate object-role state;
 - named- or anonymous-source `DataPropertyAssertion` and `NegativeDataPropertyAssertion` roots with
   plain, typed, or language-tagged literals, fully validated and counted but always skipped without
@@ -130,8 +131,8 @@ semantic slice across the actual PyO3 boundary without changing the production c
   metadata, including empty rule sides, fully validated and counted but silent, excluded from the
   skipped-axiom total, and unable to mutate role state;
 - the complete structural-columns v1 SWRL constructor family: IRI-backed `Variable` nodes;
-  `ClassAtom` over the existing bounded class-expression envelope; `DataRangeAtom` over the bounded
-  data-range envelope; named/inverse `ObjectPropertyAtom`; named `DataPropertyAtom`; IRI-backed
+  `ClassAtom` over the existing bounded class-expression envelope; `DataRangeAtom` over the full
+  recursive data-range envelope; named/inverse `ObjectPropertyAtom`; named `DataPropertyAtom`; IRI-backed
   `BuiltInAtom` with ordered, possibly-empty data arguments; and
   `SameIndividualAtom`/`DifferentIndividualsAtom`, with named, anonymous, variable, and literal
   argument kinds validated in their exact positions;
@@ -162,8 +163,8 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - one caller-bounded coarse output batch, with no per-root or per-edge Python call.
 
 Any other valid segment, exporter, constructor, nested/unsupported class aggregate operand,
-complex/unsupported object restriction, recursive object complement, nested data-range
-complement/aggregate, complex object exact-cardinality filler, or other nonprojecting expression
+complex/unsupported object restriction, recursive object complement, complex object
+exact-cardinality filler, or other nonprojecting expression
 outside the bounded root positions, structurally unsupported object-property chain, or a SWRL
 `ClassAtom` predicate outside the bounded envelope is rejected as unsupported before output. N-ary
 equivalents beyond the selected first two, non-selected supported aggregate expressions, complete
@@ -172,7 +173,7 @@ domain/range roots are still fully validated. A role annotation whose anonymous 
 not valid UTF-8 remains an exact whole-call fallback because the scalar hash path raises while
 encoding its surrogateescaped value. Malformed supported columns fail closed.
 Same-operation isolated role expansion is proven; retained Scala-instance role-state reuse is not
-part of this one-shot seam. This is kernel version 21 of a private foundation, not the complete
+part of this one-shot seam. This is kernel version 22 of a private foundation, not the complete
 compiler described by WP-P7.
 
 ## What the private kernel actually does
@@ -195,7 +196,8 @@ GIL with `Python::detach`. Rust then:
    IRI/literal/anonymous values on every supported axiom, ontology annotation, and
    annotation-property root, every SWRL rule/variable/atom constructor over its bounded
    class/data/property and individual/data-argument envelope, bounded nonprojecting object/data
-   class expressions and data ranges, anonymous-individual bytes32/nonempty-key invariants,
+   class expressions, the complete recursive data-range graph with cycle detection,
+   anonymous-individual bytes32/nonempty-key invariants,
    axiom-only reachability and canonical blank-ID order, root kind/tag pairing,
    output/cross-product count, and IRI/output limit;
 3. builds a compact axiom-derived anonymous-node index and exact-capacity borrowed-IRI role
@@ -218,14 +220,16 @@ call. They are not currently attached to `ProjectionReport`, because the product
 does not dispatch to the private kernel. Aggregate and domain/range counting/ordering use repeated
 borrowed scans; selected annotation membership likewise uses repeated borrowed class-entity scans.
 When anonymous nodes exist, one bit-packed reachability vector, depth-bounded traversal stack, and
-exact-sized sorted node-ID vector reproduce the scalar axiom-derived identifier space. The other
+exact-sized sorted node-ID vector reproduce the scalar axiom-derived identifier space. When
+recursive data-range nodes exist, a compact color vector and grow-checked iterative event stack
+validate arbitrary nesting and reject cycles without using the native call stack. The other
 structural indexes are the projector-private role rows and subrole/inverse maps required by the
 pinned rules; they borrow retained IRI text and are reserved to exact root-derived capacities.
 
 The compiler is one-shot. Atomic idle/running/finished/cancelled/failed transitions allow another
 Python thread to cancel detached work. A cancellation racing with successful compilation discards
 the result. Unsupported, malformed, pinned reference, resource, cancelled, and panic outcomes cross
-the boundary as distinct typed failures; no partial batch is returned. The private v21 ABI returns
+the boundary as distinct typed failures; no partial batch is returned. The private v22 ABI returns
 its fifty-four counters as an explicitly constructed Python tuple because PyO3's automatic tuple
 conversion is bounded below that arity.
 
@@ -245,15 +249,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`2ad682f`:
+`da6df97`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 28 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 192 passed |
-| Native backend, private foundation, and encoded-dispatch tests | 239 passed |
-| Complete projector test suite | 1,022 passed |
+| Private PyO3 foundation tests | 198 passed |
+| Native backend, private foundation, and encoded-dispatch tests | 245 passed |
+| Complete projector test suite | 1,028 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -273,8 +277,8 @@ and a 250-restriction/750-expanded-edge limit failure; mixed-family, datatype-IR
 cross-product limit failure; non-minimal integer, canonical class/object/data-property/disjoint set,
 root-reference, hostile assertion-reference, hostile aggregate arity/type, hostile disjoint
 defined-class references, and noncanonical literal-language corruption; valid unsupported complex
-restriction filler, restriction-pair, nested/unsupported class aggregate, recursive data range,
-and remaining out-of-slice shapes;
+restriction filler, restriction-pair, nested/unsupported class aggregate, and remaining
+out-of-slice shapes;
 selected annotation IRI/plain/language/XSD/custom-datatype
 values; exact malformed typed rendering; full-RDFS relation rewriting; unsupported properties and
 non-class subjects; deterministic annotation category/root order; three duplicate edges preserved
@@ -301,11 +305,12 @@ complements over named and supported nonprojecting operands, hostile complement 
 property references, and recursive complement or complex exact-cardinality whole-root fallback;
 all six data class-expression constructors over ordered named data properties, canonical integers,
 plain/typed/language literals, named datatypes, literal one-of sets, datatype/facet restrictions,
-non-recursive data complements, and flat data intersections/unions; exact scalar state neutrality in
-normal, `only_taxonomy`, and asserted-taxonomy modes; a 250-root one-boundary data-expression call;
-hostile quantifier sequence, property, literal, datatype, facet IRI, and facet-set references;
-non-minimal data exact cardinality; and recursive data-complement/nested-aggregate whole-call
-fallback;
+and recursively nested data complements/intersections/unions; exact scalar state neutrality in
+normal, `only_taxonomy`, and asserted-taxonomy modes; recursive `DataPropertyRange`,
+`DatatypeDefinition`, and SWRL `DataRangeAtom` parity; a 250-root one-boundary data-expression call;
+a 200-level iterative data-range call; hostile quantifier sequence, property, literal, datatype,
+facet IRI, and facet-set references; non-minimal data exact cardinality; and cyclic recursive
+data-range rejection before output;
 mixed named/restriction/nonprojecting aggregate equivalence, ignored aggregate subclass and
 aggregate/restriction class assertions, direct ignored equivalent selections, expression-aware
 disjoint/union/key/data-domain/data-range/datatype-definition skips, and their exact counters in
@@ -356,7 +361,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and data ranges across selected ignored/skipped axiom families, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions and data ranges, lifecycle reuse, and remaining constructors are unsupported |
+| Complete Rust projection rules/options | Open; Rust implements only the direct bounded class-expression and ABox slice, bounded object/data nonprojecting expressions and recursive data ranges across selected ignored/skipped axiom families, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object restrictions, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property skipped families; recursive/remaining class expressions, lifecycle reuse, and remaining constructors are unsupported |
 | Bounded batches without per-row FFI | Proven for one caller-bounded private coarse batch; streaming multi-batch integration remains open |
 | Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
