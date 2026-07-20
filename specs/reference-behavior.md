@@ -236,11 +236,10 @@ The pinned implementation produces no edges for, among others:
 Ignored shapes are not normalized into accepted ones. A diagnostic count is allowed, but no
 warning flood or stdout print is part of the public contract.
 
-`EquivalentObjectProperties`, `DisjointObjectProperties`, `FunctionalObjectProperty`, and
-`InverseFunctionalObjectProperty`, plus `ReflexiveObjectProperty` and
-`IrreflexiveObjectProperty`, are not part of the pinned RBox scan at all. Each is counted as a
-skipped axiom with a grouped `MOWL_SKIPPED_AXIOM` diagnostic and cannot mutate retained role
-state.
+`EquivalentObjectProperties`, `DisjointObjectProperties`, `FunctionalObjectProperty`,
+`InverseFunctionalObjectProperty`, `ReflexiveObjectProperty`, `IrreflexiveObjectProperty`, and
+`SymmetricObjectProperty` are not part of the pinned RBox scan at all. Each is counted as a skipped
+axiom with a grouped `MOWL_SKIPPED_AXIOM` diagnostic and cannot mutate retained role state.
 
 ## 11. Mutable instance state
 
