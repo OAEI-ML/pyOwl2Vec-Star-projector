@@ -675,7 +675,7 @@ class _ResolvedColumnGroup:
 
 @dataclass(slots=True)
 class _SegmentResolutionState:
-    """Bound recursive view cache and pre-publication validation evidence."""
+    """Bound segmented-view cache and pre-publication validation evidence."""
 
     top_lease: EncodedStructuralLease
     leases: dict[int, EncodedStructuralLease] = field(default_factory=dict)
@@ -694,6 +694,26 @@ class _SegmentResolutionState:
     def fallback(self, reason: str) -> None:
         if self.fallback_reason is None:
             self.fallback_reason = reason
+
+
+@dataclass(slots=True)
+class _SegmentResolutionFrame:
+    """One suspended segmented-view resolution without using the Python stack."""
+
+    lease: EncodedStructuralLease
+    identity: int
+    segments: tuple[_ValidatedSegment, ...]
+    roles: tuple[int, ...]
+    local: _ResolvedColumnGroup
+    resolved: list[_ResolvedColumnGroup] = field(default_factory=list)
+    stage: int = 0
+    member_count: int = 0
+    bridge_count: int = 0
+    member_index: int = 0
+    previous_token: bytes | None = None
+    pending_segment: _ValidatedSegment | None = None
+    pending_source: EncodedStructuralLease | None = None
+    pending_groups: tuple[_ResolvedColumnGroup, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -3425,11 +3445,11 @@ def _local_resolved_group(lease: EncodedStructuralLease) -> _ResolvedColumnGroup
     )
 
 
-def _resolve_segment_groups(
+def _start_segment_resolution(
     lease: EncodedStructuralLease,
     state: _SegmentResolutionState,
-) -> tuple[_ResolvedColumnGroup, ...]:
-    """Resolve segment occurrences while retaining their source-local table identity."""
+) -> _SegmentResolutionFrame | tuple[_ResolvedColumnGroup, ...]:
+    """Return a cached result or register and validate one explicit frame."""
 
     identity = id(lease.encoded_view)
     if identity in state.active:
@@ -3452,141 +3472,226 @@ def _resolve_segment_groups(
         segments = tuple(_validated_segment(segment) for segment in raw_segments)
         state.posting_rows_inspected += sum(segment.postings.nbytes // 4 for segment in segments)
         state.scope_map_rows_inspected += sum(segment.scope_map_rows for segment in segments)
-        roles = tuple(segment.role for segment in segments)
-        local = _local_resolved_group(lease)
-        resolved: list[_ResolvedColumnGroup] = []
+        return _SegmentResolutionFrame(
+            lease,
+            identity,
+            segments,
+            tuple(segment.role for segment in segments),
+            _local_resolved_group(lease),
+        )
+    except BaseException:
+        state.active.remove(identity)
+        raise
 
-        if roles == (_SEGMENT_DIRECT,):
-            segment = segments[0]
-            if (
-                segment.owner is not lease.owner
-                or segment.source is not None
-                or segment.posting_mode != _POSTINGS_ALL
-                or segment.postings.nbytes
-                or segment.scope_map
-                or segment.member_token is not None
-            ):
-                raise SnapshotCompatibilityError(
-                    "encoded subset direct segment metadata is not canonical"
-                )
-            if local.root_indices:
-                resolved.append(local)
-        elif roles in {
-            (_SEGMENT_OVERLAY_BASE,),
-            (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA),
-        }:
-            base = segments[0]
-            if (
-                base.source is None
-                or base.owner is not getattr(base.source, "owner", None)
-                or base.posting_mode not in {_POSTINGS_ALL, _POSTINGS_EXCLUDE}
-                or base.member_token is not None
-            ):
-                raise SnapshotCompatibilityError(
-                    "encoded subset overlay base segment metadata is invalid"
-                )
-            source_lease = _reference_segment_lease(state, lease, base)
-            source_groups = _resolve_segment_groups(source_lease, state)
-            source_groups = _apply_group_scope_map(
-                source_groups,
-                base.scope_map,
-                state,
-            )
-            resolved.extend(
-                _apply_resolved_postings(
+
+def _resolve_segment_groups(
+    lease: EncodedStructuralLease,
+    state: _SegmentResolutionState,
+) -> tuple[_ResolvedColumnGroup, ...]:
+    """Resolve segment occurrences iteratively while retaining source-local identity."""
+
+    started = _start_segment_resolution(lease, state)
+    if not isinstance(started, _SegmentResolutionFrame):
+        return started
+    stack = [started]
+    try:
+        while stack:
+            frame = stack[-1]
+            result: tuple[_ResolvedColumnGroup, ...] | None = None
+
+            if frame.roles == (_SEGMENT_DIRECT,):
+                segment = frame.segments[0]
+                if (
+                    segment.owner is not frame.lease.owner
+                    or segment.source is not None
+                    or segment.posting_mode != _POSTINGS_ALL
+                    or segment.postings.nbytes
+                    or segment.scope_map
+                    or segment.member_token is not None
+                ):
+                    raise SnapshotCompatibilityError(
+                        "encoded subset direct segment metadata is not canonical"
+                    )
+                if frame.local.root_indices:
+                    frame.resolved.append(frame.local)
+                result = tuple(frame.resolved)
+            elif frame.roles in {
+                (_SEGMENT_OVERLAY_BASE,),
+                (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA),
+            }:
+                if frame.stage == 0:
+                    base = frame.segments[0]
+                    if (
+                        base.source is None
+                        or base.owner is not getattr(base.source, "owner", None)
+                        or base.posting_mode not in {_POSTINGS_ALL, _POSTINGS_EXCLUDE}
+                        or base.member_token is not None
+                    ):
+                        raise SnapshotCompatibilityError(
+                            "encoded subset overlay base segment metadata is invalid"
+                        )
+                    source_lease = _reference_segment_lease(state, frame.lease, base)
+                    frame.pending_segment = base
+                    frame.pending_source = source_lease
+                    frame.stage = 1
+                    child = _start_segment_resolution(source_lease, state)
+                    if isinstance(child, _SegmentResolutionFrame):
+                        stack.append(child)
+                    else:
+                        frame.pending_groups = child
+                    continue
+
+                pending_base = frame.pending_segment
+                pending_source_lease = frame.pending_source
+                source_groups = frame.pending_groups
+                if (
+                    pending_base is None
+                    or pending_source_lease is None
+                    or source_groups is None
+                ):
+                    raise AssertionError("overlay segment dependency was not resolved")
+                source_groups = _apply_group_scope_map(
                     source_groups,
-                    source_lease,
-                    base.posting_mode,
-                    base.postings,
-                )
-            )
-            if len(segments) == 1:
-                _validate_empty_local_columns(lease, family="overlay without delta")
-            else:
-                delta = segments[1]
-                if (
-                    delta.owner is not lease.owner
-                    or delta.source is not None
-                    or delta.posting_mode != _POSTINGS_ALL
-                    or delta.postings.nbytes
-                    or delta.scope_map
-                    or delta.member_token is not None
-                    or not local.root_indices
-                ):
-                    raise SnapshotCompatibilityError(
-                        "encoded subset overlay delta segment metadata is invalid"
-                    )
-                state.delta_roots_inspected += len(local.root_indices)
-                resolved.append(local)
-        else:
-            member_count = roles.count(_SEGMENT_COMPOSITE_MEMBER)
-            bridge_count = roles.count(_SEGMENT_COMPOSITE_BRIDGE)
-            expected = (_SEGMENT_COMPOSITE_MEMBER,) * member_count + (
-                (_SEGMENT_COMPOSITE_BRIDGE,) if bridge_count else ()
-            )
-            if member_count < 2 or bridge_count > 1 or roles != expected:
-                raise SnapshotCompatibilityError(
-                    "encoded subset composite segment roles are invalid"
-                )
-            previous_token: bytes | None = None
-            for member in segments[:member_count]:
-                token = member.member_token
-                if (
-                    member.source is None
-                    or member.owner is not getattr(member.source, "owner", None)
-                    or member.posting_mode
-                    not in {_POSTINGS_ALL, _POSTINGS_INCLUDE, _POSTINGS_EXCLUDE}
-                    or type(token) is not bytes
-                    or len(token) != 32
-                ):
-                    raise SnapshotCompatibilityError(
-                        "encoded subset composite member metadata is invalid"
-                    )
-                if previous_token is not None and token <= previous_token:
-                    raise SnapshotCompatibilityError(
-                        "encoded subset composite member tokens are not sorted unique"
-                    )
-                previous_token = token
-                state.composite_member_segments += 1
-                source_lease = _reference_segment_lease(state, lease, member)
-                member_groups = _resolve_segment_groups(source_lease, state)
-                member_groups = _apply_group_scope_map(
-                    member_groups,
-                    member.scope_map,
+                    pending_base.scope_map,
                     state,
                 )
-                resolved.extend(
+                frame.resolved.extend(
                     _apply_resolved_postings(
-                        member_groups,
-                        source_lease,
-                        member.posting_mode,
-                        member.postings,
+                        source_groups,
+                        pending_source_lease,
+                        pending_base.posting_mode,
+                        pending_base.postings,
                     )
                 )
-            if bridge_count:
-                bridge = segments[-1]
-                if (
-                    bridge.owner is not lease.owner
-                    or bridge.source is not None
-                    or bridge.posting_mode != _POSTINGS_ALL
-                    or bridge.postings.nbytes
-                    or bridge.scope_map
-                    or bridge.member_token is not None
-                    or not local.root_indices
-                ):
-                    raise SnapshotCompatibilityError(
-                        "encoded subset composite bridge metadata is invalid"
+                if len(frame.segments) == 1:
+                    _validate_empty_local_columns(
+                        frame.lease,
+                        family="overlay without delta",
                     )
-                state.bridge_roots_inspected += len(local.root_indices)
-                resolved.append(local)
+                else:
+                    delta = frame.segments[1]
+                    if (
+                        delta.owner is not frame.lease.owner
+                        or delta.source is not None
+                        or delta.posting_mode != _POSTINGS_ALL
+                        or delta.postings.nbytes
+                        or delta.scope_map
+                        or delta.member_token is not None
+                        or not frame.local.root_indices
+                    ):
+                        raise SnapshotCompatibilityError(
+                            "encoded subset overlay delta segment metadata is invalid"
+                        )
+                    state.delta_roots_inspected += len(frame.local.root_indices)
+                    frame.resolved.append(frame.local)
+                result = tuple(frame.resolved)
             else:
-                _validate_empty_local_columns(lease, family="composite without bridge")
+                if frame.stage == 0:
+                    frame.member_count = frame.roles.count(_SEGMENT_COMPOSITE_MEMBER)
+                    frame.bridge_count = frame.roles.count(_SEGMENT_COMPOSITE_BRIDGE)
+                    expected = (_SEGMENT_COMPOSITE_MEMBER,) * frame.member_count + (
+                        (_SEGMENT_COMPOSITE_BRIDGE,) if frame.bridge_count else ()
+                    )
+                    if (
+                        frame.member_count < 2
+                        or frame.bridge_count > 1
+                        or frame.roles != expected
+                    ):
+                        raise SnapshotCompatibilityError(
+                            "encoded subset composite segment roles are invalid"
+                        )
+                    frame.stage = 1
 
-        result = tuple(resolved)
-        state.cache[identity] = result
-        return result
+                if frame.pending_groups is not None:
+                    member = frame.pending_segment
+                    pending_member_source = frame.pending_source
+                    if member is None or pending_member_source is None:
+                        raise AssertionError("composite segment dependency was not retained")
+                    member_groups = _apply_group_scope_map(
+                        frame.pending_groups,
+                        member.scope_map,
+                        state,
+                    )
+                    frame.resolved.extend(
+                        _apply_resolved_postings(
+                            member_groups,
+                            pending_member_source,
+                            member.posting_mode,
+                            member.postings,
+                        )
+                    )
+                    frame.pending_segment = None
+                    frame.pending_source = None
+                    frame.pending_groups = None
+                    frame.member_index += 1
+                    continue
+
+                if frame.member_index < frame.member_count:
+                    member = frame.segments[frame.member_index]
+                    token = member.member_token
+                    if (
+                        member.source is None
+                        or member.owner is not getattr(member.source, "owner", None)
+                        or member.posting_mode
+                        not in {_POSTINGS_ALL, _POSTINGS_INCLUDE, _POSTINGS_EXCLUDE}
+                        or type(token) is not bytes
+                        or len(token) != 32
+                    ):
+                        raise SnapshotCompatibilityError(
+                            "encoded subset composite member metadata is invalid"
+                        )
+                    if frame.previous_token is not None and token <= frame.previous_token:
+                        raise SnapshotCompatibilityError(
+                            "encoded subset composite member tokens are not sorted unique"
+                        )
+                    frame.previous_token = token
+                    state.composite_member_segments += 1
+                    source_lease = _reference_segment_lease(state, frame.lease, member)
+                    frame.pending_segment = member
+                    frame.pending_source = source_lease
+                    child = _start_segment_resolution(source_lease, state)
+                    if isinstance(child, _SegmentResolutionFrame):
+                        stack.append(child)
+                    else:
+                        frame.pending_groups = child
+                    continue
+
+                if frame.bridge_count:
+                    bridge = frame.segments[-1]
+                    if (
+                        bridge.owner is not frame.lease.owner
+                        or bridge.source is not None
+                        or bridge.posting_mode != _POSTINGS_ALL
+                        or bridge.postings.nbytes
+                        or bridge.scope_map
+                        or bridge.member_token is not None
+                        or not frame.local.root_indices
+                    ):
+                        raise SnapshotCompatibilityError(
+                            "encoded subset composite bridge metadata is invalid"
+                        )
+                    state.bridge_roots_inspected += len(frame.local.root_indices)
+                    frame.resolved.append(frame.local)
+                else:
+                    _validate_empty_local_columns(
+                        frame.lease,
+                        family="composite without bridge",
+                    )
+                result = tuple(frame.resolved)
+
+            state.cache[frame.identity] = result
+            state.active.remove(frame.identity)
+            stack.pop()
+            if not stack:
+                return result
+            parent = stack[-1]
+            if parent.pending_groups is not None:
+                raise AssertionError("segment dependency result was already populated")
+            parent.pending_groups = result
+        raise AssertionError("segment resolution stack completed without a result")
     finally:
-        state.active.remove(identity)
+        for frame in stack:
+            state.active.discard(frame.identity)
 
 
 def _validate_empty_local_columns(
@@ -3987,12 +4092,7 @@ def _resolve_auxiliary_roots(
     """Resolve one secondary encoded selection without reconstructing core values."""
 
     resolution = _SegmentResolutionState(lease)
-    try:
-        resolved_groups = _resolve_segment_groups(lease, resolution)
-    except RecursionError as error:
-        raise SnapshotCompatibilityError(
-            "encoded root-provenance segment graph exceeds the safe recursion depth"
-        ) from error
+    resolved_groups = _resolve_segment_groups(lease, resolution)
     inspection = _merge_unclassified_inspections(tuple(resolution.inspections.values()))
     retained = tuple(resolution.leases.values())
     if resolution.fallback_reason is not None:
@@ -4194,12 +4294,7 @@ def prepare_encoded_subset_compilation(
                 recursive_source,
                 referenced=True,
             )
-        try:
-            resolved_groups = _resolve_segment_groups(lease, resolution)
-        except RecursionError as error:
-            raise SnapshotCompatibilityError(
-                "encoded subset segment graph exceeds the safe recursion depth"
-            ) from error
+        resolved_groups = _resolve_segment_groups(lease, resolution)
         inspection = _merge_unclassified_inspections(tuple(resolution.inspections.values()))
         counters = inspection.counters
         counters.referenced_segments = resolution.referenced_segments

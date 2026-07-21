@@ -1280,6 +1280,51 @@ def test_overlay_recursively_resolves_segmented_overlay_source() -> None:
             assert counters.scalar_fallbacks == 0
 
 
+def test_overlay_segment_resolution_exceeds_python_recursion_depth() -> None:
+    base = _snapshot("SubClassOf(:A :B)")
+    source = _lease(base)
+    empty = _lease(_snapshot(""))
+    template = _lease(base, materialize_segments=False)
+    depth = 1_100
+    for _ in range(depth):
+        segment = _SegmentFixture(
+            2,
+            source.owner,
+            source.encoded_view,
+            0,
+            memoryview(b""),
+        )
+        encoded_view = replace(
+            empty.encoded_view,
+            owner=base,
+            buffers=empty.buffers,
+            segments=(segment,),
+        )
+        source = replace(
+            template,
+            encoded_view=encoded_view,
+            owner=base,
+            buffers=empty.buffers,
+            segments=(segment,),
+        )
+
+    prepared, negotiation, counters = prepare_encoded_subset_compilation(
+        base,
+        ProjectionOptions(backend="native", order="encounter"),
+        EncodedNegotiation("encoded-native", lease=source),
+        batch_edges=1,
+    )
+
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert counters is not None
+    assert len(prepared._retained_leases) == depth
+    assert counters.referenced_segments == depth
+    assert counters.source_roots_inspected == 1
+    assert counters.roots_inspected == counters.selected_roots == 1
+    assert counters.scalar_fallbacks == 0
+
+
 def test_overlay_recursively_resolves_composite_source_indexes_and_lifetime() -> None:
     left = _snapshot("ObjectPropertyDomain(:p :D) SubObjectPropertyOf(:child :p)")
     right = _snapshot(
