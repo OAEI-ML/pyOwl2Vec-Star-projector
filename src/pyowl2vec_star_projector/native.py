@@ -753,7 +753,6 @@ def prepare_native_encoded_compilation(
         exact_named_edges = (
             native_statistics.roots
             == admitted_roots
-            and native_statistics.anonymous_individuals == 0
             and native_statistics.ontology_annotations == 0
             and native_statistics.swrl_rules == 0
             and native_statistics.restriction_subclasses <= native_statistics.subclasses
@@ -773,9 +772,10 @@ def prepare_native_encoded_compilation(
             return (
                 None,
                 "private native batch integration accepts only declarations and diagnostic-free "
-                "named subclass or supported restriction, equivalence, class-assertion, or "
-                "object-property-assertion axioms, direct named/inverse role maps, plus one "
-                "complete named domain/range product and fully selected class annotations",
+                "named subclass or supported restriction, equivalence, named class-assertion, or "
+                "supported-individual object-property-assertion axioms, direct named/inverse "
+                "role maps, plus one complete named domain/range product and fully selected "
+                "class annotations",
             )
         return (
             NativeEncodedDirectCompilation(

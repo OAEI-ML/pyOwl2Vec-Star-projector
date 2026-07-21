@@ -594,6 +594,75 @@ def test_hidden_iterator_annotation_selection_is_option_dependent() -> None:
             assert actual_report.provenance.counts.ignored_shapes == 0
 
 
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges"),
+    [
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                include_literals=True,
+            ),
+            3,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                include_literals=True,
+                bidirectional_taxonomy=True,
+            ),
+            3,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                include_literals=False,
+                only_taxonomy=True,
+            ),
+            2,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_anonymous_assertions_and_selected_values(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+) -> None:
+    label = "<http://www.w3.org/2000/01/rdf-schema#label>"
+    view = _snapshot(
+        "Declaration(Class(:A)) "
+        "ObjectPropertyAssertion(:p _:source :named) "
+        "ObjectPropertyAssertion(Annotation(<urn:meta> _:metadata) :p :named _:target) "
+        f"AnnotationAssertion({label} :A _:annotationValue)"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    assert any("_:genid" in value for edge in actual for value in edge.as_tuple())
+    _assert_semantic_report_parity(expected_report, actual_report)
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+
+
 def test_public_iterator_keeps_private_capability_and_dispatch_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -631,6 +700,7 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
         "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B)) "
         "ClassAssertion(:A :individual)",
         'ClassAssertion(:A :individual) DataPropertyAssertion(:dp :individual "value")',
+        "ClassAssertion(:A _:anonymous) "
         "ObjectPropertyAssertion(:p _:anonymous :named)",
         "ObjectPropertyDomain(:p ObjectUnionOf(:A :B)) ObjectPropertyRange(:p :R)",
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:q :R)",
@@ -640,7 +710,7 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
     ids=[
         "ignored-equivalence",
         "skipped-data-assertion",
-        "anonymous-abox",
+        "ignored-anonymous-class-assertion",
         "ignored-domain",
         "incomplete-domain-range-product",
         "property-chain-role-map",
@@ -685,9 +755,9 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     assert ingestion.reason is not None
     assert ingestion.reason.startswith(
         "private native batch integration accepts only declarations and diagnostic-free named "
-        "subclass or supported restriction, equivalence, class-assertion, or "
-        "object-property-assertion axioms, direct named/inverse role maps, plus one complete "
-        "named domain/range product and fully selected class annotations"
+        "subclass or supported restriction, equivalence, named class-assertion, or "
+        "supported-individual object-property-assertion axioms, direct named/inverse role maps, "
+        "plus one complete named domain/range product and fully selected class annotations"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
