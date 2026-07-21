@@ -3262,10 +3262,7 @@ def test_imported_annotation_provenance_uses_root_encoded_selection() -> None:
     assert counters.raw_edges == 3
 
 
-@pytest.mark.parametrize("root_mode", ["unavailable", "segmented"])
-def test_imported_annotation_provenance_falls_back_once_for_unsupported_root_selection(
-    root_mode: str,
-) -> None:
+def test_imported_annotation_provenance_falls_back_once_for_unavailable_root_selection() -> None:
     root = (
         b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
         b"Annotation(<urn:ontology> _:rootOntology) Declaration(Class(:A)) "
@@ -3286,42 +3283,17 @@ def test_imported_annotation_provenance_falls_back_once_for_unsupported_root_sel
         resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
     )
     closure_lease = _lease(view)
-    direct_root = _root_lease(view)
-    empty_root = _root_lease(_snapshot(""))
-    segment = _SegmentFixture(
-        2,
-        view,
-        direct_root.encoded_view,
-        0,
-        memoryview(b""),
-    )
-    top_encoded = replace(
-        direct_root.encoded_view,
-        buffers=empty_root.buffers,
-        segments=(segment,),
-    )
-    segmented_root = replace(
-        direct_root,
-        encoded_view=top_encoded,
-        buffers=empty_root.buffers,
-        segments=(segment,),
-    )
     options = ProjectionOptions(backend="python", include_literals=True, order="encounter")
     scalar = Projector()
     expected = scalar.project(view, options=options)
     assert scalar.last_report is not None
     scalar_report = scalar.last_report.to_dict()
-    root_result = None if root_mode == "unavailable" else segmented_root
-    expected_reason = (
-        "does not support root-scoped encoded annotation provenance"
-        if root_mode == "unavailable"
-        else "root-scoped encoded annotation provenance is segmented"
-    )
+    expected_reason = "does not support root-scoped encoded annotation provenance"
 
     with patch.object(
         encoded_compiler_module,
         "_acquire_root_encoded_lease",
-        return_value=root_result,
+        return_value=None,
     ):
         prepared, negotiation, initial = prepare_encoded_subset_compilation(
             view,
@@ -3364,6 +3336,172 @@ def test_imported_annotation_provenance_falls_back_once_for_unsupported_root_sel
     assert counters.root_provenance_selected_roots == 0
     assert counters.scalar_fallbacks == 1
     assert counters.edge_batches == counters.raw_edges == 0
+
+
+def test_imported_annotation_provenance_resolves_segmented_root_selection() -> None:
+    root = (
+        b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
+        b"Declaration(Class(:A)) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
+    )
+    leaf = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> Declaration(Class(:L)) "
+        b"SubClassOf(:L <urn:root#A>) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :L "leaf"))'
+    )
+    view = pyowl_core.load_snapshot(
+        root,
+        options=LoadOptions(
+            imports=ImportPolicy.RESOLVE_LOCAL,
+            backend=BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
+    )
+    closure_lease = _lease(view)
+    direct_root = _root_lease(view)
+    empty_root = _root_lease(_snapshot(""))
+    segment = _SegmentFixture(
+        2,
+        view,
+        direct_root.encoded_view,
+        0,
+        memoryview(b""),
+    )
+    top_encoded = replace(
+        direct_root.encoded_view,
+        buffers=empty_root.buffers,
+        segments=(segment,),
+    )
+    segmented_root = replace(
+        direct_root,
+        encoded_view=top_encoded,
+        buffers=empty_root.buffers,
+        segments=(segment,),
+    )
+    options = ProjectionOptions(backend="python", include_literals=True, order="encounter")
+    scalar = Projector()
+    expected = scalar.project(view, options=options)
+    assert scalar.last_report is not None
+    scalar_report = scalar.last_report.to_dict()
+
+    with (
+        patch.object(
+            encoded_compiler_module,
+            "_acquire_root_encoded_lease",
+            return_value=segmented_root,
+        ),
+        _forced_encoded(closure_lease),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("segmented root provenance crossed scalar traversal"),
+        ),
+    ):
+        prepared, negotiation, counters = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=closure_lease),
+            batch_edges=1,
+        )
+        projector = Projector()
+        actual = projector.project(view, options=replace(options, backend="native"))
+
+    assert prepared is not None
+    assert negotiation.path == "encoded-native"
+    assert counters is not None
+    assert len(prepared._annotation_provenance_leases) == 2
+    assert all(item.owner is view for item in prepared._annotation_provenance_leases)
+    assert all(
+        item.scope is pyowl_core.AxiomScope.ROOT
+        for item in prepared._annotation_provenance_leases
+    )
+    assert list(prepared.iter_raw_edges()) == expected
+    assert actual == expected
+    assert {edge.destination for edge in actual} >= {"urn:root#A", "root"}
+    assert "leaf" not in {edge.destination for edge in actual}
+    assert projector.last_report is not None
+    assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+    assert counters.root_provenance_referenced_segments == 1
+    assert counters.root_provenance_selected_roots == 2
+    assert counters.scalar_fallbacks == 0
+    projected_counters = projector.last_encoded_counters
+    assert projected_counters is not None
+    assert projected_counters.root_provenance_referenced_segments == 1
+    assert projected_counters.scalar_fallbacks == 0
+
+
+def test_imported_annotation_provenance_resolves_segmented_closures() -> None:
+    root = (
+        b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
+        b"Declaration(Class(:A)) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
+    )
+    leaf = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> Declaration(Class(:L)) "
+        b"SubClassOf(:L <urn:root#A>) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :L "leaf"))'
+    )
+    view = pyowl_core.load_snapshot(
+        root,
+        options=LoadOptions(
+            imports=ImportPolicy.RESOLVE_LOCAL,
+            backend=BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
+    )
+    direct = _lease(view)
+    empty = _lease(_snapshot(""))
+    rows = (
+        ("overlay", _overlay_base_lease(view, direct), 1, 0),
+        (
+            "composite",
+            _composite_lease(
+                view,
+                (
+                    _CompositeMemberFixture(direct, b"a" * 32),
+                    _CompositeMemberFixture(empty, b"b" * 32),
+                ),
+            ),
+            2,
+            2,
+        ),
+    )
+    options = ProjectionOptions(backend="python", include_literals=True, order="encounter")
+    scalar = Projector()
+    expected = scalar.project(view, options=options)
+    assert scalar.last_report is not None
+    scalar_report = scalar.last_report.to_dict()
+
+    for label, lease, referenced_segments, composite_segments in rows:
+        prepared, negotiation, counters = prepare_encoded_subset_compilation(
+            view,
+            replace(options, backend="native"),
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=1,
+        )
+        assert prepared is not None, label
+        assert negotiation.path == "encoded-native"
+        assert counters is not None
+        with (
+            _forced_encoded(lease),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError(f"{label} provenance crossed scalar traversal"),
+            ),
+        ):
+            projector = Projector()
+            actual = projector.project(view, options=replace(options, backend="native"))
+
+        assert actual == expected
+        assert {edge.destination for edge in actual} >= {"urn:root#A", "root"}
+        assert "leaf" not in {edge.destination for edge in actual}
+        assert projector.last_report is not None
+        assert _semantic_report(projector.last_report.to_dict()) == _semantic_report(scalar_report)
+        assert counters.referenced_segments == referenced_segments
+        assert counters.composite_member_segments == composite_segments
+        assert counters.root_provenance_referenced_segments == 0
+        assert counters.scalar_fallbacks == 0
 
 
 def test_composite_annotation_provenance_preserves_scalar_failure() -> None:

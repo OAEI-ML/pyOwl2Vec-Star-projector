@@ -4372,30 +4372,11 @@ def prepare_encoded_subset_compilation(
             )
             return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
         else:
-            if not is_direct:
-                counters.scalar_fallbacks = 1
-                reason = (
-                    "encoded subset cannot prove scalar root-annotation behavior for a "
-                    "segmented multi-document closure; selected whole-operation scalar compiler"
-                )
-                return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
             root_lease = _acquire_root_encoded_lease(view, lease)
             if root_lease is None:
                 counters.scalar_fallbacks = 1
                 reason = (
                     "core view does not support root-scoped encoded annotation provenance; "
-                    "selected whole-operation scalar compiler"
-                )
-                return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
-            root_segments = root_lease.segments
-            if (
-                type(root_segments) is not tuple
-                or len(root_segments) != 1
-                or getattr(root_segments[0], "role", None) != _SEGMENT_DIRECT
-            ):
-                counters.scalar_fallbacks = 1
-                reason = (
-                    "root-scoped encoded annotation provenance is segmented; "
                     "selected whole-operation scalar compiler"
                 )
                 return None, EncodedNegotiation("scalar-native", reason), counters.freeze()
