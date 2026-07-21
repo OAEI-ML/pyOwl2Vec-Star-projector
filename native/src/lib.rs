@@ -30,10 +30,10 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
+use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyString, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 41;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 42;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -858,11 +858,17 @@ impl EncodedDirectCompiler {
                     .map_err(kernel_error)?;
                 let amount = edges.len();
                 for edge in edges {
-                    let value =
-                        edge_factory.call1((edge.source, edge.relation, edge.destination))?;
-                    require_exact_factory_result(
+                    let value = edge_factory.call1((
+                        edge.source.as_str(),
+                        edge.relation.as_str(),
+                        edge.destination.as_str(),
+                    ))?;
+                    require_exact_edge_factory_result(
                         &value,
                         edge_type,
+                        edge.source.as_str(),
+                        edge.relation.as_str(),
+                        edge.destination.as_str(),
                         "encoded direct edge factory returned an invalid final object",
                     )?;
                     output.append(value)?;
@@ -880,18 +886,20 @@ impl EncodedDirectCompiler {
                 edge_type,
                 "encoded direct edge factory is not canonical",
             )?;
-            let statistics = statistics_factory.call1(direct_statistics_tuple(py, statistics)?)?;
+            let final_statistics =
+                statistics_factory.call1(direct_statistics_tuple(py, statistics)?)?;
             require_canonical_factory(
                 statistics_factory,
                 statistics_type,
                 "encoded direct statistics factory is not canonical",
             )?;
-            require_exact_factory_result(
-                &statistics,
+            require_exact_statistics_factory_result(
+                &final_statistics,
                 statistics_type,
+                statistics,
                 "encoded direct statistics factory returned an invalid final object",
             )?;
-            let statistics = statistics.unbind();
+            let statistics = final_statistics.unbind();
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)
@@ -1005,9 +1013,10 @@ impl EncodedDirectCompiler {
                 statistics_type,
                 "encoded direct statistics factory is not canonical",
             )?;
-            require_exact_factory_result(
+            require_exact_statistics_factory_result(
                 statistics.bind(py),
                 statistics_type,
+                stats,
                 "encoded direct statistics factory returned an invalid final object",
             )?;
             let iterator = iterator_factory
@@ -1018,9 +1027,12 @@ impl EncodedDirectCompiler {
                 iterator_type,
                 "encoded direct iterator factory is not canonical",
             )?;
-            require_exact_factory_result(
+            require_exact_iterator_factory_result(
                 iterator.bind(py),
                 iterator_type,
+                compiler_owner,
+                statistics.bind(py),
+                batch_edges,
                 "encoded direct iterator factory returned an invalid final object",
             )?;
             let next_role_state =
@@ -1145,11 +1157,17 @@ impl EncodedDirectCompiler {
                     PyMemoryError::new_err("encoded direct drain allocation failed")
                 })?;
                 for edge in edges {
-                    let value =
-                        edge_factory.call1((edge.source, edge.relation, edge.destination))?;
-                    require_exact_factory_result(
+                    let value = edge_factory.call1((
+                        edge.source.as_str(),
+                        edge.relation.as_str(),
+                        edge.destination.as_str(),
+                    ))?;
+                    require_exact_edge_factory_result(
                         &value,
                         edge_type,
+                        edge.source.as_str(),
+                        edge.relation.as_str(),
+                        edge.destination.as_str(),
                         "encoded direct edge factory returned an invalid final object",
                     )?;
                     values.push(value.unbind());
@@ -1371,73 +1389,224 @@ fn require_exact_factory_result<'py>(
     }
 }
 
+fn require_exact_edge_factory_result<'py>(
+    value: &Bound<'py, PyAny>,
+    expected_type: &Bound<'py, PyAny>,
+    source: &str,
+    relation: &str,
+    destination: &str,
+    message: &'static str,
+) -> PyResult<()> {
+    require_exact_factory_result(value, expected_type, message)?;
+    for (name, expected) in [
+        ("source", source),
+        ("relation", relation),
+        ("destination", destination),
+    ] {
+        let observed = value
+            .getattr(name)
+            .map_err(|_| PyValueError::new_err(message))?;
+        if !observed.is_exact_instance_of::<PyString>() {
+            return Err(PyValueError::new_err(message));
+        }
+        let observed = observed
+            .cast::<PyString>()
+            .map_err(|_| PyValueError::new_err(message))?
+            .to_str()
+            .map_err(|_| PyValueError::new_err(message))?;
+        if observed != expected {
+            return Err(PyValueError::new_err(message));
+        }
+    }
+    Ok(())
+}
+
+fn require_exact_statistics_factory_result<'py>(
+    value: &Bound<'py, PyAny>,
+    expected_type: &Bound<'py, PyAny>,
+    expected: DirectCompileStats,
+    message: &'static str,
+) -> PyResult<()> {
+    require_exact_factory_result(value, expected_type, message)?;
+    for (name, expected) in DIRECT_STATISTICS_FIELDS
+        .into_iter()
+        .zip(direct_statistics_values(expected))
+    {
+        let observed = value
+            .getattr(name)
+            .map_err(|_| PyValueError::new_err(message))?;
+        if !observed.is_exact_instance_of::<PyInt>()
+            || observed.extract::<usize>().ok() != Some(expected)
+        {
+            return Err(PyValueError::new_err(message));
+        }
+    }
+    Ok(())
+}
+
+fn require_exact_iterator_factory_result<'py>(
+    value: &Bound<'py, PyAny>,
+    expected_type: &Bound<'py, PyAny>,
+    compiler_owner: &Bound<'py, PyAny>,
+    statistics: &Bound<'py, PyAny>,
+    batch_edges: usize,
+    message: &'static str,
+) -> PyResult<()> {
+    require_exact_factory_result(value, expected_type, message)?;
+    let observed_owner = value
+        .getattr("_compiler")
+        .map_err(|_| PyValueError::new_err(message))?;
+    let observed_statistics = value
+        .getattr("statistics")
+        .map_err(|_| PyValueError::new_err(message))?;
+    let observed_batch_edges = value
+        .getattr("batch_edges")
+        .map_err(|_| PyValueError::new_err(message))?;
+    let observed_yielded_edges = value
+        .getattr("_yielded_edges")
+        .map_err(|_| PyValueError::new_err(message))?;
+    if !observed_owner.is(compiler_owner)
+        || !observed_statistics.is(statistics)
+        || !observed_batch_edges.is_exact_instance_of::<PyInt>()
+        || observed_batch_edges.extract::<usize>().ok() != Some(batch_edges)
+        || !observed_yielded_edges.is_exact_instance_of::<PyInt>()
+        || observed_yielded_edges.extract::<usize>().ok() != Some(0)
+    {
+        return Err(PyValueError::new_err(message));
+    }
+    Ok(())
+}
+
+const DIRECT_STATISTICS_FIELDS: [&str; 60] = [
+    "roots",
+    "nodes",
+    "anonymous_individuals",
+    "ontology_annotations",
+    "swrl_rules",
+    "declarations",
+    "subclasses",
+    "restriction_subclasses",
+    "ignored_subclasses",
+    "equivalents",
+    "aggregate_equivalents",
+    "equivalent_base_edges",
+    "ignored_equivalents",
+    "disjoint_classes",
+    "disjoint_unions",
+    "has_keys",
+    "same_individuals",
+    "different_individuals",
+    "class_assertions",
+    "ignored_class_assertions",
+    "object_property_assertions",
+    "negative_object_property_assertions",
+    "sub_object_properties",
+    "object_property_chains",
+    "equivalent_object_properties",
+    "disjoint_object_properties",
+    "inverse_object_properties",
+    "functional_object_properties",
+    "inverse_functional_object_properties",
+    "reflexive_object_properties",
+    "irreflexive_object_properties",
+    "symmetric_object_properties",
+    "asymmetric_object_properties",
+    "transitive_object_properties",
+    "sub_data_properties",
+    "equivalent_data_properties",
+    "disjoint_data_properties",
+    "data_property_domains",
+    "data_property_ranges",
+    "functional_data_properties",
+    "datatype_definitions",
+    "data_property_assertions",
+    "negative_data_property_assertions",
+    "annotation_assertions",
+    "selected_annotation_assertions",
+    "sub_annotation_properties",
+    "annotation_property_domains",
+    "annotation_property_ranges",
+    "annotation_edges",
+    "non_string_literal_renderings",
+    "skipped_axioms",
+    "object_property_domains",
+    "object_property_ranges",
+    "ignored_object_property_domains",
+    "ignored_object_property_ranges",
+    "domain_range_edges",
+    "role_expansion_edges",
+    "edges",
+    "buffer_bytes",
+    "root_provenance_buffer_bytes",
+];
+
 fn direct_statistics_tuple(py: Python<'_>, stats: DirectCompileStats) -> PyResult<Py<PyTuple>> {
-    Ok(PyTuple::new(
-        py,
-        [
-            stats.roots,
-            stats.nodes,
-            stats.anonymous_individuals,
-            stats.ontology_annotations,
-            stats.swrl_rules,
-            stats.declarations,
-            stats.subclasses,
-            stats.restriction_subclasses,
-            stats.ignored_subclasses,
-            stats.equivalents,
-            stats.aggregate_equivalents,
-            stats.equivalent_base_edges,
-            stats.ignored_equivalents,
-            stats.disjoint_classes,
-            stats.disjoint_unions,
-            stats.has_keys,
-            stats.same_individuals,
-            stats.different_individuals,
-            stats.class_assertions,
-            stats.ignored_class_assertions,
-            stats.object_property_assertions,
-            stats.negative_object_property_assertions,
-            stats.sub_object_properties,
-            stats.object_property_chains,
-            stats.equivalent_object_properties,
-            stats.disjoint_object_properties,
-            stats.inverse_object_properties,
-            stats.functional_object_properties,
-            stats.inverse_functional_object_properties,
-            stats.reflexive_object_properties,
-            stats.irreflexive_object_properties,
-            stats.symmetric_object_properties,
-            stats.asymmetric_object_properties,
-            stats.transitive_object_properties,
-            stats.sub_data_properties,
-            stats.equivalent_data_properties,
-            stats.disjoint_data_properties,
-            stats.data_property_domains,
-            stats.data_property_ranges,
-            stats.functional_data_properties,
-            stats.datatype_definitions,
-            stats.data_property_assertions,
-            stats.negative_data_property_assertions,
-            stats.annotation_assertions,
-            stats.selected_annotation_assertions,
-            stats.sub_annotation_properties,
-            stats.annotation_property_domains,
-            stats.annotation_property_ranges,
-            stats.annotation_edges,
-            stats.non_string_literal_renderings,
-            stats.skipped_axioms,
-            stats.object_property_domains,
-            stats.object_property_ranges,
-            stats.ignored_object_property_domains,
-            stats.ignored_object_property_ranges,
-            stats.domain_range_edges,
-            stats.role_expansion_edges,
-            stats.edges,
-            stats.buffer_bytes,
-            stats.root_provenance_buffer_bytes,
-        ],
-    )?
-    .unbind())
+    Ok(PyTuple::new(py, direct_statistics_values(stats))?.unbind())
+}
+
+fn direct_statistics_values(stats: DirectCompileStats) -> [usize; 60] {
+    [
+        stats.roots,
+        stats.nodes,
+        stats.anonymous_individuals,
+        stats.ontology_annotations,
+        stats.swrl_rules,
+        stats.declarations,
+        stats.subclasses,
+        stats.restriction_subclasses,
+        stats.ignored_subclasses,
+        stats.equivalents,
+        stats.aggregate_equivalents,
+        stats.equivalent_base_edges,
+        stats.ignored_equivalents,
+        stats.disjoint_classes,
+        stats.disjoint_unions,
+        stats.has_keys,
+        stats.same_individuals,
+        stats.different_individuals,
+        stats.class_assertions,
+        stats.ignored_class_assertions,
+        stats.object_property_assertions,
+        stats.negative_object_property_assertions,
+        stats.sub_object_properties,
+        stats.object_property_chains,
+        stats.equivalent_object_properties,
+        stats.disjoint_object_properties,
+        stats.inverse_object_properties,
+        stats.functional_object_properties,
+        stats.inverse_functional_object_properties,
+        stats.reflexive_object_properties,
+        stats.irreflexive_object_properties,
+        stats.symmetric_object_properties,
+        stats.asymmetric_object_properties,
+        stats.transitive_object_properties,
+        stats.sub_data_properties,
+        stats.equivalent_data_properties,
+        stats.disjoint_data_properties,
+        stats.data_property_domains,
+        stats.data_property_ranges,
+        stats.functional_data_properties,
+        stats.datatype_definitions,
+        stats.data_property_assertions,
+        stats.negative_data_property_assertions,
+        stats.annotation_assertions,
+        stats.selected_annotation_assertions,
+        stats.sub_annotation_properties,
+        stats.annotation_property_domains,
+        stats.annotation_property_ranges,
+        stats.annotation_edges,
+        stats.non_string_literal_renderings,
+        stats.skipped_axioms,
+        stats.object_property_domains,
+        stats.object_property_ranges,
+        stats.ignored_object_property_domains,
+        stats.ignored_object_property_ranges,
+        stats.domain_range_edges,
+        stats.role_expansion_edges,
+        stats.edges,
+        stats.buffer_bytes,
+        stats.root_provenance_buffer_bytes,
+    ]
 }
 
 fn retained_direct_buffers(
