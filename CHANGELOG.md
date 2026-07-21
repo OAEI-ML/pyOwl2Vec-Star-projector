@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- The legacy private coarse compiler now builds its required Python result list through a shared
+  resumable cursor in 256-edge native chunks, with zero complete Rust output-vector edges. Its
+  retained Scala role-state transition commits only after every edge and statistics tuple has
+  been constructed successfully; the capability remains unadvertised.
 - The hidden native iterator now emits through a resumable Rust cursor instead of retaining a
   complete projected-edge vector. Each FFI drain buffers at most the configured caller batch,
   cursor movement commits only after Python list construction, and additive provenance counters

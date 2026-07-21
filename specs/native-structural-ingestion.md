@@ -122,7 +122,10 @@ partial session on failure and starts the cursor with zero emission attempts; th
 projected-edge vector or pre-publication output replay. A drain clones the small cursor state, owns
 at most the configured edge count, and commits that state only after the Python batch has been
 constructed. GIL-detached generation does not hold the output mutex; a raced close discards the
-unpublished bounded batch. The legacy private coarse call may still request one materialized list.
+unpublished bounded batch. Kernel v34 routes the legacy private coarse call through the same cursor
+in fixed 256-edge native chunks. That call still returns one materialized Python list, but retains
+no complete Rust output vector; its reusable role state commits only after the list and statistics
+tuple are complete.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

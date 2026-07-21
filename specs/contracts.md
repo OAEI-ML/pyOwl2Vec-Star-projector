@@ -232,8 +232,11 @@ report the native compiled-edge count, zero or nonzero complete output-vector ed
 batch bound, native batch/boundary-call counts, and peak native buffered-output edges. The peak is
 bounded by the configured batch and is zero before the first drain; it does not count retained
 encoded input, role maps, or validation indexes. Kernel-v33 source evidence additionally requires
-zero cursor emission attempts at preparation; output traversal begins at the first drain. Zero
-operation counters assert that the projector
+zero cursor emission attempts at preparation; output traversal begins at the first drain.
+Kernel-v34 coarse-call evidence additionally records the fixed internal chunk bound, native chunk
+count, zero complete Rust output-vector edges, and peak native coarse buffer. The returned Python
+list remains the legacy call's materialized result, while reusable role state commits only after
+that list and its statistics tuple are complete. Zero operation counters assert that the projector
 handoff itself did not perform that work; they do not describe acquisition completed before an
 existing view was supplied. The publication duration includes public encoded-view acquisition and
 the Projector adapter's in-place validation. These fields are monotonic, non-negative, path-free

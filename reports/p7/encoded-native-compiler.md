@@ -67,7 +67,9 @@ installed distribution payloads and both revisions. Neither field can set public
 unwired-public-surfaces, and scalar-public-lifecycle blockers in every result. Kernel v32 removes
 the former whole-output-vector blocker for the hidden iterator and binds that fact to compiled,
 vector-backed, and peak-buffered edge counters; v33 starts the cursor without a pre-publication
-emission replay.
+emission replay. Kernel v34 removes the legacy coarse call's duplicate complete Rust output vector
+and emitter: its required Python list is populated through fixed 256-edge cursor chunks, and its
+retained role-state transaction commits only after complete Python result construction.
 No installed-wheel or corpus result is inferred from the source-tree harness checks below.
 
 This checkpoint adds a real but deliberately private Rust foundation. It proves one useful
@@ -347,12 +349,15 @@ The hidden batch seam now bounds native projected-output storage as well as Pyth
 cursor clones only small transaction state, builds at most the configured batch with the GIL
 detached and no held output mutex, then commits after Python list construction. Preparation still
 performs exhaustive immutable structural, semantic, exact-count, and capacity preflight, but v33
-no longer replays ordered emission before publication. The legacy private coarse call still
-materializes one list. The cursor is connected only to the hidden named-edge iterator, which reuses
-the canonical spill machinery; it is not connected to public `Projector.iter_edges`, protocol sink,
-digest, or artifact publication. It therefore closes the private whole-output-vector and
-pre-publication-replay gaps without satisfying P7 deliverable 3 or the production memory acceptance
-criterion.
+no longer replays ordered emission before publication. Kernel v34 also routes the legacy private
+coarse call through that cursor in fixed 256-edge native chunks. The call still returns its required
+materialized Python list, but no complete Rust edge vector exists beside it; cursor movement is
+local until each chunk is appended, and retained Scala role state commits only after the list and
+statistics tuple are complete. The caller-bounded iterator is connected only to the hidden
+named-edge path, which reuses the canonical spill machinery; it is not connected to public
+`Projector.iter_edges`, protocol sink, digest, or artifact publication. These changes close the
+private Rust-output-vector and pre-publication-replay gaps without satisfying P7 deliverable 3 or
+the production memory acceptance criterion.
 
 ## No-copy boundary and exact blocker
 
@@ -638,6 +643,26 @@ the exact archive. This is correctness evidence, not a corpus timing or RSS clai
 remaining gates are recorded in
 [`installed-lazy-cursor-checkpoint.json`](evidence/installed-lazy-cursor-checkpoint.json).
 
+### Bounded legacy coarse result
+
+Revision `70c8623b6f8265074d6d7522c6b1e4cd8a942419` removes the production
+coarse compiler's separate full-vector emitter. Kernel v34 performs the same exhaustive preflight
+as the hidden iterator, then drains the shared resumable cursor through fixed 256-edge Rust vectors
+while appending directly to the one Python list required by the legacy return contract. Cursor
+movement commits after a complete chunk append. Any emission, Python allocation, statistics, or
+retained-role clone failure discards the unpublished Python list and leaves reusable role maps
+unchanged. On success, the role mutex is held across the compiler's running-to-finished transition,
+making cancellation and retained-state commit indivisible from the visible result.
+
+The exact archived release wheel compiled 600 ordered subclass edges through three native chunks,
+reported zero complete Rust output-vector edges and a 256-edge peak, and matched the scalar result.
+Six focused lifecycle/bound/capability cases, 11 audit/benchmark cases, and all 1,119 tests passed
+from that wheel plus exact core `6750aa0`; all 38 Rust tests and the static gates passed from the
+archive. The output list itself remains O(E), as required by this private compatibility call, so
+this checkpoint is neither public streaming acceptance nor an RSS/performance claim. Exact hashes
+and remaining gates are recorded in
+[`installed-coarse-cursor-checkpoint.json`](evidence/installed-coarse-cursor-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -842,8 +867,8 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables; v32 emits the hidden iterator through a resumable bounded cursor; v33 starts that cursor without replay. The hidden Projector binds retained Scala-instance maps with an exact one-way scalar transition, but public binding and remaining projecting rules/options/surfaces are unsupported |
-| Bounded batches without per-row FFI | The hidden iterator's Rust and Python outputs are caller-bounded, start with zero emission attempts, use one FFI call per batch, preserve exact order, and report compiled/vector/peak counters. The legacy private coarse call is materialized, and public iterator/sink/digest/artifact integration remains open |
+| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables; v32 emits the hidden iterator through a resumable bounded cursor; v33 starts that cursor without replay; v34 removes the coarse call's duplicate Rust emitter/vector. The hidden Projector binds retained Scala-instance maps with an exact one-way scalar transition, but public binding and remaining projecting rules/options/surfaces are unsupported |
+| Bounded batches without per-row FFI | The hidden iterator's Rust and Python outputs are caller-bounded, start with zero emission attempts, use one FFI call per batch, preserve exact order, and report compiled/vector/peak counters. The legacy private coarse call must still return one whole Python list, but builds it through 256-edge native chunks with no complete Rust output vector. Public iterator/sink/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
 | Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, and hidden iterator close/cancel/fallback/resource tests pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
