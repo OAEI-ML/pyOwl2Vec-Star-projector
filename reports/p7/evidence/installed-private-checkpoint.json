@@ -1,0 +1,301 @@
+{
+  "schema": "pyowl-projector.p7-installed-private-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "private_candidate_is_public": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "cedfc9134d34c713eab9290dfc263c443c778805"
+  },
+  "artifacts": {
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd"
+    },
+    "projector_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 417738,
+      "sha256": "f73fde9d6bd6999de4a048d55749b3cd97948bdf3b718508516b86bb5ccefb38"
+    },
+    "installed_core": {
+      "version": "0.1.0.dev0",
+      "package_bytes": 7545,
+      "package_sha256": "e9434210bf6e1cd837d7b7bf6ce7b8b440ea92aaf05f67d4bc099db287d44a73",
+      "native_bytes": 1930432,
+      "native_sha256": "d93ceab22c97eda28c427c41b065d4c0e938b45e49f460d4d4f86f6caf8e76a7",
+      "native_features": [
+        "cancellation",
+        "canonical-model-v1",
+        "deadlines",
+        "gil-release",
+        "index-axiom-types-v1",
+        "owned-buffers",
+        "panic-containment",
+        "parse-functional-v1",
+        "safe-rust",
+        "wire-v1"
+      ],
+      "record_text_sha256": "416eab3b963c5374caa513f53b1a21d5d5a8d0c46e66e3f43ecfd23bd8274578",
+      "record_file_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_projector": {
+      "version": "0.1.0rc1",
+      "package_bytes": 3443,
+      "package_sha256": "443ca71d7ff0ddc087f270d9af8a86bd8521a2ac4822c944ab0b33f262cda086",
+      "native_bytes": 688308,
+      "native_sha256": "a24678191942747fd777410cb936e68c9fd2d644559fe5de737e6fd656a1eb7c",
+      "native_features": [
+        "abi3-py310",
+        "bounded-batches"
+      ],
+      "encoded_direct_kernel_version": 29,
+      "record_text_sha256": "b38d4fbaa1ece9ed45693123e8673ab8b3ac47a0714526d0e9ca93fbf2772656",
+      "record_file_sha256": "22fe8a1e7ceff7fea477688ca3b6295d4706dd35282e2fbc901128c32f2714b0"
+    },
+    "harness_sha256": "7374d81b36e7f97b020204a5328672f7d17aaff184ed5ec48ba5ee16cfdd58cb"
+  },
+  "build_environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "setuptools_rust": "1.13.0",
+    "semantic_version": "2.10.0",
+    "cargo_mode": "locked-offline",
+    "dependency_check_skipped": true
+  },
+  "fixture": {
+    "name": "kitchen-sink.ofn",
+    "format": "functional",
+    "bytes": 697,
+    "sha256": "09bce58de1faf59e7f01a98edc8f21adf113558a2ea9f43ec90792cccc8a464a",
+    "effective_axiom_count": 18
+  },
+  "configuration": {
+    "buffer_edges": 3,
+    "duplicates": "preserve",
+    "execution_surface": "private-native-candidate",
+    "include_literals": false,
+    "order": "encounter",
+    "projector_backend": "native",
+    "repetitions": 7,
+    "warmups": 2
+  },
+  "exact_contract": {
+    "edge_count": 11,
+    "edge_sha256": "e82ae3c53c44bfe7b6963ff34e6d6edc9cb7e5156fc7a03451d596db58ffd332",
+    "counters": {
+      "base_flattening_bytes": 0,
+      "encoded_buffer_bytes": 2378,
+      "encoded_buffer_count": 11,
+      "encoded_compiler_gil_released": true,
+      "encoded_detached_buffer_count": 11,
+      "encoded_indexed_buffer_count": 0,
+      "encoded_posting_bytes": 0,
+      "encoded_referenced_view_count": 0,
+      "encoded_segment_count": 1,
+      "encoded_staging_copy_bytes": 0,
+      "encoded_zero_copy_buffers": 11,
+      "materialized_scalar_rows": 0,
+      "native_batch_edges": 3,
+      "native_boundary_calls": 5,
+      "native_edge_batches": 4,
+      "native_output_vector_edges": 11,
+      "parser_calls": 0,
+      "per_row_ffi_calls": 0,
+      "resolver_calls": 0,
+      "scalar_axiom_materializations": 0,
+      "scalar_term_materializations": 0,
+      "structural_copy_bytes": 0,
+      "wire_decoder_calls": 0,
+      "wire_encoder_calls": 0
+    },
+    "counter_ledger_sha256": "1a92bc9a22f1cbc3e8613f2af194956731b096edf6fede874a604131241fd6d6",
+    "core_operation_delta": {
+      "decode_snapshot": 0,
+      "encode_snapshot": 0,
+      "load_snapshot": 0,
+      "open_snapshot": 0,
+      "parse_document": 0
+    },
+    "core_operation_ledger_sha256": "607c5560592786f04f5ef6bd9e47ce6a1b7da895c1bfad0fe20cefcc13c0ef1f",
+    "encoded_descriptor_sha256": "9ad29db6a7e616f65cea2957bc5ba8d1f9b99ef0eb1fe1432c09be25786267b5",
+    "ingestion_path": "encoded-native"
+  },
+  "lanes": {
+    "python_provider": {
+      "load_backend": "python",
+      "raw_evidence_sha256": "a8c419ec1f6bdd698f6428b9254e4ae187048fc711c646c9e3149d8fd797d00e",
+      "runtime_binding_sha256": "e0eaed7a02140381ca94e9ee247559c108d33e212a9dc47ea2bfec237d8511d3",
+      "evidence_binding_sha256": "14dff959e4190b756492e311748667a9c61ef63d28161dc351b65642dcd5e31b",
+      "acceptance_ready": false,
+      "private_candidate_boundary_ready": true,
+      "private_candidate_evidence_ready": true,
+      "installed_artifacts_bound": true,
+      "source_revisions_bound": true,
+      "medians": {
+        "cpu_seconds": 0.0033239999999999936,
+        "first_edge_seconds": 0.0008893170015653595,
+        "wall_seconds": 0.0033436970006732736
+      },
+      "process_peak_rss_bytes": 40169472,
+      "load_excluded": {
+        "cpu_seconds": 0.012533999999999934,
+        "incremental_peak_rss_bytes": 90112,
+        "wall_seconds": 0.012660463999054627
+      },
+      "samples": {
+        "wall_seconds": [
+          0.0034786500000336673,
+          0.003140540999083896,
+          0.002686298999833525,
+          0.002764079001281061,
+          0.0033436970006732736,
+          0.00383356900056242,
+          0.0037020449999545235
+        ],
+        "cpu_seconds": [
+          0.0033600000000000296,
+          0.0031410000000000604,
+          0.002685999999999966,
+          0.0027639999999999887,
+          0.0033239999999999936,
+          0.003825999999999996,
+          0.00369800000000009
+        ],
+        "first_edge_seconds": [
+          0.0008893170015653595,
+          0.0009592799997335533,
+          0.000767724000979797,
+          0.0007640029998583486,
+          0.0008422810005868087,
+          0.0013041420006629778,
+          0.0012223270005051745
+        ],
+        "incremental_peak_rss_bytes": [
+          12288,
+          4096,
+          4096,
+          8192,
+          4096,
+          40960,
+          4096
+        ]
+      },
+      "edge_count": 11,
+      "edge_sha256": "e82ae3c53c44bfe7b6963ff34e6d6edc9cb7e5156fc7a03451d596db58ffd332"
+    },
+    "native_provider": {
+      "load_backend": "native",
+      "raw_evidence_sha256": "30e9e41be0f0a2ff14d36b3cc381a7a19c9fc5c023962c1a766bc3bec56ca14c",
+      "runtime_binding_sha256": "db697385bbfaab618f3cfed0d3d8cc2fa97074e66cdfc669d94483253026d309",
+      "evidence_binding_sha256": "2d0044068898f78c718934abfd0a4e86a0d2a6459d80971e3c6da75b54385699",
+      "acceptance_ready": false,
+      "private_candidate_boundary_ready": true,
+      "private_candidate_evidence_ready": true,
+      "installed_artifacts_bound": true,
+      "source_revisions_bound": true,
+      "medians": {
+        "cpu_seconds": 0.0024540000000000672,
+        "first_edge_seconds": 0.0007454990009136964,
+        "wall_seconds": 0.0025601689994800836
+      },
+      "process_peak_rss_bytes": 44257280,
+      "load_excluded": {
+        "cpu_seconds": 0.11357799999999996,
+        "incremental_peak_rss_bytes": 4882432,
+        "wall_seconds": 0.2079780269996263
+      },
+      "samples": {
+        "wall_seconds": [
+          0.0025601689994800836,
+          0.003953318000640138,
+          0.003445021999141318,
+          0.0024008969994611107,
+          0.0023648659989703447,
+          0.0026382579999335576,
+          0.002319592000276316
+        ],
+        "cpu_seconds": [
+          0.0024540000000000672,
+          0.003478000000000092,
+          0.003217999999999943,
+          0.0023320000000000007,
+          0.0023119999999999807,
+          0.002583000000000002,
+          0.0022609999999999575
+        ],
+        "first_edge_seconds": [
+          0.0008239059989136877,
+          0.0011812860011559678,
+          0.0012130920003983192,
+          0.0006368779995682416,
+          0.0006520249989989679,
+          0.0007454990009136964,
+          0.0006120260004536249
+        ],
+        "incremental_peak_rss_bytes": [
+          0,
+          24576,
+          4096,
+          8192,
+          8192,
+          12288,
+          0
+        ]
+      },
+      "edge_count": 11,
+      "edge_sha256": "e82ae3c53c44bfe7b6963ff34e6d6edc9cb7e5156fc7a03451d596db58ffd332"
+    }
+  },
+  "pre_fix_observation": {
+    "status": "diagnostic-only",
+    "interpretation": "The v28 timing is not compared with v29 and is not performance evidence.",
+    "source_revisions": {
+      "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+      "projector": "4f7f18f7b41ff2578cbc81fac1c4de5e28629660"
+    },
+    "raw_evidence_sha256": "0db03ac2bb03ae7b962a3967c7736d147ecbe6cacc7718d24402f7c860c1497d",
+    "projector_native_sha256": "cded178f21785128f626a041640a15b4cd0bd0653c1d3b7e5131f1ab852d676d",
+    "encoded_direct_kernel_version": 28,
+    "runtime_binding_sha256": "367025549453654f4bf4f4273e90e4ce5882b9a1bcd34489c19b3faee0d8b29f",
+    "selected_ingestion_path": "scalar-native",
+    "fallback_reason": "private native direct compiler unavailable: encoded buffer root_kinds does not cover its complete bytes exporter; selected whole-operation scalar compiler",
+    "edge_count": 11,
+    "edge_sha256": "e82ae3c53c44bfe7b6963ff34e6d6edc9cb7e5156fc7a03451d596db58ffd332",
+    "private_candidate_boundary_ready": false,
+    "private_candidate_evidence_ready": false,
+    "acceptance_ready": false
+  },
+  "verification": {
+    "rust_unit_tests": 30,
+    "focused_python_tests": 285,
+    "complete_projector_tests": 1095,
+    "cargo_fmt": true,
+    "cargo_clippy_warnings_denied": true,
+    "ruff": true,
+    "mypy_source": true
+  },
+  "known_blockers": [
+    "rust-output-vector-is-fully-materialized-before-caller-bounded-drain",
+    "direct-bytes-owner-only; mmap-overlay-composite-owners-are-not-supported",
+    "public-iterator-sink-digest-artifact-dispatch-does-not-select-the-candidate",
+    "public-scala-instance-lifecycle-remains-on-the-scalar-compiler"
+  ],
+  "limitations": [
+    "The fixture is 697 bytes; this is not corpus, scale, or threshold evidence.",
+    "The local host is not an approved release-evidence environment.",
+    "The projector wheel used wheel 0.47.0 with --no-isolation and --skip-dependency-check while pyproject.toml pins wheel 0.46.3.",
+    "Rust materializes the full output vector before caller-bounded drains.",
+    "Mmap, overlay, composite, arbitrary sliced, and segmented inputs remain unsupported.",
+    "Public iterator, sink, digest, and artifact dispatch do not select this candidate.",
+    "The public Scala-instance lifecycle remains on the scalar compiler.",
+    "Sanitizer, fuzz, platform-matrix, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ]
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -173,3 +174,54 @@ def test_private_evidence_configuration_fails_before_loading(
     arguments.update(changes)
     with pytest.raises(ValueError, match=message):
         benchmark_encoded_compiler.run(Path("does-not-exist.ofn"), **arguments)  # type: ignore[arg-type]
+
+
+def test_installed_private_checkpoint_is_hash_bound_and_explicitly_nonpublic() -> None:
+    path = (
+        Path(__file__).parents[1]
+        / "reports"
+        / "p7"
+        / "evidence"
+        / "installed-private-checkpoint.json"
+    )
+    checkpoint = json.loads(path.read_text(encoding="utf-8"))
+
+    assert checkpoint["schema"] == "pyowl-projector.p7-installed-private-checkpoint/1"
+    assert checkpoint["status"] == "checkpoint-only"
+    assert checkpoint["acceptance_complete"] is False
+    assert checkpoint["public_acceptance_ready"] is False
+    assert checkpoint["private_candidate_is_public"] is False
+    assert all(len(revision) == 40 for revision in checkpoint["source_revisions"].values())
+
+    projector = checkpoint["artifacts"]["installed_projector"]
+    assert projector["encoded_direct_kernel_version"] == 29
+    assert projector["native_features"] == ["abi3-py310", "bounded-batches"]
+    assert len(projector["native_sha256"]) == 64
+    assert checkpoint["build_environment"]["dependency_check_skipped"] is True
+    assert checkpoint["build_environment"]["wheel_used"] != checkpoint["build_environment"][
+        "wheel_pinned"
+    ]
+
+    contract = checkpoint["exact_contract"]
+    assert contract["edge_count"] == contract["counters"]["native_output_vector_edges"] == 11
+    assert contract["counters"]["encoded_zero_copy_buffers"] == 11
+    assert contract["counters"]["encoded_staging_copy_bytes"] == 0
+    assert contract["counters"]["native_batch_edges"] == 3
+    assert contract["counters"]["native_boundary_calls"] == 5
+    assert not any(contract["core_operation_delta"].values())
+
+    assert set(checkpoint["lanes"]) == {"python_provider", "native_provider"}
+    for lane in checkpoint["lanes"].values():
+        assert lane["acceptance_ready"] is False
+        assert lane["private_candidate_boundary_ready"] is True
+        assert lane["private_candidate_evidence_ready"] is True
+        assert lane["installed_artifacts_bound"] is True
+        assert lane["source_revisions_bound"] is True
+        assert lane["edge_count"] == contract["edge_count"]
+        assert lane["edge_sha256"] == contract["edge_sha256"]
+        assert len(lane["raw_evidence_sha256"]) == 64
+
+    assert checkpoint["pre_fix_observation"]["encoded_direct_kernel_version"] == 28
+    assert checkpoint["pre_fix_observation"]["private_candidate_evidence_ready"] is False
+    assert checkpoint["known_blockers"]
+    assert checkpoint["limitations"]

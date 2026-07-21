@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `947dcb0`. pyOWLCore candidate revision:
+Date: 2026-07-21. Projector implementation through `cedfc91`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -34,7 +34,7 @@ native edges is admitted as scalar ignored shapes with a grouped `AnnotationAsse
 Selected anonymous annotation values and anonymous assertion operands use the kernel's exact
 axiom-derived blank-ID order, including anonymous axiom metadata. Native ignored-subclass and
 ignored-class-assertion partitions are admitted with exact constructor-grouped diagnostics and
-counts. Kernel v28 exposes aggregate-aware equivalence base-edge and ignored-shape counts, so
+counts. Kernel v29 exposes aggregate-aware equivalence base-edge and ignored-shape counts, so
 aggregate role expansions and operand-level ignores are admitted without inferring either from the
 total output. It also partitions projecting and ignored object domain/range roots; the adapter
 bounds the native product count by the projectable cross-product while preserving exact
@@ -70,7 +70,8 @@ This checkpoint adds a real but deliberately private Rust foundation. It proves 
 semantic slice across the actual PyO3 boundary without changing the production claim:
 
 - one canonical direct structural-columns v1 segment;
-- exact full immutable-`bytes` exporters for all eleven columns;
+- exact full immutable-`bytes` exporters for all eleven columns, or the canonical ordered
+  eleven-column packed layout over one exact immutable-`bytes` arena;
 - IRI and Entity nodes plus silent Declaration roots with supported annotation metadata;
 - named-to-named `SubClassOf`, named and supported aggregate `EquivalentClasses`, and named
   `ClassAssertion` roots;
@@ -248,7 +249,7 @@ Same-operation isolated role expansion and ordered retained role-state reuse acr
 direct views are proven. The retained handle is still a private seam: `Projector` does not bind it
 to public `compatibility_state="scala-instance"`. The hidden isolated iterator now uses ordinary
 call-history and ingestion provenance, but no public lifecycle or dispatch claim follows from it.
-This is kernel version 28 of a private foundation, not the complete compiler described by WP-P7.
+This is kernel version 29 of a private foundation, not the complete compiler described by WP-P7.
 
 ## What the private kernel actually does
 
@@ -340,28 +341,56 @@ production memory acceptance criterion.
 ## No-copy boundary and exact blocker
 
 PyO3 0.28.3 gates its safe generic `PyBuffer` API out at the project's `abi3-py310` floor. The
-private kernel therefore accepts only exact memoryviews that cover an entire immutable `bytes`
-exporter. This path is safe to lend while detached because the compiler retains both the Python
-owner graph and immutable exporter references; it makes no ontology-sized input copy.
+private kernel therefore accepts exact memoryviews that cover an entire immutable `bytes` exporter
+and one additional exact pattern emitted by the native provider: all eleven schema-order columns
+must share one exact immutable `bytes` arena, their lengths must sum to the complete arena, and each
+view's content must equal its canonical contiguous schema-order range. Rust retains the immutable
+arena and records the verified ranges; detached compilation borrows those ranges without an
+ontology-sized input copy.
 
-Sliced exporters, readonly bytearrays, mmap-backed views, and other otherwise valid public buffer
+Arbitrary sliced exporters, readonly bytearrays, mmap-backed views, gaps, overlaps whose content
+differs from the canonical range, reordered columns, and other otherwise valid public buffer
 providers are reported as unsupported. The kernel does not copy them and does not count them as
 detached. A future general mmap path needs a reviewed safe lifetime mechanism compatible with the
-3.10 stable ABI (or a coordinated ABI-floor/design change). Until then, direct bytes are the only
-no-copy Rust input proven here.
+3.10 stable ABI (or a coordinated ABI-floor/design change). Until then, exact full bytes and the
+canonical packed direct-bytes arena are the only no-copy Rust inputs proven here.
+
+## Installed-wheel private checkpoint
+
+An isolated CPython 3.12 environment installed exact wheels built from projector revision
+`cedfc9134d34c713eab9290dfc263c443c778805` and pyOWLCore revision
+`6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf`. The projector wheel SHA-256 is
+`f73fde9d6bd6999de4a048d55749b3cd97948bdf3b718508516b86bb5ccefb38`; its installed
+kernel-v29 extension SHA-256 is
+`a24678191942747fd777410cb936e68c9fd2d644559fe5de737e6fd656a1eb7c`. The core wheel
+SHA-256 is `a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd`.
+
+Both Python-provider and native-provider loads passed the private installed-evidence gate over the
+697-byte, 18-axiom kitchen-sink fixture. Each of seven measured repetitions produced 11 edges with
+SHA-256 `e82ae3c53c44bfe7b6963ff34e6d6edc9cb7e5156fc7a03451d596db58ffd332`,
+11 detached zero-copy buffers, 2,378 encoded bytes, four caller-bounded edge batches, five native
+boundary calls including compilation, zero staging/copy/materialization/codec/parser/resolver
+work, and a released GIL. Both lanes set `private_candidate_boundary_ready` and
+`private_candidate_evidence_ready`; both necessarily leave public `acceptance_ready=false`.
+
+This is checkpoint-only evidence, not an acceptance or performance result. The fixture is tiny,
+the host is not approved release infrastructure, and the projector build used wheel 0.47.0 with
+`--no-isolation --skip-dependency-check` while `pyproject.toml` pins wheel 0.46.3. The complete
+artifact, counter, timing-vector, pre-fix fallback, and limitation record is committed as
+[`installed-private-checkpoint.json`](evidence/installed-private-checkpoint.json).
 
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`947dcb0`:
+`cedfc91`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 30 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 215 passed |
-| Focused native/dispatch/streaming/API/integration/contract tests | 328 passed |
-| Complete projector test suite | 1,093 passed |
+| Private PyO3 foundation tests | 217 passed |
+| Focused foundation/private-integration/benchmark/dispatch tests | 286 passed |
+| Complete projector test suite | 1,096 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -398,7 +427,8 @@ annotated `HasKey` validation with named/inverse object and named data propertie
 `SameIndividual`/`DifferentIndividuals` validation over named and anonymous members; exact
 state-neutral counters in normal, `only_taxonomy`, and asserted-taxonomy modes; a 250-root
 same/different one-boundary zero-output call; hostile key-property, individual-member,
-annotation-set, and anonymous-scalar corruption; sliced and non-bytes exporters; descriptor mismatch;
+annotation-set, and anonymous-scalar corruption; canonical packed-arena admission plus gap,
+overlap, reordered, arbitrary-slice, and mutable-exporter rejection; descriptor mismatch;
 two order-distinct property chains over the same named/inverse members; chain state neutrality in
 normal, `only_taxonomy`, and asserted-taxonomy modes; exact inclusion of ignored chains in the
 OWLAPI role-table capacity boundary; a 250-annotated-chain one-boundary zero-output call; hostile
@@ -513,7 +543,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; one hidden isolated named-edge adapter records call history/provenance for direct taxonomy and supported restrictions, pair/aggregate/nonprojecting equivalences, nonprojecting subclasses and class assertions, named/anonymous positive object-property assertions, selected or exactly partitioned annotation roots with IRI/literal/anonymous values, same-call named/inverse role maps, arbitrary named-property domain/range products plus unpaired and ignored partitions, ignored property chains, silent ontology annotations and SWRL rules, and every exactly counted supported scalar-skip family, including exact axiom-derived blank IDs, exact equivalence base edges, ignored-shape partitions and grouped diagnostics, non-string-rendering warnings, and grouped skipped-axiom diagnostics, while public Scala-instance lifecycle binding and remaining option/surface integration are unsupported |
 | Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; one hidden named-edge iterator now consumes those batches through P4 policy, but Rust still materializes the full output vector and public iterator/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
-| Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
+| Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
 | Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, and hidden iterator close/cancel/fallback/resource tests pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
 | Zero forbidden-work ledger | Reported by the successful hidden exact named-edge candidate; no public production-path claim |
 | Corpus performance/RSS gates | Private load-excluded harness now binds execution surface, exact ledgers, runtime artifacts, and revisions; installed NCIT/DOID/GO/large-corpus measurements and thresholds remain open |

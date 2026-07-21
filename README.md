@@ -195,9 +195,12 @@ cannot pass that installed-evidence gate.
 
 Private-candidate mode is deliberately incompatible with `--require-encoded-native` and can never
 set public `acceptance_ready`. Its evidence records the current production blockers: Rust still
-materializes the complete output vector before bounded drains, only exact direct `bytes` owners
-are supported, public iterator/sink/digest/artifact dispatch is unchanged, and the public
-Scala-instance lifecycle remains scalar.
+materializes the complete output vector before bounded drains, only exact full `bytes` exporters
+or the canonical eleven-column packed direct-`bytes` arena are supported, public
+iterator/sink/digest/artifact dispatch is unchanged, and the public Scala-instance lifecycle
+remains scalar. The exact installed-wheel checkpoint is recorded in
+[`reports/p7/evidence/installed-private-checkpoint.json`](reports/p7/evidence/installed-private-checkpoint.json);
+it is explicitly private, incomplete, and not release-performance evidence.
 
 ## Optional native build
 
@@ -215,7 +218,8 @@ PYOWL2VEC_BUILD_NATIVE=1 python -m build --wheel
 The advertised Rust boundary owns only strings for edge batches. Closing a projection iterator
 cancels and clears its processor; native panics are contained and resource failures become stable
 projector exceptions. An unadvertised P7 foundation additionally retains exact public
-structural-column views and immutable `bytes` exporters for a direct, unannotated named-class and
+structural-column views backed by full immutable `bytes` exporters or the native provider's
+canonical eleven-column packed immutable-`bytes` arena for a direct, unannotated named-class and
 named-role kernel (`SubClassOf`, `EquivalentClasses`, `ClassAssertion`, simple restrictions, and
 named-individual object-property assertions plus domain/range products); negative named/inverse
 object-property assertions are validated and skipped, while positive inverse assertions preserve
