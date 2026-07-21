@@ -1,0 +1,172 @@
+{
+  "schema": "pyowl-projector.p7-installed-bounded-cursor-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "86b055d8715e288e93ac77edf0519412d1324037"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-86b055d.tar",
+      "bytes": 3573760,
+      "sha256": "9dde3549f8dab60f9305bebf56fa51ca050a45db1206a3715aace00002c07e2d"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 447427,
+      "sha256": "ee92d11b40812773e6ef1b602afa7067211ca2d1200527269ee5bb885d7ce9e2",
+      "wheel_record_sha256": "95457c13366e95fef439816047cc31a3e9108a25c5e59b7b1325648457e682a5",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "610b2664f0b941214439bd59cda1e948b3e2a1011744fae8d069ffd053ed7a35"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_projector_api": {
+      "filename": "pyowl2vec_star_projector/api.py",
+      "bytes": 45211,
+      "sha256": "86790c5a91283b6c70ef2bde25fe70d15a2173acd1f6c08bef7829e1a8aa2f40",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 57571,
+      "sha256": "0101e8676c626843613b9b12ec87446e499e84b17525dc5b323daac2eeced249",
+      "matches_projector_revision": true
+    },
+    "installed_provenance_contract": {
+      "filename": "pyowl2vec_star_projector/provenance.py",
+      "bytes": 10298,
+      "sha256": "cca455407eb599b765a5b1df712aa6306bedf63c90c512f86478e5529af55e45",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 737620,
+      "sha256": "4a276bbdf62f627f97d1e0f771d70989a316af7c173004e072e082c23ea6591e",
+      "encoded_direct_kernel_version": 32,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_sources": {
+      "foundation": {
+        "filename": "tests/test_native_encoded_foundation.py",
+        "bytes": 190179,
+        "sha256": "04d31261cbca2f745ef90d2f9162e4b97842e7a108a39216619e0a0828beb8d5"
+      },
+      "integration": {
+        "filename": "tests/test_private_native_encoded_integration.py",
+        "bytes": 72205,
+        "sha256": "5d28f827df8fc0b2fffb203f2cc63bf8b2d80ad17f6cb4739159852e83aa7878"
+      }
+    },
+    "benchmark_harness": {
+      "filename": "benchmarks/benchmark_encoded_compiler.py",
+      "sha256": "80ce26ecc8b280e178f476c8f496f34783012255f9cc44f239b4103657698f4e"
+    },
+    "rust_source": {
+      "encoded_direct_rs_sha256": "da5bd3a3e2ff067de1d28169e01f9bb88490327acacf509c2b59459bb36efba8",
+      "lib_rs_sha256": "dd1230bf60c56c1fe9973b91f39338ecff80a531b689a7eae8f250e979253c20",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 32,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "bounded_cursor_result": "11 passed",
+    "audit_and_benchmark_result": "11 passed",
+    "complete_suite_result": "1118 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "bounded_cursor": {
+        "compiled_edges": 11,
+        "configured_batch_edges": 2,
+        "edge_batches": 6,
+        "boundary_calls": 7,
+        "output_vector_edges": 0,
+        "peak_buffered_edges": 2,
+        "ordered_edge_sha256": "40656e92dc2ec9eb32739cb98f758323acccffe251efefd704307dbe7e3d8108",
+        "cursor_commit_after_python_publication": true,
+        "close_discards_unpublished_output": true
+      },
+      "private_benchmark": {
+        "input": "taxonomy-restrictions.ofn",
+        "input_sha256": "c8be744775b439157def92834f8f6ced52f7db7836b84605236763cd6c22c14a",
+        "execution_surface": "private-native-candidate",
+        "counter_ledger_sha256": "100444735f9f5506825617d1dbcaca8dbfb4b5eda6e5e2124c802c516607b9f8",
+        "core_operation_ledger_sha256": "607c5560592786f04f5ef6bd9e47ce6a1b7da895c1bfad0fe20cefcc13c0ef1f",
+        "evidence_binding_sha256": "ce88b56895465fba6363de984c84d3b4db5df35ffcaee045d190bb3d85088498",
+        "private_candidate_boundary_ready": true,
+        "private_candidate_evidence_ready": true,
+        "public_acceptance_ready": false,
+        "missing_or_invalid_counters": []
+      }
+    }
+  },
+  "source_verification": {
+    "private_native_foundation_cases": 219,
+    "private_native_integration_cases": 54,
+    "foundation_plus_private_integration_cases": 273,
+    "broad_encoded_compiler_cases": 670,
+    "complete_suite_cases": 1118,
+    "audit_and_benchmark_cases": 11,
+    "rust_unit_cases": 37,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "The hidden native batch path no longer retains a complete Rust output vector: a resumable cursor emits at most the configured caller batch, and cursor movement commits only after Python list construction succeeds.",
+  "known_blockers": [
+    "The cursor performs a complete bounded-memory dry emission before publication to preserve all-or-nothing validation, so time to first edge and repeated traversal still require release-corpus measurement and optimization.",
+    "The legacy private coarse compile call still materializes one list; only the hidden iterator is cursor-backed.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public iterator, sink, digest, artifact, dispatch, and Scala-instance lifecycle integration remain open; this cursor is reachable only through the hidden candidate.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness and bounded-output checkpoint; it carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The cursor retains validated input exporters, role maps, anonymous-node indexes, and selected root-annotation IDs; the bounded claim applies to native projected-output edges.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

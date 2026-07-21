@@ -227,7 +227,11 @@ borrowed/zero-copy encoded buffers and bytes, detached/indexed buffers, segment/
 and posting counts, bounded staging and total structural-copy bytes, parser/resolver/wire calls,
 scalar axiom/term materializations, base flattening, per-row FFI, and whether compilation released
 the GIL. Hidden native lifecycle checkpoints additionally report the retained subrole- and
-inverse-property map sizes without exposing IRIs. Zero operation counters assert that the projector
+inverse-property map sizes without exposing IRIs. Hidden bounded-cursor checkpoints additionally
+report the native compiled-edge count, zero or nonzero complete output-vector edge count, configured
+batch bound, native batch/boundary-call counts, and peak native buffered-output edges. The peak is
+bounded by the configured batch and is zero before the first drain; it does not count retained
+encoded input, role maps, or validation indexes. Zero operation counters assert that the projector
 handoff itself did not perform that work; they do not describe acquisition completed before an
 existing view was supplied. The publication duration includes public encoded-view acquisition and
 the Projector adapter's in-place validation. These fields are monotonic, non-negative, path-free

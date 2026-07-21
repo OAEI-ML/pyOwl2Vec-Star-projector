@@ -7,6 +7,11 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- The hidden native iterator now emits through a resumable Rust cursor instead of retaining a
+  complete projected-edge vector. Each FFI drain buffers at most the configured caller batch,
+  cursor movement commits only after Python list construction, and additive provenance counters
+  distinguish compiled edges, zero vector-backed edges, and the peak buffered batch. Exact
+  installed-wheel bounded-output evidence is recorded without advertising the compiler.
 - The hidden native iterator now binds explicit `scala-instance` calls to persistent Rust
   subrole/inverse maps across ordered and conflicting views, reports retained-map counts, and
   switches permanently to the scalar lifecycle after any whole-operation scalar selection. Exact

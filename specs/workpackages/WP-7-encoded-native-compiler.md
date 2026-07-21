@@ -25,7 +25,7 @@ reference failure. Equivalent classes use the first two expressions in UTF-8 IRI
 positive object assertions, negative-assertion/property-family skips, and expanded domain/range,
 while the optional asserted-taxonomy mode emits only the direct subclass family after preflighting
 the whole supported slice. It retains the owner/exporters, preflights before allocating output,
-releases the GIL, supports concurrent cancellation, and returns one caller-bounded coarse batch.
+releases the GIL, supports concurrent cancellation, and retains a legacy one-list coarse call.
 The later bounded checkpoints add the recursive class/data validation, skipped/silent families,
 role-state behavior, selected annotation rules, and diagnostics enumerated in the implementation
 report. Kernel v30 additionally retains an independent exact-direct root table and joins canonical
@@ -53,8 +53,12 @@ The hidden Projector iterator now also binds explicit `scala-instance` calls to 
 role-state handle. Ordered consumers and conflicting overwrites match the scalar lifecycle, while
 an exact scalar-compatible shadow permits a one-way transition after any whole-operation native
 decline or other scalar selection. Retained subrole/inverse property counts are public-path-safe
-diagnostics, but public dispatch remains unchanged and the encoded capability remains absent from
-the extension feature ledger.
+diagnostics. Kernel v32 replaces the hidden iterator's complete native output vector with a
+resumable cursor. Preparation validates the exact projected count with one-edge bounded dry
+emission, each drain buffers no more than the configured batch, and cursor movement commits only
+after Python list construction. The private counter ledger now separates compiled edges from zero
+vector-backed output edges and the peak buffered batch. Public dispatch remains unchanged and the
+encoded capability remains absent from the extension feature ledger.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

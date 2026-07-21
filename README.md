@@ -195,23 +195,26 @@ loaded from installed distribution payloads. Source-tree runs can prove the priv
 cannot pass that installed-evidence gate.
 
 Private-candidate mode is deliberately incompatible with `--require-encoded-native` and can never
-set public `acceptance_ready`. Its evidence records the current production blockers: Rust still
-materializes the complete output vector before bounded drains, only exact full `bytes` exporters
-or the canonical eleven-column packed direct-`bytes` arena are supported, public
-iterator/sink/digest/artifact dispatch is unchanged, and the public Scala-instance lifecycle
+set public `acceptance_ready`. Its evidence records the current production blockers: only exact
+full `bytes` exporters or the canonical eleven-column packed direct-`bytes` arena are supported,
+public iterator/sink/digest/artifact dispatch is unchanged, and the public Scala-instance lifecycle
 remains scalar. The hidden iterator does retain Scala-instance role maps natively across ordered
 calls, while maintaining a scalar-compatible shadow and selecting the scalar lifecycle permanently
-after any native decline or other whole-operation scalar selection. The exact installed-wheel
-candidate checkpoint is recorded in
-[`reports/p7/evidence/installed-private-checkpoint.json`](reports/p7/evidence/installed-private-checkpoint.json);
+after any native decline or other whole-operation scalar selection. Its native output is now a
+resumable cursor: each drain owns at most the configured batch, reports zero vector-backed output
+edges, and commits only after the Python list exists. Preparation still performs a complete
+bounded-memory dry emission before publishing the cursor. The exact installed-wheel candidate
+checkpoint is recorded in
+[`reports/p7/evidence/installed-bounded-cursor-checkpoint.json`](reports/p7/evidence/installed-bounded-cursor-checkpoint.json);
 it is explicitly private, incomplete, and not release-performance evidence.
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
 Three native calls cover initial role acquisition, later restriction/domain/range consumption, and
 conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
-to scalar compilation without re-entering stale native state. Kernel v31 and the public feature
-ledger remain unchanged.
+to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
+kernel v31; the cursor checkpoint advances the private kernel to v32 while the public feature
+ledger remains exactly `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
 annotations. Kernel v30 retains an unequal exact-direct root table alongside the closure and joins
