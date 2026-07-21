@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 34
+ENCODED_DIRECT_KERNEL_VERSION = 35
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -406,6 +406,14 @@ class NativeEncodedDirectCompiler:
         )
 
     @property
+    def coarse_intermediate_list_edges(self) -> int:
+        return _native_nonnegative_int(
+            self._kernel,
+            "coarse_intermediate_list_edges",
+            "coarse intermediate-list edge count",
+        )
+
+    @property
     def peak_buffered_coarse_edges(self) -> int:
         return _native_nonnegative_int(
             self._kernel,
@@ -440,12 +448,20 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
+        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values())
+        expected_root_bytes = (
+            0
+            if self.root_annotation_lease is None
+            else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+        )
         raw_edges, raw_stats = _call_encoded_direct(
             self._module,
             lambda: self._kernel.compile_batch(
                 bidirectional,
                 max_edges,
                 max_iri_bytes,
+                Edge,
+                NativeEncodedDirectStatistics,
                 asserted_taxonomy_only,
                 only_taxonomy,
                 include_literals,
@@ -453,28 +469,17 @@ class NativeEncodedDirectCompiler:
             ),
         )
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 60:
+        if (
+            type(raw_edges) is not list
+            or type(raw_stats) is not NativeEncodedDirectStatistics
+            or not all(type(value) is Edge for value in raw_edges)
+        ):
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
-        try:
-            statistics = NativeEncodedDirectStatistics(*raw_stats)
-            edges = [Edge(*value) for value in raw_edges]
-        except (MemoryError, OverflowError) as error:
-            raise _resource_error(error) from error
-        except ProjectionError:
-            raise
-        except Exception as error:
-            raise ProjectionError(
-                "native encoded compiler returned an invalid edge batch"
-            ) from error
-        expected_root_bytes = (
-            0
-            if self.root_annotation_lease is None
-            else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
-        )
+        edges = cast(list[Edge], raw_edges)
+        statistics = raw_stats
         if (
             statistics.edges != len(edges)
-            or statistics.buffer_bytes
-            != sum(buffer.nbytes for buffer in self.lease.buffers.values())
+            or statistics.buffer_bytes != expected_buffer_bytes
             or statistics.root_provenance_buffer_bytes != expected_root_bytes
         ):
             raise ProjectionError(

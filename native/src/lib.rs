@@ -33,7 +33,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 34;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 35;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -50,7 +50,7 @@ create_exception!(_native, EncodedDirectBufferError, PyValueError);
 create_exception!(_native, EncodedDirectCancelledError, PyRuntimeError);
 create_exception!(_native, EncodedDirectReferenceError, PyValueError);
 
-type EncodedDirectBatch = (Py<PyList>, Py<PyTuple>);
+type EncodedDirectBatch = (Py<PyList>, Py<PyAny>);
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct Edge {
@@ -787,6 +787,8 @@ impl EncodedDirectCompiler {
         bidirectional,
         max_edges,
         max_iri_bytes,
+        edge_factory,
+        statistics_factory,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
@@ -799,6 +801,8 @@ impl EncodedDirectCompiler {
         bidirectional: bool,
         max_edges: usize,
         max_iri_bytes: usize,
+        edge_factory: &Bound<'_, PyAny>,
+        statistics_factory: &Bound<'_, PyAny>,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
@@ -867,7 +871,9 @@ impl EncodedDirectCompiler {
                     .map_err(kernel_error)?;
                 let amount = edges.len();
                 for edge in edges {
-                    output.append((edge.source, edge.relation, edge.destination))?;
+                    let value =
+                        edge_factory.call1((edge.source, edge.relation, edge.destination))?;
+                    output.append(value)?;
                 }
                 // The Python list is still local. Commit cursor movement only
                 // after the complete native chunk was appended successfully.
@@ -877,7 +883,9 @@ impl EncodedDirectCompiler {
                 })?;
                 peak_buffered_edges = peak_buffered_edges.max(amount);
             }
-            let statistics = direct_statistics_tuple(py, statistics)?;
+            let statistics = statistics_factory
+                .call1(direct_statistics_tuple(py, statistics)?)?
+                .unbind();
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)
@@ -1160,6 +1168,11 @@ impl EncodedDirectCompiler {
 
     #[getter]
     fn coarse_output_vector_edges(&self) -> usize {
+        0
+    }
+
+    #[getter]
+    fn coarse_intermediate_list_edges(&self) -> usize {
         0
     }
 

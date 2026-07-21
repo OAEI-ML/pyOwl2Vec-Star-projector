@@ -44,6 +44,7 @@ from pyowl2vec_star_projector.native import (
     NativeEncodedDirectCancelled,
     NativeEncodedDirectCompiler,
     NativeEncodedDirectRoleState,
+    NativeEncodedDirectStatistics,
     NativeEncodedDirectUnsupported,
     load_native_module,
     prepare_native_encoded_direct,
@@ -5097,6 +5098,7 @@ def test_private_native_coarse_list_uses_bounded_internal_chunks() -> None:
     compiler = prepare_native_encoded_direct(_lease(view))
     assert compiler.coarse_output_chunks == 0
     assert compiler.coarse_output_vector_edges == 0
+    assert compiler.coarse_intermediate_list_edges == 0
     assert compiler.peak_buffered_coarse_edges == 0
 
     actual, statistics = compiler.compile_batch(
@@ -5110,8 +5112,73 @@ def test_private_native_coarse_list_uses_bounded_internal_chunks() -> None:
     assert compiler.coarse_chunk_edges == 256
     assert compiler.coarse_output_chunks == 3
     assert compiler.coarse_output_vector_edges == 0
+    assert compiler.coarse_intermediate_list_edges == 0
     assert compiler.peak_buffered_coarse_edges == 256
     assert compiler.peak_buffered_coarse_edges < statistics.edges
+
+
+def test_private_native_coarse_result_factories_are_in_role_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    edge_calls = 0
+
+    def failing_edge(source: str, relation: str, destination: str) -> Edge:
+        nonlocal edge_calls
+        edge_calls += 1
+        if edge_calls == 2:
+            raise MemoryError("injected final edge construction failure")
+        return Edge(source, relation, destination)
+
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    with monkeypatch.context() as patch:
+        patch.setattr("pyowl2vec_star_projector.native.Edge", failing_edge)
+        with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+            compiler.compile_batch(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                role_state=role_state,
+            )
+    assert edge_calls == 2
+    assert compiler.state == "failed"
+    assert compiler.coarse_output_chunks == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+    statistics_calls = 0
+
+    def failing_statistics(*values: int) -> NativeEncodedDirectStatistics:
+        nonlocal statistics_calls
+        statistics_calls += 1
+        assert len(values) == 60
+        raise MemoryError("injected final statistics construction failure")
+
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "pyowl2vec_star_projector.native.NativeEncodedDirectStatistics",
+            failing_statistics,
+        )
+        with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+            compiler.compile_batch(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                role_state=role_state,
+            )
+    assert statistics_calls == 1
+    assert compiler.state == "failed"
+    assert compiler.coarse_output_chunks == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
 
 
 def test_private_native_batch_close_and_sink_failure_clear_unpublished_output() -> None:
@@ -5177,6 +5244,7 @@ def test_failed_private_batch_compile_does_not_commit_retained_role_state() -> N
     assert coarse_compiler.state == "failed"
     assert coarse_compiler.coarse_output_chunks == 0
     assert coarse_compiler.coarse_output_vector_edges == 0
+    assert coarse_compiler.coarse_intermediate_list_edges == 0
     assert coarse_compiler.peak_buffered_coarse_edges == 0
     assert coarse_role_state.in_use is False
     assert coarse_role_state.subrole_property_count == 0
