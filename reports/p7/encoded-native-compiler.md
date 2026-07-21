@@ -516,6 +516,23 @@ five focused cases and the complete 1,115-test suite on CPython 3.12 with bound 
 are recorded in
 [`installed-canonical-cursor-checkpoint.json`](evidence/installed-canonical-cursor-checkpoint.json).
 
+### Stack-safe segment resolution
+
+Revision `b5bf5f37bfe562e37c80d5a4469eb302e9e78960` removes the Python call-stack
+dependency from overlay and composite segment resolution. Explicit frames suspend each parent
+while a referenced view resolves, then apply that boundary's anonymous-scope map and source-local
+postings on return. Per-view validation/cache reuse, per-occurrence counters, member-token order,
+lease retention, and active-path cycle detection retain their existing semantics.
+
+An installed exact-archive case resolves 1,100 nested overlay-base manifests to one source-local
+root, retains all 1,100 referenced leases, and reports the exact segment/source-root counters.
+Nested overlay and composite-source cases preserve their edge and lifetime behavior; forged
+overlay and composite cycles still fail before output. The five focused cases, all 669 broad
+encoded-compiler cases, and the complete 1,116-test suite passed on CPython 3.12 with bound
+pyOWLCore `6750aa0`. Native source and the unadvertised v31 feature ledger were unchanged. The
+hash-bound correctness record is
+[`installed-segment-resolution-checkpoint.json`](evidence/installed-segment-resolution-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -541,7 +558,7 @@ release or performance claim. Exact artifact hashes are recorded in
 ## Verification at this checkpoint
 
 The following source-tree and exact-installed checks passed for the implementation sequence
-`39a5656` through `5b7799a`:
+`39a5656` through `b5bf5f3`:
 
 | Gate | Result |
 |---|---|
@@ -549,14 +566,15 @@ The following source-tree and exact-installed checks passed for the implementati
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 219 passed |
 | Foundation plus private-integration tests | 272 passed |
-| Broad encoded-compiler tests | 668 passed |
-| Complete projector test suite | 1,115 passed |
+| Broad encoded-compiler tests | 669 passed |
+| Complete projector test suite | 1,116 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
 | Exact installed broad-decoder annotation-cycle cases | 2 passed |
 | Exact installed broad-decoder recursive-graph cases | 4 passed |
 | Exact installed canonical-cursor cases | 5 passed |
+| Exact installed segment-resolution cases | 5 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;

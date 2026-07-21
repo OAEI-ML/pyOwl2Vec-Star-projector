@@ -28,6 +28,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Fixed
 
+- Overlay and composite segment graphs now resolve through explicit frames, so valid deeply nested
+  manifests no longer fail at Python's recursion limit while direct and transitive cycles retain
+  their fail-before-output errors.
 - Canonical structural identity comparison now computes memoized node lengths and streams bytes
   with explicit frames, preserving public-core canonical bytes for deep graphs without Python
   recursion or whole-node canonical materialization.

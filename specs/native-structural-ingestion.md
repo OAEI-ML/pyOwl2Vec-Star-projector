@@ -182,7 +182,7 @@ revalidated canonical direct closure with `ALL` or sorted `EXCLUDE` root posting
 have empty top-local columns or be followed by exactly one fully revalidated top-local delta
 segment. A direct source stays on the original fast lane, with its existing counters and
 order-changing-scope fallback. A canonical segmented overlay or composite source instead enters
-the recursive resolver, so a top `EXCLUDE` removes only roots local to that immediate source while
+the iterative resolver, so a top `EXCLUDE` removes only roots local to that immediate source while
 preserving its inherited roots. The compilation retains every distinct referenced lease/owner,
 applies postings before rule indexes and blank-ID assignment, and accepts anonymous scope maps
 only when their composed leaf-to-effective mappings remain strictly canonical-order preserving.
@@ -201,6 +201,8 @@ and `EXCLUDE` removes only those source-local roots while preserving roots inher
 Anonymous scope maps compose from leaf scope to effective scope at each reference boundary before
 final canonical merge and structural deduplication. Every distinct referenced table is fully
 revalidated once, and every required lease/owner remains retained by the prepared compilation.
+Explicit resolver frames bound traversal by manifest size rather than Python call-stack depth;
+active-path identities still reject direct or transitive segment cycles before output.
 
 A valid order-changing scope map selects whole-operation scalar-native compilation before output.
 Malformed posting bounds/layout, scope rows, owner links, base/delta/member/bridge metadata, member

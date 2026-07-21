@@ -242,6 +242,12 @@ length cache and traversal state. Exact byte parity, sequence order, 1,200-node 
 and generic cycle rejection are recorded in
 [`reports/p7/evidence/installed-canonical-cursor-checkpoint.json`](reports/p7/evidence/installed-canonical-cursor-checkpoint.json).
 
+Segment-manifest traversal is stack-safe too. Overlay and composite dependencies are suspended in
+explicit resolver frames while preserving source-local postings, composed anonymous scopes,
+lease retention, cache reuse, and active-path cycle rejection. An exact installed 1,100-overlay
+chain plus nested overlay/composite and hostile-cycle cases are recorded in
+[`reports/p7/evidence/installed-segment-resolution-checkpoint.json`](reports/p7/evidence/installed-segment-resolution-checkpoint.json).
+
 The same v31 boundary is installed-tested over diamond and cyclic import graphs. A shared diamond
 member is projected once, a two-document cycle terminates with both taxonomy edges, and in each
 topology only the root document's annotation remains visible. Both runs retain the independent
