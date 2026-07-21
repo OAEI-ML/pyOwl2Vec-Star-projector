@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `cedfc91`. pyOWLCore candidate revision:
+Date: 2026-07-21. Projector implementation through `86fd23b`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -34,7 +34,7 @@ native edges is admitted as scalar ignored shapes with a grouped `AnnotationAsse
 Selected anonymous annotation values and anonymous assertion operands use the kernel's exact
 axiom-derived blank-ID order, including anonymous axiom metadata. Native ignored-subclass and
 ignored-class-assertion partitions are admitted with exact constructor-grouped diagnostics and
-counts. Kernel v29 exposes aggregate-aware equivalence base-edge and ignored-shape counts, so
+counts. Kernel v30 retains the v29 aggregate-aware equivalence base-edge and ignored-shape counts, so
 aggregate role expansions and operand-level ignores are admitted without inferring either from the
 total output. It also partitions projecting and ignored object domain/range roots; the adapter
 bounds the native product count by the projectable cross-product while preserving exact
@@ -410,18 +410,47 @@ release artifact and carries no performance claim. Exact artifact hashes, constr
 edge digests, provider identities, and remaining blockers are recorded in
 [`installed-annotation-provenance-checkpoint.json`](evidence/installed-annotation-provenance-checkpoint.json).
 
+## Native root-provenance join
+
+Revision `86fd23b8ff9d522fde45c2793b84f4877b418039` advances the fail-closed guard to a
+native exact-direct join. Kernel v30 can retain a second validated root-scoped table alongside the
+closure. Before edge limits or output allocation, an iterative no-copy structural comparison maps
+each canonical root `AnnotationAssertion` to its closure node. The selected closure nodes drive
+annotation counts and emission, while closure totals still prove the complete root partition.
+Consequently imported-only annotations cannot affect output, ignored-shape diagnostics, or the
+native edge limit. Emitting the closure node also preserves the scalar closure-wide anonymous-ID
+space when imported anonymous individuals precede a selected root value.
+
+The Python seam supplies the auxiliary table only when visible annotations need it. Byte-identical
+single-document selections retain the existing eleven-buffer boundary; an unequal exact-direct
+selection retains 22 zero-copy buffers and reports both table sizes, two direct segments, and one
+referenced view. Annotation-free closures still skip root acquisition. Unavailable, non-direct, or
+sliced root providers keep the earlier whole-call scalar fallback. The feature ledger remains
+exactly `abi3-py310` and `bounded-batches`.
+
+An isolated CPython 3.12 environment installed a release-profile native wheel built from the exact
+projector revision above and the previously bound pyOWLCore revision `6750aa0`. Eight installed
+multi-document/single-document provenance cases passed, including selected root labels,
+imported-only suppression, the selected-edge limit, anonymous-value parity, independent and packed
+single-document tables, annotation-free import bypass, and sliced-root fallback. This remains a
+small correctness checkpoint: dependency validation was skipped because the environment has wheel
+0.47.0 rather than the pinned 0.46.3, and it is not performance or release evidence. Exact hashes,
+commands, counters, and blockers are recorded in
+[`installed-root-provenance-join-checkpoint.json`](evidence/installed-root-provenance-join-checkpoint.json).
+
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`a71dca0`:
+`86fd23b`:
 
 | Gate | Result |
 |---|---|
-| Rust unit tests (`cargo test --no-default-features`) | 30 passed |
+| Rust unit tests (`cargo test --no-default-features`) | 33 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 217 passed |
-| Focused foundation/private-integration/benchmark/dispatch tests | 294 passed |
-| Complete projector test suite | 1,104 passed |
+| Focused foundation/private-integration/benchmark/dispatch tests | 296 passed |
+| Complete projector test suite | 1,106 passed |
+| Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -575,7 +604,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; one hidden isolated named-edge adapter records call history/provenance for direct taxonomy and supported restrictions, pair/aggregate/nonprojecting equivalences, nonprojecting subclasses and class assertions, named/anonymous positive object-property assertions, selected annotations whose root and closure direct columns are proven identical, same-call named/inverse role maps, arbitrary named-property domain/range products plus unpaired and ignored partitions, ignored property chains, silent ontology annotations and SWRL rules, and every exactly counted supported scalar-skip family, including exact axiom-derived blank IDs, exact equivalence base edges, ignored-shape partitions and grouped diagnostics, non-string-rendering warnings, and grouped skipped-axiom diagnostics. Unequal visible multi-document annotation selections fall back before publication; public Scala-instance lifecycle binding and remaining option/surface integration are unsupported |
+| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 now joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs. Public Scala-instance lifecycle binding and remaining projecting rules/options/surfaces are unsupported |
 | Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; one hidden named-edge iterator now consumes those batches through P4 policy, but Rust still materializes the full output vector and public iterator/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
@@ -590,9 +619,8 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 Public `auto` and explicit native negotiation remain unchanged. Before advertising
 `encoded-structural-compiler-v1`, P7 still needs:
 
-1. add the native root-provenance join for visible multi-document annotations, while preserving the
-   exact-direct hidden-adapter ledger and binding retained role maps to public lifecycle locking,
-   invocation history, and provenance;
+1. bind retained role maps and the direct compiler to public lifecycle locking, invocation
+   history, and provenance;
 2. replace the private whole-output vector with genuinely bounded Rust production, then promote
    its hidden iterator proof into the public iterator, protocol sink, digest, artifact, and
    cancellation surfaces;

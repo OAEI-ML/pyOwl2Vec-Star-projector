@@ -6,7 +6,7 @@
 
 ## Current implementation checkpoint
 
-As of 2026-07-20, the broad structural-columns decoder/compiler in
+As of 2026-07-21, the broad structural-columns decoder/compiler in
 `encoded_compiler.py` is Python, and the production Rust backend still receives already-created
 edge strings for policy processing. Neither is a complete Rust encoded compiler.
 
@@ -26,10 +26,15 @@ positive object assertions, negative-assertion/property-family skips, and expand
 while the optional asserted-taxonomy mode emits only the direct subclass family after preflighting
 the whole supported slice. It retains the owner/exporters, preflights before allocating output,
 releases the GIL, supports concurrent cancellation, and returns one caller-bounded coarse batch.
-Annotations and property chains, other constructors, complex or anonymous operands, segments, and
-sliced, mmap, or non-bytes exporters are unsupported without copying. The safe generic PyO3 buffer
-API is unavailable at the current `abi3-py310` floor, so general mmap ownership remains an explicit
-design blocker.
+The later bounded checkpoints add the recursive class/data validation, skipped/silent families,
+role-state behavior, selected annotation rules, and diagnostics enumerated in the implementation
+report. Kernel v30 additionally retains an independent exact-direct root table and joins canonical
+root `AnnotationAssertion` identities back to closure nodes before edge limits or publication, so
+visible multi-document annotations preserve root-only selection and closure-wide blank IDs without
+structural copying. Property-chain emission, other projecting constructors, segment traversal, and
+sliced, mmap, or non-bytes exporters remain unsupported. The safe generic PyO3 buffer API is
+unavailable at the current `abi3-py310` floor, so general mmap ownership remains an explicit design
+blocker.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

@@ -203,14 +203,16 @@ remains scalar. The exact installed-wheel checkpoint is recorded in
 it is explicitly private, incomplete, and not release-performance evidence.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
-annotations. Byte-identical single-document root/closure tables remain native for both independent
-exact-byte and canonical packed providers. A different imported-closure selection, unavailable
-root scope, or non-direct/sliced exporter selects one whole-operation scalar compiler before
-closure compilation or its native edge limit, preventing imported-only annotations from leaking
-into output. Annotation-free imported closures skip that root proof and remain native-eligible.
-The installed correctness checkpoint and its assembly limitations are recorded in
-[`reports/p7/evidence/installed-annotation-provenance-checkpoint.json`](reports/p7/evidence/installed-annotation-provenance-checkpoint.json);
-it carries no release or performance claim.
+annotations. Kernel v30 retains an unequal exact-direct root table alongside the closure and joins
+its canonical annotation identities to closure nodes before edge counting or publication. This
+keeps imported subclasses native while suppressing imported-only annotations, preserves
+closure-wide anonymous identifiers, and reports both retained zero-copy tables. Byte-identical
+single-document selections still use one table; unavailable, non-direct, or sliced root providers
+select one whole-operation scalar compiler. Annotation-free imported closures skip the root request.
+The source-built installed correctness checkpoint is recorded in
+[`reports/p7/evidence/installed-root-provenance-join-checkpoint.json`](reports/p7/evidence/installed-root-provenance-join-checkpoint.json);
+it carries no release or performance claim. The preceding fail-closed fallback evidence remains in
+[`installed-annotation-provenance-checkpoint.json`](reports/p7/evidence/installed-annotation-provenance-checkpoint.json).
 
 ## Optional native build
 

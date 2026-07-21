@@ -1,0 +1,176 @@
+{
+  "schema": "pyowl-projector.p7-installed-root-provenance-join-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "86fd23b8ff9d522fde45c2793b84f4877b418039"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-86fd23b.tar",
+      "bytes": 3399680,
+      "sha256": "4189b090a835b44ee69791c32e88adce587f6d90b65dc9f85c7998f5cd730cdc"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 422182,
+      "sha256": "c1f2ff2f3da5bcd88cac9a74dfb0b2047945079c16b7304f37161368ded8d468",
+      "wheel_record_sha256": "e03783eb58ace72f58e9c4452b26deed6fed9c3c6a6d65948ea281e3b2cb98af",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "4216fda1de00dc3c089d62f4df9fbc74e8fdd2b2d6570bf9684eccdea62925a9"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 54168,
+      "sha256": "972193fd4e78be40eac58517e6bb6ca76dbf6fc079dfa1b1f9f493fb820ecbec",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 688372,
+      "sha256": "8523404c7d5c30b436eeb99439c10458616377ef3cdabdaca0b9272604079ced",
+      "encoded_direct_kernel_version": 30,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_source": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 62441,
+      "sha256": "e495360c11b74124500339e8f29b39ded27ef4dbb34294302915bf0496b27192"
+    },
+    "native_sources": {
+      "encoded_direct_rs_sha256": "69248676ad28f0d5b4dfc2542115d9a70e533aea0b98c46f5cc029529319fa92",
+      "lib_rs_sha256": "d9c90b3cc2c72e23df99be1985d9a5acd6cd09a066cf82bcbc9141d9bd1768e2",
+      "cargo_lock_sha256": "e286cb797f78e16e94c638d9523758db98c267ec2700b4388761ebabcb92cbdc",
+      "cargo_toml_sha256": "fe385f51282e7a687089295458a6d28fee88dabd22c09e0422bf7ebd69c842c2"
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 30,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "annotation_provenance_cases": 8,
+    "annotation_provenance_result": "8 passed, 43 deselected",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "unequal_visible_imported_closure": {
+        "scalar_parity": true,
+        "edge_count": 2,
+        "edges_sha256": "e88ca296c5a6305e1f0dc12ac74a45ea572ab81ab9a63155aca321ec97f1cb45",
+        "root_label_selected": true,
+        "imported_label_suppressed": true,
+        "ingestion_path": "encoded-native",
+        "fallback_reason": null,
+        "ingestion_counters": {
+          "encoded_buffer_bytes": 1463,
+          "encoded_buffer_count": 22,
+          "encoded_detached_buffer_count": 22,
+          "encoded_referenced_view_count": 1,
+          "encoded_segment_count": 2,
+          "encoded_staging_copy_bytes": 0,
+          "encoded_zero_copy_buffers": 22,
+          "native_output_vector_edges": 2,
+          "scalar_axiom_materializations": 0,
+          "scalar_term_materializations": 0,
+          "per_row_ffi_calls": 0,
+          "structural_copy_bytes": 0
+        }
+      },
+      "selected_edge_limit": {
+        "scalar_parity": true,
+        "edge_limit": 2,
+        "native_limit_applied_after_root_selection": true,
+        "ingestion_path": "encoded-native"
+      },
+      "imported_only_annotations": {
+        "scalar_parity": true,
+        "all_imported_annotations_suppressed": true,
+        "ignored_shape_count": 0,
+        "ingestion_path": "encoded-native"
+      },
+      "anonymous_annotation_value": {
+        "scalar_parity": true,
+        "closure_wide_identifier_space": true,
+        "ingestion_path": "encoded-native"
+      },
+      "annotation_free_import": {
+        "scalar_parity": true,
+        "root_provenance_request_skipped": true,
+        "ingestion_path": "encoded-native"
+      },
+      "single_document_python_and_native_providers": {
+        "case_count": 2,
+        "scalar_parity": true,
+        "auxiliary_root_table_retained": false,
+        "ingestion_path": "encoded-native"
+      },
+      "sliced_root_provider": {
+        "scalar_parity": true,
+        "ingestion_path": "scalar-native",
+        "fallback_before_native_output": true
+      }
+    }
+  },
+  "source_verification": {
+    "rust_unit_cases": 33,
+    "rust_format": "passed",
+    "rust_clippy_warnings_denied": "passed",
+    "private_native_foundation_cases": 217,
+    "focused_native_cases": 296,
+    "private_native_integration_cases": 51,
+    "full_suite_cases": 1106,
+    "ruff": "passed",
+    "mypy_source": "passed"
+  },
+  "closed_gap": "Unequal exact-direct root annotation selections are now joined to canonical closure nodes in Rust before counting, limits, or output.",
+  "known_blockers": [
+    "The Rust compiler still materializes a complete output vector before caller-bounded drains.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported.",
+    "Public dispatch, Scala-instance lifecycle, sink, digest, and artifact integration remain open.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a tiny correctness checkpoint and carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The installed imported closure uses the Python structural provider; native packed-provider parity remains proven on the single-document case only.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

@@ -7,6 +7,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Private kernel-v30 root-provenance joining for exact-direct multi-document annotation
+  projection, with closure-wide anonymous identifiers and explicit auxiliary-buffer counters; the
+  encoded structural compiler remains unadvertised.
 - Versioned `pyowl-projector.consumer-conformance/1` kit with a packaged CC0 ontology,
   Exact-compatible OWL2Vec*/literal/taxonomy goldens, snapshot/provider identity probes,
   provenance assertions, and path/stream/origin reparse sentinels.
