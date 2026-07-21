@@ -506,6 +506,8 @@ pub(crate) struct OwnedRoleState {
     inverses: Vec<(String, String)>,
 }
 
+pub(crate) type OwnedRoleSnapshot = (Vec<(String, Vec<String>)>, Vec<(String, String)>);
+
 impl OwnedRoleState {
     pub(crate) fn subrole_count(&self) -> usize {
         self.subroles.len()
@@ -513,6 +515,32 @@ impl OwnedRoleState {
 
     pub(crate) fn inverse_count(&self) -> usize {
         self.inverses.len()
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<OwnedRoleSnapshot, KernelError> {
+        let mut subroles = Vec::new();
+        subroles
+            .try_reserve_exact(self.subroles.len())
+            .map_err(|_| KernelError::resource("encoded retained subrole snapshot failed"))?;
+        for (property, retained_values) in &self.subroles {
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(retained_values.len())
+                .map_err(|_| KernelError::resource("encoded retained subrole snapshot failed"))?;
+            for value in retained_values {
+                values.push(clone_text(value)?);
+            }
+            subroles.push((clone_text(property)?, values));
+        }
+
+        let mut inverses = Vec::new();
+        inverses
+            .try_reserve_exact(self.inverses.len())
+            .map_err(|_| KernelError::resource("encoded retained inverse snapshot failed"))?;
+        for (property, inverse) in &self.inverses {
+            inverses.push((clone_text(property)?, clone_text(inverse)?));
+        }
+        Ok((subroles, inverses))
     }
 }
 

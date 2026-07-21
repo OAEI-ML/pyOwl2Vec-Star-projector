@@ -18,6 +18,7 @@ from pyowl2vec_star_projector import (
     StreamingLimits,
     probe_native_backend,
 )
+from pyowl2vec_star_projector.compiler import RoleState
 from pyowl2vec_star_projector.encoded import ENCODED_NATIVE_FEATURE
 from pyowl2vec_star_projector.native import (
     ENCODED_DIRECT_BUFFER_ORDER,
@@ -800,10 +801,17 @@ def test_hidden_iterator_admits_same_call_named_role_expansion(
     assert counters["per_row_ffi_calls"] == 0
 
 
-def test_hidden_iterator_keeps_scala_instance_role_lifecycle_on_scalar_path() -> None:
-    view = _snapshot(
-        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
-        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> None:
+    role_view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
+    )
+    consumer_view = _snapshot(
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    conflict_view = _snapshot(
+        "SubObjectPropertyOf(:other :p) InverseObjectProperties(:p :otherInverse) "
+        "SubClassOf(:X ObjectSomeValuesFrom(:p :Y))"
     )
     python_options = ProjectionOptions(
         backend="python",
@@ -811,28 +819,137 @@ def test_hidden_iterator_keeps_scala_instance_role_lifecycle_on_scalar_path() ->
         compatibility_state="scala-instance",
     )
     expected_projector = Projector()
-    expected = expected_projector.project(view, options=python_options)
-    expected_report = _completed_report(expected_projector)
+    expected_role_edges = expected_projector.project(role_view, options=python_options)
+    expected_role_report = _completed_report(expected_projector)
+    expected_consumer_edges = expected_projector.project(consumer_view, options=python_options)
+    expected_consumer_report = _completed_report(expected_projector)
+    expected_conflict_edges = expected_projector.project(conflict_view, options=python_options)
+    expected_conflict_report = _completed_report(expected_projector)
 
     native_projector = Projector()
-    actual = list(
+    actual_role_edges = list(
         native_projector._iter_native_encoded_edges(
-            view,
+            role_view,
             options=replace(python_options, backend="native"),
             buffer_edges=2,
         )
     )
-    actual_report = _completed_report(native_projector)
-
-    assert actual == expected
-    _assert_semantic_report_parity(expected_report, actual_report)
-    ingestion = actual_report.provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert ingestion.reason is not None
-    assert ingestion.reason.startswith(
-        "private native direct batches do not bind Scala-instance state"
+    actual_role_report = _completed_report(native_projector)
+    actual_consumer_edges = list(
+        native_projector._iter_native_encoded_edges(
+            consumer_view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
     )
-    assert not any(name.startswith("native_") for name in ingestion.counters)
+    actual_consumer_report = _completed_report(native_projector)
+    actual_conflict_edges = list(
+        native_projector._iter_native_encoded_edges(
+            conflict_view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_conflict_report = _completed_report(native_projector)
+
+    assert actual_role_edges == expected_role_edges == []
+    assert actual_consumer_edges == expected_consumer_edges
+    assert actual_conflict_edges == expected_conflict_edges
+    _assert_semantic_report_parity(expected_role_report, actual_role_report)
+    _assert_semantic_report_parity(expected_consumer_report, actual_consumer_report)
+    _assert_semantic_report_parity(expected_conflict_report, actual_conflict_report)
+    assert actual_role_report.provenance.ingestion.path == "encoded-native"
+    assert actual_consumer_report.provenance.ingestion.path == "encoded-native"
+    assert actual_conflict_report.provenance.ingestion.path == "encoded-native"
+    assert actual_conflict_report.provenance.invocation_count == 3
+    assert native_projector._scala_state == expected_projector._scala_state
+    assert native_projector._scala_state == RoleState(
+        {"urn:native-integration#p": ("urn:native-integration#other",)},
+        {
+            "urn:native-integration#p": "urn:native-integration#otherInverse",
+            "urn:native-integration#pinv": "urn:native-integration#p",
+            "urn:native-integration#otherInverse": "urn:native-integration#p",
+        },
+    )
+
+
+def test_hidden_iterator_transitions_retained_scala_state_to_scalar_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role_view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
+    )
+    restriction_view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p :B))")
+    domain_range_view = _snapshot(
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        compatibility_state="scala-instance",
+    )
+    expected_projector = Projector()
+    expected = tuple(
+        expected_projector.project(view, options=python_options)
+        for view in (role_view, restriction_view, domain_range_view)
+    )
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    first = list(
+        native_projector._iter_native_encoded_edges(
+            role_view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    assert _completed_report(native_projector).provenance.ingestion.path == "encoded-native"
+
+    monkeypatch.setattr(
+        api_module,
+        "prepare_native_encoded_compilation",
+        lambda *args, **kwargs: (None, "injected stateful native decline"),
+    )
+    second = list(
+        native_projector._iter_native_encoded_edges(
+            restriction_view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    second_report = _completed_report(native_projector)
+    assert second_report.provenance.ingestion.path == "scalar-native"
+    assert "injected stateful native decline" in (second_report.provenance.ingestion.reason or "")
+
+    prepare_calls = 0
+
+    def unexpected_native_prepare(*args: Any, **kwargs: Any) -> Any:
+        nonlocal prepare_calls
+        prepare_calls += 1
+        raise AssertionError("scalar lifecycle re-entered retained native state")
+
+    monkeypatch.setattr(
+        api_module,
+        "prepare_native_encoded_compilation",
+        unexpected_native_prepare,
+    )
+    third = list(
+        native_projector._iter_native_encoded_edges(
+            domain_range_view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    third_report = _completed_report(native_projector)
+
+    assert (first, second, third) == expected
+    _assert_semantic_report_parity(expected_report, third_report)
+    assert prepare_calls == 0
+    assert third_report.provenance.ingestion.path == "scalar-native"
+    assert "previously selected scalar compilation" in (
+        third_report.provenance.ingestion.reason or ""
+    )
+    assert native_projector._scala_state == expected_projector._scala_state
 
 
 @pytest.mark.parametrize(

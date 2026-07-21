@@ -20,8 +20,8 @@ use std::sync::{Arc, Mutex};
 
 use encoded_direct::{
     compile_direct_with_retained_role_state, DirectColumns, DirectCompileOptions,
-    DirectCompileStats, DirectEdge, KernelError, OwnedRoleState, BUFFER_COUNT, BUFFER_NAMES,
-    STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState, BUFFER_COUNT,
+    BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -458,6 +458,17 @@ impl EncodedDirectRoleState {
             .lock()
             .map(|roles| roles.inverse_count())
             .map_err(|_| PyRuntimeError::new_err("encoded direct role state is permanently failed"))
+    }
+
+    fn snapshot(&self) -> PyResult<OwnedRoleSnapshot> {
+        self.retained
+            .roles
+            .lock()
+            .map_err(|_| {
+                PyRuntimeError::new_err("encoded direct role state is permanently failed")
+            })?
+            .snapshot()
+            .map_err(kernel_error)
     }
 }
 

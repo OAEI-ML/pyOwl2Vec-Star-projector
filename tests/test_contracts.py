@@ -189,6 +189,8 @@ class ProvenanceTests(unittest.TestCase):
             "native_boundary_calls",
             "native_edge_batches",
             "native_output_vector_edges",
+            "native_retained_inverse_properties",
+            "native_retained_subrole_properties",
         )
         for name in names:
             with self.subTest(name=name, case="accepted"):

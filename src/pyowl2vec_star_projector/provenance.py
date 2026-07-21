@@ -40,6 +40,8 @@ _INGESTION_COUNTERS = frozenset(
         "native_boundary_calls",
         "native_edge_batches",
         "native_output_vector_edges",
+        "native_retained_inverse_properties",
+        "native_retained_subrole_properties",
         "parser_calls",
         "per_row_ffi_calls",
         "resolver_calls",

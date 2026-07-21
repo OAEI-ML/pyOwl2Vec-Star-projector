@@ -45,10 +45,12 @@ from .errors import (
 from .model import Edge
 from .native import (
     NativeEncodedDirectCompilation,
+    NativeEncodedDirectRoleState,
     NativeEncodedDirectUnsupported,
     iter_native_passthrough,
     native_runtime_metadata,
     prepare_native_encoded_compilation,
+    prepare_native_encoded_role_state,
 )
 from .options import Backend, DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .protocols import EdgeBatchSinkV1
@@ -84,6 +86,8 @@ class Projector:
         self._last_encoded_counters: EncodedSubsetCounters | None = None
         self._scala_invocation_count = 0
         self._scala_call_history_digest = ""
+        self._native_scala_state: NativeEncodedDirectRoleState | None = None
+        self._native_scala_disabled = False
 
     @property
     def last_view(self) -> object | None:
@@ -419,24 +423,47 @@ class Projector:
                         raise SnapshotCompatibilityError(
                             "hidden native encoded ingestion lost its validated lease"
                         )
-                    try:
-                        native_encoded_compilation, private_fallback_reason = (
-                            prepare_native_encoded_compilation(
-                                checked,
-                                lease,
-                                options,
-                                batch_edges=native_batch_edges,
-                                max_total_edges=limits.max_total_edges,
-                                cancellation_token=cancellation_token,
+                    private_fallback_reason: str | None = None
+                    native_role_state: NativeEncodedDirectRoleState | None = None
+                    if options.compatibility_state == "scala-instance":
+                        if self._native_scala_state is None and (
+                            self._scala_state.subroles or self._scala_state.inverse_roles
+                        ):
+                            self._native_scala_disabled = True
+                        if self._native_scala_disabled:
+                            private_fallback_reason = (
+                                "private native Scala-instance lifecycle previously selected "
+                                "scalar compilation"
                             )
-                        )
-                    except (
-                        NativeBackendUnavailableError,
-                        NativeEncodedDirectUnsupported,
-                    ) as error:
-                        private_fallback_reason = (
-                            f"private native direct compiler unavailable: {error}"
-                        )
+                        else:
+                            try:
+                                if self._native_scala_state is None:
+                                    self._native_scala_state = prepare_native_encoded_role_state()
+                                native_role_state = self._native_scala_state
+                            except NativeBackendUnavailableError as error:
+                                private_fallback_reason = (
+                                    f"private native direct compiler unavailable: {error}"
+                                )
+                    if private_fallback_reason is None:
+                        try:
+                            native_encoded_compilation, private_fallback_reason = (
+                                prepare_native_encoded_compilation(
+                                    checked,
+                                    lease,
+                                    options,
+                                    batch_edges=native_batch_edges,
+                                    max_total_edges=limits.max_total_edges,
+                                    cancellation_token=cancellation_token,
+                                    role_state=native_role_state,
+                                )
+                            )
+                        except (
+                            NativeBackendUnavailableError,
+                            NativeEncodedDirectUnsupported,
+                        ) as error:
+                            private_fallback_reason = (
+                                f"private native direct compiler unavailable: {error}"
+                            )
                     if native_encoded_compilation is None:
                         reason = private_fallback_reason or (
                             "private native direct compiler declined the encoded view"
@@ -445,6 +472,16 @@ class Projector:
                             "scalar-native",
                             f"{reason}; selected whole-operation scalar compiler",
                         )
+                if options.compatibility_state == "scala-instance":
+                    if native_encoded_compilation is None:
+                        self._native_scala_disabled = True
+                    elif private_encoded_direct:
+                        native_role_state = native_encoded_compilation.role_state
+                        if native_role_state is None:  # pragma: no cover - preparation gate
+                            raise SnapshotCompatibilityError(
+                                "hidden native Scala-instance compilation lost its role state"
+                            )
+                        self._scala_state = native_role_state.snapshot()
                 if native_encoded_compilation is None:
                     encoded_compilation, ingestion, encoded_counters = (
                         prepare_encoded_subset_compilation(

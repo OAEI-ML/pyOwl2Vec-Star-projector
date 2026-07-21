@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Any, Protocol, cast
 
 from .backend import native_runtime_policy_reason
-from .compiler import Compilation, CompileStatistics
+from .compiler import Compilation, CompileStatistics, RoleState
 from .diagnostics import ProjectionDiagnostic
 from .encoded import EncodedStructuralLease, _acquire_root_encoded_lease
 from .errors import (
@@ -320,6 +320,42 @@ class NativeEncodedDirectRoleState:
         if type(value) is not int or value < 0:
             raise ProjectionError("native encoded role state returned invalid inverse count")
         return value
+
+    def snapshot(self) -> RoleState:
+        """Copy the retained native maps into the scalar-compatible lifecycle shape."""
+
+        raw = _call_encoded_direct(self._module, self._kernel.snapshot)
+        if type(raw) is not tuple or len(raw) != 2:
+            raise ProjectionError("native encoded role state returned an invalid snapshot")
+        raw_subroles, raw_inverses = raw
+        if type(raw_subroles) is not list or type(raw_inverses) is not list:
+            raise ProjectionError("native encoded role state returned an invalid snapshot")
+        subroles: dict[str, tuple[str, ...]] = {}
+        for row in raw_subroles:
+            if type(row) is not tuple or len(row) != 2:
+                raise ProjectionError("native encoded role state returned an invalid subrole row")
+            property_iri, raw_values = row
+            if (
+                type(property_iri) is not str
+                or type(raw_values) is not list
+                or not all(type(value) is str for value in raw_values)
+                or property_iri in subroles
+            ):
+                raise ProjectionError("native encoded role state returned an invalid subrole row")
+            subroles[property_iri] = tuple(raw_values)
+        inverses: dict[str, str] = {}
+        for row in raw_inverses:
+            if type(row) is not tuple or len(row) != 2:
+                raise ProjectionError("native encoded role state returned an invalid inverse row")
+            property_iri, inverse_iri = row
+            if (
+                type(property_iri) is not str
+                or type(inverse_iri) is not str
+                or property_iri in inverses
+            ):
+                raise ProjectionError("native encoded role state returned an invalid inverse row")
+            inverses[property_iri] = inverse_iri
+        return RoleState(subroles, inverses)
 
 
 @dataclass(slots=True)
@@ -713,6 +749,7 @@ class NativeEncodedDirectCompilation:
     batches: NativeEncodedDirectBatchIterator
     native_statistics: NativeEncodedDirectStatistics
     statistics: CompileStatistics
+    role_state: NativeEncodedDirectRoleState | None = None
 
     @property
     def diagnostics(self) -> tuple[ProjectionDiagnostic, ...]:
@@ -752,8 +789,10 @@ class NativeEncodedDirectCompilation:
         return tuple(diagnostics)
 
     def prepare_role_state(self) -> None:
-        if self.options.compatibility_state != "isolated":  # pragma: no cover - preparation gate
-            raise ProjectionError("hidden native compilation cannot retain Scala-instance state")
+        if self.options.compatibility_state == "scala-instance" and self.role_state is None:
+            raise ProjectionError(
+                "hidden native compilation lost its retained Scala-instance state"
+            )
 
     @property
     def ingestion_counters(self) -> Mapping[str, int | bool]:
@@ -761,6 +800,8 @@ class NativeEncodedDirectCompilation:
             () if self.root_annotation_lease is None else (self.root_annotation_lease,)
         )
         retained_buffer_count = sum(len(lease.buffers) for lease in retained_leases)
+        retained_subroles = 0 if self.role_state is None else self.role_state.subrole_property_count
+        retained_inverses = 0 if self.role_state is None else self.role_state.inverse_property_count
         return MappingProxyType(
             {
                 "base_flattening_bytes": 0,
@@ -780,6 +821,8 @@ class NativeEncodedDirectCompilation:
                 "native_boundary_calls": self.batches.boundary_calls,
                 "native_edge_batches": self.batches.edge_batches,
                 "native_output_vector_edges": self.native_statistics.edges,
+                "native_retained_inverse_properties": retained_inverses,
+                "native_retained_subrole_properties": retained_subroles,
                 "parser_calls": 0,
                 "per_row_ffi_calls": 0,
                 "resolver_calls": 0,
@@ -812,11 +855,14 @@ def prepare_native_encoded_compilation(
     batch_edges: int,
     max_total_edges: int | None,
     cancellation_token: CancellationTokenLike | None,
+    role_state: NativeEncodedDirectRoleState | None = None,
 ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
     """Prepare the hidden exact named-edge seam or request whole-call fallback."""
 
-    if options.compatibility_state != "isolated":
+    if options.compatibility_state == "scala-instance" and role_state is None:
         return None, "private native direct batches do not bind Scala-instance state"
+    if options.compatibility_state == "isolated" and role_state is not None:
+        raise ProjectionError("isolated native compilation received retained Scala-instance state")
     if cancellation_token is not None:
         cancellation_token.check()
     root_annotation_lease: EncodedStructuralLease | None = None
@@ -839,6 +885,7 @@ def prepare_native_encoded_compilation(
         batch_edges=batch_edges,
         only_taxonomy=options.only_taxonomy,
         include_literals=options.include_literals,
+        role_state=role_state,
     )
     try:
         if cancellation_token is not None:
@@ -934,6 +981,7 @@ def prepare_native_encoded_compilation(
                     + native_statistics.object_property_chains,
                     skipped_axioms=native_statistics.skipped_axioms,
                 ),
+                role_state=role_state,
             ),
             None,
         )

@@ -24,6 +24,7 @@ from pyowl2vec_star_projector.compiler import (
     RDF_TYPE,
     SUBCLASS_OF,
     SUPERCLASS_OF,
+    RoleState,
     iter_asserted_taxonomy,
 )
 from pyowl2vec_star_projector.encoded import (
@@ -4968,6 +4969,7 @@ def test_retained_role_state_matches_ordered_scala_instance_calls_across_views()
     assert role_state.in_use is False
     assert role_state.subrole_property_count == 0
     assert role_state.inverse_property_count == 0
+    assert role_state.snapshot() == RoleState.empty()
     actual: list[list[Edge]] = []
     for view, maximum in zip(
         (role_view, consumer_view, conflict_view),
@@ -5004,6 +5006,14 @@ def test_retained_role_state_matches_ordered_scala_instance_calls_across_views()
     assert role_state.in_use is False
     assert role_state.subrole_property_count == 1
     assert role_state.inverse_property_count == 3
+    assert role_state.snapshot() == RoleState(
+        {"urn:native-direct#p": ("urn:native-direct#other",)},
+        {
+            "urn:native-direct#p": "urn:native-direct#otherInverse",
+            "urn:native-direct#pinv": "urn:native-direct#p",
+            "urn:native-direct#otherInverse": "urn:native-direct#p",
+        },
+    )
 
 
 def test_private_native_batches_preserve_exact_order_and_bound_each_ffi_transfer() -> None:
