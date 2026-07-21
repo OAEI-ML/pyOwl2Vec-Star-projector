@@ -12,6 +12,7 @@ from typing import Any, Protocol, cast
 
 from .backend import native_runtime_policy_reason
 from .compiler import Compilation, CompileStatistics
+from .diagnostics import ProjectionDiagnostic
 from .encoded import EncodedStructuralLease
 from .errors import (
     NativeBackendUnavailableError,
@@ -601,8 +602,22 @@ class NativeEncodedDirectCompilation:
     statistics: CompileStatistics
 
     @property
-    def diagnostics(self) -> tuple[Any, ...]:
-        return ()
+    def diagnostics(self) -> tuple[ProjectionDiagnostic, ...]:
+        ignored = (
+            self.native_statistics.restriction_subclasses
+            if self.options.only_taxonomy
+            else 0
+        )
+        if ignored == 0:
+            return ()
+        return (
+            ProjectionDiagnostic(
+                code="MOWL_IGNORED_SHAPE",
+                message="constructor does not emit an edge in the pinned profile",
+                count=ignored,
+                constructor="SubClassOf",
+            ),
+        )
 
     def prepare_role_state(self) -> None:
         if self.options.compatibility_state != "isolated":  # pragma: no cover - preparation gate
@@ -681,11 +696,18 @@ def prepare_native_encoded_compilation(
         if cancellation_token is not None:
             cancellation_token.check()
         native_statistics = batches.statistics
-        taxonomy_edges = (
-            native_statistics.subclasses + native_statistics.equivalents
-        ) * (2 if options.bidirectional_taxonomy else 1)
+        direct_subclasses = (
+            native_statistics.subclasses - native_statistics.restriction_subclasses
+        )
+        taxonomy_edges = (direct_subclasses + native_statistics.equivalents) * (
+            2 if options.bidirectional_taxonomy else 1
+        )
+        restriction_edges = (
+            0 if options.only_taxonomy else native_statistics.restriction_subclasses
+        )
         expected_edges = (
             taxonomy_edges
+            + restriction_edges
             + native_statistics.class_assertions
             + native_statistics.object_property_assertions
         )
@@ -702,7 +724,7 @@ def prepare_native_encoded_compilation(
             and native_statistics.anonymous_individuals == 0
             and native_statistics.ontology_annotations == 0
             and native_statistics.swrl_rules == 0
-            and native_statistics.restriction_subclasses == 0
+            and native_statistics.restriction_subclasses <= native_statistics.subclasses
             and native_statistics.ignored_subclasses == 0
             and native_statistics.aggregate_equivalents == 0
             and native_statistics.ignored_class_assertions == 0
@@ -718,8 +740,8 @@ def prepare_native_encoded_compilation(
             return (
                 None,
                 "private native batch integration accepts only declarations and diagnostic-free "
-                "named subclass, equivalence, class-assertion, or object-property-assertion "
-                "axioms",
+                "named subclass or supported restriction, equivalence, class-assertion, or "
+                "object-property-assertion axioms",
             )
         return (
             NativeEncodedDirectCompilation(
@@ -728,7 +750,13 @@ def prepare_native_encoded_compilation(
                 options=options,
                 batches=batches,
                 native_statistics=native_statistics,
-                statistics=CompileStatistics(),
+                statistics=CompileStatistics(
+                    ignored_shapes=(
+                        native_statistics.restriction_subclasses
+                        if options.only_taxonomy
+                        else 0
+                    )
+                ),
             ),
             None,
         )

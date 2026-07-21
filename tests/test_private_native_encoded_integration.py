@@ -221,6 +221,85 @@ def test_hidden_iterator_admits_exact_named_tbox_and_abox_edges(
     assert counters["scalar_term_materializations"] == 0
 
 
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges", "ignored_shapes"),
+    [
+        (
+            ProjectionOptions(backend="python", order="encounter"),
+            9,
+            0,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+            ),
+            11,
+            0,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                only_taxonomy=True,
+            ),
+            4,
+            5,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_supported_direct_restrictions_with_exact_diagnostics(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+    ignored_shapes: int,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:TaxA :TaxB) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "SubClassOf(ObjectAllValuesFrom(ObjectInverseOf(:q) :C) :D) "
+        "SubClassOf(:E ObjectMinCardinality(2 :r :F)) "
+        'SubClassOf(Annotation(<urn:meta> "duplicate") '
+        ":E ObjectMinCardinality(7 :r :F)) "
+        "SubClassOf(ObjectMaxCardinality(3 :s :G) :H) "
+        "EquivalentClasses(:EqA :EqB) ClassAssertion(:EqA :individual) "
+        "ObjectPropertyAssertion(:op :individual :other)"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
+    if ignored_shapes:
+        assert len(actual_report.diagnostics) == 1
+        diagnostic = actual_report.diagnostics[0]
+        assert diagnostic.code == "MOWL_IGNORED_SHAPE"
+        assert diagnostic.constructor == "SubClassOf"
+        assert diagnostic.count == ignored_shapes
+    else:
+        assert actual_report.diagnostics == ()
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_batch_edges"] == 2
+    assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+
+
 def test_public_iterator_keeps_private_capability_and_dispatch_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -299,7 +378,8 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     assert ingestion.reason is not None
     assert ingestion.reason.startswith(
         "private native batch integration accepts only declarations and diagnostic-free named "
-        "subclass, equivalence, class-assertion, or object-property-assertion axioms"
+        "subclass or supported restriction, equivalence, class-assertion, or "
+        "object-property-assertion axioms"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
