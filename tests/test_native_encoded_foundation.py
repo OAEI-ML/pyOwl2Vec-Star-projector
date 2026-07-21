@@ -5184,6 +5184,53 @@ def test_private_native_batch_edge_factory_validates_before_cursor_commit(
     assert batches.state == "exhausted"
 
 
+def test_private_native_batch_uses_canonical_edge_type_after_factory_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = compiler.iter_batches(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        batch_edges=2,
+    )
+    native_bridge = cast(Any, sys.modules["pyowl2vec_star_projector.native"])
+    canonical_post_init = Edge.__post_init__
+    mutated = False
+
+    def mutating_post_init(edge: Edge) -> None:
+        nonlocal mutated
+        canonical_post_init(edge)
+        if not mutated:
+            mutated = True
+            patch.setattr(native_bridge, "Edge", object)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Edge, "__post_init__", mutating_post_init)
+        first = next(batches)
+        patch.setattr(native_bridge, "Edge", Edge)
+
+    assert mutated is True
+    assert first == tuple(expected[:2])
+    assert all(type(edge) is Edge for edge in first)
+    assert batches.yielded_edges == 2
+    assert batches.remaining_edges == 1
+    assert batches.boundary_calls == 2
+    assert batches.edge_batches == 1
+    assert batches.peak_buffered_edges == 2
+    assert [edge for batch in batches for edge in batch] == expected[2:]
+    assert batches.state == "exhausted"
+
+
 def test_private_native_batch_statistics_factory_is_in_session_transaction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5503,6 +5550,132 @@ def test_private_native_coarse_factory_results_validate_before_role_commit(
     assert role_state.in_use is False
     assert role_state.subrole_property_count == 0
     assert role_state.inverse_property_count == 0
+
+
+@pytest.mark.parametrize(
+    ("surface", "factory_name"),
+    (
+        ("coarse", "edge"),
+        ("coarse", "statistics"),
+        ("batches", "statistics"),
+        ("batches", "iterator"),
+    ),
+    ids=(
+        "coarse-edge",
+        "coarse-statistics",
+        "batch-statistics",
+        "batch-iterator",
+    ),
+)
+def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+    factory_name: str,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    native_bridge = cast(Any, sys.modules["pyowl2vec_star_projector.native"])
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    target = {
+        "edge": "Edge",
+        "statistics": "NativeEncodedDirectStatistics",
+        "iterator": "NativeEncodedDirectBatchIterator",
+    }[factory_name]
+    canonical_target = {
+        "edge": Edge,
+        "statistics": NativeEncodedDirectStatistics,
+        "iterator": NativeEncodedDirectBatchIterator,
+    }[factory_name]
+    mutated = False
+
+    def mutate_factory_global() -> None:
+        nonlocal mutated
+        if not mutated:
+            mutated = True
+            patch.setattr(native_bridge, target, object)
+
+    canonical_edge_post_init = Edge.__post_init__
+    canonical_statistics_post_init = NativeEncodedDirectStatistics.__post_init__
+    canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
+
+    def mutating_edge_post_init(edge: Edge) -> None:
+        canonical_edge_post_init(edge)
+        mutate_factory_global()
+
+    def mutating_statistics_post_init(statistics: NativeEncodedDirectStatistics) -> None:
+        canonical_statistics_post_init(statistics)
+        mutate_factory_global()
+
+    def mutating_iterator_init(
+        iterator: NativeEncodedDirectBatchIterator,
+        compiler_owner: NativeEncodedDirectCompiler,
+        statistics: NativeEncodedDirectStatistics,
+        batch_edges: int,
+    ) -> None:
+        canonical_iterator_init(iterator, compiler_owner, statistics, batch_edges)
+        mutate_factory_global()
+
+    coarse_result: tuple[list[Edge], NativeEncodedDirectStatistics] | None = None
+    batches: NativeEncodedDirectBatchIterator | None = None
+    with monkeypatch.context() as patch:
+        if factory_name == "edge":
+            patch.setattr(Edge, "__post_init__", mutating_edge_post_init)
+        elif factory_name == "statistics":
+            patch.setattr(
+                NativeEncodedDirectStatistics,
+                "__post_init__",
+                mutating_statistics_post_init,
+            )
+        else:
+            patch.setattr(
+                NativeEncodedDirectBatchIterator,
+                "__init__",
+                mutating_iterator_init,
+            )
+        if surface == "coarse":
+            coarse_result = compiler.compile_batch(
+                bidirectional=False,
+                max_edges=len(expected),
+                max_iri_bytes=1024 * 1024,
+                role_state=role_state,
+            )
+        else:
+            batches = compiler.iter_batches(
+                bidirectional=False,
+                max_edges=len(expected),
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+                role_state=role_state,
+            )
+        patch.setattr(native_bridge, target, canonical_target)
+
+    assert mutated is True
+    assert compiler.state == "finished"
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count > 0
+    assert role_state.inverse_property_count > 0
+    if coarse_result is not None:
+        actual, statistics = coarse_result
+        assert actual == expected
+        assert all(type(edge) is Edge for edge in actual)
+        assert type(statistics) is NativeEncodedDirectStatistics
+    else:
+        assert batches is not None
+        assert type(batches) is NativeEncodedDirectBatchIterator
+        assert type(batches.statistics) is NativeEncodedDirectStatistics
+        assert [edge for batch in batches for edge in batch] == expected
+        assert batches.state == "exhausted"
 
 
 def test_private_native_batch_close_and_sink_failure_clear_unpublished_output() -> None:

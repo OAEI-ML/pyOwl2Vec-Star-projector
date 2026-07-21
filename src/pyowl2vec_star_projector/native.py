@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 40
+ENCODED_DIRECT_KERNEL_VERSION = 41
 _PROJECTOR_EDGE_TYPE = Edge
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
@@ -486,8 +486,8 @@ class NativeEncodedDirectCompiler:
 
         if (
             type(raw_edges) is not list
-            or type(raw_stats) is not NativeEncodedDirectStatistics
-            or not all(type(value) is Edge for value in raw_edges)
+            or type(raw_stats) is not _NATIVE_ENCODED_DIRECT_STATISTICS_TYPE
+            or not all(type(value) is _PROJECTOR_EDGE_TYPE for value in raw_edges)
         ):
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         edges = cast(list[Edge], raw_edges)
@@ -560,13 +560,13 @@ class NativeEncodedDirectCompiler:
             ),
         )
         try:
-            if type(raw_batches) is not NativeEncodedDirectBatchIterator:
+            if type(raw_batches) is not _NATIVE_ENCODED_DIRECT_BATCH_ITERATOR_TYPE:
                 raise ProjectionError(
                     "native encoded compiler returned an invalid streaming envelope"
                 )
             statistics = raw_batches.statistics
             if (
-                type(statistics) is not NativeEncodedDirectStatistics
+                type(statistics) is not _NATIVE_ENCODED_DIRECT_STATISTICS_TYPE
                 or raw_batches._compiler is not self
                 or raw_batches.batch_edges != batch_edges
                 or raw_batches.yielded_edges != 0
@@ -663,7 +663,7 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
                 type(raw_batch) is not tuple
                 or not raw_batch
                 or len(raw_batch) > self.batch_edges
-                or not all(type(value) is Edge for value in raw_batch)
+                or not all(type(value) is _PROJECTOR_EDGE_TYPE for value in raw_batch)
             ):
                 raise ProjectionError("native encoded compiler returned an invalid bounded batch")
             batch = cast(tuple[Edge, ...], raw_batch)
