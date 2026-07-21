@@ -247,6 +247,9 @@ statistics factory leaves the session absent, its counters zero, and retained ro
 Kernel-v38 publication evidence additionally requires the final iterator wrapper, including its
 compiler owner and statistics references, to exist before those states publish. A failed iterator
 factory has the same absent-session, zero-counter, and unchanged-role outcome.
+Kernel-v39 evidence additionally requires canonical statistics/iterator factory identities and
+exact result types to validate inside that transaction. Malformed returns have the same
+absent-session, zero-counter, and unchanged-role outcome.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These

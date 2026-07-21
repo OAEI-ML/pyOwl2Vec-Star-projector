@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden iterator preparation now validates canonical statistics and iterator factory identities
+  and their exact result types before publishing the batch session or retained Scala role-state
+  transition. Malformed factory returns fail with no session/counters or retained-map changes; the
+  capability remains unadvertised.
 - Hidden iterator preparation now constructs its final iterator wrapper, including its compiler
   owner and statistics references, before publishing the batch session or retained Scala
   role-state transition. Injected iterator allocation failure publishes no session/counters,

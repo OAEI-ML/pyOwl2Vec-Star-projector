@@ -63,8 +63,9 @@ cursor/counters if a final-edge factory fails. Kernel v37 constructs final stati
 session, compiler-finished state, and retained role transition are published; factory failure
 publishes none of them. Kernel v38 also constructs the final owner-holding iterator after those
 statistics and before the same publication boundary; iterator factory failure publishes none of
-them. The private counter ledger separates compiled edges from zero vector-backed output edges and
-the peak buffered batch. Kernel v34 also removes the
+them. Kernel v39 validates canonical factory identities and exact result types before commit;
+malformed final objects publish none of them. The private counter ledger separates compiled edges
+from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete
 Python output construction. Kernel v35 constructs final `Edge` and statistics objects in that

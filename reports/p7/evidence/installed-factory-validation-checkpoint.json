@@ -1,0 +1,215 @@
+{
+  "schema": "pyowl-projector.p7-installed-factory-validation-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "c18341797e3756482237d0a3aa21b2cf4540a453"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-c183417.tar",
+      "bytes": 3676160,
+      "sha256": "d9fbf704ce3387dcafc435b2d0b9b6c413ac9a4e962bedf6f492b1b8f5182db0"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 447028,
+      "sha256": "78afc65adf4ee543022b100799390448c3ce3e7830ea3ce84b016e203ac7fe4c",
+      "wheel_record_sha256": "82956aac89c769dc0705a1d97da76c4ca0b09eb2002695ebb09ad3e5e83bb9f2",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "89583366f96a7651f7249894a1031dce9802920d9cbbd5296f8a520e53a0993f"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_projector_api": {
+      "filename": "pyowl2vec_star_projector/api.py",
+      "bytes": 45211,
+      "sha256": "86790c5a91283b6c70ef2bde25fe70d15a2173acd1f6c08bef7829e1a8aa2f40",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 59676,
+      "sha256": "48ff65a82dbc2558e12c07756e842b9848df92415dd27f7cfe033da826f3a534",
+      "matches_projector_revision": true
+    },
+    "installed_provenance_contract": {
+      "filename": "pyowl2vec_star_projector/provenance.py",
+      "bytes": 10298,
+      "sha256": "cca455407eb599b765a5b1df712aa6306bedf63c90c512f86478e5529af55e45",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 737732,
+      "sha256": "28530d6e4827e83e5bb38a1839f525621dd47697cd279ee9c1d60f3e64b87ba1",
+      "encoded_direct_kernel_version": 39,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_sources": {
+      "foundation": {
+        "filename": "tests/test_native_encoded_foundation.py",
+        "bytes": 202487,
+        "sha256": "5c0add324ca95b2d42140e75daf8188ce12b11d50caa1886846694b839a87655"
+      },
+      "integration": {
+        "filename": "tests/test_private_native_encoded_integration.py",
+        "bytes": 72205,
+        "sha256": "5d28f827df8fc0b2fffb203f2cc63bf8b2d80ad17f6cb4739159852e83aa7878"
+      },
+      "benchmark": {
+        "filename": "tests/test_encoded_benchmark.py",
+        "bytes": 13088,
+        "sha256": "b82543983cf11c630bb4ae26d575a00e24e21a32580ee042838668be69be7938"
+      }
+    },
+    "benchmark_harness": {
+      "filename": "benchmarks/benchmark_encoded_compiler.py",
+      "bytes": 27746,
+      "sha256": "80ce26ecc8b280e178f476c8f496f34783012255f9cc44f239b4103657698f4e"
+    },
+    "rust_source": {
+      "encoded_direct_rs_bytes": 305651,
+      "encoded_direct_rs_sha256": "1f8a40c30780af1aec7d3adeff16a2a905741e4398a76fc1bd3753d9ee56b23f",
+      "lib_rs_bytes": 64976,
+      "lib_rs_sha256": "8a97d5ee31848f37a463b54ac8e862886aee63e61618366655d28eff03ca9f05",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 39,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "factory_validation_transaction_result": "12 passed",
+    "audit_and_benchmark_result": "11 passed",
+    "complete_suite_result": "1125 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "successful_final_iterator": {
+        "compiled_edges": 600,
+        "published_edges": 600,
+        "final_edge_instances": 600,
+        "final_statistics_instance": true,
+        "final_iterator_instance": true,
+        "tuple_batches": 3,
+        "intermediate_python_list_edges": 0,
+        "configured_batch_edges": 256,
+        "native_batches": 3,
+        "peak_buffered_edges": 256,
+        "edge_json_record_sha256": "57469d40274118d67a112ec929542bfadfbae39d5bef174f15fe5e0e465037fe"
+      },
+      "malformed_statistics_factory_result": {
+        "failure": "ProjectionError",
+        "factory_calls": 1,
+        "returned_exact_statistics_type": false,
+        "compiler_state": "failed",
+        "batch_session_state": "absent",
+        "remaining_edges": 0,
+        "boundary_calls": 0,
+        "edge_batches": 0,
+        "peak_buffered_edges": 0,
+        "role_use_released": true,
+        "subrole_properties_after_failure": 0,
+        "inverse_properties_after_failure": 0
+      },
+      "malformed_iterator_factory_result": {
+        "failure": "ProjectionError",
+        "factory_calls": 1,
+        "final_statistics_reached_iterator": true,
+        "returned_exact_iterator_type": false,
+        "compiler_state": "failed",
+        "batch_session_state": "absent",
+        "remaining_edges": 0,
+        "boundary_calls": 0,
+        "edge_batches": 0,
+        "peak_buffered_edges": 0,
+        "role_use_released": true,
+        "subrole_properties_after_failure": 0,
+        "inverse_properties_after_failure": 0
+      }
+    }
+  },
+  "source_verification": {
+    "factory_validation_invariant": {
+      "canonical_type_identities_retained_separately_from_factories": true,
+      "final_statistics_constructed_inside_native_transaction": true,
+      "statistics_factory_identity_validated_before_publication": true,
+      "statistics_result_exact_type_validated_before_publication": true,
+      "final_iterator_constructed_inside_native_transaction": true,
+      "iterator_factory_identity_validated_before_publication": true,
+      "iterator_result_exact_type_validated_before_publication": true,
+      "retained_role_clone_after_factory_validation": true,
+      "batch_session_install_after_factory_validation": true,
+      "retained_role_commit_after_factory_validation": true,
+      "failure_publishes_session": false,
+      "failure_publishes_output_counters": false,
+      "failure_commits_retained_roles": false
+    },
+    "private_native_foundation_cases": 226,
+    "private_native_integration_cases": 54,
+    "foundation_plus_private_integration_cases": 280,
+    "broad_encoded_compiler_cases": 677,
+    "complete_suite_cases": 1125,
+    "audit_and_benchmark_cases": 11,
+    "rust_unit_cases": 38,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "The hidden iterator now validates canonical statistics and iterator factory identities and exact result types before cloning retained roles, installing the batch session, finishing preparation, or committing retained state. Malformed final objects publish no session or counters, release exclusive role use, and leave retained maps unchanged.",
+  "known_blockers": [
+    "The compatibility coarse call still returns one O(E) Python list; only the hidden iterator exposes caller-bounded Python results.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public iterator, sink, digest, artifact, dispatch, and Scala-instance lifecycle integration remain open; the session is reachable only through the hidden candidate.",
+    "Labelled large-corpus time-to-first-edge, throughput, and RSS measurements remain required.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness and factory-validation atomicity checkpoint; it carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The statistics factory still receives one bounded 60-field argument tuple inside the private PyO3 call.",
+    "Successful replacement of the private final factories is deliberately unsupported; exact canonical types are part of this internal transaction.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

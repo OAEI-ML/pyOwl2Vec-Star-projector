@@ -126,8 +126,10 @@ without an intermediate Python tuple-edge list; factory failure restores the unc
 an exact retry. Kernel v37 also constructs the final statistics object before installing that
 session or committing its retained role-state transition; failure publishes neither. Kernel v38
 constructs the final owner-holding iterator wrapper after those statistics but before the same
-publication boundary; iterator allocation failure likewise publishes neither. GIL-detached
-generation does not hold the output mutex; a raced close discards the unpublished bounded batch.
+publication boundary; iterator allocation failure likewise publishes neither. Kernel v39 validates
+canonical factory identities and exact result types before commit, so malformed final objects also
+publish neither. GIL-detached generation does not hold the output mutex; a raced close discards the
+unpublished bounded batch.
 Kernel v34 routes the legacy private coarse call through the same cursor
 in fixed 256-edge native chunks. That call still returns one materialized Python list, but retains
 no complete Rust output vector. Kernel v35 constructs the final `Edge` instances and statistics
