@@ -40,6 +40,7 @@ ENCODED_DIRECT_BUFFER_ORDER = (
     "item_lengths",
     "scalar_bytes",
 )
+_TAG_ANNOTATION_ASSERTION = 120
 
 
 class _Processor(Protocol):
@@ -789,6 +790,13 @@ def prepare_native_encoded_compilation(
         return None, "private native direct batches do not bind Scala-instance state"
     if cancellation_token is not None:
         cancellation_token.check()
+    if options.include_literals and _lease_contains_annotation_assertions(lease):
+        annotation_fallback_reason = _native_annotation_provenance_fallback_reason(
+            view,
+            lease,
+        )
+        if annotation_fallback_reason is not None:
+            return None, annotation_fallback_reason
     compiler = prepare_native_encoded_direct(lease)
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
     batches = compiler.iter_batches(
@@ -803,14 +811,6 @@ def prepare_native_encoded_compilation(
         if cancellation_token is not None:
             cancellation_token.check()
         native_statistics = batches.statistics
-        if options.include_literals and native_statistics.annotation_assertions:
-            annotation_fallback_reason = _native_annotation_provenance_fallback_reason(
-                view,
-                lease,
-            )
-            if annotation_fallback_reason is not None:
-                batches.close()
-                return None, annotation_fallback_reason
         direct_subclasses = native_statistics.subclasses - (
             native_statistics.restriction_subclasses + native_statistics.ignored_subclasses
         )
@@ -903,6 +903,25 @@ def prepare_native_encoded_compilation(
     except Exception:
         batches.close()
         raise
+
+
+def _lease_contains_annotation_assertions(lease: EncodedStructuralLease) -> bool:
+    """Inspect validated root/tag columns without materializing or copying rows."""
+
+    root_ids = lease.buffers["root_ids"]
+    node_tags = lease.buffers["node_tags"]
+    for offset in range(0, root_ids.nbytes, 4):
+        node_id = (
+            root_ids[offset]
+            | root_ids[offset + 1] << 8
+            | root_ids[offset + 2] << 16
+            | root_ids[offset + 3] << 24
+        )
+        tag_offset = (node_id - 1) * 2
+        tag = node_tags[tag_offset] | node_tags[tag_offset + 1] << 8
+        if tag == _TAG_ANNOTATION_ASSERTION:
+            return True
+    return False
 
 
 def _native_annotation_provenance_fallback_reason(

@@ -72,6 +72,22 @@ def _imported_snapshot() -> object:
     )
 
 
+def _imported_snapshot_without_annotations() -> object:
+    root = b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) Declaration(Class(:A)))"
+    leaf = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> Declaration(Class(:L)) "
+        b"SubClassOf(:L <urn:root#A>))"
+    )
+    return pyowl_core.load_snapshot(
+        root,
+        options=pyowl_core.LoadOptions(
+            imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
+            backend=pyowl_core.BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
+    )
+
+
 def _swrl_snapshot(body: str) -> object:
     source = f"Prefix(:=<urn:native-integration#>) Ontology(<urn:native-integration> {body})"
     options = pyowl_core.LoadOptions(
@@ -886,6 +902,82 @@ def test_hidden_iterator_falls_back_for_imported_annotation_provenance() -> None
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert not any(name.startswith("native_") for name in ingestion.counters)
+
+
+def test_hidden_iterator_preflights_annotation_provenance_before_native_edge_limit() -> None:
+    view = _imported_snapshot()
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    assert len(expected) == 2
+
+    with patch.object(
+        NativeEncodedDirectCompiler,
+        "iter_batches",
+        side_effect=AssertionError("closure compilation ran before root-provenance fallback"),
+    ):
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+                streaming_limits=StreamingLimits(max_total_edges=len(expected)),
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.reason.startswith(
+        "private native direct batches do not bind root-scoped annotation provenance"
+    )
+
+
+def test_hidden_iterator_does_not_root_preflight_annotation_free_imports() -> None:
+    view = _imported_snapshot_without_annotations()
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with (
+        patch.object(
+            native_module,
+            "_acquire_root_encoded_lease",
+            side_effect=AssertionError("annotation-free closure requested root provenance"),
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("annotation-free closure reached scalar traversal"),
+        ),
+    ):
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.ingestion.path == "encoded-native"
 
 
 def test_hidden_iterator_keeps_imported_annotations_unobserved_on_native_path() -> None:
