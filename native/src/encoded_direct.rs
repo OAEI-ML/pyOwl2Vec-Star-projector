@@ -264,6 +264,7 @@ pub(crate) struct DirectCompileStats {
     pub(crate) data_property_assertions: usize,
     pub(crate) negative_data_property_assertions: usize,
     pub(crate) annotation_assertions: usize,
+    pub(crate) selected_annotation_assertions: usize,
     pub(crate) sub_annotation_properties: usize,
     pub(crate) annotation_property_domains: usize,
     pub(crate) annotation_property_ranges: usize,
@@ -278,6 +279,7 @@ pub(crate) struct DirectCompileStats {
     pub(crate) role_expansion_edges: usize,
     pub(crate) edges: usize,
     pub(crate) buffer_bytes: usize,
+    pub(crate) root_provenance_buffer_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3641,6 +3643,248 @@ impl<'a> DirectColumns<'a> {
         Ok(counts)
     }
 
+    fn selected_annotation_edge_counts(
+        self,
+        selected_roots: &[usize],
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<AnnotationEdgeCounts, KernelError> {
+        let mut counts = AnnotationEdgeCounts::default();
+        for (index, node_id) in selected_roots.iter().copied().enumerate() {
+            check_cancel(state, index)?;
+            let Some(projection) = self.annotation_projection(node_id, maximum_iri, state)? else {
+                continue;
+            };
+            counts.edges = counts
+                .edges
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded annotation edge-count overflow"))?;
+            if matches!(projection.value, AnnotationValue::Typed { .. }) {
+                counts.non_string_literals =
+                    counts.non_string_literals.checked_add(1).ok_or_else(|| {
+                        KernelError::resource(
+                            "encoded non-string annotation-literal count overflow",
+                        )
+                    })?;
+            }
+        }
+        Ok(counts)
+    }
+
+    fn scalar_range(self, start: usize, length: usize) -> Result<&'a [u8], KernelError> {
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| KernelError::malformed("encoded scalar range overflow"))?;
+        self.scalar_bytes
+            .get(start..end)
+            .ok_or_else(|| KernelError::malformed("encoded scalar range is out of bounds"))
+    }
+
+    /// Compare one canonical node across independently encoded direct tables.
+    ///
+    /// Node IDs and arena offsets are table-local, so provenance cannot compare
+    /// integer columns directly.  The iterative walk compares constructor tags,
+    /// component kinds, scalar payloads, collection order, and recursively
+    /// referenced nodes without recursion or materializing model values.
+    fn structurally_equal_node(
+        self,
+        left_node: usize,
+        other: DirectColumns<'_>,
+        right_node: usize,
+        state: &AtomicU8,
+    ) -> Result<bool, KernelError> {
+        let mut pending = Vec::new();
+        pending
+            .try_reserve(1)
+            .map_err(|_| KernelError::resource("encoded provenance walk allocation failed"))?;
+        pending.push((left_node, right_node));
+        let mut visited = Vec::new();
+
+        while let Some((left, right)) = pending.pop() {
+            check_cancel(state, visited.len())?;
+            if visited.contains(&(left, right)) {
+                continue;
+            }
+            visited
+                .try_reserve(1)
+                .map_err(|_| KernelError::resource("encoded provenance index allocation failed"))?;
+            visited.push((left, right));
+
+            if self.node_tag(left)? != other.node_tag(right)? {
+                return Ok(false);
+            }
+            let (left_start, left_end) = self.field_range(left)?;
+            let (right_start, right_end) = other.field_range(right)?;
+            if left_end - left_start != right_end - right_start {
+                return Ok(false);
+            }
+
+            for offset in 0..left_end - left_start {
+                let left_field = left_start + offset;
+                let right_field = right_start + offset;
+                let kind = self.field_kind(left_field)?;
+                if kind != other.field_kind(right_field)? {
+                    return Ok(false);
+                }
+                let left_value = self.field_value(left_field)?;
+                let right_value = other.field_value(right_field)?;
+                let left_length = self.field_length(left_field)?;
+                let right_length = other.field_length(right_field)?;
+                if left_length != right_length {
+                    return Ok(false);
+                }
+                match kind {
+                    COMPONENT_NONE => {
+                        if left_value != 0 || right_value != 0 {
+                            return Ok(false);
+                        }
+                    }
+                    COMPONENT_NODE => {
+                        let pair = (
+                            self.checked_node_id(left_value)?,
+                            other.checked_node_id(right_value)?,
+                        );
+                        if !visited.contains(&pair) && !pending.contains(&pair) {
+                            pending.try_reserve(1).map_err(|_| {
+                                KernelError::resource("encoded provenance walk allocation failed")
+                            })?;
+                            pending.push(pair);
+                        }
+                    }
+                    COMPONENT_TEXT | COMPONENT_BYTES | COMPONENT_INTEGER | COMPONENT_ENUM => {
+                        if self.scalar_range(left_value, left_length)?
+                            != other.scalar_range(right_value, right_length)?
+                        {
+                            return Ok(false);
+                        }
+                    }
+                    COMPONENT_SET | COMPONENT_SEQUENCE => {
+                        for item_offset in 0..left_length {
+                            let left_item = left_value + item_offset;
+                            let right_item = right_value + item_offset;
+                            let item_kind = *self.item_kinds.get(left_item).ok_or_else(|| {
+                                KernelError::malformed(
+                                    "encoded provenance collection item is out of range",
+                                )
+                            })?;
+                            let other_kind =
+                                *other.item_kinds.get(right_item).ok_or_else(|| {
+                                    KernelError::malformed(
+                                        "encoded provenance collection item is out of range",
+                                    )
+                                })?;
+                            if item_kind != other_kind {
+                                return Ok(false);
+                            }
+                            let left_item_value =
+                                read_usize(self.item_values, left_item, "item_values")?;
+                            let right_item_value =
+                                read_usize(other.item_values, right_item, "item_values")?;
+                            let left_item_length =
+                                read_usize(self.item_lengths, left_item, "item_lengths")?;
+                            let right_item_length =
+                                read_usize(other.item_lengths, right_item, "item_lengths")?;
+                            if left_item_length != right_item_length {
+                                return Ok(false);
+                            }
+                            match item_kind {
+                                COMPONENT_NONE => {
+                                    if left_item_value != 0 || right_item_value != 0 {
+                                        return Ok(false);
+                                    }
+                                }
+                                COMPONENT_NODE => {
+                                    let pair = (
+                                        self.checked_node_id(left_item_value)?,
+                                        other.checked_node_id(right_item_value)?,
+                                    );
+                                    if !visited.contains(&pair) && !pending.contains(&pair) {
+                                        pending.try_reserve(1).map_err(|_| {
+                                            KernelError::resource(
+                                                "encoded provenance walk allocation failed",
+                                            )
+                                        })?;
+                                        pending.push(pair);
+                                    }
+                                }
+                                COMPONENT_TEXT | COMPONENT_BYTES | COMPONENT_INTEGER
+                                | COMPONENT_ENUM => {
+                                    if self.scalar_range(left_item_value, left_item_length)?
+                                        != other
+                                            .scalar_range(right_item_value, right_item_length)?
+                                    {
+                                        return Ok(false);
+                                    }
+                                }
+                                _ => {
+                                    return Err(KernelError::malformed(
+                                        "encoded provenance collection item kind is invalid",
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(KernelError::malformed(
+                            "encoded provenance component kind is invalid",
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// Resolve root-document annotations to their canonical closure nodes.
+    ///
+    /// Both root lists are canonical and unique.  Advancing the closure cursor
+    /// after each match therefore preserves encounter order while rejecting a
+    /// forged root selection that is not a subset of the closure.
+    fn select_root_annotation_nodes(
+        self,
+        root_columns: DirectColumns<'_>,
+        state: &AtomicU8,
+    ) -> Result<Vec<usize>, KernelError> {
+        let mut selected = Vec::new();
+        let mut closure_index = 0_usize;
+        for root_index in 0..root_columns.root_count() {
+            check_cancel(state, root_index)?;
+            if root_columns.root_kind(root_index)? != ROOT_AXIOM {
+                continue;
+            }
+            let root_node = root_columns.root_id(root_index)?;
+            if root_columns.node_tag(root_node)? != TAG_ANNOTATION_ASSERTION {
+                continue;
+            }
+
+            let mut matched = None;
+            while closure_index < self.root_count() {
+                let candidate_index = closure_index;
+                closure_index += 1;
+                if self.root_kind(candidate_index)? != ROOT_AXIOM {
+                    continue;
+                }
+                let candidate = self.root_id(candidate_index)?;
+                if self.node_tag(candidate)? == TAG_ANNOTATION_ASSERTION
+                    && self.structurally_equal_node(candidate, root_columns, root_node, state)?
+                {
+                    matched = Some(candidate);
+                    break;
+                }
+            }
+            let candidate = matched.ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded root annotation assertion is absent from the closure selection",
+                )
+            })?;
+            selected.try_reserve(1).map_err(|_| {
+                KernelError::resource("encoded root annotation selection allocation failed")
+            })?;
+            selected.push(candidate);
+        }
+        Ok(selected)
+    }
+
     fn next_named_aggregate_operand(
         self,
         expression_id: usize,
@@ -3863,16 +4107,18 @@ impl<'a> DirectColumns<'a> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn compile_direct_with_options(
     columns: DirectColumns<'_>,
     options: DirectCompileOptions,
     state: &AtomicU8,
 ) -> Result<(Vec<DirectEdge>, DirectCompileStats), KernelError> {
-    compile_direct_with_retained_role_state(columns, options, state, None)
+    compile_direct_with_retained_role_state(columns, None, options, state, None)
 }
 
 pub(crate) fn compile_direct_with_retained_role_state(
     columns: DirectColumns<'_>,
+    root_annotation_columns: Option<DirectColumns<'_>>,
     options: DirectCompileOptions,
     state: &AtomicU8,
     retained: Option<&mut OwnedRoleState>,
@@ -3889,8 +4135,29 @@ pub(crate) fn compile_direct_with_retained_role_state(
     columns.validate_generic(state)?;
     columns.validate_supported_nodes(max_iri_bytes, state)?;
     let counts = columns.classify_roots(max_iri_bytes, state)?;
+    let selected_annotation_nodes = if let Some(root_columns) = root_annotation_columns {
+        root_columns.validate_generic(state)?;
+        root_columns.validate_supported_nodes(max_iri_bytes, state)?;
+        let root_counts = root_columns.classify_roots(max_iri_bytes, state)?;
+        let selected = columns.select_root_annotation_nodes(root_columns, state)?;
+        if selected.len() != root_counts.annotation_assertions {
+            return Err(KernelError::malformed(
+                "encoded root annotation selection count changed after preflight",
+            ));
+        }
+        Some(selected)
+    } else {
+        None
+    };
+    let selected_annotation_assertions = selected_annotation_nodes
+        .as_ref()
+        .map_or(counts.annotation_assertions, Vec::len);
     let anonymous_ids = columns.axiom_anonymous_ids(state)?;
     let buffer_bytes = columns.buffer_bytes()?;
+    let root_provenance_buffer_bytes = root_annotation_columns
+        .map(DirectColumns::buffer_bytes)
+        .transpose()?
+        .unwrap_or(0);
     let role_state = if asserted_taxonomy_only {
         RoleState::default()
     } else {
@@ -3950,6 +4217,8 @@ pub(crate) fn compile_direct_with_retained_role_state(
     };
     let annotation_counts = if asserted_taxonomy_only || !include_literals {
         AnnotationEdgeCounts::default()
+    } else if let Some(selected) = selected_annotation_nodes.as_deref() {
+        columns.selected_annotation_edge_counts(selected, max_iri_bytes, state)?
     } else {
         columns.annotation_edge_counts(max_iri_bytes, state)?
     };
@@ -4066,16 +4335,27 @@ pub(crate) fn compile_direct_with_retained_role_state(
         }
 
         if include_literals {
-            for index in 0..columns.root_count() {
-                check_cancel(state, index)?;
-                let node_id = columns.root_id(index)?;
-                if columns.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
-                    continue;
+            if let Some(selected) = selected_annotation_nodes.as_deref() {
+                for (index, node_id) in selected.iter().copied().enumerate() {
+                    check_cancel(state, index)?;
+                    if let Some(projection) =
+                        columns.annotation_projection(node_id, max_iri_bytes, state)?
+                    {
+                        push_annotation_edge(&mut edges, projection, &anonymous_ids)?;
+                    }
                 }
-                if let Some(projection) =
-                    columns.annotation_projection(node_id, max_iri_bytes, state)?
-                {
-                    push_annotation_edge(&mut edges, projection, &anonymous_ids)?;
+            } else {
+                for index in 0..columns.root_count() {
+                    check_cancel(state, index)?;
+                    let node_id = columns.root_id(index)?;
+                    if columns.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
+                        continue;
+                    }
+                    if let Some(projection) =
+                        columns.annotation_projection(node_id, max_iri_bytes, state)?
+                    {
+                        push_annotation_edge(&mut edges, projection, &anonymous_ids)?;
+                    }
                 }
             }
         }
@@ -4206,6 +4486,7 @@ pub(crate) fn compile_direct_with_retained_role_state(
         data_property_assertions: counts.data_property_assertions,
         negative_data_property_assertions: counts.negative_data_property_assertions,
         annotation_assertions: counts.annotation_assertions,
+        selected_annotation_assertions,
         sub_annotation_properties: counts.sub_annotation_properties,
         annotation_property_domains: counts.annotation_property_domains,
         annotation_property_ranges: counts.annotation_property_ranges,
@@ -4220,6 +4501,7 @@ pub(crate) fn compile_direct_with_retained_role_state(
         role_expansion_edges,
         edges: edges.len(),
         buffer_bytes,
+        root_provenance_buffer_bytes,
     };
     // Retained Scala-instance compatibility state is a transaction outcome,
     // not preflight state.  Commit only after every validation, capacity,
@@ -5381,6 +5663,104 @@ mod tests {
         fixture
     }
 
+    fn root_duplicate_annotation_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"http://www.w3.org/2000/01/rdf-schema#label",
+            XSD_STRING.as_bytes(),
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 4
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(2);
+        fixture.finish_node(TAG_ENTITY); // 5
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(3);
+        fixture.finish_node(TAG_ENTITY); // 6
+        fixture.push_scalar(COMPONENT_TEXT, b"duplicate");
+        fixture.push_node_ref(6);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 7
+        fixture.push_node_ref(4);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DECLARATION); // 8
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(1);
+        fixture.push_node_ref(7);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_ANNOTATION_ASSERTION); // 9
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [8_u32, 9] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
+    fn anonymous_annotation_closure_fixture() -> Fixture {
+        let mut fixture = named_annotation_fixture();
+        for (scope, key) in [([1_u8; 32], b"imported".as_slice()), ([2_u8; 32], b"root")] {
+            fixture.push_scalar(COMPONENT_BYTES, &scope);
+            fixture.push_scalar(COMPONENT_BYTES, key);
+            fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 21..=22
+        }
+        for value in [21_u64, 22] {
+            fixture.push_node_ref(8);
+            fixture.push_node_ref(1);
+            fixture.push_node_ref(value);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION_ASSERTION); // 23..=24
+        }
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [23_u32, 24] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
+    fn root_anonymous_annotation_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"http://www.w3.org/2000/01/rdf-schema#label",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=2
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 3
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(2);
+        fixture.finish_node(TAG_ENTITY); // 4
+        fixture.push_scalar(COMPONENT_BYTES, &[2_u8; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"root");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 5
+        fixture.push_node_ref(3);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_DECLARATION); // 6
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(1);
+        fixture.push_node_ref(5);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_ANNOTATION_ASSERTION); // 7
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [6_u32, 7] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
     fn annotation_metadata_root_fixture() -> Fixture {
         let mut fixture = Fixture::default();
         for iri in [
@@ -5883,6 +6263,7 @@ mod tests {
         let mut retained = OwnedRoleState::default();
         let result = compile_direct_with_retained_role_state(
             role_fixture.columns(),
+            None,
             DirectCompileOptions {
                 bidirectional: false,
                 asserted_taxonomy_only: false,
@@ -5900,6 +6281,7 @@ mod tests {
 
         let (edges, _stats) = compile_direct_with_retained_role_state(
             role_fixture.columns(),
+            None,
             DirectCompileOptions {
                 bidirectional: false,
                 asserted_taxonomy_only: false,
@@ -5922,6 +6304,7 @@ mod tests {
             .extend_from_slice(&0_u64.to_le_bytes());
         let limited = compile_direct_with_retained_role_state(
             empty.columns(),
+            None,
             DirectCompileOptions {
                 bidirectional: false,
                 asserted_taxonomy_only: false,
@@ -5945,6 +6328,7 @@ mod tests {
         }
         let (edges, stats) = compile_direct_with_retained_role_state(
             consumer.columns(),
+            None,
             DirectCompileOptions {
                 bidirectional: false,
                 asserted_taxonomy_only: false,
@@ -6428,6 +6812,104 @@ mod tests {
             ),
             Err(KernelError::Resource(_))
         ));
+    }
+
+    #[test]
+    fn root_annotation_join_selects_independent_table_identity_before_limits() {
+        let closure = named_annotation_fixture();
+        let root = root_duplicate_annotation_fixture();
+        let (edges, stats) = compile_direct_with_retained_role_state(
+            closure.columns(),
+            Some(root.columns()),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: true,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: "rdfs:label".into(),
+                destination: "duplicate".into(),
+            }]
+        );
+        assert_eq!(stats.annotation_assertions, 4);
+        assert_eq!(stats.selected_annotation_assertions, 1);
+        assert_eq!(stats.annotation_edges, 1);
+        assert_eq!(stats.non_string_literal_renderings, 0);
+        assert_eq!(
+            stats.buffer_bytes,
+            closure.columns().buffer_bytes().unwrap()
+        );
+        assert_eq!(
+            stats.root_provenance_buffer_bytes,
+            root.columns().buffer_bytes().unwrap()
+        );
+    }
+
+    #[test]
+    fn root_annotation_join_renders_closure_anonymous_identifier_space() {
+        let closure = anonymous_annotation_closure_fixture();
+        let root = root_anonymous_annotation_fixture();
+        let (edges, stats) = compile_direct_with_retained_role_state(
+            closure.columns(),
+            Some(root.columns()),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: true,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].destination, "_:genid2147483649");
+        assert_eq!(stats.anonymous_individuals, 2);
+        assert_eq!(stats.annotation_assertions, 6);
+        assert_eq!(stats.selected_annotation_assertions, 1);
+    }
+
+    #[test]
+    fn root_annotation_join_rejects_nonclosure_identity_before_output() {
+        let closure = named_annotation_fixture();
+        let mut root = root_duplicate_annotation_fixture();
+        let offset = root
+            .scalar_bytes
+            .windows(b"duplicate".len())
+            .position(|value| value == b"duplicate")
+            .expect("root annotation literal");
+        root.scalar_bytes[offset] = b'x';
+        let result = compile_direct_with_retained_role_state(
+            closure.columns(),
+            Some(root.columns()),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: true,
+                max_edges: 4,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            None,
+        );
+        assert!(
+            matches!(result, Err(KernelError::Malformed(message)) if message.contains(
+                "root annotation assertion is absent"
+            ))
+        );
     }
 
     #[test]

@@ -19,10 +19,9 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use encoded_direct::{
-    compile_direct_with_options, compile_direct_with_retained_role_state, DirectColumns,
-    DirectCompileOptions, DirectCompileStats, DirectEdge, KernelError, OwnedRoleState,
-    BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE,
-    STATE_RUNNING,
+    compile_direct_with_retained_role_state, DirectColumns, DirectCompileOptions,
+    DirectCompileStats, DirectEdge, KernelError, OwnedRoleState, BUFFER_COUNT, BUFFER_NAMES,
+    STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -31,7 +30,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 29;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 30;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -399,6 +398,7 @@ impl RetainedRoleState {
     fn compile_claimed(
         &self,
         columns: DirectColumns<'_>,
+        root_annotation_columns: Option<DirectColumns<'_>>,
         options: DirectCompileOptions,
         compiler_state: &AtomicU8,
     ) -> PyResult<(
@@ -408,8 +408,14 @@ impl RetainedRoleState {
         let mut roles = self.roles.lock().map_err(|_| {
             PyRuntimeError::new_err("encoded direct role state is permanently failed")
         })?;
-        compile_direct_with_retained_role_state(columns, options, compiler_state, Some(&mut roles))
-            .map_err(kernel_error)
+        compile_direct_with_retained_role_state(
+            columns,
+            root_annotation_columns,
+            options,
+            compiler_state,
+            Some(&mut roles),
+        )
+        .map_err(kernel_error)
     }
 }
 
@@ -536,6 +542,9 @@ struct EncodedDirectCompiler {
     _encoded_view: Py<PyAny>,
     _owner: Py<PyAny>,
     buffers: Vec<RetainedDirectBuffer>,
+    _root_annotation_view: Option<Py<PyAny>>,
+    _root_annotation_owner: Option<Py<PyAny>>,
+    root_annotation_buffers: Option<Vec<RetainedDirectBuffer>>,
     state: AtomicU8,
     batch_output: Mutex<DirectBatchOutput>,
 }
@@ -608,6 +617,11 @@ impl EncodedDirectCompiler {
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_slice());
         let columns = DirectColumns::from_ordered(slices);
+        let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            DirectColumns::from_ordered(slices)
+        });
         let retained_role_use = match retained_role_state.as_ref() {
             Some(retained) => match retained.claim() {
                 Ok(role_use) => Some(role_use),
@@ -618,9 +632,16 @@ impl EncodedDirectCompiler {
         let result = guarded(|| {
             py.detach(|| {
                 if let Some(retained) = retained_role_state.as_ref() {
-                    retained.compile_claimed(columns, options, &self.state)
+                    retained.compile_claimed(columns, root_annotation_columns, options, &self.state)
                 } else {
-                    compile_direct_with_options(columns, options, &self.state).map_err(kernel_error)
+                    compile_direct_with_retained_role_state(
+                        columns,
+                        root_annotation_columns,
+                        options,
+                        &self.state,
+                        None,
+                    )
+                    .map_err(kernel_error)
                 }
             })
         });
@@ -643,16 +664,45 @@ impl EncodedDirectCompiler {
 #[pymethods]
 impl EncodedDirectCompiler {
     #[new]
+    #[pyo3(signature = (
+        encoded_view,
+        expected_owner,
+        descriptor_sha256,
+        root_annotation_view=None,
+        root_annotation_owner=None,
+        root_annotation_descriptor_sha256=None,
+    ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
         expected_owner: &Bound<'_, PyAny>,
         descriptor_sha256: &Bound<'_, PyAny>,
+        root_annotation_view: Option<&Bound<'_, PyAny>>,
+        root_annotation_owner: Option<&Bound<'_, PyAny>>,
+        root_annotation_descriptor_sha256: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
+        let root_annotation_buffers = match (
+            root_annotation_view,
+            root_annotation_owner,
+            root_annotation_descriptor_sha256,
+        ) {
+            (None, None, None) => None,
+            (Some(view), Some(owner), Some(digest)) => {
+                Some(retained_direct_buffers(view, owner, digest)?)
+            }
+            _ => {
+                return Err(encoded_buffer_error(
+                    "encoded root annotation view, owner, and descriptor digest must be supplied together",
+                ));
+            }
+        };
         Ok(Self {
             _encoded_view: encoded_view.clone().unbind(),
             _owner: expected_owner.clone().unbind(),
             buffers,
+            _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
+            _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
+            root_annotation_buffers,
             state: AtomicU8::new(STATE_IDLE),
             batch_output: Mutex::new(DirectBatchOutput::default()),
         })
@@ -902,7 +952,7 @@ impl EncodedDirectCompiler {
 
     #[getter]
     fn retained_buffer_count(&self) -> usize {
-        self.buffers.len()
+        self.buffers.len() + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
     }
 
     /// Deterministic test hook proving another Python thread can cancel while
@@ -979,6 +1029,7 @@ fn direct_statistics_tuple(py: Python<'_>, stats: DirectCompileStats) -> PyResul
             stats.data_property_assertions,
             stats.negative_data_property_assertions,
             stats.annotation_assertions,
+            stats.selected_annotation_assertions,
             stats.sub_annotation_properties,
             stats.annotation_property_domains,
             stats.annotation_property_ranges,
@@ -993,6 +1044,7 @@ fn direct_statistics_tuple(py: Python<'_>, stats: DirectCompileStats) -> PyResul
             stats.role_expansion_edges,
             stats.edges,
             stats.buffer_bytes,
+            stats.root_provenance_buffer_bytes,
         ],
     )?
     .unbind())
@@ -1469,7 +1521,7 @@ mod tests {
 
         let role_use = retained.claim().unwrap();
         assert!(retained
-            .compile_claimed(columns, options, &compiler_state)
+            .compile_claimed(columns, None, options, &compiler_state)
             .is_err());
         drop(role_use);
         assert!(!retained.in_use.load(Ordering::Acquire));

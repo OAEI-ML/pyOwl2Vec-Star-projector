@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 29
+ENCODED_DIRECT_KERNEL_VERSION = 30
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -110,6 +110,7 @@ class NativeEncodedDirectStatistics:
     data_property_assertions: int
     negative_data_property_assertions: int
     annotation_assertions: int
+    selected_annotation_assertions: int
     sub_annotation_properties: int
     annotation_property_domains: int
     annotation_property_ranges: int
@@ -124,6 +125,7 @@ class NativeEncodedDirectStatistics:
     role_expansion_edges: int
     edges: int
     buffer_bytes: int
+    root_provenance_buffer_bytes: int
 
     def __post_init__(self) -> None:
         for value in (
@@ -171,6 +173,7 @@ class NativeEncodedDirectStatistics:
             self.data_property_assertions,
             self.negative_data_property_assertions,
             self.annotation_assertions,
+            self.selected_annotation_assertions,
             self.sub_annotation_properties,
             self.annotation_property_domains,
             self.annotation_property_ranges,
@@ -185,6 +188,7 @@ class NativeEncodedDirectStatistics:
             self.role_expansion_edges,
             self.edges,
             self.buffer_bytes,
+            self.root_provenance_buffer_bytes,
         ):
             if type(value) is not int or value < 0:
                 raise ProjectionError("native encoded compiler returned invalid statistics")
@@ -193,15 +197,18 @@ class NativeEncodedDirectStatistics:
     def ingestion_counters(self) -> Mapping[str, int | bool]:
         """Return the auditable facts for this exact private boundary call."""
 
+        retained_buffer_count = len(ENCODED_DIRECT_BUFFER_ORDER) * (
+            1 + int(self.root_provenance_buffer_bytes != 0)
+        )
         return MappingProxyType(
             {
-                "encoded_buffer_bytes": self.buffer_bytes,
-                "encoded_buffer_count": len(ENCODED_DIRECT_BUFFER_ORDER),
+                "encoded_buffer_bytes": self.buffer_bytes + self.root_provenance_buffer_bytes,
+                "encoded_buffer_count": retained_buffer_count,
                 "encoded_compiler_gil_released": True,
-                "encoded_detached_buffer_count": len(ENCODED_DIRECT_BUFFER_ORDER),
+                "encoded_detached_buffer_count": retained_buffer_count,
                 "encoded_indexed_buffer_count": 0,
                 "encoded_staging_copy_bytes": 0,
-                "encoded_zero_copy_buffers": len(ENCODED_DIRECT_BUFFER_ORDER),
+                "encoded_zero_copy_buffers": retained_buffer_count,
                 "native_boundary_calls": 1,
                 "per_row_ffi_calls": 0,
                 "structural_copy_bytes": 0,
@@ -269,7 +276,7 @@ def _native_ignored_counts(
         (
             "AnnotationAssertion",
             (
-                statistics.annotation_assertions - statistics.annotation_edges
+                statistics.selected_annotation_assertions - statistics.annotation_edges
                 if options.include_literals
                 else 0
             ),
@@ -320,6 +327,7 @@ class NativeEncodedDirectCompiler:
     """Owner-retaining Python handle for the private one-shot Rust compiler."""
 
     lease: EncodedStructuralLease
+    root_annotation_lease: EncodedStructuralLease | None
     _kernel: Any
     _module: Any
 
@@ -377,7 +385,7 @@ class NativeEncodedDirectCompiler:
             ),
         )
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 58:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 60:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
@@ -390,8 +398,16 @@ class NativeEncodedDirectCompiler:
             raise ProjectionError(
                 "native encoded compiler returned an invalid edge batch"
             ) from error
-        if statistics.edges != len(edges) or statistics.buffer_bytes != sum(
-            buffer.nbytes for buffer in self.lease.buffers.values()
+        expected_root_bytes = (
+            0
+            if self.root_annotation_lease is None
+            else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+        )
+        if (
+            statistics.edges != len(edges)
+            or statistics.buffer_bytes
+            != sum(buffer.nbytes for buffer in self.lease.buffers.values())
+            or statistics.root_provenance_buffer_bytes != expected_root_bytes
         ):
             raise ProjectionError(
                 "native encoded compiler statistics do not match its retained input"
@@ -445,13 +461,20 @@ class NativeEncodedDirectCompiler:
             ),
         )
         try:
-            if type(raw_stats) is not tuple or len(raw_stats) != 58:
+            if type(raw_stats) is not tuple or len(raw_stats) != 60:
                 raise ProjectionError(
                     "native encoded compiler returned an invalid streaming envelope"
                 )
             statistics = NativeEncodedDirectStatistics(*raw_stats)
-            if statistics.buffer_bytes != sum(
-                buffer.nbytes for buffer in self.lease.buffers.values()
+            expected_root_bytes = (
+                0
+                if self.root_annotation_lease is None
+                else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+            )
+            if (
+                statistics.buffer_bytes
+                != sum(buffer.nbytes for buffer in self.lease.buffers.values())
+                or statistics.root_provenance_buffer_bytes != expected_root_bytes
             ):
                 raise ProjectionError(
                     "native encoded compiler statistics do not match its retained input"
@@ -685,6 +708,7 @@ class NativeEncodedDirectCompilation:
 
     view: object
     lease: EncodedStructuralLease
+    root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
     native_statistics: NativeEncodedDirectStatistics
@@ -733,19 +757,24 @@ class NativeEncodedDirectCompilation:
 
     @property
     def ingestion_counters(self) -> Mapping[str, int | bool]:
+        retained_leases = (self.lease,) + (
+            () if self.root_annotation_lease is None else (self.root_annotation_lease,)
+        )
+        retained_buffer_count = sum(len(lease.buffers) for lease in retained_leases)
         return MappingProxyType(
             {
                 "base_flattening_bytes": 0,
-                "encoded_buffer_bytes": self.native_statistics.buffer_bytes,
-                "encoded_buffer_count": len(self.lease.buffers),
+                "encoded_buffer_bytes": self.native_statistics.buffer_bytes
+                + self.native_statistics.root_provenance_buffer_bytes,
+                "encoded_buffer_count": retained_buffer_count,
                 "encoded_compiler_gil_released": True,
-                "encoded_detached_buffer_count": len(self.lease.buffers),
+                "encoded_detached_buffer_count": retained_buffer_count,
                 "encoded_indexed_buffer_count": 0,
                 "encoded_posting_bytes": 0,
-                "encoded_referenced_view_count": 0,
-                "encoded_segment_count": len(self.lease.segments),
+                "encoded_referenced_view_count": int(self.root_annotation_lease is not None),
+                "encoded_segment_count": sum(len(lease.segments) for lease in retained_leases),
                 "encoded_staging_copy_bytes": 0,
-                "encoded_zero_copy_buffers": len(self.lease.buffers),
+                "encoded_zero_copy_buffers": retained_buffer_count,
                 "materialized_scalar_rows": 0,
                 "native_batch_edges": self.batches.batch_edges,
                 "native_boundary_calls": self.batches.boundary_calls,
@@ -790,14 +819,18 @@ def prepare_native_encoded_compilation(
         return None, "private native direct batches do not bind Scala-instance state"
     if cancellation_token is not None:
         cancellation_token.check()
+    root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
-        annotation_fallback_reason = _native_annotation_provenance_fallback_reason(
+        root_annotation_lease, annotation_fallback_reason = _native_annotation_provenance_selection(
             view,
             lease,
         )
         if annotation_fallback_reason is not None:
             return None, annotation_fallback_reason
-    compiler = prepare_native_encoded_direct(lease)
+    compiler = prepare_native_encoded_direct(
+        lease,
+        root_annotation_lease=root_annotation_lease,
+    )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
     batches = compiler.iter_batches(
         bidirectional=options.bidirectional_taxonomy,
@@ -853,7 +886,10 @@ def prepare_native_encoded_compilation(
             and native_statistics.equivalent_base_edges <= native_statistics.edges
             and native_statistics.ignored_class_assertions <= native_statistics.class_assertions
             and native_statistics.object_property_chains <= native_statistics.sub_object_properties
-            and native_statistics.annotation_edges <= native_statistics.annotation_assertions
+            and native_statistics.selected_annotation_assertions
+            <= native_statistics.annotation_assertions
+            and native_statistics.annotation_edges
+            <= native_statistics.selected_annotation_assertions
             and (options.include_literals or native_statistics.annotation_edges == 0)
             and native_statistics.non_string_literal_renderings <= expected_annotation_edges
             and native_statistics.ignored_object_property_domains
@@ -883,6 +919,7 @@ def prepare_native_encoded_compilation(
             NativeEncodedDirectCompilation(
                 view=view,
                 lease=lease,
+                root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,
                 native_statistics=native_statistics,
@@ -924,33 +961,32 @@ def _lease_contains_annotation_assertions(lease: EncodedStructuralLease) -> bool
     return False
 
 
-def _native_annotation_provenance_fallback_reason(
+def _native_annotation_provenance_selection(
     view: object,
     closure_lease: EncodedStructuralLease,
-) -> str | None:
-    """Prove that closure annotations are exactly the scalar root selection.
+) -> tuple[EncodedStructuralLease | None, str | None]:
+    """Select a native root table or explain why provenance must fall back.
 
-    The private Rust kernel currently compiles one direct table and cannot join a
-    second root-scoped table.  A byte-identical root selection is safe (the normal
-    single-document case).  Any unavailable, non-direct, or different selection
-    must therefore fall back before a native edge is published.
+    A byte-identical root selection needs no auxiliary table.  An unequal exact
+    direct selection is retained by kernel v30 and joined to canonical closure
+    annotation identities before counting or publishing edges.
     """
 
     root_lease = _acquire_root_encoded_lease(view, closure_lease)
     if root_lease is None:
-        return "core view does not support root-scoped native annotation provenance"
+        return None, "core view does not support root-scoped native annotation provenance"
     try:
         root_compiler = prepare_native_encoded_direct(root_lease)
     except NativeEncodedDirectUnsupported:
-        return "root-scoped native annotation provenance is not exact-direct"
+        return None, "root-scoped native annotation provenance is not exact-direct"
     del root_compiler
 
     for name in ENCODED_DIRECT_BUFFER_ORDER:
         closure_buffer = closure_lease.buffers[name]
         root_buffer = root_lease.buffers[name]
         if closure_buffer.nbytes != root_buffer.nbytes or closure_buffer != root_buffer:
-            return "private native direct batches do not bind root-scoped annotation provenance"
-    return None
+            return root_lease, None
+    return None, None
 
 
 def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:
@@ -978,17 +1014,7 @@ def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:
     return NativeEncodedDirectRoleState(kernel, module)
 
 
-def prepare_native_encoded_direct(
-    lease: EncodedStructuralLease,
-) -> NativeEncodedDirectCompiler:
-    """Bind one validated public lease to the unadvertised Rust foundation.
-
-    No memoryview is copied.  The Rust constructor accepts exact full immutable-``bytes``
-    exporters or the canonical eleven-column packed layout over one such exporter.  Arbitrary
-    slices, mmap, and other valid exporters are deliberately reported as unsupported until the
-    abi3-safe design expands.
-    """
-
+def _validated_direct_descriptor_digest(lease: EncodedStructuralLease) -> bytes:
     if type(lease) is not EncodedStructuralLease:
         raise TypeError("lease must be EncodedStructuralLease")
     if lease.owner is not getattr(lease.encoded_view, "owner", None):
@@ -1011,6 +1037,31 @@ def prepare_native_encoded_direct(
         raise SnapshotCompatibilityError(
             "encoded view descriptor digest differs from its validated lease"
         )
+    return descriptor_sha256
+
+
+def prepare_native_encoded_direct(
+    lease: EncodedStructuralLease,
+    *,
+    root_annotation_lease: EncodedStructuralLease | None = None,
+) -> NativeEncodedDirectCompiler:
+    """Bind validated public leases to the unadvertised Rust foundation.
+
+    No memoryview is copied.  The Rust constructor accepts exact full immutable-``bytes``
+    exporters or the canonical eleven-column packed layout over one such exporter.  Arbitrary
+    slices, mmap, and other valid exporters are deliberately reported as unsupported until the
+    abi3-safe design expands.  An optional independent root table is retained for the native
+    annotation-provenance join.
+    """
+
+    descriptor_sha256 = _validated_direct_descriptor_digest(lease)
+    root_descriptor_sha256: bytes | None = None
+    if root_annotation_lease is not None:
+        root_descriptor_sha256 = _validated_direct_descriptor_digest(root_annotation_lease)
+        if root_annotation_lease.owner is not lease.owner:
+            raise SnapshotCompatibilityError(
+                "encoded root annotation lease belongs to another closure owner"
+            )
 
     module = load_native_module()
     try:
@@ -1044,7 +1095,17 @@ def prepare_native_encoded_direct(
     unsupported_type = cast(type[Exception], unsupported)
     buffer_error_type = cast(type[Exception], buffer_error)
     try:
-        kernel = compiler(lease.encoded_view, lease.owner, descriptor_sha256)
+        if root_annotation_lease is None:
+            kernel = compiler(lease.encoded_view, lease.owner, descriptor_sha256)
+        else:
+            kernel = compiler(
+                lease.encoded_view,
+                lease.owner,
+                descriptor_sha256,
+                root_annotation_lease.encoded_view,
+                root_annotation_lease.owner,
+                root_descriptor_sha256,
+            )
     except unsupported_type as error:
         raise NativeEncodedDirectUnsupported(str(error)) from error
     except buffer_error_type as error:
@@ -1053,7 +1114,7 @@ def prepare_native_encoded_direct(
         raise _resource_error(error) from error
     except Exception as error:
         raise _execution_error(error) from error
-    return NativeEncodedDirectCompiler(lease, kernel, module)
+    return NativeEncodedDirectCompiler(lease, root_annotation_lease, kernel, module)
 
 
 def load_native_module() -> Any:
