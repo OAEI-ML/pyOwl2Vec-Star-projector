@@ -591,7 +591,7 @@ impl EncodedDirectCompiler {
         py: Python<'_>,
         options: DirectCompileOptions,
         retained_role_state: Option<Arc<RetainedRoleState>>,
-    ) -> PyResult<(Vec<DirectEdge>, DirectCompileStats)> {
+    ) -> PyResult<(Vec<DirectEdge>, DirectCompileStats, Option<RetainedRoleUse>)> {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_ref());
@@ -612,9 +612,8 @@ impl EncodedDirectCompiler {
                 }
             })
         });
-        let result = self.finish_result(result);
-        drop(retained_role_use);
-        result
+        let (edges, stats) = self.finish_result(result)?;
+        Ok((edges, stats, retained_role_use))
     }
 
     fn cancel_batch_output(&self) -> PyResult<bool> {
@@ -685,7 +684,7 @@ impl EncodedDirectCompiler {
         };
         let retained_role_state = role_state.map(|value| Arc::clone(&value.retained));
         self.compile_owned(py, options, retained_role_state)
-            .and_then(|(edges, stats)| {
+            .and_then(|(edges, stats, retained_role_use)| {
                 let mut output = Vec::new();
                 output.try_reserve_exact(edges.len()).map_err(|_| {
                     PyMemoryError::new_err("encoded native tuple-batch allocation failed")
@@ -695,7 +694,9 @@ impl EncodedDirectCompiler {
                         .into_iter()
                         .map(|edge| (edge.source, edge.relation, edge.destination)),
                 );
-                Ok((output, direct_statistics_tuple(py, stats)?))
+                let statistics = direct_statistics_tuple(py, stats)?;
+                drop(retained_role_use);
+                Ok((output, statistics))
             })
     }
 
@@ -741,7 +742,8 @@ impl EncodedDirectCompiler {
             max_iri_bytes,
         };
         let retained_role_state = role_state.map(|value| Arc::clone(&value.retained));
-        let (edges, stats) = self.compile_owned(py, options, retained_role_state)?;
+        let (edges, stats, retained_role_use) =
+            self.compile_owned(py, options, retained_role_state)?;
         let statistics = direct_statistics_tuple(py, stats)?;
         self.batch_output
             .lock()
@@ -749,6 +751,7 @@ impl EncodedDirectCompiler {
                 PyRuntimeError::new_err("encoded direct batch output is permanently failed")
             })?
             .install(edges, batch_edges);
+        drop(retained_role_use);
         Ok(statistics)
     }
 
