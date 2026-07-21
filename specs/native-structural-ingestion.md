@@ -116,14 +116,14 @@ domain/range edges with that state through the existing projector `Edge` IR in c
 batches, without reconstructing core OWL values. The dedicated asserted-taxonomy API preflights
 the same slice but emits only named-to-named `SubClassOf` edges.
 
-For the hidden kernel-v32 iterator, caller-bounded means the Rust output itself is cursor-backed:
-preparation dry-runs exact emission one edge at a time after structural/count validation, publishes
-no partial session on failure, and retains no complete projected-edge vector. A drain clones the
-small cursor state, owns at most the configured edge count, and commits that state only after the
-Python batch has been constructed. GIL-detached generation does not hold the output mutex; a raced
-close discards the unpublished bounded batch. The legacy private coarse call may still request one
-materialized list. These facts remain hidden-checkpoint behavior, not public encoded-native
-acceptance.
+For the hidden kernel-v33 iterator, caller-bounded means the Rust output itself is cursor-backed.
+Exhaustive immutable structural, semantic, output-count, and capacity preflight publishes no
+partial session on failure and starts the cursor with zero emission attempts; there is no complete
+projected-edge vector or pre-publication output replay. A drain clones the small cursor state, owns
+at most the configured edge count, and commits that state only after the Python batch has been
+constructed. GIL-detached generation does not hold the output mutex; a raced close discards the
+unpublished bounded batch. The legacy private coarse call may still request one materialized list.
+These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and
 reproduce scalar `MOWL_IGNORED_SHAPE` counts by root constructor: complex/complex and

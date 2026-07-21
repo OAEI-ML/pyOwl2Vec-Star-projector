@@ -54,11 +54,12 @@ role-state handle. Ordered consumers and conflicting overwrites match the scalar
 an exact scalar-compatible shadow permits a one-way transition after any whole-operation native
 decline or other scalar selection. Retained subrole/inverse property counts are public-path-safe
 diagnostics. Kernel v32 replaces the hidden iterator's complete native output vector with a
-resumable cursor. Preparation validates the exact projected count with one-edge bounded dry
-emission, each drain buffers no more than the configured batch, and cursor movement commits only
-after Python list construction. The private counter ledger now separates compiled edges from zero
-vector-backed output edges and the peak buffered batch. Public dispatch remains unchanged and the
-encoded capability remains absent from the extension feature ledger.
+resumable cursor. Kernel v33 removes its redundant pre-publication emission replay: exhaustive
+immutable structural, semantic, count, and capacity preflight publishes the cursor with zero
+emission attempts. Each drain buffers no more than the configured batch, and cursor movement
+commits only after Python list construction. The private counter ledger separates compiled edges
+from zero vector-backed output edges and the peak buffered batch. Public dispatch remains unchanged
+and the encoded capability remains absent from the extension feature ledger.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

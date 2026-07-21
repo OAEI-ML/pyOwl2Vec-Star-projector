@@ -231,7 +231,9 @@ inverse-property map sizes without exposing IRIs. Hidden bounded-cursor checkpoi
 report the native compiled-edge count, zero or nonzero complete output-vector edge count, configured
 batch bound, native batch/boundary-call counts, and peak native buffered-output edges. The peak is
 bounded by the configured batch and is zero before the first drain; it does not count retained
-encoded input, role maps, or validation indexes. Zero operation counters assert that the projector
+encoded input, role maps, or validation indexes. Kernel-v33 source evidence additionally requires
+zero cursor emission attempts at preparation; output traversal begins at the first drain. Zero
+operation counters assert that the projector
 handoff itself did not perform that work; they do not describe acquisition completed before an
 existing view was supplied. The publication duration includes public encoded-view acquisition and
 the Projector adapter's in-place validation. These fields are monotonic, non-negative, path-free

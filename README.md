@@ -202,10 +202,10 @@ remains scalar. The hidden iterator does retain Scala-instance role maps nativel
 calls, while maintaining a scalar-compatible shadow and selecting the scalar lifecycle permanently
 after any native decline or other whole-operation scalar selection. Its native output is now a
 resumable cursor: each drain owns at most the configured batch, reports zero vector-backed output
-edges, and commits only after the Python list exists. Preparation still performs a complete
-bounded-memory dry emission before publishing the cursor. The exact installed-wheel candidate
-checkpoint is recorded in
-[`reports/p7/evidence/installed-bounded-cursor-checkpoint.json`](reports/p7/evidence/installed-bounded-cursor-checkpoint.json);
+edges, and commits only after the Python list exists. Exhaustive immutable-input and exact-count
+preflight remains fail-before-publication, but the cursor records zero emission attempts until the
+first caller drain. The exact installed-wheel candidate checkpoint is recorded in
+[`reports/p7/evidence/installed-lazy-cursor-checkpoint.json`](reports/p7/evidence/installed-lazy-cursor-checkpoint.json);
 it is explicitly private, incomplete, and not release-performance evidence.
 
 The lifecycle binding is independently hash-bound in
@@ -213,8 +213,8 @@ The lifecycle binding is independently hash-bound in
 Three native calls cover initial role acquisition, later restriction/domain/range consumption, and
 conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
 to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
-kernel v31; the cursor checkpoint advances the private kernel to v32 while the public feature
-ledger remains exactly `abi3-py310` and `bounded-batches`.
+kernel v31; the bounded and lazy cursor checkpoints advance the private kernel through v32 and v33
+while the public feature ledger remains exactly `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
 annotations. Kernel v30 retains an unequal exact-direct root table alongside the closure and joins
