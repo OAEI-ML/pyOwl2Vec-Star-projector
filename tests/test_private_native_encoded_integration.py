@@ -458,6 +458,142 @@ def test_hidden_iterator_keeps_scala_instance_role_lifecycle_on_scalar_path() ->
     assert not any(name.startswith("native_") for name in ingestion.counters)
 
 
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges", "ignored_shapes", "warnings"),
+    [
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                include_literals=True,
+            ),
+            7,
+            0,
+            1,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+                include_literals=True,
+            ),
+            8,
+            0,
+            1,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                only_taxonomy=True,
+                include_literals=True,
+            ),
+            6,
+            1,
+            1,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                include_literals=False,
+            ),
+            2,
+            0,
+            0,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_fully_selected_class_annotations(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+    ignored_shapes: int,
+    warnings: int,
+) -> None:
+    label = "<http://www.w3.org/2000/01/rdf-schema#label>"
+    comment = "<http://www.w3.org/2000/01/rdf-schema#comment>"
+    integer = "<http://www.w3.org/2001/XMLSchema#integer>"
+    view = _snapshot(
+        "Declaration(Class(:A)) SubClassOf(:A :Top) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        f"AnnotationAssertion({label} :A <urn:value>) "
+        f'AnnotationAssertion({comment} :A "bonjour"@fr) '
+        f'AnnotationAssertion({label} :A "7"^^{integer}) '
+        f'AnnotationAssertion({label} :A "duplicate") '
+        f'AnnotationAssertion(Annotation(<urn:meta> "variant") {label} :A "duplicate")'
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
+    assert actual_report.provenance.counts.warnings == warnings
+    expected_codes = (
+        ("MOWL_IGNORED_SHAPE", "MOWL_NON_STRING_LITERAL_RENDERING")
+        if ignored_shapes and warnings
+        else ("MOWL_NON_STRING_LITERAL_RENDERING",)
+        if warnings
+        else ()
+    )
+    assert tuple(item.code for item in actual_report.diagnostics) == expected_codes
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+
+
+def test_hidden_iterator_annotation_selection_is_option_dependent() -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) AnnotationAssertion(<urn:unsupported> :A \"ignored\")"
+    )
+    for include_literals, expected_path in ((False, "encoded-native"), (True, "scalar-native")):
+        python_options = ProjectionOptions(
+            backend="python",
+            order="encounter",
+            include_literals=include_literals,
+        )
+        expected_projector = Projector()
+        expected = expected_projector.project(view, options=python_options)
+        expected_report = _completed_report(expected_projector)
+
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=2,
+            )
+        )
+        actual_report = _completed_report(native_projector)
+
+        assert actual == expected == []
+        _assert_semantic_report_parity(expected_report, actual_report)
+        assert actual_report.provenance.ingestion.path == expected_path
+        if include_literals:
+            assert actual_report.provenance.ingestion.reason is not None
+            assert actual_report.provenance.counts.ignored_shapes == 1
+        else:
+            assert actual_report.provenance.ingestion.reason is None
+            assert actual_report.provenance.counts.ignored_shapes == 0
+
+
 def test_public_iterator_keeps_private_capability_and_dispatch_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -551,7 +687,7 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
         "private native batch integration accepts only declarations and diagnostic-free named "
         "subclass or supported restriction, equivalence, class-assertion, or "
         "object-property-assertion axioms, direct named/inverse role maps, plus one complete "
-        "named domain/range product"
+        "named domain/range product and fully selected class annotations"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None

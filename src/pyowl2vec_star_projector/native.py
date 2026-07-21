@@ -603,21 +603,32 @@ class NativeEncodedDirectCompilation:
 
     @property
     def diagnostics(self) -> tuple[ProjectionDiagnostic, ...]:
-        ignored = (
+        diagnostics: list[ProjectionDiagnostic] = []
+        ignored_restrictions = (
             self.native_statistics.restriction_subclasses
             if self.options.only_taxonomy
             else 0
         )
-        if ignored == 0:
-            return ()
-        return (
-            ProjectionDiagnostic(
-                code="MOWL_IGNORED_SHAPE",
-                message="constructor does not emit an edge in the pinned profile",
-                count=ignored,
-                constructor="SubClassOf",
-            ),
-        )
+        if ignored_restrictions:
+            diagnostics.append(
+                ProjectionDiagnostic(
+                    code="MOWL_IGNORED_SHAPE",
+                    message="constructor does not emit an edge in the pinned profile",
+                    count=ignored_restrictions,
+                    constructor="SubClassOf",
+                )
+            )
+        if self.native_statistics.non_string_literal_renderings:
+            diagnostics.append(
+                ProjectionDiagnostic(
+                    code="MOWL_NON_STRING_LITERAL_RENDERING",
+                    message="pinned mOWL rendering preserves malformed datatype syntax",
+                    severity="warning",
+                    count=self.native_statistics.non_string_literal_renderings,
+                    constructor="Literal",
+                )
+            )
+        return tuple(diagnostics)
 
     def prepare_role_state(self) -> None:
         if self.options.compatibility_state != "isolated":  # pragma: no cover - preparation gate
@@ -715,6 +726,9 @@ def prepare_native_encoded_compilation(
             == native_statistics.object_property_domains
             * native_statistics.object_property_ranges
         )
+        expected_annotation_edges = (
+            native_statistics.annotation_assertions if options.include_literals else 0
+        )
         expected_edges = (
             taxonomy_edges
             + restriction_edges
@@ -722,6 +736,7 @@ def prepare_native_encoded_compilation(
             + native_statistics.object_property_assertions
             + native_statistics.domain_range_edges
             + native_statistics.role_expansion_edges
+            + expected_annotation_edges
         )
         admitted_roots = (
             native_statistics.declarations
@@ -733,6 +748,7 @@ def prepare_native_encoded_compilation(
             + native_statistics.object_property_ranges
             + native_statistics.sub_object_properties
             + native_statistics.inverse_object_properties
+            + native_statistics.annotation_assertions
         )
         exact_named_edges = (
             native_statistics.roots
@@ -745,8 +761,9 @@ def prepare_native_encoded_compilation(
             and native_statistics.aggregate_equivalents == 0
             and native_statistics.ignored_class_assertions == 0
             and native_statistics.object_property_chains == 0
-            and native_statistics.annotation_edges == 0
-            and native_statistics.non_string_literal_renderings == 0
+            and native_statistics.annotation_edges == expected_annotation_edges
+            and native_statistics.non_string_literal_renderings
+            <= expected_annotation_edges
             and complete_domain_range_product
             and native_statistics.edges == expected_edges
             and native_statistics.skipped_axioms == 0
@@ -758,7 +775,7 @@ def prepare_native_encoded_compilation(
                 "private native batch integration accepts only declarations and diagnostic-free "
                 "named subclass or supported restriction, equivalence, class-assertion, or "
                 "object-property-assertion axioms, direct named/inverse role maps, plus one "
-                "complete named domain/range product",
+                "complete named domain/range product and fully selected class annotations",
             )
         return (
             NativeEncodedDirectCompilation(
