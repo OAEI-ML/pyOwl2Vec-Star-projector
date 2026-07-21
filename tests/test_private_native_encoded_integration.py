@@ -126,6 +126,78 @@ def _imported_snapshot_with_anonymous_annotation_values() -> object:
     )
 
 
+def _diamond_import_snapshot() -> object:
+    label = b"<http://www.w3.org/2000/01/rdf-schema#label>"
+    root = (
+        b"Prefix(:=<urn:diamond#>) Ontology(<urn:diamond-root> "
+        b"Import(<urn:diamond-left>) Import(<urn:diamond-right>) "
+        b"SubClassOf(:Root :Top) AnnotationAssertion("
+        + label
+        + b' :Root "root"))'
+    )
+    left = (
+        b"Prefix(:=<urn:diamond#>) Ontology(<urn:diamond-left> "
+        b"Import(<urn:diamond-common>) SubClassOf(:Left :Top) AnnotationAssertion("
+        + label
+        + b' :Left "left"))'
+    )
+    right = (
+        b"Prefix(:=<urn:diamond#>) Ontology(<urn:diamond-right> "
+        b"Import(<urn:diamond-common>) SubClassOf(:Right :Top) AnnotationAssertion("
+        + label
+        + b' :Right "right"))'
+    )
+    common = (
+        b"Prefix(:=<urn:diamond#>) Ontology(<urn:diamond-common> "
+        b"SubClassOf(:Common :Top) AnnotationAssertion("
+        + label
+        + b' :Common "common"))'
+    )
+    return pyowl_core.load_snapshot(
+        root,
+        options=pyowl_core.LoadOptions(
+            imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
+            backend=pyowl_core.BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver(
+            {
+                "urn:diamond-left": left,
+                "urn:diamond-right": right,
+                "urn:diamond-common": common,
+            }
+        ),
+    )
+
+
+def _cyclic_import_snapshot() -> object:
+    label = b"<http://www.w3.org/2000/01/rdf-schema#label>"
+    first = (
+        b"Prefix(:=<urn:cycle#>) Ontology(<urn:cycle-a> Import(<urn:cycle-b>) "
+        b"SubClassOf(:A :Top) AnnotationAssertion("
+        + label
+        + b' :A "a-root"))'
+    )
+    second = (
+        b"Prefix(:=<urn:cycle#>) Ontology(<urn:cycle-b> Import(<urn:cycle-a>) "
+        b"SubClassOf(:B :Top) AnnotationAssertion("
+        + label
+        + b' :B "b-imported"))'
+    )
+    return pyowl_core.load_snapshot(
+        first,
+        options=pyowl_core.LoadOptions(
+            imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
+            backend=pyowl_core.BackendPreference.PYTHON,
+        ),
+        resolver=pyowl_core.MappingResolver(
+            {
+                "urn:cycle-a": first,
+                "urn:cycle-b": second,
+            }
+        ),
+    )
+
+
 def _swrl_snapshot(body: str) -> object:
     source = f"Prefix(:=<urn:native-integration#>) Ontology(<urn:native-integration> {body})"
     options = pyowl_core.LoadOptions(
@@ -1091,6 +1163,57 @@ def test_hidden_iterator_does_not_root_preflight_annotation_free_imports() -> No
     assert actual == expected
     _assert_semantic_report_parity(expected_report, actual_report)
     assert actual_report.provenance.ingestion.path == "encoded-native"
+
+
+@pytest.mark.parametrize(
+    ("view_factory", "expected_edges", "root_label"),
+    [
+        (_diamond_import_snapshot, 5, "root"),
+        (_cyclic_import_snapshot, 3, "a-root"),
+    ],
+    ids=["diamond", "cycle"],
+)
+def test_hidden_iterator_joins_root_annotations_across_import_topologies(
+    view_factory: Any,
+    expected_edges: int,
+    root_label: str,
+) -> None:
+    view = view_factory()
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("import topology reached scalar traversal"),
+    ):
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=2,
+                streaming_limits=StreamingLimits(max_total_edges=expected_edges),
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    assert len(actual) == expected_edges
+    labels = [edge.destination for edge in actual if edge.relation == "rdfs:label"]
+    assert labels == [root_label]
+    _assert_semantic_report_parity(expected_report, actual_report)
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_segment_count"] == 2
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
 def test_hidden_iterator_keeps_imported_annotations_unobserved_on_native_path() -> None:
