@@ -721,6 +721,7 @@ def prepare_native_encoded_compilation(
             + native_statistics.class_assertions
             + native_statistics.object_property_assertions
             + native_statistics.domain_range_edges
+            + native_statistics.role_expansion_edges
         )
         admitted_roots = (
             native_statistics.declarations
@@ -730,6 +731,8 @@ def prepare_native_encoded_compilation(
             + native_statistics.object_property_assertions
             + native_statistics.object_property_domains
             + native_statistics.object_property_ranges
+            + native_statistics.sub_object_properties
+            + native_statistics.inverse_object_properties
         )
         exact_named_edges = (
             native_statistics.roots
@@ -741,10 +744,10 @@ def prepare_native_encoded_compilation(
             and native_statistics.ignored_subclasses == 0
             and native_statistics.aggregate_equivalents == 0
             and native_statistics.ignored_class_assertions == 0
+            and native_statistics.object_property_chains == 0
             and native_statistics.annotation_edges == 0
             and native_statistics.non_string_literal_renderings == 0
             and complete_domain_range_product
-            and native_statistics.role_expansion_edges == 0
             and native_statistics.edges == expected_edges
             and native_statistics.skipped_axioms == 0
         )
@@ -754,7 +757,8 @@ def prepare_native_encoded_compilation(
                 None,
                 "private native batch integration accepts only declarations and diagnostic-free "
                 "named subclass or supported restriction, equivalence, class-assertion, or "
-                "object-property-assertion axioms plus one complete named domain/range product",
+                "object-property-assertion axioms, direct named/inverse role maps, plus one "
+                "complete named domain/range product",
             )
         return (
             NativeEncodedDirectCompilation(
