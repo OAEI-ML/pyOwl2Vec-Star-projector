@@ -33,7 +33,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 37;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 38;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -925,7 +925,9 @@ impl EncodedDirectCompiler {
         max_edges,
         max_iri_bytes,
         batch_edges,
+        compiler_owner,
         statistics_factory,
+        iterator_factory,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
@@ -939,7 +941,9 @@ impl EncodedDirectCompiler {
         max_edges: usize,
         max_iri_bytes: usize,
         batch_edges: usize,
+        compiler_owner: &Bound<'_, PyAny>,
         statistics_factory: &Bound<'_, PyAny>,
+        iterator_factory: &Bound<'_, PyAny>,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
@@ -969,15 +973,18 @@ impl EncodedDirectCompiler {
             let statistics = statistics_factory
                 .call1(direct_statistics_tuple(py, stats)?)?
                 .unbind();
+            let iterator = iterator_factory
+                .call1((compiler_owner, statistics.bind(py), batch_edges))?
+                .unbind();
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)
                 } else {
                     None
                 };
-            Ok((statistics, next_role_state))
+            Ok((iterator, next_role_state))
         });
-        let (statistics, next_role_state) = match result {
+        let (iterator, next_role_state) = match result {
             Ok(result) => result,
             Err(error) => return self.finish_result(Err(error)),
         };
@@ -1011,7 +1018,7 @@ impl EncodedDirectCompiler {
             output.install(stream, batch_edges);
         }
         drop(retained_role_use);
-        Ok(statistics)
+        Ok(iterator)
     }
 
     /// Return one final Edge tuple; cursor movement commits afterwards.

@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 37
+ENCODED_DIRECT_KERNEL_VERSION = 38
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -534,14 +534,16 @@ class NativeEncodedDirectCompiler:
             else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
         )
 
-        raw_stats = _call_encoded_direct(
+        raw_batches = _call_encoded_direct(
             self._module,
             lambda: self._kernel.compile_batches(
                 bidirectional,
                 max_edges,
                 max_iri_bytes,
                 batch_edges,
+                self,
                 NativeEncodedDirectStatistics,
+                NativeEncodedDirectBatchIterator,
                 asserted_taxonomy_only,
                 only_taxonomy,
                 include_literals,
@@ -549,19 +551,23 @@ class NativeEncodedDirectCompiler:
             ),
         )
         try:
-            if type(raw_stats) is not NativeEncodedDirectStatistics:
+            if type(raw_batches) is not NativeEncodedDirectBatchIterator:
                 raise ProjectionError(
                     "native encoded compiler returned an invalid streaming envelope"
                 )
-            statistics = raw_stats
+            statistics = raw_batches.statistics
             if (
-                statistics.buffer_bytes != expected_buffer_bytes
+                type(statistics) is not NativeEncodedDirectStatistics
+                or raw_batches._compiler is not self
+                or raw_batches.batch_edges != batch_edges
+                or raw_batches.yielded_edges != 0
+                or statistics.buffer_bytes != expected_buffer_bytes
                 or statistics.root_provenance_buffer_bytes != expected_root_bytes
             ):
                 raise ProjectionError(
                     "native encoded compiler statistics do not match its retained input"
                 )
-            return NativeEncodedDirectBatchIterator(self, statistics, batch_edges)
+            return raw_batches
         except Exception:
             _close_encoded_batches_quietly(self)
             raise

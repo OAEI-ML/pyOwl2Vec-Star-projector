@@ -5173,6 +5173,56 @@ def test_private_native_batch_statistics_factory_is_in_session_transaction(
     assert role_state.inverse_property_count == 0
 
 
+def test_private_native_batch_iterator_factory_is_in_session_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    iterator_calls = 0
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+
+    def failing_iterator(
+        compiler_owner: NativeEncodedDirectCompiler,
+        statistics: NativeEncodedDirectStatistics,
+        batch_edges: int,
+    ) -> NativeEncodedDirectBatchIterator:
+        nonlocal iterator_calls
+        iterator_calls += 1
+        assert compiler_owner is compiler
+        assert type(statistics) is NativeEncodedDirectStatistics
+        assert statistics.edges == 3
+        assert batch_edges == 2
+        raise MemoryError("injected final batch iterator construction failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "pyowl2vec_star_projector.native.NativeEncodedDirectBatchIterator",
+            failing_iterator,
+        )
+        with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+            compiler.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+                role_state=role_state,
+            )
+
+    assert iterator_calls == 1
+    assert compiler.state == "failed"
+    assert compiler._kernel.batch_state == "absent"
+    assert compiler._kernel.remaining_batch_edges == 0
+    assert compiler._kernel.batch_boundary_calls == 0
+    assert compiler._kernel.emitted_edge_batches == 0
+    assert compiler._kernel.peak_buffered_batch_edges == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+
 def test_private_native_coarse_list_uses_bounded_internal_chunks() -> None:
     edge_count = 600
     view = _snapshot(
