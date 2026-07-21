@@ -353,6 +353,20 @@ def _lease(view: object) -> EncodedStructuralLease:
     )
 
 
+def _root_lease(view: object) -> EncodedStructuralLease:
+    encoded = cast(Any, view).view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.ROOT,
+    )
+    return _validate_encoded_view(
+        view,
+        encoded,
+        pyowl_core.EncodedStructuralView,
+        pyowl_core.AxiomScope.ROOT,
+    )
+
+
 def _replace_buffers(
     lease: EncodedStructuralLease,
     replacements: dict[str, memoryview],
@@ -2237,6 +2251,75 @@ def test_many_annotation_metadata_roots_cross_one_zero_output_bounded_call() -> 
     assert statistics.annotation_property_ranges == 62
     assert statistics.skipped_axioms == 187
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
+
+
+@pytest.mark.parametrize("corrupt_table", ["closure", "root-provenance"])
+def test_cyclic_annotation_metadata_graph_fails_before_output(corrupt_table: str) -> None:
+    view = _snapshot(
+        "SubClassOf(:Before :After) "
+        "AnnotationAssertion(Annotation(Annotation(<urn:inner> <urn:value>) "
+        '<urn:outer> "metadata") '
+        '<http://www.w3.org/2000/01/rdf-schema#label> :Before "label")'
+    )
+    closure = _lease(view)
+    target = closure if corrupt_table == "closure" else _root_lease(view)
+    tags = target.buffers["node_tags"]
+    offsets = target.buffers["node_field_offsets"]
+    field_values = target.buffers["field_values"]
+    field_lengths = target.buffers["field_lengths"]
+
+    cyclic_annotation = None
+    cyclic_item_start = None
+    for node_id in range(1, tags.nbytes // 2 + 1):
+        tag = int.from_bytes(tags[(node_id - 1) * 2 : node_id * 2], "little")
+        if tag != 5:
+            continue
+        field_start = int.from_bytes(
+            offsets[(node_id - 1) * 8 : node_id * 8],
+            "little",
+        )
+        annotation_set_field = field_start + 2
+        length = int.from_bytes(
+            field_lengths[
+                annotation_set_field * 8 : (annotation_set_field + 1) * 8
+            ],
+            "little",
+        )
+        if length:
+            cyclic_annotation = node_id
+            cyclic_item_start = int.from_bytes(
+                field_values[
+                    annotation_set_field * 8 : (annotation_set_field + 1) * 8
+                ],
+                "little",
+            )
+            break
+    assert cyclic_annotation is not None
+    assert cyclic_item_start is not None
+
+    item_values = bytearray(target.buffers["item_values"])
+    item_values[cyclic_item_start * 8 : (cyclic_item_start + 1) * 8] = (
+        cyclic_annotation.to_bytes(8, "little")
+    )
+    hostile = _replace_buffers(
+        target,
+        {"item_values": memoryview(bytes(item_values))},
+    )
+    compiler = prepare_native_encoded_direct(
+        hostile if corrupt_table == "closure" else closure,
+        root_annotation_lease=(hostile if corrupt_table == "root-provenance" else None),
+    )
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="annotation metadata graph is cyclic",
+    ):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
 
 
 def test_annotation_edge_limit_and_anonymous_values_match_scalar_ids() -> None:

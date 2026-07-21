@@ -1458,6 +1458,90 @@ impl<'a> DirectColumns<'a> {
         self.validate_annotation_set(start + 2)
     }
 
+    /// Reject cycles in nested annotation metadata without recursive Rust calls.
+    ///
+    /// Structural-columns snapshots originate from immutable OWL values, so an
+    /// Annotation can share nested metadata but cannot contain itself, directly
+    /// or transitively.  Hostile columns can forge such a cycle while preserving
+    /// every local tag and arity invariant; validate the complete graph before
+    /// any edge vector is allocated or root-provenance identities are compared.
+    fn validate_annotation_graph(self, state: &AtomicU8) -> Result<(), KernelError> {
+        let mut has_nested_annotations = false;
+        for node_id in 1..=self.node_count() {
+            check_cancel(state, node_id)?;
+            if self.node_tag(node_id)? != TAG_ANNOTATION {
+                continue;
+            }
+            let start = self.exact_fields(node_id, 3)?;
+            let (_item_start, length) = self.node_set_range(start + 2, 0)?;
+            if length != 0 {
+                has_nested_annotations = true;
+                break;
+            }
+        }
+        if !has_nested_annotations {
+            return Ok(());
+        }
+
+        let color_length = self.node_count().checked_add(1).ok_or_else(|| {
+            KernelError::resource("encoded annotation graph color length overflow")
+        })?;
+        let mut colors = Vec::new();
+        colors.try_reserve_exact(color_length).map_err(|_| {
+            KernelError::resource("encoded annotation graph color allocation failed")
+        })?;
+        colors.resize(color_length, 0_u8);
+        let mut stack = Vec::new();
+        let mut work_index = 0_usize;
+
+        for start_id in 1..=self.node_count() {
+            if self.node_tag(start_id)? != TAG_ANNOTATION || colors[start_id] == 2 {
+                continue;
+            }
+            queue_annotation_event(&mut stack, start_id, false)?;
+            while let Some((node_id, exiting)) = stack.pop() {
+                check_cancel(state, work_index)?;
+                work_index = work_index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded annotation graph traversal overflow")
+                })?;
+                if exiting {
+                    colors[node_id] = 2;
+                    continue;
+                }
+                match colors[node_id] {
+                    2 => continue,
+                    1 => {
+                        return Err(KernelError::malformed(
+                            "encoded annotation metadata graph is cyclic",
+                        ));
+                    }
+                    _ => {}
+                }
+                colors[node_id] = 1;
+                queue_annotation_event(&mut stack, node_id, true)?;
+                let start = self.exact_fields(node_id, 3)?;
+                let (item_start, length) = self.node_set_range(start + 2, 0)?;
+                for item_index in (item_start..item_start + length).rev() {
+                    let child = self.item_node(item_index)?;
+                    if self.node_tag(child)? != TAG_ANNOTATION {
+                        return Err(KernelError::malformed(
+                            "encoded annotation set item does not reference an Annotation",
+                        ));
+                    }
+                    if colors[child] == 1 {
+                        return Err(KernelError::malformed(
+                            "encoded annotation metadata graph is cyclic",
+                        ));
+                    }
+                    if colors[child] == 0 {
+                        queue_annotation_event(&mut stack, child, false)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn validate_annotation_assertion(
         self,
         node_id: usize,
@@ -3228,6 +3312,7 @@ impl<'a> DirectColumns<'a> {
                 }
             }
         }
+        self.validate_annotation_graph(state)?;
         self.validate_recursive_class_expression_graph(state)?;
         self.validate_data_range_graph(maximum_iri, state)
     }
@@ -4849,6 +4934,18 @@ fn queue_data_range_event(
     Ok(())
 }
 
+fn queue_annotation_event(
+    stack: &mut Vec<(usize, bool)>,
+    node_id: usize,
+    exiting: bool,
+) -> Result<(), KernelError> {
+    stack
+        .try_reserve(1)
+        .map_err(|_| KernelError::resource("encoded annotation graph stack allocation failed"))?;
+    stack.push((node_id, exiting));
+    Ok(())
+}
+
 fn queue_recursive_class_event(
     stack: &mut Vec<(usize, bool)>,
     node_id: usize,
@@ -5825,6 +5922,39 @@ mod tests {
         fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 4]);
         for root_id in 17_u32..=20 {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
+    fn deep_annotation_metadata_fixture(depth: usize, cyclic: bool) -> Fixture {
+        assert!(depth > 0);
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:annotation-property".as_slice(), XSD_STRING.as_bytes()] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=2
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 3
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(2);
+        fixture.finish_node(TAG_ENTITY); // 4
+        fixture.push_scalar(COMPONENT_TEXT, b"metadata");
+        fixture.push_node_ref(4);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 5
+
+        for index in 0..depth {
+            fixture.push_node_ref(3);
+            fixture.push_node_ref(5);
+            if index + 1 < depth {
+                fixture.push_node_set(&[(7 + index) as u64]);
+            } else if cyclic {
+                fixture.push_node_set(&[6]);
+            } else {
+                fixture.push_empty_set();
+            }
+            fixture.finish_node(TAG_ANNOTATION); // 6..=5 + depth
         }
         fixture
     }
@@ -6969,6 +7099,77 @@ mod tests {
                 &running_state(),
             ),
             Err(KernelError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn deep_annotation_metadata_graph_is_validated_iteratively() {
+        let fixture = deep_annotation_metadata_fixture(4096, false);
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(edges.is_empty());
+        assert_eq!(stats.roots, 0);
+    }
+
+    #[test]
+    fn cyclic_annotation_metadata_graphs_fail_before_output() {
+        for depth in [1, 2] {
+            let fixture = deep_annotation_metadata_fixture(depth, true);
+            assert!(matches!(
+                compile_direct(
+                    fixture.columns(),
+                    false,
+                    false,
+                    false,
+                    1,
+                    1024,
+                    &running_state(),
+                ),
+                Err(KernelError::Malformed(message))
+                    if message.contains("annotation metadata graph is cyclic")
+            ));
+        }
+    }
+
+    #[test]
+    fn cyclic_root_annotation_metadata_fails_before_provenance_join() {
+        let closure = annotation_metadata_root_fixture();
+        let mut root = annotation_metadata_root_fixture();
+        let item_start = {
+            let columns = root.columns();
+            let start = columns.exact_fields(16, 3).unwrap();
+            let (item_start, length) = columns.node_set_range(start + 2, 0).unwrap();
+            assert_eq!(length, 1);
+            item_start
+        };
+        root.item_values[item_start * 8..(item_start + 1) * 8]
+            .copy_from_slice(&16_u64.to_le_bytes());
+
+        assert!(matches!(
+            compile_direct_with_retained_role_state(
+                closure.columns(),
+                Some(root.columns()),
+                DirectCompileOptions {
+                    bidirectional: false,
+                    asserted_taxonomy_only: false,
+                    only_taxonomy: false,
+                    include_literals: true,
+                    max_edges: 1,
+                    max_iri_bytes: 1024,
+                },
+                &running_state(),
+                None,
+            ),
+            Err(KernelError::Malformed(message))
+                if message.contains("annotation metadata graph is cyclic")
         ));
     }
 
