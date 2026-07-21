@@ -7,6 +7,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Exact installed-wheel P7 evidence that the private root-provenance join preserves root-only
+  annotations across diamond import deduplication and cyclic import closures without scalar
+  materialization; the encoded compiler remains unadvertised.
 - Private kernel-v30 root-provenance joining for exact-direct multi-document annotation
   projection, with closure-wide anonymous identifiers and explicit auxiliary-buffer counters; the
   encoded structural compiler remains unadvertised.

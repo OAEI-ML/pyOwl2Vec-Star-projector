@@ -36,7 +36,9 @@ sliced, mmap, or non-bytes exporters remain unsupported. The safe generic PyO3 b
 unavailable at the current `abi3-py310` floor, so general mmap ownership remains an explicit design
 blocker. Kernel v31 additionally rejects cycles in nested annotation metadata with an iterative
 preflight over both closure and retained root tables. This closes a hostile structural-columns
-case without advertising the encoded compiler or changing valid projection output.
+case without advertising the encoded compiler or changing valid projection output. Exact installed
+diamond and cyclic import cases additionally prove that the v30 join's canonical root subset and
+closure deduplication remain correct beyond a one-level import.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

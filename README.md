@@ -223,6 +223,13 @@ fail-before-output rejection. The exact installed correctness checkpoint is reco
 [`reports/p7/evidence/installed-annotation-cycle-checkpoint.json`](reports/p7/evidence/installed-annotation-cycle-checkpoint.json);
 the public feature ledger remains unchanged.
 
+The same v31 boundary is installed-tested over diamond and cyclic import graphs. A shared diamond
+member is projected once, a two-document cycle terminates with both taxonomy edges, and in each
+topology only the root document's annotation remains visible. Both runs retain the independent
+closure/root tables, apply the exact selected-edge limit, and report zero scalar materialization.
+The hash-bound record is
+[`reports/p7/evidence/installed-import-topology-checkpoint.json`](reports/p7/evidence/installed-import-topology-checkpoint.json).
+
 ## Optional native build
 
 Every distribution contains the complete Python backend. The default build is always the

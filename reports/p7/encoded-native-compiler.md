@@ -462,20 +462,43 @@ the environment has wheel 0.47.0 rather than the pinned 0.46.3, so this remains 
 checkpoint evidence with no release or performance claim. Exact hashes and caveats are recorded in
 [`installed-annotation-cycle-checkpoint.json`](evidence/installed-annotation-cycle-checkpoint.json).
 
+## Diamond and cyclic import provenance
+
+Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
+proof beyond a one-level import. The diamond fixture has two branches importing one shared member;
+the cyclic fixture has two ontologies importing each other. In both cases the public core resolves
+the complete closure before the private compiler receives its canonical closure and root tables.
+
+The hidden native iterator matched scalar encounter order and report semantics. The diamond emitted
+four unique taxonomy edges plus the root label, proving that the shared member was visited once and
+all three imported labels were suppressed. The cycle emitted both taxonomy edges plus the root
+label and suppressed the imported label. Each run used its exact selected output count as the native
+edge limit, retained 22 zero-copy buffers across two direct table segments, and reported zero scalar
+axiom or term materialization.
+
+An isolated CPython 3.12 environment installed a release-profile native wheel built from an exact
+archive of the revision above and the bound pyOWLCore `6750aa0` wheel. Both topology cases passed;
+kernel metadata remained v31 and the feature ledger remained only `abi3-py310` and
+`bounded-batches`. As with the adjacent checkpoints, dependency validation was skipped because the
+environment has wheel 0.47.0 rather than the pinned 0.46.3. This is correctness evidence, not a
+release or performance claim. Exact artifact hashes are recorded in
+[`installed-import-topology-checkpoint.json`](evidence/installed-import-topology-checkpoint.json).
+
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`2ccbffe`:
+`18ed10e`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 36 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 219 passed |
-| Foundation plus private-integration tests | 270 passed |
-| Complete projector test suite | 1,108 passed |
+| Foundation plus private-integration tests | 272 passed |
+| Complete projector test suite | 1,110 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
+| Exact installed native-wheel import-topology cases | 2 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
