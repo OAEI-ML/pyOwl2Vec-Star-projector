@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 38
+ENCODED_DIRECT_KERNEL_VERSION = 39
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -214,6 +214,10 @@ class NativeEncodedDirectStatistics:
                 "structural_copy_bytes": 0,
             }
         )
+
+
+# Preserve canonical identities while tests or embedding code replace the callable factories.
+_NATIVE_ENCODED_DIRECT_STATISTICS_TYPE = NativeEncodedDirectStatistics
 
 
 def _native_skipped_counts(
@@ -543,7 +547,9 @@ class NativeEncodedDirectCompiler:
                 batch_edges,
                 self,
                 NativeEncodedDirectStatistics,
+                _NATIVE_ENCODED_DIRECT_STATISTICS_TYPE,
                 NativeEncodedDirectBatchIterator,
+                _NATIVE_ENCODED_DIRECT_BATCH_ITERATOR_TYPE,
                 asserted_taxonomy_only,
                 only_taxonomy,
                 include_literals,
@@ -814,6 +820,10 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
         except Exception:
             pass
         self._compiler = None
+
+
+# Match a replaceable iterator factory against the import-time canonical type.
+_NATIVE_ENCODED_DIRECT_BATCH_ITERATOR_TYPE = NativeEncodedDirectBatchIterator
 
 
 @dataclass(slots=True)

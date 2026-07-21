@@ -33,7 +33,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 38;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 39;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -927,7 +927,9 @@ impl EncodedDirectCompiler {
         batch_edges,
         compiler_owner,
         statistics_factory,
+        statistics_type,
         iterator_factory,
+        iterator_type,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
@@ -943,7 +945,9 @@ impl EncodedDirectCompiler {
         batch_edges: usize,
         compiler_owner: &Bound<'_, PyAny>,
         statistics_factory: &Bound<'_, PyAny>,
+        statistics_type: &Bound<'_, PyAny>,
         iterator_factory: &Bound<'_, PyAny>,
+        iterator_type: &Bound<'_, PyAny>,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
@@ -973,9 +977,23 @@ impl EncodedDirectCompiler {
             let statistics = statistics_factory
                 .call1(direct_statistics_tuple(py, stats)?)?
                 .unbind();
+            if !statistics_factory.is(statistics_type)
+                || !statistics.bind(py).is_exact_instance(statistics_type)
+            {
+                return Err(PyValueError::new_err(
+                    "encoded direct statistics factory returned an invalid final object",
+                ));
+            }
             let iterator = iterator_factory
                 .call1((compiler_owner, statistics.bind(py), batch_edges))?
                 .unbind();
+            if !iterator_factory.is(iterator_type)
+                || !iterator.bind(py).is_exact_instance(iterator_type)
+            {
+                return Err(PyValueError::new_err(
+                    "encoded direct iterator factory returned an invalid final object",
+                ));
+            }
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)

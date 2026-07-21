@@ -35,6 +35,7 @@ from pyowl2vec_star_projector.encoded import (
 )
 from pyowl2vec_star_projector.encoded_compiler import prepare_encoded_subset_compilation
 from pyowl2vec_star_projector.errors import (
+    ProjectionError,
     SnapshotCompatibilityError,
     UnsupportedAxiomShapeError,
 )
@@ -5212,6 +5213,68 @@ def test_private_native_batch_iterator_factory_is_in_session_transaction(
             )
 
     assert iterator_calls == 1
+    assert compiler.state == "failed"
+    assert compiler._kernel.batch_state == "absent"
+    assert compiler._kernel.remaining_batch_edges == 0
+    assert compiler._kernel.batch_boundary_calls == 0
+    assert compiler._kernel.emitted_edge_batches == 0
+    assert compiler._kernel.peak_buffered_batch_edges == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+
+@pytest.mark.parametrize("factory_name", ("statistics", "iterator"))
+def test_private_native_batch_factory_results_are_validated_before_session_commit(
+    monkeypatch: pytest.MonkeyPatch,
+    factory_name: str,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    calls = {"statistics": 0, "iterator": 0}
+    observed_final_statistics = False
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+
+    def invalid_statistics(*values: int) -> object:
+        calls["statistics"] += 1
+        assert len(values) == 60
+        return object()
+
+    def invalid_iterator(
+        compiler_owner: NativeEncodedDirectCompiler,
+        statistics: NativeEncodedDirectStatistics,
+        batch_edges: int,
+    ) -> object:
+        nonlocal observed_final_statistics
+        calls["iterator"] += 1
+        assert compiler_owner is compiler
+        observed_final_statistics = type(statistics) is NativeEncodedDirectStatistics
+        assert statistics.edges == 3
+        assert batch_edges == 2
+        return object()
+
+    factory = invalid_statistics if factory_name == "statistics" else invalid_iterator
+    target = (
+        "NativeEncodedDirectStatistics"
+        if factory_name == "statistics"
+        else "NativeEncodedDirectBatchIterator"
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(f"pyowl2vec_star_projector.native.{target}", factory)
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            compiler.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+                role_state=role_state,
+            )
+
+    assert calls[factory_name] == 1
+    assert observed_final_statistics is (factory_name == "iterator")
     assert compiler.state == "failed"
     assert compiler._kernel.batch_state == "absent"
     assert compiler._kernel.remaining_batch_edges == 0
