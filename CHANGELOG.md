@@ -25,6 +25,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Fixed
 
+- Private kernel-v31 preflight now rejects direct or transitive cycles in nested annotation
+  metadata for both closure and retained root-provenance tables before allocation, joining, or
+  output; valid deeply nested metadata remains iterative and the capability stays unadvertised.
 - Release evidence no longer reports the successfully projected NCIT checkpoint as a parser
   blocker; the remaining corpus blockers are the unavailable GO/licensed-scale inputs and
   hosted/reference-machine release evidence.

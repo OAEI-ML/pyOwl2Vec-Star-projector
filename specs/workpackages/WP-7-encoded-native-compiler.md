@@ -34,7 +34,9 @@ visible multi-document annotations preserve root-only selection and closure-wide
 structural copying. Property-chain emission, other projecting constructors, segment traversal, and
 sliced, mmap, or non-bytes exporters remain unsupported. The safe generic PyO3 buffer API is
 unavailable at the current `abi3-py310` floor, so general mmap ownership remains an explicit design
-blocker.
+blocker. Kernel v31 additionally rejects cycles in nested annotation metadata with an iterative
+preflight over both closure and retained root tables. This closes a hostile structural-columns
+case without advertising the encoded compiler or changing valid projection output.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

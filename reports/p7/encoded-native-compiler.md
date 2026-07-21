@@ -438,19 +438,44 @@ small correctness checkpoint: dependency validation was skipped because the envi
 commands, counters, and blockers are recorded in
 [`installed-root-provenance-join-checkpoint.json`](evidence/installed-root-provenance-join-checkpoint.json).
 
+## Iterative annotation-metadata graph preflight
+
+Revision `2ccbffef3519a372075ed8528f4e2c20dd073e5c` advances the private contract to
+kernel v31. Earlier preflight validated every `Annotation` property, value, arity, and nested-set
+item locally, but a forged table could still point nested annotations back to themselves or an
+ancestor. Such a graph cannot originate from immutable OWL model values and must not be accepted as
+canonical structural input.
+
+The Rust decoder now performs a color-marked iterative graph walk after local node validation and
+before root classification, provenance matching, edge-limit calculation, or output allocation.
+Shared acyclic metadata remains valid, while self and transitive cycles fail with a stable malformed
+snapshot error. The same preflight runs independently for the closure and retained root-provenance
+table, preventing a cyclic forged root identity from reaching the structural join. A 4,096-level
+acyclic Rust fixture proves that validation does not consume the call stack.
+
+An isolated CPython 3.12 environment installed a release-profile native wheel built from an exact
+archive of the revision above alongside the previously bound pyOWLCore revision `6750aa0`. Both
+installed hostile cases passed: a cyclic closure and a cyclic retained root table each failed before
+the otherwise projectable taxonomy edge was published. Kernel metadata reported v31 and the feature
+ledger remained exactly `abi3-py310` and `bounded-batches`. Dependency validation was skipped because
+the environment has wheel 0.47.0 rather than the pinned 0.46.3, so this remains correctness-only
+checkpoint evidence with no release or performance claim. Exact hashes and caveats are recorded in
+[`installed-annotation-cycle-checkpoint.json`](evidence/installed-annotation-cycle-checkpoint.json).
+
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`86fd23b`:
+`2ccbffe`:
 
 | Gate | Result |
 |---|---|
-| Rust unit tests (`cargo test --no-default-features`) | 33 passed |
+| Rust unit tests (`cargo test --no-default-features`) | 36 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 217 passed |
-| Focused foundation/private-integration/benchmark/dispatch tests | 296 passed |
-| Complete projector test suite | 1,106 passed |
+| Private PyO3 foundation tests | 219 passed |
+| Foundation plus private-integration tests | 270 passed |
+| Complete projector test suite | 1,108 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
+| Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -604,7 +629,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 now joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs. Public Scala-instance lifecycle binding and remaining projecting rules/options/surfaces are unsupported |
+| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables. Public Scala-instance lifecycle binding and remaining projecting rules/options/surfaces are unsupported |
 | Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; one hidden named-edge iterator now consumes those batches through P4 policy, but Rust still materializes the full output vector and public iterator/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |

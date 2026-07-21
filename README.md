@@ -214,6 +214,15 @@ The source-built installed correctness checkpoint is recorded in
 it carries no release or performance claim. The preceding fail-closed fallback evidence remains in
 [`installed-annotation-provenance-checkpoint.json`](reports/p7/evidence/installed-annotation-provenance-checkpoint.json).
 
+Kernel v31 also closes a hostile-input hole in nested annotation metadata. Local annotation fields
+were already validated, but forged structural columns could form a self or transitive cycle while
+retaining valid tags and arities. The private kernel now performs an iterative graph preflight on
+both the closure and any retained root table before provenance matching or output allocation. A
+4,096-level acyclic chain and installed closure/root cycle cases prove stack-safe admission and
+fail-before-output rejection. The exact installed correctness checkpoint is recorded in
+[`reports/p7/evidence/installed-annotation-cycle-checkpoint.json`](reports/p7/evidence/installed-annotation-cycle-checkpoint.json);
+the public feature ledger remains unchanged.
+
 ## Optional native build
 
 Every distribution contains the complete Python backend. The default build is always the
