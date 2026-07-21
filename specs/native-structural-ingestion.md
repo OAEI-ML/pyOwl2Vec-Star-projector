@@ -124,7 +124,9 @@ at most the configured edge count, and commits that state only after the final P
 been constructed. Kernel v36 creates final `Edge` objects and their tuple inside that transaction,
 without an intermediate Python tuple-edge list; factory failure restores the unchanged cursor for
 an exact retry. Kernel v37 also constructs the final statistics object before installing that
-session or committing its retained role-state transition; failure publishes neither. GIL-detached
+session or committing its retained role-state transition; failure publishes neither. Kernel v38
+constructs the final owner-holding iterator wrapper after those statistics but before the same
+publication boundary; iterator allocation failure likewise publishes neither. GIL-detached
 generation does not hold the output mutex; a raced close discards the unpublished bounded batch.
 Kernel v34 routes the legacy private coarse call through the same cursor
 in fixed 256-edge native chunks. That call still returns one materialized Python list, but retains

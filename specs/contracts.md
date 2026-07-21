@@ -244,6 +244,9 @@ tuple to exist before cursor/counter commit. A final-edge factory failure leaves
 retryable. Kernel-v37 session evidence requires the final statistics object to exist before the
 batch session, compiler-finished state, or retained role transition is published. A failed
 statistics factory leaves the session absent, its counters zero, and retained roles unchanged.
+Kernel-v38 publication evidence additionally requires the final iterator wrapper, including its
+compiler owner and statistics references, to exist before those states publish. A failed iterator
+factory has the same absent-session, zero-counter, and unchanged-role outcome.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These

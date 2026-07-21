@@ -7,6 +7,11 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden iterator preparation now constructs its final iterator wrapper, including its compiler
+  owner and statistics references, before publishing the batch session or retained Scala
+  role-state transition. Injected iterator allocation failure publishes no session/counters,
+  releases exclusive role use, and leaves retained maps unchanged; the capability remains
+  unadvertised.
 - Hidden iterator preparation now constructs its final statistics object before publishing the
   batch session or retained Scala role-state transition. Injected statistics allocation failure
   publishes no session/counters, releases exclusive role use, and leaves retained maps unchanged;

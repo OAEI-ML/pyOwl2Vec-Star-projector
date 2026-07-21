@@ -61,8 +61,10 @@ commits only after final batch construction. Kernel v36 constructs the final `Ed
 that transaction, removes the wrapper's intermediate Python tuple-edge list, and restores the exact
 cursor/counters if a final-edge factory fails. Kernel v37 constructs final statistics before the
 session, compiler-finished state, and retained role transition are published; factory failure
-publishes none of them. The private counter ledger separates compiled edges from zero vector-backed
-output edges and the peak buffered batch. Kernel v34 also removes the
+publishes none of them. Kernel v38 also constructs the final owner-holding iterator after those
+statistics and before the same publication boundary; iterator factory failure publishes none of
+them. The private counter ledger separates compiled edges from zero vector-backed output edges and
+the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete
 Python output construction. Kernel v35 constructs final `Edge` and statistics objects in that
