@@ -200,6 +200,56 @@ class NativeEncodedDirectStatistics:
         )
 
 
+def _native_skipped_counts(
+    statistics: NativeEncodedDirectStatistics,
+) -> tuple[tuple[str, int], ...]:
+    """Return exact grouped scalar skip counts in diagnostic constructor order."""
+
+    return tuple(
+        sorted(
+            (
+                ("AnnotationPropertyDomain", statistics.annotation_property_domains),
+                ("AnnotationPropertyRange", statistics.annotation_property_ranges),
+                ("AsymmetricObjectProperty", statistics.asymmetric_object_properties),
+                ("DataPropertyAssertion", statistics.data_property_assertions),
+                ("DataPropertyDomain", statistics.data_property_domains),
+                ("DataPropertyRange", statistics.data_property_ranges),
+                ("DatatypeDefinition", statistics.datatype_definitions),
+                ("DifferentIndividuals", statistics.different_individuals),
+                ("DisjointClasses", statistics.disjoint_classes),
+                ("DisjointDataProperties", statistics.disjoint_data_properties),
+                ("DisjointObjectProperties", statistics.disjoint_object_properties),
+                ("DisjointUnion", statistics.disjoint_unions),
+                ("EquivalentDataProperties", statistics.equivalent_data_properties),
+                ("EquivalentObjectProperties", statistics.equivalent_object_properties),
+                ("FunctionalDataProperty", statistics.functional_data_properties),
+                ("FunctionalObjectProperty", statistics.functional_object_properties),
+                ("HasKey", statistics.has_keys),
+                (
+                    "InverseFunctionalObjectProperty",
+                    statistics.inverse_functional_object_properties,
+                ),
+                ("IrreflexiveObjectProperty", statistics.irreflexive_object_properties),
+                (
+                    "NegativeDataPropertyAssertion",
+                    statistics.negative_data_property_assertions,
+                ),
+                (
+                    "NegativeObjectPropertyAssertion",
+                    statistics.negative_object_property_assertions,
+                ),
+                ("ReflexiveObjectProperty", statistics.reflexive_object_properties),
+                ("SameIndividual", statistics.same_individuals),
+                ("SubAnnotationPropertyOf", statistics.sub_annotation_properties),
+                ("SubDataPropertyOf", statistics.sub_data_properties),
+                ("SymmetricObjectProperty", statistics.symmetric_object_properties),
+                ("TransitiveObjectProperty", statistics.transitive_object_properties),
+            ),
+            key=lambda item: item[0],
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class NativeEncodedDirectRoleState:
     """Private retained role maps for explicit Scala-instance parity."""
@@ -628,6 +678,16 @@ class NativeEncodedDirectCompilation:
                     constructor="Literal",
                 )
             )
+        diagnostics.extend(
+            ProjectionDiagnostic(
+                code="MOWL_SKIPPED_AXIOM",
+                message="axiom category is not visited by the pinned profile",
+                count=count,
+                constructor=constructor,
+            )
+            for constructor, count in _native_skipped_counts(self.native_statistics)
+            if count
+        )
         return tuple(diagnostics)
 
     def prepare_role_state(self) -> None:
@@ -729,6 +789,9 @@ def prepare_native_encoded_compilation(
         expected_annotation_edges = (
             native_statistics.annotation_assertions if options.include_literals else 0
         )
+        skipped_roots = sum(
+            count for _constructor, count in _native_skipped_counts(native_statistics)
+        )
         expected_edges = (
             taxonomy_edges
             + restriction_edges
@@ -749,23 +812,25 @@ def prepare_native_encoded_compilation(
             + native_statistics.sub_object_properties
             + native_statistics.inverse_object_properties
             + native_statistics.annotation_assertions
+            + native_statistics.ontology_annotations
+            + native_statistics.swrl_rules
+            + skipped_roots
         )
         exact_named_edges = (
             native_statistics.roots
             == admitted_roots
-            and native_statistics.ontology_annotations == 0
-            and native_statistics.swrl_rules == 0
             and native_statistics.restriction_subclasses <= native_statistics.subclasses
             and native_statistics.ignored_subclasses == 0
             and native_statistics.aggregate_equivalents == 0
             and native_statistics.ignored_class_assertions == 0
-            and native_statistics.object_property_chains == 0
+            and native_statistics.object_property_chains
+            <= native_statistics.sub_object_properties
             and native_statistics.annotation_edges == expected_annotation_edges
             and native_statistics.non_string_literal_renderings
             <= expected_annotation_edges
             and complete_domain_range_product
             and native_statistics.edges == expected_edges
-            and native_statistics.skipped_axioms == 0
+            and native_statistics.skipped_axioms == skipped_roots
         )
         if not exact_named_edges:
             batches.close()
@@ -775,7 +840,7 @@ def prepare_native_encoded_compilation(
                 "named subclass or supported restriction, equivalence, named class-assertion, or "
                 "supported-individual object-property-assertion axioms, direct named/inverse "
                 "role maps, plus one complete named domain/range product and fully selected "
-                "class annotations",
+                "class annotations with validated silent and skipped roots",
             )
         return (
             NativeEncodedDirectCompilation(
@@ -790,6 +855,8 @@ def prepare_native_encoded_compilation(
                         if options.only_taxonomy
                         else 0
                     )
+                    + native_statistics.object_property_chains,
+                    skipped_axioms=native_statistics.skipped_axioms,
                 ),
             ),
             None,

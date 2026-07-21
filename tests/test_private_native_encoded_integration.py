@@ -5,6 +5,7 @@ from typing import Any
 
 import pyowl_core
 import pytest
+from pyowl_core.backends.python import PythonParser
 
 import pyowl2vec_star_projector.api as api_module
 from pyowl2vec_star_projector import (
@@ -40,6 +41,16 @@ def _snapshot(body: str) -> object:
             backend=pyowl_core.BackendPreference.PYTHON,
         ),
     )
+
+
+def _swrl_snapshot(body: str) -> object:
+    source = f"Prefix(:=<urn:native-integration#>) Ontology(<urn:native-integration> {body})"
+    options = pyowl_core.LoadOptions(
+        imports=pyowl_core.ImportPolicy.IGNORE,
+        backend=pyowl_core.BackendPreference.PYTHON,
+    )
+    document = PythonParser().parse(source.encode(), options=options, allow_swrl=True)
+    return pyowl_core.load_snapshot(document, options=options)
 
 
 def _completed_report(projector: Projector) -> ProjectionReport:
@@ -663,6 +674,185 @@ def test_hidden_iterator_admits_anonymous_assertions_and_selected_values(
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
 
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges"),
+    [
+        (ProjectionOptions(backend="python", order="encounter"), 1),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+                only_taxonomy=True,
+            ),
+            2,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_exact_grouped_skipped_axioms(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) DisjointClasses(:A :B) DisjointUnion(:Defined :A :B) "
+        "HasKey(:A (:op) (:dp)) SameIndividual(:i :j) DifferentIndividuals(:i :j) "
+        "NegativeObjectPropertyAssertion(ObjectInverseOf(:op) :i :j) "
+        "EquivalentObjectProperties(:op ObjectInverseOf(:oq)) "
+        "DisjointObjectProperties(:op :oq) FunctionalObjectProperty(:op) "
+        "InverseFunctionalObjectProperty(ObjectInverseOf(:op)) "
+        "ReflexiveObjectProperty(:op) IrreflexiveObjectProperty(:op) "
+        "SymmetricObjectProperty(:op) AsymmetricObjectProperty(:op) "
+        "TransitiveObjectProperty(:op) SubDataPropertyOf(:dp :dq) "
+        "EquivalentDataProperties(:dp :dq) DisjointDataProperties(:dp :dq) "
+        "DataPropertyDomain(:dp :A) "
+        "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
+        "FunctionalDataProperty(:dp) "
+        "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>) "
+        "DataPropertyAssertion(:dp :i \"value\") "
+        "NegativeDataPropertyAssertion(:dp :i \"blocked\") "
+        "SubAnnotationPropertyOf(:ap :aq) AnnotationPropertyDomain(:ap <urn:domain>) "
+        "AnnotationPropertyRange(:ap <urn:range>)"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.counts.skipped_axioms == 27
+    assert all(item.code == "MOWL_SKIPPED_AXIOM" for item in actual_report.diagnostics)
+    assert tuple(item.constructor for item in actual_report.diagnostics) == (
+        "AnnotationPropertyDomain",
+        "AnnotationPropertyRange",
+        "AsymmetricObjectProperty",
+        "DataPropertyAssertion",
+        "DataPropertyDomain",
+        "DataPropertyRange",
+        "DatatypeDefinition",
+        "DifferentIndividuals",
+        "DisjointClasses",
+        "DisjointDataProperties",
+        "DisjointObjectProperties",
+        "DisjointUnion",
+        "EquivalentDataProperties",
+        "EquivalentObjectProperties",
+        "FunctionalDataProperty",
+        "FunctionalObjectProperty",
+        "HasKey",
+        "InverseFunctionalObjectProperty",
+        "IrreflexiveObjectProperty",
+        "NegativeDataPropertyAssertion",
+        "NegativeObjectPropertyAssertion",
+        "ReflexiveObjectProperty",
+        "SameIndividual",
+        "SubAnnotationPropertyOf",
+        "SubDataPropertyOf",
+        "SymmetricObjectProperty",
+        "TransitiveObjectProperty",
+    )
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+
+
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges", "ignored_shapes", "diagnostic_count"),
+    [
+        (ProjectionOptions(backend="python", order="encounter"), 2, 1, 0),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                only_taxonomy=True,
+            ),
+            0,
+            2,
+            1,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_ignored_property_chains_without_diagnostics(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+    ignored_shapes: int,
+    diagnostic_count: int,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(ObjectPropertyChain(:left :right) :p) "
+        "SubObjectPropertyOf(:child :p) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
+    assert len(actual_report.diagnostics) == diagnostic_count
+    assert actual_report.provenance.ingestion.path == "encoded-native"
+    assert actual_report.provenance.ingestion.counters["native_output_vector_edges"] == raw_edges
+
+
+def test_hidden_iterator_admits_silent_ontology_annotations_and_swrl() -> None:
+    label = "<http://www.w3.org/2000/01/rdf-schema#label>"
+    view = _swrl_snapshot(
+        'Annotation(<urn:ontology-meta> "silent") '
+        "SWRLRule((ClassAtom(:RuleClass Variable(:value))) ()) "
+        "SubClassOf(:A :B) "
+        f'AnnotationAssertion({label} :RuleClass "selected-from-rule-signature")'
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    assert len(actual) == 2
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.diagnostics == ()
+    assert actual_report.provenance.ingestion.path == "encoded-native"
+    assert actual_report.provenance.ingestion.counters["native_edge_batches"] == 2
+
+
 def test_public_iterator_keeps_private_capability_and_dispatch_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -699,21 +889,16 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
         "Declaration(Class(:A)) Declaration(Class(:B)) "
         "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B)) "
         "ClassAssertion(:A :individual)",
-        'ClassAssertion(:A :individual) DataPropertyAssertion(:dp :individual "value")',
         "ClassAssertion(:A _:anonymous) "
         "ObjectPropertyAssertion(:p _:anonymous :named)",
         "ObjectPropertyDomain(:p ObjectUnionOf(:A :B)) ObjectPropertyRange(:p :R)",
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:q :R)",
-        "SubObjectPropertyOf(ObjectPropertyChain(:left :right) :p) "
-        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))",
     ],
     ids=[
         "ignored-equivalence",
-        "skipped-data-assertion",
         "ignored-anonymous-class-assertion",
         "ignored-domain",
         "incomplete-domain-range-product",
-        "property-chain-role-map",
     ],
 )
 def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
@@ -758,6 +943,7 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
         "subclass or supported restriction, equivalence, named class-assertion, or "
         "supported-individual object-property-assertion axioms, direct named/inverse role maps, "
         "plus one complete named domain/range product and fully selected class annotations"
+        " with validated silent and skipped roots"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
