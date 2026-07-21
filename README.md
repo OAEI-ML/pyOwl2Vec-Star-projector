@@ -202,6 +202,15 @@ remains scalar. The exact installed-wheel checkpoint is recorded in
 [`reports/p7/evidence/installed-private-checkpoint.json`](reports/p7/evidence/installed-private-checkpoint.json);
 it is explicitly private, incomplete, and not release-performance evidence.
 
+The hidden candidate also proves root-scoped annotation provenance before admitting visible
+annotations. Byte-identical single-document root/closure tables remain native for both independent
+exact-byte and canonical packed providers. A different imported-closure selection, unavailable
+root scope, or non-direct/sliced exporter closes the unpublished native session and selects one
+whole-operation scalar compiler, preventing imported-only annotations from leaking into output.
+The installed correctness checkpoint and its assembly limitations are recorded in
+[`reports/p7/evidence/installed-annotation-provenance-checkpoint.json`](reports/p7/evidence/installed-annotation-provenance-checkpoint.json);
+it carries no release or performance claim.
+
 ## Optional native build
 
 Every distribution contains the complete Python backend. The default build is always the

@@ -198,9 +198,10 @@ def test_installed_private_checkpoint_is_hash_bound_and_explicitly_nonpublic() -
     assert projector["native_features"] == ["abi3-py310", "bounded-batches"]
     assert len(projector["native_sha256"]) == 64
     assert checkpoint["build_environment"]["dependency_check_skipped"] is True
-    assert checkpoint["build_environment"]["wheel_used"] != checkpoint["build_environment"][
-        "wheel_pinned"
-    ]
+    assert (
+        checkpoint["build_environment"]["wheel_used"]
+        != checkpoint["build_environment"]["wheel_pinned"]
+    )
 
     contract = checkpoint["exact_contract"]
     assert contract["edge_count"] == contract["counters"]["native_output_vector_edges"] == 11
@@ -223,5 +224,66 @@ def test_installed_private_checkpoint_is_hash_bound_and_explicitly_nonpublic() -
 
     assert checkpoint["pre_fix_observation"]["encoded_direct_kernel_version"] == 28
     assert checkpoint["pre_fix_observation"]["private_candidate_evidence_ready"] is False
+    assert checkpoint["known_blockers"]
+    assert checkpoint["limitations"]
+
+
+def test_installed_annotation_provenance_checkpoint_is_fail_closed_and_nonpublic() -> None:
+    path = (
+        Path(__file__).parents[1]
+        / "reports"
+        / "p7"
+        / "evidence"
+        / "installed-annotation-provenance-checkpoint.json"
+    )
+    checkpoint = json.loads(path.read_text(encoding="utf-8"))
+
+    assert checkpoint["schema"] == (
+        "pyowl-projector.p7-installed-annotation-provenance-checkpoint/1"
+    )
+    assert checkpoint["status"] == "checkpoint-only"
+    assert checkpoint["acceptance_complete"] is False
+    assert checkpoint["public_acceptance_ready"] is False
+    assert checkpoint["performance_claim"] is False
+    assert all(len(revision) == 40 for revision in checkpoint["source_revisions"].values())
+
+    construction = checkpoint["checkpoint_wheel_construction"]
+    assert construction["kind"] == "assembled-correctness-checkpoint"
+    assert construction["source_fallback_wheel_built_from_exact_projector_archive"] is True
+    assert construction["native_binary_transplanted_from_prior_installed_checkpoint"] is True
+    assert construction["native_tree_matches_donor_revision"] is True
+    assert construction["rust_source_build_available"] is False
+    assert construction["release_artifact"] is False
+
+    public = checkpoint["public_contract"]
+    assert public["encoded_direct_kernel_version"] == 29
+    assert public["native_features"] == ["abi3-py310", "bounded-batches"]
+    assert public["encoded_structural_compiler_advertised"] is False
+
+    imported = checkpoint["imported_closure"]
+    visible = imported["visible_annotations"]
+    assert imported["provider"] == "python"
+    assert visible["scalar_parity"] is True
+    assert visible["imported_label_suppressed"] is True
+    assert visible["ingestion_path"] == "scalar-native"
+    assert visible["fallback_reason"].startswith(
+        "private native direct batches do not bind root-scoped annotation provenance"
+    )
+    assert ["urn:root#A", "rdfs:label", "root"] in visible["edges"]
+    assert not any(edge[-1] == "leaf" for edge in visible["edges"])
+    hidden = imported["hidden_annotations"]
+    assert hidden["scalar_parity"] is True
+    assert hidden["ingestion_path"] == "encoded-native"
+    assert hidden["fallback_reason"] is None
+
+    single = checkpoint["single_document_visible_annotations"]
+    assert single["python_provider"]["closure_exporter_count"] > 1
+    assert single["native_provider"]["closure_exporter_count"] == 1
+    assert single["python_provider"]["edges_sha256"] == single["native_provider"]["edges_sha256"]
+    assert all(lane["ingestion_path"] == "encoded-native" for lane in single.values())
+    assert all(lane["scalar_parity"] is True for lane in single.values())
+
+    for artifact in checkpoint["artifacts"].values():
+        assert len(artifact["sha256"]) == 64
     assert checkpoint["known_blockers"]
     assert checkpoint["limitations"]

@@ -1,0 +1,166 @@
+{
+  "schema": "pyowl-projector.p7-installed-annotation-provenance-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "50ad5ab61196fa5504cb65469a3446ea5c35a286",
+    "native_binary_donor_projector": "cedfc9134d34c713eab9290dfc263c443c778805"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "bytes": 3348480,
+      "sha256": "93eeafc3987dc92cf52c642c2ab74e14d5c937c4cf5e318af033655c4ab04176"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "record_text_sha256": "416eab3b963c5374caa513f53b1a21d5d5a8d0c46e66e3f43ecfd23bd8274578",
+      "record_file_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "projector_fallback_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-py3-none-any.whl",
+      "bytes": 108730,
+      "sha256": "38712c0f37577b97b71d95028da34d1bdf184bcbc39afb7be05efbe4d7064d03"
+    },
+    "projector_installed_checkpoint_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 418291,
+      "sha256": "e774f626e98249c1793bb2f48178879712418c9f55b5e9b1ed88fe3fcc34684a",
+      "record_text_sha256": "b333183f5e617b94d10bb8503ca7e679de6dee66ab83437b4d98f5611152000f",
+      "record_file_sha256": "8c92ae712f73b50b7e1fe78673d9f04a2ff1e3d868c4e2314ad85bc0fc6dce39"
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 50748,
+      "sha256": "d68551e7e0cae3aa640664028520a41078c67e5cc1dffea15a0bf3b84496e5ee",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 688308,
+      "sha256": "a24678191942747fd777410cb936e68c9fd2d644559fe5de737e6fd656a1eb7c",
+      "encoded_direct_kernel_version": 29,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_probe": {
+      "bytes": 2257,
+      "sha256": "e30b60c6c77b4c0ccb82c0ebdeb80ecfacf29131c328a510a6cb3f17d3e0ca3d",
+      "harness_sha256": "3795d2ed5653fc4713e98d4695b96ac58d1ab8d755ab7c0701ea0654dec76ca7"
+    }
+  },
+  "checkpoint_wheel_construction": {
+    "kind": "assembled-correctness-checkpoint",
+    "source_fallback_wheel_built_from_exact_projector_archive": true,
+    "native_binary_transplanted_from_prior_installed_checkpoint": true,
+    "native_tree_matches_donor_revision": true,
+    "native_lib_sha256": "2ce34e3e6e36ce5c0c36dacaddc8bfc620f5e73aa28bafed0f3761fa5a6e69bb",
+    "donor_wheel_sha256": "f73fde9d6bd6999de4a048d55749b3cd97948bdf3b718508516b86bb5ccefb38",
+    "wheel_tag_changed_to": "cp310-abi3-macosx_14_0_x86_64",
+    "rust_source_build_available": false,
+    "rust_source_build_failure": "cargo and rustc were not available on the checkpoint host",
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 29,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false
+  },
+  "imported_closure": {
+    "provider": "python",
+    "closure_exporter_count": 9,
+    "closure_buffer_bytes": 906,
+    "visible_annotations": {
+      "scalar_parity": true,
+      "imported_label_suppressed": true,
+      "edge_count": 2,
+      "edges_sha256": "e88ca296c5a6305e1f0dc12ac74a45ea572ab81ab9a63155aca321ec97f1cb45",
+      "edges": [
+        [
+          "urn:leaf#L",
+          "http://subclassof",
+          "urn:root#A"
+        ],
+        [
+          "urn:root#A",
+          "rdfs:label",
+          "root"
+        ]
+      ],
+      "ingestion_path": "scalar-native",
+      "fallback_reason": "private native direct batches do not bind root-scoped annotation provenance; selected whole-operation scalar compiler"
+    },
+    "hidden_annotations": {
+      "scalar_parity": true,
+      "edge_count": 1,
+      "edges_sha256": "840de368b905263d871881a28c08f36c1927d7b448c6567d784b9eb8a1a02bf9",
+      "ingestion_path": "encoded-native",
+      "fallback_reason": null
+    }
+  },
+  "single_document_visible_annotations": {
+    "python_provider": {
+      "provider": "python",
+      "closure_exporter_count": 9,
+      "closure_buffer_bytes": 561,
+      "scalar_parity": true,
+      "edge_count": 1,
+      "edges_sha256": "abab474f04b3161ad68ba8cd0cf2a80f02336b54107437ccce5a28f5139d12c0",
+      "ingestion_path": "encoded-native",
+      "fallback_reason": null
+    },
+    "native_provider": {
+      "provider": "native",
+      "closure_exporter_count": 1,
+      "closure_buffer_bytes": 561,
+      "scalar_parity": true,
+      "edge_count": 1,
+      "edges_sha256": "abab474f04b3161ad68ba8cd0cf2a80f02336b54107437ccce5a28f5139d12c0",
+      "ingestion_path": "encoded-native",
+      "fallback_reason": null
+    }
+  },
+  "source_verification": {
+    "annotation_provenance_cases": 5,
+    "private_native_integration_cases": 47,
+    "full_suite_cases": 1102,
+    "ruff_changed_files": "passed",
+    "mypy_source": "passed",
+    "sliced_root_scope_exporter_falls_back": true,
+    "public_capability_remains_hidden": true
+  },
+  "remaining_structural_gap": "The private Rust kernel cannot yet intersect a distinct root-scoped direct table with a multi-document closure, so visible annotations on unequal selections use one whole-operation scalar fallback.",
+  "known_blockers": [
+    "A native root-provenance join is still required before visible multi-document annotations can remain encoded-native.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported.",
+    "The Rust compiler still materializes a complete output vector before caller-bounded drains.",
+    "Public dispatch, lifecycle, sink, digest, and artifact integration remain open.",
+    "Fuzz, sanitizer, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a tiny correctness fixture and carries no timing, throughput, RSS, or release claim.",
+    "The installed checkpoint wheel was assembled from an exact-revision fallback wheel plus a hash-bound binary whose Rust source tree is unchanged; it is not a source-built release artifact.",
+    "The host lacked cargo and rustc, and wheel 0.47.0 was used while the project pins wheel 0.46.3.",
+    "In this installed core stack, a resolved imported ontology publishes the Python structural provider even when native is requested; packed native-provider root equality is therefore proven only on the single-document case."
+  ]
+}
