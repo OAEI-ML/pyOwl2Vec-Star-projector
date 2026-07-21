@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 32
+ENCODED_DIRECT_KERNEL_VERSION = 33
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",

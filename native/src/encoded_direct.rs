@@ -2,12 +2,14 @@
 //!
 //! This module deliberately contains no Python types.  The PyO3 boundary retains
 //! immutable `bytes` exporters and lends their slices here while the GIL is
-//! released.  The complete input and a bounded dry emission are validated before
-//! a resumable output cursor is published, so unsupported or malformed inputs
-//! cannot expose partial edges. The legacy coarse call may still request one
-//! materialized vector explicitly.
+//! released.  The complete immutable input and exact output count are validated
+//! before a resumable output cursor is published, so unsupported or malformed
+//! inputs cannot expose partial edges. The legacy coarse call may still request
+//! one materialized vector explicitly.
 
 use std::borrow::Cow;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub(crate) const BUFFER_COUNT: usize = 11;
@@ -807,6 +809,8 @@ struct DirectPreparation {
     selected_annotation_nodes: Option<Vec<usize>>,
     options: DirectCompileOptions,
     statistics: DirectCompileStats,
+    #[cfg(test)]
+    emission_attempts: AtomicUsize,
 }
 
 #[derive(Debug)]
@@ -4492,7 +4496,15 @@ impl DirectEmissionCursor {
         Ok(())
     }
 
-    fn publish(&mut self, edge: DirectEdge) -> Result<Option<DirectEdge>, KernelError> {
+    fn publish(
+        &mut self,
+        edge: DirectEdge,
+        _preparation: &DirectPreparation,
+    ) -> Result<Option<DirectEdge>, KernelError> {
+        #[cfg(test)]
+        _preparation
+            .emission_attempts
+            .fetch_add(1, Ordering::Relaxed);
         self.emitted = self
             .emitted
             .checked_add(1)
@@ -4512,7 +4524,7 @@ impl DirectEmissionCursor {
             check_cancel(state, self.emitted)?;
             if let Some(pending) = &mut self.pending {
                 if let Some(edge) = pending.next_edge(&preparation.role_state)? {
-                    return self.publish(edge);
+                    return self.publish(edge, preparation);
                 }
                 self.pending = None;
                 continue;
@@ -4719,7 +4731,7 @@ impl DirectEmissionCursor {
                         state,
                     )? {
                         let edge = annotation_edge(projection, &preparation.anonymous_ids)?;
-                        return self.publish(edge);
+                        return self.publish(edge, preparation);
                     }
                 }
                 EmissionPhase::ClassAssertions => {
@@ -4738,11 +4750,14 @@ impl DirectEmissionCursor {
                     if let ClassAssertionProjection::Edge { individual, class } = columns
                         .class_assertion_projection(node_id, preparation.options.max_iri_bytes)?
                     {
-                        return self.publish(DirectEdge {
-                            source: clone_text(individual)?,
-                            relation: clone_text(RDF_TYPE)?,
-                            destination: clone_text(class)?,
-                        });
+                        return self.publish(
+                            DirectEdge {
+                                source: clone_text(individual)?,
+                                relation: clone_text(RDF_TYPE)?,
+                                destination: clone_text(class)?,
+                            },
+                            preparation,
+                        );
                     }
                 }
                 EmissionPhase::ObjectAssertions => {
@@ -4762,11 +4777,17 @@ impl DirectEmissionCursor {
                         node_id,
                         preparation.options.max_iri_bytes,
                     )?;
-                    return self.publish(DirectEdge {
-                        source: render_individual(source, &preparation.anonymous_ids)?,
-                        relation: clone_text(relation)?,
-                        destination: render_individual(destination, &preparation.anonymous_ids)?,
-                    });
+                    return self.publish(
+                        DirectEdge {
+                            source: render_individual(source, &preparation.anonymous_ids)?,
+                            relation: clone_text(relation)?,
+                            destination: render_individual(
+                                destination,
+                                &preparation.anonymous_ids,
+                            )?,
+                        },
+                        preparation,
+                    );
                 }
                 EmissionPhase::DomainRanges => {
                     if self.active_property.is_none() {
@@ -4877,6 +4898,11 @@ impl PreparedDirectBatches {
         self.remaining_edges() == 0
     }
 
+    #[cfg(test)]
+    pub(crate) fn emission_attempts(&self) -> usize {
+        self.preparation.emission_attempts.load(Ordering::Relaxed)
+    }
+
     pub(crate) fn prepare_next_batch(
         &self,
         columns: DirectColumns<'_>,
@@ -4905,27 +4931,6 @@ impl PreparedDirectBatches {
     pub(crate) fn commit_cursor(&mut self, cursor: DirectEmissionCursor) {
         self.cursor = cursor;
     }
-}
-
-fn verify_prepared_emission(
-    columns: DirectColumns<'_>,
-    preparation: &DirectPreparation,
-    state: &AtomicU8,
-) -> Result<(), KernelError> {
-    let mut cursor = DirectEmissionCursor::default();
-    while cursor.next_edge(columns, preparation, state)?.is_some() {
-        if cursor.emitted > preparation.statistics.edges {
-            return Err(KernelError::malformed(
-                "encoded direct output exceeded its preflight edge count",
-            ));
-        }
-    }
-    if cursor.emitted != preparation.statistics.edges {
-        return Err(KernelError::malformed(
-            "encoded direct output count changed after successful preflight",
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -5339,6 +5344,8 @@ fn prepare_direct(
         selected_annotation_nodes,
         options,
         statistics: stats,
+        #[cfg(test)]
+        emission_attempts: AtomicUsize::new(0),
     };
     Ok((preparation, edges))
 }
@@ -5389,7 +5396,10 @@ pub(crate) fn prepare_direct_batches_with_retained_role_state(
             "encoded streaming preparation materialized coarse output",
         ));
     }
-    verify_prepared_emission(columns, &preparation, state)?;
+    // Every column read reachable from the cursor has already passed the
+    // immutable structural, semantic, count, and capacity preflight above.
+    // Replaying full emission here added ontology-wide work before the first
+    // caller drain without validating any additional input state.
     if !options.asserted_taxonomy_only {
         if let Some(retained) = retained {
             *retained = preparation.role_state.try_clone()?;
@@ -7196,7 +7206,7 @@ mod tests {
     }
 
     #[test]
-    fn resumable_output_cursor_never_buffers_more_than_the_caller_batch() {
+    fn resumable_output_cursor_starts_lazy_and_never_buffers_more_than_the_caller_batch() {
         let fixture = named_role_axiom_fixture();
         let options = DirectCompileOptions {
             bidirectional: false,
@@ -7219,12 +7229,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(prepared.remaining_edges(), expected.len());
+        assert_eq!(prepared.emission_attempts(), 0);
 
         let remaining = prepared.remaining_edges();
         let (preview, _) = prepared
             .prepare_next_batch(fixture.columns(), &state, 2)
             .unwrap();
         assert_eq!(prepared.remaining_edges(), remaining);
+        assert_eq!(prepared.emission_attempts(), preview.len());
         let (first, cursor) = prepared
             .prepare_next_batch(fixture.columns(), &state, 2)
             .unwrap();
@@ -7242,6 +7254,7 @@ mod tests {
             prepared.commit_cursor(cursor);
         }
         assert_eq!(prepared.remaining_edges(), 0);
+        assert_eq!(prepared.emission_attempts(), expected.len() + preview.len());
         assert_eq!(actual, expected);
     }
 
