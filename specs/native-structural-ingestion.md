@@ -141,6 +141,10 @@ state commits only after those final objects are complete.
 Kernel v40 also validates each coarse `Edge` plus the final statistics result and their canonical
 factory identities before retained-role or output-counter commit. A malformed or replaced factory
 therefore leaves reusable role maps unchanged and publishes no partial coarse result.
+Kernel v41 makes the post-native Python envelope checks use the same retained import-time `Edge`,
+statistics, and iterator identities. A canonical constructor may mutate its replaceable module
+global without causing Python to reject cursor progress, session publication, or retained-role
+state that the native transaction has already committed.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

@@ -254,6 +254,10 @@ Kernel-v40 evidence applies exact-result and canonical-factory validation to eve
 `Edge` before cursor/counter commit, and to every coarse `Edge` plus final statistics before
 retained-role/output-counter commit. Bounded failures must remain exactly retryable; coarse
 failures must release role use and leave retained maps unchanged.
+Kernel-v41 evidence requires post-native coarse, session, and drain envelope checks to compare
+against those retained canonical identities rather than mutable module globals. A canonical
+constructor that mutates its module-level name must preserve the successful native transaction and
+its exact final objects, cursor counters, and retained role maps.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These

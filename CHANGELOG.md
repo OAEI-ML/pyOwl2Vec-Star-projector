@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Post-native coarse, session, and bounded-drain envelope validation now uses import-time canonical
+  `Edge`, statistics, and iterator identities. A canonical constructor that mutates its replaceable
+  module factory name can no longer make Python reject already-committed cursor progress, counters,
+  or retained Scala role state; the capability remains unadvertised.
 - Hidden bounded drains and the legacy private coarse compiler now validate each final `Edge`
   factory identity and exact result type inside their native transactions; the coarse path applies
   the same check to its statistics result. Malformed or replaced factories cannot advance a

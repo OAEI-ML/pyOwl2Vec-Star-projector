@@ -231,6 +231,9 @@ Every final bounded-drain `Edge` and every legacy coarse-call `Edge`/statistics 
 the same exact-type and canonical-factory validation before cursor or retained-role commit; exact
 retry and state-atomicity evidence is recorded in
 [`reports/p7/evidence/installed-edge-factory-validation-checkpoint.json`](reports/p7/evidence/installed-edge-factory-validation-checkpoint.json).
+The Python envelope checks retain those same import-time identities instead of rereading mutable
+module globals after native commit; exact constructor-mutation evidence is recorded in
+[`reports/p7/evidence/installed-canonical-wrapper-checkpoint.json`](reports/p7/evidence/installed-canonical-wrapper-checkpoint.json).
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
@@ -238,9 +241,9 @@ Three native calls cover initial role acquisition, later restriction/domain/rang
 conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
 to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
 kernel v31; the bounded, lazy, coarse-cursor, final-result, final-batch, batch-session,
-iterator-publication, factory-validation, and edge-factory-validation checkpoints advance the
-private kernel through v32, v33, v34, v35, v36, v37, v38, v39, and v40 while the public feature
-ledger remains exactly
+iterator-publication, factory-validation, edge-factory-validation, and canonical-wrapper
+checkpoints advance the private kernel through v32, v33, v34, v35, v36, v37, v38, v39, v40, and
+v41 while the public feature ledger remains exactly
 `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible

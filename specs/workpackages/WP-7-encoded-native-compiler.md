@@ -67,7 +67,10 @@ them. Kernel v39 validates canonical factory identities and exact result types b
 malformed final objects publish none of them. Kernel v40 extends those checks
 to each bounded-drain `Edge` before cursor/counter commit and to every coarse `Edge` plus final
 statistics before retained-role/output-counter commit; bounded failures remain retryable and
-coarse failures leave role maps unchanged. The private counter ledger separates compiled edges
+coarse failures leave role maps unchanged. Kernel v41 also pins the post-native Python envelope
+checks to the same retained canonical identities, preventing a constructor-time module-global
+mutation from rejecting state that native code already committed. The private counter ledger
+separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete
