@@ -33,7 +33,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 39;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 40;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -771,7 +771,9 @@ impl EncodedDirectCompiler {
         max_edges,
         max_iri_bytes,
         edge_factory,
+        edge_type,
         statistics_factory,
+        statistics_type,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
@@ -785,7 +787,9 @@ impl EncodedDirectCompiler {
         max_edges: usize,
         max_iri_bytes: usize,
         edge_factory: &Bound<'_, PyAny>,
+        edge_type: &Bound<'_, PyAny>,
         statistics_factory: &Bound<'_, PyAny>,
+        statistics_type: &Bound<'_, PyAny>,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
@@ -856,6 +860,11 @@ impl EncodedDirectCompiler {
                 for edge in edges {
                     let value =
                         edge_factory.call1((edge.source, edge.relation, edge.destination))?;
+                    require_exact_factory_result(
+                        &value,
+                        edge_type,
+                        "encoded direct edge factory returned an invalid final object",
+                    )?;
                     output.append(value)?;
                 }
                 // The Python list is still local. Commit cursor movement only
@@ -866,9 +875,23 @@ impl EncodedDirectCompiler {
                 })?;
                 peak_buffered_edges = peak_buffered_edges.max(amount);
             }
-            let statistics = statistics_factory
-                .call1(direct_statistics_tuple(py, statistics)?)?
-                .unbind();
+            require_canonical_factory(
+                edge_factory,
+                edge_type,
+                "encoded direct edge factory is not canonical",
+            )?;
+            let statistics = statistics_factory.call1(direct_statistics_tuple(py, statistics)?)?;
+            require_canonical_factory(
+                statistics_factory,
+                statistics_type,
+                "encoded direct statistics factory is not canonical",
+            )?;
+            require_exact_factory_result(
+                &statistics,
+                statistics_type,
+                "encoded direct statistics factory returned an invalid final object",
+            )?;
+            let statistics = statistics.unbind();
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)
@@ -977,23 +1000,29 @@ impl EncodedDirectCompiler {
             let statistics = statistics_factory
                 .call1(direct_statistics_tuple(py, stats)?)?
                 .unbind();
-            if !statistics_factory.is(statistics_type)
-                || !statistics.bind(py).is_exact_instance(statistics_type)
-            {
-                return Err(PyValueError::new_err(
-                    "encoded direct statistics factory returned an invalid final object",
-                ));
-            }
+            require_canonical_factory(
+                statistics_factory,
+                statistics_type,
+                "encoded direct statistics factory is not canonical",
+            )?;
+            require_exact_factory_result(
+                statistics.bind(py),
+                statistics_type,
+                "encoded direct statistics factory returned an invalid final object",
+            )?;
             let iterator = iterator_factory
                 .call1((compiler_owner, statistics.bind(py), batch_edges))?
                 .unbind();
-            if !iterator_factory.is(iterator_type)
-                || !iterator.bind(py).is_exact_instance(iterator_type)
-            {
-                return Err(PyValueError::new_err(
-                    "encoded direct iterator factory returned an invalid final object",
-                ));
-            }
+            require_canonical_factory(
+                iterator_factory,
+                iterator_type,
+                "encoded direct iterator factory is not canonical",
+            )?;
+            require_exact_factory_result(
+                iterator.bind(py),
+                iterator_type,
+                "encoded direct iterator factory returned an invalid final object",
+            )?;
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)
@@ -1040,7 +1069,12 @@ impl EncodedDirectCompiler {
     }
 
     /// Return one final Edge tuple; cursor movement commits afterwards.
-    fn next_batch(&self, py: Python<'_>, edge_factory: &Bound<'_, PyAny>) -> PyResult<Py<PyTuple>> {
+    fn next_batch(
+        &self,
+        py: Python<'_>,
+        edge_factory: &Bound<'_, PyAny>,
+        edge_type: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyTuple>> {
         guarded(|| {
             let (mut stream, batch_edges, next_boundary_calls, next_edge_batches) = {
                 let mut output = self.batch_output.lock().map_err(|_| {
@@ -1111,12 +1145,20 @@ impl EncodedDirectCompiler {
                     PyMemoryError::new_err("encoded direct drain allocation failed")
                 })?;
                 for edge in edges {
-                    values.push(
-                        edge_factory
-                            .call1((edge.source, edge.relation, edge.destination))?
-                            .unbind(),
-                    );
+                    let value =
+                        edge_factory.call1((edge.source, edge.relation, edge.destination))?;
+                    require_exact_factory_result(
+                        &value,
+                        edge_type,
+                        "encoded direct edge factory returned an invalid final object",
+                    )?;
+                    values.push(value.unbind());
                 }
+                require_canonical_factory(
+                    edge_factory,
+                    edge_type,
+                    "encoded direct edge factory is not canonical",
+                )?;
                 PyTuple::new(py, values).map(|values| values.unbind())
             })();
             let mut output = self.batch_output.lock().map_err(|_| {
@@ -1302,6 +1344,30 @@ impl EncodedDirectCompiler {
             })
         });
         self.finish_result(result)
+    }
+}
+
+fn require_canonical_factory<'py>(
+    factory: &Bound<'py, PyAny>,
+    expected_type: &Bound<'py, PyAny>,
+    message: &'static str,
+) -> PyResult<()> {
+    if factory.is(expected_type) {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(message))
+    }
+}
+
+fn require_exact_factory_result<'py>(
+    value: &Bound<'py, PyAny>,
+    expected_type: &Bound<'py, PyAny>,
+    message: &'static str,
+) -> PyResult<()> {
+    if value.is_exact_instance(expected_type) {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(message))
     }
 }
 

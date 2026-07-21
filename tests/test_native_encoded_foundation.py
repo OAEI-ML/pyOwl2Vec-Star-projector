@@ -5131,6 +5131,59 @@ def test_private_native_batch_final_edges_commit_with_cursor(
     assert batches.state == "exhausted"
 
 
+@pytest.mark.parametrize(
+    "exact_result",
+    (False, True),
+    ids=("malformed-result", "canonical-result-from-replaced-factory"),
+)
+def test_private_native_batch_edge_factory_validates_before_cursor_commit(
+    monkeypatch: pytest.MonkeyPatch,
+    exact_result: bool,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = compiler.iter_batches(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        batch_edges=2,
+    )
+    remaining_edges = batches.remaining_edges
+    boundary_calls = batches.boundary_calls
+    edge_calls = 0
+
+    def replaced_edge(source: str, relation: str, destination: str) -> object:
+        nonlocal edge_calls
+        edge_calls += 1
+        if exact_result:
+            return Edge(source, relation, destination)
+        return object()
+
+    with monkeypatch.context() as patch:
+        patch.setattr("pyowl2vec_star_projector.native.Edge", replaced_edge)
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            next(batches)
+
+    assert edge_calls == (2 if exact_result else 1)
+    assert batches.state == "active"
+    assert batches.yielded_edges == 0
+    assert batches.remaining_edges == remaining_edges
+    assert batches.boundary_calls == boundary_calls
+    assert batches.edge_batches == 0
+    assert batches.peak_buffered_edges == 0
+    assert compiler.batch_intermediate_list_edges == 0
+    assert [edge for batch in batches for edge in batch] == expected
+    assert batches.state == "exhausted"
+
+
 def test_private_native_batch_statistics_factory_is_in_session_transaction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5380,6 +5433,73 @@ def test_private_native_coarse_result_factories_are_in_role_transaction(
     assert statistics_calls == 1
     assert compiler.state == "failed"
     assert compiler.coarse_output_chunks == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+
+@pytest.mark.parametrize(
+    ("factory_name", "exact_result"),
+    (
+        ("edge", False),
+        ("edge", True),
+        ("statistics", False),
+        ("statistics", True),
+    ),
+    ids=(
+        "malformed-edge",
+        "canonical-edge-from-replaced-factory",
+        "malformed-statistics",
+        "canonical-statistics-from-replaced-factory",
+    ),
+)
+def test_private_native_coarse_factory_results_validate_before_role_commit(
+    monkeypatch: pytest.MonkeyPatch,
+    factory_name: str,
+    exact_result: bool,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    calls = 0
+
+    def replaced_edge(source: str, relation: str, destination: str) -> object:
+        nonlocal calls
+        calls += 1
+        if exact_result:
+            return Edge(source, relation, destination)
+        return object()
+
+    def replaced_statistics(*values: int) -> object:
+        nonlocal calls
+        calls += 1
+        assert len(values) == 60
+        if exact_result:
+            return NativeEncodedDirectStatistics(*values)
+        return object()
+
+    factory = replaced_edge if factory_name == "edge" else replaced_statistics
+    target = "Edge" if factory_name == "edge" else "NativeEncodedDirectStatistics"
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    with monkeypatch.context() as patch:
+        patch.setattr(f"pyowl2vec_star_projector.native.{target}", factory)
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            compiler.compile_batch(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                role_state=role_state,
+            )
+
+    expected_calls = 3 if factory_name == "edge" and exact_result else 1
+    assert calls == expected_calls
+    assert compiler.state == "failed"
+    assert compiler.coarse_output_chunks == 0
+    assert compiler.coarse_output_vector_edges == 0
+    assert compiler.coarse_intermediate_list_edges == 0
+    assert compiler.peak_buffered_coarse_edges == 0
     assert role_state.in_use is False
     assert role_state.subrole_property_count == 0
     assert role_state.inverse_property_count == 0
