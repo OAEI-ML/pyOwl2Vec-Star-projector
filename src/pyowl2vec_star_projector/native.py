@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 31
+ENCODED_DIRECT_KERNEL_VERSION = 32
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -572,7 +572,7 @@ class NativeEncodedDirectCompiler:
 
 @dataclass(slots=True)
 class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
-    """Private batch iterator backed by one retained native output vector."""
+    """Private batch iterator backed by a resumable bounded native cursor."""
 
     _compiler: NativeEncodedDirectCompiler | None
     statistics: NativeEncodedDirectStatistics
@@ -580,6 +580,7 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
     _yielded_edges: int = 0
     _boundary_calls: int = 1
     _edge_batches: int = 0
+    _peak_buffered_edges: int = 0
     _terminal_state: str = "active"
 
     def __iter__(self) -> NativeEncodedDirectBatchIterator:
@@ -665,6 +666,17 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
         )
 
     @property
+    def peak_buffered_edges(self) -> int:
+        compiler = self._compiler
+        if compiler is not None:
+            return _native_nonnegative_int(
+                compiler._kernel,
+                "peak_buffered_batch_edges",
+                "peak buffered-edge count",
+            )
+        return self._peak_buffered_edges
+
+    @property
     def ingestion_counters(self) -> Mapping[str, int]:
         """Return batch-boundary facts without counting metadata getters."""
 
@@ -673,6 +685,7 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
                 "configured_batch_edges": self.batch_edges,
                 "native_boundary_calls": self.boundary_calls,
                 "native_edge_batches": self.edge_batches,
+                "native_peak_buffered_edges": self.peak_buffered_edges,
                 "per_row_ffi_calls": 0,
                 "published_edges": self._yielded_edges,
             }
@@ -725,6 +738,11 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
             compiler._kernel,
             "emitted_edge_batches",
             "edge-batch count",
+        )
+        self._peak_buffered_edges = _native_nonnegative_int(
+            compiler._kernel,
+            "peak_buffered_batch_edges",
+            "peak buffered-edge count",
         )
 
     def __del__(self) -> None:
@@ -819,8 +837,10 @@ class NativeEncodedDirectCompilation:
                 "materialized_scalar_rows": 0,
                 "native_batch_edges": self.batches.batch_edges,
                 "native_boundary_calls": self.batches.boundary_calls,
+                "native_compiled_edges": self.native_statistics.edges,
                 "native_edge_batches": self.batches.edge_batches,
-                "native_output_vector_edges": self.native_statistics.edges,
+                "native_output_vector_edges": 0,
+                "native_peak_buffered_edges": self.batches.peak_buffered_edges,
                 "native_retained_inverse_properties": retained_inverses,
                 "native_retained_subrole_properties": retained_subroles,
                 "parser_calls": 0,

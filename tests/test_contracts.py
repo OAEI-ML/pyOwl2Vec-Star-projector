@@ -187,8 +187,10 @@ class ProvenanceTests(unittest.TestCase):
         names = (
             "native_batch_edges",
             "native_boundary_calls",
+            "native_compiled_edges",
             "native_edge_batches",
             "native_output_vector_edges",
+            "native_peak_buffered_edges",
             "native_retained_inverse_properties",
             "native_retained_subrole_properties",
         )

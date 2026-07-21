@@ -43,11 +43,12 @@ _PRIVATE_NATIVE_COUNTERS = (
     "encoded_zero_copy_buffers",
     "native_batch_edges",
     "native_boundary_calls",
+    "native_compiled_edges",
     "native_edge_batches",
     "native_output_vector_edges",
+    "native_peak_buffered_edges",
 )
 _PRIVATE_CANDIDATE_BLOCKERS = (
-    "rust-output-vector-is-fully-materialized-before-caller-bounded-drain",
     "direct-bytes-owner-only; mmap-overlay-composite-owners-are-not-supported",
     "public-iterator-sink-digest-artifact-dispatch-does-not-select-the-candidate",
     "public-scala-instance-lifecycle-remains-on-the-scalar-compiler",
@@ -399,8 +400,10 @@ def _private_counter_evidence(
     segments = integer("encoded_segment_count")
     native_bound = integer("native_batch_edges")
     boundary_calls = integer("native_boundary_calls")
+    compiled_edges = integer("native_compiled_edges")
     native_batches = integer("native_edge_batches")
-    native_edges = integer("native_output_vector_edges")
+    output_vector_edges = integer("native_output_vector_edges")
+    peak_buffered_edges = integer("native_peak_buffered_edges")
     emitted_edges = sample["edge_count"]
     if isinstance(emitted_edges, bool) or not isinstance(emitted_edges, int):
         violations["edge_count"] = "must be an integer"
@@ -416,13 +419,17 @@ def _private_counter_evidence(
         violations["encoded_segment_count"] = "private candidate supports exactly one segment"
     if native_bound != buffer_edges:
         violations["native_batch_edges"] = "must equal the configured caller batch bound"
-    expected_batches = (native_edges + buffer_edges - 1) // buffer_edges
+    expected_batches = (compiled_edges + buffer_edges - 1) // buffer_edges
     if native_batches != expected_batches:
         violations["native_edge_batches"] = "must equal the bounded native drain count"
     if boundary_calls != native_batches + 1:
         violations["native_boundary_calls"] = "must equal compile plus drain calls"
-    if native_edges < emitted_edges:
-        violations["native_output_vector_edges"] = "must cover every emitted policy edge"
+    if compiled_edges < emitted_edges:
+        violations["native_compiled_edges"] = "must cover every emitted policy edge"
+    if output_vector_edges != 0:
+        violations["native_output_vector_edges"] = "must remain zero for cursor-backed drains"
+    if peak_buffered_edges != min(buffer_edges, compiled_edges):
+        violations["native_peak_buffered_edges"] = "must equal the largest bounded native batch"
     return missing, violations
 
 

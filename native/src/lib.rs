@@ -19,9 +19,10 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use encoded_direct::{
-    compile_direct_with_retained_role_state, DirectColumns, DirectCompileOptions,
-    DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState, BUFFER_COUNT,
-    BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    compile_direct_with_retained_role_state, prepare_direct_batches_with_retained_role_state,
+    DirectColumns, DirectCompileOptions, DirectCompileStats, DirectEdge, KernelError,
+    OwnedRoleSnapshot, OwnedRoleState, PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES,
+    STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -30,7 +31,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 31;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 32;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -417,6 +418,26 @@ impl RetainedRoleState {
         )
         .map_err(kernel_error)
     }
+
+    fn prepare_batches_claimed(
+        &self,
+        columns: DirectColumns<'_>,
+        root_annotation_columns: Option<DirectColumns<'_>>,
+        options: DirectCompileOptions,
+        compiler_state: &AtomicU8,
+    ) -> PyResult<PreparedDirectBatches> {
+        let mut roles = self.roles.lock().map_err(|_| {
+            PyRuntimeError::new_err("encoded direct role state is permanently failed")
+        })?;
+        prepare_direct_batches_with_retained_role_state(
+            columns,
+            root_annotation_columns,
+            options,
+            compiler_state,
+            Some(&mut roles),
+        )
+        .map_err(kernel_error)
+    }
 }
 
 /// Private retained role maps for explicit Scala-instance compatibility calls.
@@ -474,12 +495,14 @@ impl EncodedDirectRoleState {
 
 #[derive(Debug, Default)]
 struct DirectBatchOutput {
-    edges: Vec<DirectEdge>,
-    cursor: usize,
+    stream: Option<PreparedDirectBatches>,
+    remaining_edges: usize,
     batch_edges: usize,
     boundary_calls: usize,
     edge_batches: usize,
+    peak_buffered_edges: usize,
     prepared: bool,
+    draining: bool,
     exhausted: bool,
     cancelled: bool,
 }
@@ -497,15 +520,18 @@ impl RetainedDirectBuffer {
 }
 
 impl DirectBatchOutput {
-    fn install(&mut self, edges: Vec<DirectEdge>, batch_edges: usize) {
-        let exhausted = edges.is_empty();
+    fn install(&mut self, stream: PreparedDirectBatches, batch_edges: usize) {
+        let remaining_edges = stream.remaining_edges();
+        let exhausted = remaining_edges == 0;
         *self = Self {
-            edges,
-            cursor: 0,
+            stream: if exhausted { None } else { Some(stream) },
+            remaining_edges,
             batch_edges,
             boundary_calls: 1,
             edge_batches: 0,
+            peak_buffered_edges: 0,
             prepared: true,
+            draining: false,
             exhausted,
             cancelled: false,
         };
@@ -513,7 +539,7 @@ impl DirectBatchOutput {
 
     fn remaining_edges(&self) -> usize {
         if self.prepared && !self.cancelled && !self.exhausted {
-            self.edges.len().saturating_sub(self.cursor)
+            self.remaining_edges
         } else {
             0
         }
@@ -535,8 +561,8 @@ impl DirectBatchOutput {
         if !self.prepared || self.cancelled || self.exhausted {
             return false;
         }
-        self.edges.clear();
-        self.cursor = 0;
+        self.stream = None;
+        self.remaining_edges = 0;
         self.cancelled = true;
         true
     }
@@ -660,6 +686,58 @@ impl EncodedDirectCompiler {
         Ok((edges, stats, retained_role_use))
     }
 
+    fn prepare_batches_owned(
+        &self,
+        py: Python<'_>,
+        options: DirectCompileOptions,
+        retained_role_state: Option<Arc<RetainedRoleState>>,
+    ) -> PyResult<(
+        PreparedDirectBatches,
+        DirectCompileStats,
+        Option<RetainedRoleUse>,
+    )> {
+        self.begin()?;
+        let slices: [&[u8]; BUFFER_COUNT] =
+            std::array::from_fn(|index| self.buffers[index].as_slice());
+        let columns = DirectColumns::from_ordered(slices);
+        let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            DirectColumns::from_ordered(slices)
+        });
+        let retained_role_use = match retained_role_state.as_ref() {
+            Some(retained) => match retained.claim() {
+                Ok(role_use) => Some(role_use),
+                Err(error) => return self.finish_result(Err(error)),
+            },
+            None => None,
+        };
+        let result = guarded(|| {
+            py.detach(|| {
+                if let Some(retained) = retained_role_state.as_ref() {
+                    retained.prepare_batches_claimed(
+                        columns,
+                        root_annotation_columns,
+                        options,
+                        &self.state,
+                    )
+                } else {
+                    prepare_direct_batches_with_retained_role_state(
+                        columns,
+                        root_annotation_columns,
+                        options,
+                        &self.state,
+                        None,
+                    )
+                    .map_err(kernel_error)
+                }
+            })
+        });
+        let stream = self.finish_result(result)?;
+        let statistics = stream.statistics();
+        Ok((stream, statistics, retained_role_use))
+    }
+
     fn cancel_batch_output(&self) -> PyResult<bool> {
         let mut output = self.batch_output.lock().map_err(|_| {
             PyRuntimeError::new_err("encoded direct batch output is permanently failed")
@@ -773,7 +851,7 @@ impl EncodedDirectCompiler {
             })
     }
 
-    /// Compile atomically, then retain native output for caller-bounded drains.
+    /// Compile atomically, then retain a resumable cursor for bounded drains.
     #[pyo3(signature = (
         bidirectional,
         max_edges,
@@ -815,15 +893,15 @@ impl EncodedDirectCompiler {
             max_iri_bytes,
         };
         let retained_role_state = role_state.map(|value| Arc::clone(&value.retained));
-        let (edges, stats, retained_role_use) =
-            self.compile_owned(py, options, retained_role_state)?;
+        let (stream, stats, retained_role_use) =
+            self.prepare_batches_owned(py, options, retained_role_state)?;
         let statistics = direct_statistics_tuple(py, stats)?;
         self.batch_output
             .lock()
             .map_err(|_| {
                 PyRuntimeError::new_err("encoded direct batch output is permanently failed")
             })?
-            .install(edges, batch_edges);
+            .install(stream, batch_edges);
         drop(retained_role_use);
         Ok(statistics)
     }
@@ -831,50 +909,108 @@ impl EncodedDirectCompiler {
     /// Return one fully constructed batch; cursor movement commits afterwards.
     fn next_batch(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         guarded(|| {
+            let (mut stream, batch_edges, next_boundary_calls, next_edge_batches) = {
+                let mut output = self.batch_output.lock().map_err(|_| {
+                    PyRuntimeError::new_err("encoded direct batch output is permanently failed")
+                })?;
+                if !output.prepared {
+                    return Err(PyValueError::new_err(
+                        "encoded direct batch output has not been prepared",
+                    ));
+                }
+                if output.cancelled {
+                    return Err(EncodedDirectCancelledError::new_err(
+                        "encoded direct batch output was cancelled",
+                    ));
+                }
+                if output.exhausted {
+                    return Ok(PyList::empty(py).unbind());
+                }
+                if output.draining {
+                    return Err(PyValueError::new_err(
+                        "encoded direct batch output is already draining",
+                    ));
+                }
+                let next_boundary_calls =
+                    output.boundary_calls.checked_add(1).ok_or_else(|| {
+                        PyMemoryError::new_err("encoded direct boundary-call counter overflow")
+                    })?;
+                let next_edge_batches = output.edge_batches.checked_add(1).ok_or_else(|| {
+                    PyMemoryError::new_err("encoded direct edge-batch counter overflow")
+                })?;
+                let stream = output.stream.take().ok_or_else(|| {
+                    PyRuntimeError::new_err("encoded direct batch cursor is unavailable")
+                })?;
+                output.draining = true;
+                (
+                    stream,
+                    output.batch_edges,
+                    next_boundary_calls,
+                    next_edge_batches,
+                )
+            };
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| self.buffers[index].as_slice());
+            let columns = DirectColumns::from_ordered(slices);
+            let prepared = py
+                .detach(|| stream.prepare_next_batch(columns, &self.state, batch_edges))
+                .map_err(kernel_error);
+            let (edges, next_cursor) = match prepared {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    let mut output = self.batch_output.lock().map_err(|_| {
+                        PyRuntimeError::new_err("encoded direct batch output is permanently failed")
+                    })?;
+                    output.draining = false;
+                    if output.cancelled {
+                        return Err(EncodedDirectCancelledError::new_err(
+                            "encoded direct batch output was cancelled",
+                        ));
+                    }
+                    output.stream = Some(stream);
+                    return Err(error);
+                }
+            };
+            let amount = edges.len();
+            let batch = (|| {
+                let mut values = Vec::new();
+                values.try_reserve_exact(amount).map_err(|_| {
+                    PyMemoryError::new_err("encoded direct drain allocation failed")
+                })?;
+                for edge in edges {
+                    values.push((edge.source, edge.relation, edge.destination));
+                }
+                PyList::new(py, values).map(|values| values.unbind())
+            })();
             let mut output = self.batch_output.lock().map_err(|_| {
                 PyRuntimeError::new_err("encoded direct batch output is permanently failed")
             })?;
-            if !output.prepared {
-                return Err(PyValueError::new_err(
-                    "encoded direct batch output has not been prepared",
-                ));
-            }
+            output.draining = false;
             if output.cancelled {
                 return Err(EncodedDirectCancelledError::new_err(
                     "encoded direct batch output was cancelled",
                 ));
             }
-            if output.exhausted {
-                return Ok(PyList::empty(py).unbind());
-            }
-            let end = output
-                .cursor
-                .saturating_add(output.batch_edges)
-                .min(output.edges.len());
-            let amount = end - output.cursor;
-            let next_boundary_calls = output.boundary_calls.checked_add(1).ok_or_else(|| {
-                PyMemoryError::new_err("encoded direct boundary-call counter overflow")
-            })?;
-            let next_edge_batches = output.edge_batches.checked_add(1).ok_or_else(|| {
-                PyMemoryError::new_err("encoded direct edge-batch counter overflow")
-            })?;
-            let mut values = Vec::new();
-            values
-                .try_reserve_exact(amount)
-                .map_err(|_| PyMemoryError::new_err("encoded direct drain allocation failed"))?;
-            for edge in &output.edges[output.cursor..end] {
-                values.push(clone_direct_edge_tuple(edge)?);
-            }
-            // PyList construction is part of the transaction.  A Python
-            // allocation error leaves the native cursor and counters intact.
-            let batch = PyList::new(py, values)?.unbind();
-            output.cursor = end;
+            // Python allocation remains part of the cursor transaction. On
+            // failure, restore the unchanged stream so the caller may retry.
+            let batch = match batch {
+                Ok(batch) => batch,
+                Err(error) => {
+                    output.stream = Some(stream);
+                    return Err(error);
+                }
+            };
+            stream.commit_cursor(next_cursor);
+            let remaining_edges = stream.remaining_edges();
+            let exhausted = remaining_edges == 0;
             output.boundary_calls = next_boundary_calls;
             output.edge_batches = next_edge_batches;
-            if output.cursor == output.edges.len() {
-                output.edges.clear();
-                output.cursor = 0;
+            output.peak_buffered_edges = output.peak_buffered_edges.max(amount);
+            output.remaining_edges = remaining_edges;
+            if exhausted {
                 output.exhausted = true;
+            } else {
+                output.stream = Some(stream);
             }
             Ok(batch)
         })
@@ -920,6 +1056,16 @@ impl EncodedDirectCompiler {
         self.batch_output
             .lock()
             .map(|output| output.edge_batches)
+            .map_err(|_| {
+                PyRuntimeError::new_err("encoded direct batch output is permanently failed")
+            })
+    }
+
+    #[getter]
+    fn peak_buffered_batch_edges(&self) -> PyResult<usize> {
+        self.batch_output
+            .lock()
+            .map(|output| output.peak_buffered_edges)
             .map_err(|_| {
                 PyRuntimeError::new_err("encoded direct batch output is permanently failed")
             })
@@ -1059,23 +1205,6 @@ fn direct_statistics_tuple(py: Python<'_>, stats: DirectCompileStats) -> PyResul
         ],
     )?
     .unbind())
-}
-
-fn clone_direct_edge_tuple(edge: &DirectEdge) -> PyResult<EdgeTuple> {
-    fn clone_text(value: &str) -> PyResult<String> {
-        let mut output = String::new();
-        output
-            .try_reserve_exact(value.len())
-            .map_err(|_| PyMemoryError::new_err("encoded direct edge-string allocation failed"))?;
-        output.push_str(value);
-        Ok(output)
-    }
-
-    Ok((
-        clone_text(&edge.source)?,
-        clone_text(&edge.relation)?,
-        clone_text(&edge.destination)?,
-    ))
 }
 
 fn retained_direct_buffers(

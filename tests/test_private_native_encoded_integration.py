@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from types import MappingProxyType
 from typing import Any
@@ -215,6 +216,17 @@ def _completed_report(projector: Projector) -> ProjectionReport:
     return report
 
 
+def _assert_bounded_native_output(
+    counters: Mapping[str, int | bool],
+    *,
+    compiled_edges: int,
+    batch_edges: int,
+) -> None:
+    assert counters["native_compiled_edges"] == compiled_edges
+    assert counters["native_output_vector_edges"] == 0
+    assert counters["native_peak_buffered_edges"] == min(batch_edges, compiled_edges)
+
+
 def _assert_semantic_report_parity(
     expected: ProjectionReport,
     actual: ProjectionReport,
@@ -289,7 +301,7 @@ def test_hidden_iterator_matches_scalar_and_reports_exact_native_batches(
     assert counters["native_batch_edges"] == 2
     assert counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(counters, compiled_edges=raw_edges, batch_edges=2)
     assert counters["encoded_buffer_count"] == len(ENCODED_DIRECT_BUFFER_ORDER)
     assert counters["encoded_detached_buffer_count"] == len(ENCODED_DIRECT_BUFFER_ORDER)
     assert counters["encoded_zero_copy_buffers"] == len(ENCODED_DIRECT_BUFFER_ORDER)
@@ -382,7 +394,7 @@ def test_hidden_iterator_admits_exact_named_tbox_and_abox_edges(
     assert counters["native_batch_edges"] == 2
     assert counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(counters, compiled_edges=raw_edges, batch_edges=2)
     assert counters["per_row_ffi_calls"] == 0
     assert counters["scalar_axiom_materializations"] == 0
     assert counters["scalar_term_materializations"] == 0
@@ -450,7 +462,9 @@ def test_hidden_iterator_admits_exact_aggregate_and_ignored_equivalences(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
+    )
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -529,7 +543,9 @@ def test_hidden_iterator_admits_supported_direct_restrictions_with_exact_diagnos
     assert ingestion.counters["native_batch_edges"] == 2
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
+    )
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
 
@@ -602,7 +618,9 @@ def test_hidden_iterator_admits_exact_ignored_subclasses_and_class_assertions(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
+    )
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -659,7 +677,7 @@ def test_hidden_iterator_admits_complete_named_domain_range_product(
     counters = actual_report.provenance.ingestion.counters
     assert counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(counters, compiled_edges=raw_edges, batch_edges=2)
     assert counters["scalar_axiom_materializations"] == 0
     assert counters["per_row_ffi_calls"] == 0
 
@@ -732,7 +750,9 @@ def test_hidden_iterator_admits_partitioned_multi_property_domain_ranges(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 2) // 3
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 2) // 3
-    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=raw_edges, batch_edges=3
+    )
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -796,7 +816,7 @@ def test_hidden_iterator_admits_same_call_named_role_expansion(
     counters = actual_report.provenance.ingestion.counters
     assert counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(counters, compiled_edges=raw_edges, batch_edges=2)
     assert counters["scalar_axiom_materializations"] == 0
     assert counters["per_row_ffi_calls"] == 0
 
@@ -1048,7 +1068,9 @@ def test_hidden_iterator_admits_fully_selected_class_annotations(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
+    )
     assert ingestion.counters["scalar_axiom_materializations"] == 0
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
@@ -1175,7 +1197,9 @@ def test_hidden_iterator_applies_native_edge_limit_after_root_annotation_join() 
     ingestion = actual_report.provenance.ingestion
     assert ingestion.path == "encoded-native"
     assert ingestion.reason is None
-    assert ingestion.counters["native_output_vector_edges"] == len(expected)
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=len(expected), batch_edges=1
+    )
 
 
 def test_hidden_iterator_native_join_suppresses_all_imported_only_annotations() -> None:
@@ -1598,7 +1622,9 @@ def test_hidden_iterator_admits_anonymous_assertions_and_selected_values(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
+    )
     assert ingestion.counters["scalar_axiom_materializations"] == 0
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
@@ -1694,7 +1720,9 @@ def test_hidden_iterator_admits_exact_grouped_skipped_axioms(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
+    )
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -1744,7 +1772,11 @@ def test_hidden_iterator_admits_ignored_property_chains_without_diagnostics(
     assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
     assert len(actual_report.diagnostics) == diagnostic_count
     assert actual_report.provenance.ingestion.path == "encoded-native"
-    assert actual_report.provenance.ingestion.counters["native_output_vector_edges"] == raw_edges
+    _assert_bounded_native_output(
+        actual_report.provenance.ingestion.counters,
+        compiled_edges=raw_edges,
+        batch_edges=2,
+    )
 
 
 def test_hidden_iterator_admits_silent_ontology_annotations_and_swrl() -> None:

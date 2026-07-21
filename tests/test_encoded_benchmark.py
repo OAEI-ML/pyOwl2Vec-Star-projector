@@ -98,13 +98,13 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
     assert result["source_revisions"] == {"projector": "1" * 40, "core": "2" * 40}
     assert result["production_acceptance"]["private_candidate_is_public"] is False
     blockers = result["production_acceptance"]["known_private_candidate_blockers"]
-    assert any("fully-materialized" in blocker for blocker in blockers)
+    assert not any("fully-materialized" in blocker for blocker in blockers)
     assert any("mmap-overlay-composite" in blocker for blocker in blockers)
 
     native_artifact = result["runtime_binding"]["projector"]["native_extension"]
     assert native_artifact["available"] is True
     assert len(native_artifact["sha256"]) == 64
-    assert native_artifact["encoded_direct_kernel_version"] == 31
+    assert native_artifact["encoded_direct_kernel_version"] == 32
     assert native_artifact["features"] == ["abi3-py310", "bounded-batches"]
 
     samples = result["samples"]
@@ -112,7 +112,9 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
         assert sample["execution_surface"] == "private-native-candidate"
         assert sample["ingestion"]["path"] == "encoded-native"
         assert sample["counters"]["native_batch_edges"] == 1
-        assert sample["counters"]["native_output_vector_edges"] == sample["edge_count"] == 1
+        assert sample["counters"]["native_compiled_edges"] == sample["edge_count"] == 1
+        assert sample["counters"]["native_output_vector_edges"] == 0
+        assert sample["counters"]["native_peak_buffered_edges"] == 1
         assert len(sample["counter_ledger_sha256"]) == 64
         assert evidence["acceptance_ready"] is False
         assert evidence["private_candidate_boundary_ready"] is True

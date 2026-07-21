@@ -5045,6 +5045,7 @@ def test_private_native_batches_preserve_exact_order_and_bound_each_ffi_transfer
     assert batches.remaining_edges == len(expected)
     assert batches.boundary_calls == 1
     assert batches.edge_batches == 0
+    assert batches.peak_buffered_edges == 0
 
     actual_batches = list(batches)
     assert all(type(batch) is tuple and 1 <= len(batch) <= 3 for batch in actual_batches)
@@ -5054,10 +5055,12 @@ def test_private_native_batches_preserve_exact_order_and_bound_each_ffi_transfer
     assert batches.yielded_edges == len(expected)
     assert batches.edge_batches == (len(expected) + 2) // 3
     assert batches.boundary_calls == batches.edge_batches + 1
+    assert batches.peak_buffered_edges == min(3, len(expected))
     assert dict(batches.ingestion_counters) == {
         "configured_batch_edges": 3,
         "native_boundary_calls": batches.edge_batches + 1,
         "native_edge_batches": batches.edge_batches,
+        "native_peak_buffered_edges": min(3, len(expected)),
         "per_row_ffi_calls": 0,
         "published_edges": len(expected),
     }
