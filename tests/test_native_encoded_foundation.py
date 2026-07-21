@@ -364,6 +364,24 @@ def _replace_buffers(
     return replace(lease, encoded_view=encoded, buffers=frozen)
 
 
+def _packed_lease(
+    lease: EncodedStructuralLease,
+    *,
+    prefix: bytes = b"",
+    mutable: bool = False,
+) -> EncodedStructuralLease:
+    payload = prefix + b"".join(bytes(lease.buffers[name]) for name in ENCODED_DIRECT_BUFFER_ORDER)
+    owner: bytes | bytearray = bytearray(payload) if mutable else payload
+    packed = memoryview(owner).toreadonly()
+    start = len(prefix)
+    replacements: dict[str, memoryview] = {}
+    for name in ENCODED_DIRECT_BUFFER_ORDER:
+        end = start + lease.buffers[name].nbytes
+        replacements[name] = packed[start:end]
+        start = end
+    return _replace_buffers(lease, replacements)
+
+
 @pytest.fixture(autouse=True)
 def _require_current_kernel() -> None:
     if NATIVE_AVAILABLE and not hasattr(load_native_module(), "EncodedDirectCompiler"):
@@ -2676,6 +2694,89 @@ def test_unsupported_exporters_are_rejected_before_output() -> None:
         match="not backed by exact immutable bytes",
     ):
         prepare_native_encoded_direct(non_bytes)
+
+
+def test_canonical_packed_bytes_exporter_is_retained_without_copy() -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B) ClassAssertion(:A :i)"
+    )
+    direct = _lease(view)
+    packed = _packed_lease(direct)
+    packed_owner = next(iter(packed.buffers.values())).obj
+    assert isinstance(packed_owner, bytes)
+    assert len({id(buffer.obj) for buffer in packed.buffers.values()}) == 1
+    assert sum(buffer.nbytes for buffer in packed.buffers.values()) == len(packed_owner)
+    compiler = prepare_native_encoded_direct(packed)
+
+    actual, statistics = compiler.compile_batch(
+        bidirectional=True,
+        max_edges=3,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == [
+        Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B"),
+        Edge("urn:native-direct#B", SUPERCLASS_OF, "urn:native-direct#A"),
+        Edge("urn:native-direct#i", RDF_TYPE, "urn:native-direct#A"),
+    ]
+    assert statistics.buffer_bytes == sum(value.nbytes for value in packed.buffers.values())
+    assert statistics.ingestion_counters["encoded_staging_copy_bytes"] == 0
+    assert statistics.ingestion_counters["encoded_zero_copy_buffers"] == 11
+
+
+def test_noncanonical_packed_bytes_layouts_are_rejected_before_output() -> None:
+    direct = _lease(_snapshot("SubClassOf(:A :B)"))
+
+    with pytest.raises(
+        NativeEncodedDirectUnsupported,
+        match="do not exactly cover their shared bytes exporter",
+    ):
+        prepare_native_encoded_direct(_packed_lease(direct, prefix=b"gap"))
+
+    reordered = _packed_lease(direct)
+    first, second = ENCODED_DIRECT_BUFFER_ORDER[:2]
+    hostile = _replace_buffers(
+        reordered,
+        {
+            first: reordered.buffers[second],
+            second: reordered.buffers[first],
+        },
+    )
+    with pytest.raises(
+        NativeEncodedDirectUnsupported,
+        match="does not match the canonical packed bytes layout",
+    ):
+        prepare_native_encoded_direct(hostile)
+
+    overlapping = _packed_lease(direct)
+    shared_owner = next(iter(overlapping.buffers.values())).obj
+    canonical_start = 0
+    overlap_replacement: tuple[str, memoryview] | None = None
+    for name in ENCODED_DIRECT_BUFFER_ORDER:
+        canonical = overlapping.buffers[name]
+        if canonical_start and canonical.nbytes:
+            candidate = memoryview(shared_owner)[
+                canonical_start - 1 : canonical_start - 1 + canonical.nbytes
+            ]
+            if bytes(candidate) != bytes(canonical):
+                overlap_replacement = name, candidate
+                break
+        canonical_start += canonical.nbytes
+    assert overlap_replacement is not None
+    overlap_name, overlap_buffer = overlap_replacement
+    with pytest.raises(
+        NativeEncodedDirectUnsupported,
+        match=f"encoded buffer {overlap_name} does not match the canonical packed bytes layout",
+    ):
+        prepare_native_encoded_direct(
+            _replace_buffers(overlapping, {overlap_name: overlap_buffer})
+        )
+
+    with pytest.raises(
+        NativeEncodedDirectUnsupported,
+        match="not backed by exact immutable bytes",
+    ):
+        prepare_native_encoded_direct(_packed_lease(direct, mutable=True))
 
 
 @pytest.mark.parametrize(

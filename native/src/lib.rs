@@ -28,10 +28,10 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PyTuple};
+use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 28;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 29;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -467,6 +467,18 @@ struct DirectBatchOutput {
     cancelled: bool,
 }
 
+struct RetainedDirectBuffer {
+    exporter: PyBackedBytes,
+    start: usize,
+    end: usize,
+}
+
+impl RetainedDirectBuffer {
+    fn as_slice(&self) -> &[u8] {
+        &self.exporter[self.start..self.end]
+    }
+}
+
 impl DirectBatchOutput {
     fn install(&mut self, edges: Vec<DirectEdge>, batch_edges: usize) {
         let exhausted = edges.is_empty();
@@ -523,7 +535,7 @@ impl DirectBatchOutput {
 struct EncodedDirectCompiler {
     _encoded_view: Py<PyAny>,
     _owner: Py<PyAny>,
-    buffers: Vec<PyBackedBytes>,
+    buffers: Vec<RetainedDirectBuffer>,
     state: AtomicU8,
     batch_output: Mutex<DirectBatchOutput>,
 }
@@ -594,7 +606,7 @@ impl EncodedDirectCompiler {
     ) -> PyResult<(Vec<DirectEdge>, DirectCompileStats, Option<RetainedRoleUse>)> {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
-            std::array::from_fn(|index| self.buffers[index].as_ref());
+            std::array::from_fn(|index| self.buffers[index].as_slice());
         let columns = DirectColumns::from_ordered(slices);
         let retained_role_use = match retained_role_state.as_ref() {
             Some(retained) => match retained.claim() {
@@ -1007,7 +1019,7 @@ fn retained_direct_buffers(
     encoded_view: &Bound<'_, PyAny>,
     expected_owner: &Bound<'_, PyAny>,
     descriptor_sha256: &Bound<'_, PyAny>,
-) -> PyResult<Vec<PyBackedBytes>> {
+) -> PyResult<Vec<RetainedDirectBuffer>> {
     let schema_name = required_attribute(encoded_view, "schema_name")?
         .extract::<String>()
         .map_err(|_| encoded_buffer_error("encoded schema_name must be text"))?;
@@ -1082,17 +1094,27 @@ fn retained_direct_buffers(
             "encoded buffer set does not contain exactly eleven columns",
         ));
     }
-    let mut retained = Vec::new();
-    retained
+    let mut borrowed = Vec::new();
+    borrowed
         .try_reserve_exact(BUFFER_COUNT)
         .map_err(|_| PyMemoryError::new_err("encoded buffer-retention allocation failed"))?;
     for name in BUFFER_NAMES {
         let buffer = mapping
             .get_item(name)
             .map_err(|_| encoded_buffer_error(format!("encoded view is missing buffer {name}")))?;
-        retained.push(retained_bytes_exporter(&buffer, name)?);
+        let length = checked_memoryview_length(&buffer, name)?;
+        let exporter = required_attribute(&buffer, "obj")?;
+        if !exporter.is_exact_instance_of::<PyBytes>() {
+            return Err(EncodedDirectUnsupportedError::new_err(format!(
+                "encoded buffer {name} is not backed by exact immutable bytes",
+            )));
+        }
+        let exporter = exporter.cast_into::<PyBytes>().map_err(|_| {
+            encoded_buffer_error(format!("encoded buffer {name} owner is inaccessible"))
+        })?;
+        borrowed.push((name, buffer, exporter, length));
     }
-    Ok(retained)
+    retain_direct_bytes_exporters(borrowed)
 }
 
 fn validate_direct_segment(
@@ -1158,23 +1180,95 @@ fn validate_direct_segment(
     Ok(())
 }
 
-fn retained_bytes_exporter(buffer: &Bound<'_, PyAny>, name: &str) -> PyResult<PyBackedBytes> {
-    let length = checked_memoryview_length(buffer, name)?;
-    let exporter = required_attribute(buffer, "obj")?;
-    if !exporter.is_exact_instance_of::<PyBytes>() {
-        return Err(EncodedDirectUnsupportedError::new_err(format!(
-            "encoded buffer {name} is not backed by exact immutable bytes",
-        )));
+type BorrowedDirectBuffer<'py> = (&'static str, Bound<'py, PyAny>, Bound<'py, PyBytes>, usize);
+
+fn retain_direct_bytes_exporters<'py>(
+    borrowed: Vec<BorrowedDirectBuffer<'py>>,
+) -> PyResult<Vec<RetainedDirectBuffer>> {
+    let mut retained = Vec::new();
+    retained
+        .try_reserve_exact(BUFFER_COUNT)
+        .map_err(|_| PyMemoryError::new_err("encoded buffer-retention allocation failed"))?;
+    if borrowed
+        .iter()
+        .all(|(_, _, exporter, length)| exporter.as_bytes().len() == *length)
+    {
+        for (_, _, exporter, length) in borrowed {
+            retained.push(RetainedDirectBuffer {
+                exporter: PyBackedBytes::from(exporter),
+                start: 0,
+                end: length,
+            });
+        }
+        return Ok(retained);
     }
-    let exporter = exporter.cast_into::<PyBytes>().map_err(|_| {
-        encoded_buffer_error(format!("encoded buffer {name} owner is inaccessible"))
-    })?;
-    if exporter.as_bytes().len() != length {
+
+    let Some((_, _, first_exporter, _)) = borrowed.first() else {
+        return Err(encoded_buffer_error("encoded buffer set is empty"));
+    };
+    if borrowed
+        .iter()
+        .any(|(_, _, exporter, _)| !exporter.is(first_exporter))
+    {
+        let name = borrowed
+            .iter()
+            .find(|(_, _, exporter, length)| exporter.as_bytes().len() != *length)
+            .map(|(name, _, _, _)| *name)
+            .unwrap_or("unknown");
         return Err(EncodedDirectUnsupportedError::new_err(format!(
             "encoded buffer {name} does not cover its complete bytes exporter",
         )));
     }
-    Ok(PyBackedBytes::from(exporter))
+
+    let total_length = borrowed
+        .iter()
+        .try_fold(0_usize, |total, (_, _, _, length)| {
+            total
+                .checked_add(*length)
+                .ok_or_else(|| encoded_buffer_error("encoded packed-buffer byte length overflow"))
+        })?;
+    if total_length != first_exporter.as_bytes().len() {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded packed buffers do not exactly cover their shared bytes exporter",
+        ));
+    }
+
+    let packed_view = PyMemoryView::from(first_exporter.as_any()).map_err(|_| {
+        encoded_buffer_error("encoded packed bytes exporter is not memoryview-compatible")
+    })?;
+    let mut start = 0_usize;
+    for (name, buffer, exporter, length) in borrowed {
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| encoded_buffer_error("encoded packed-buffer range overflow"))?;
+        let start_index = isize::try_from(start)
+            .map_err(|_| encoded_buffer_error("encoded packed-buffer start exceeds Py_ssize_t"))?;
+        let end_index = isize::try_from(end)
+            .map_err(|_| encoded_buffer_error("encoded packed-buffer end exceeds Py_ssize_t"))?;
+        let expected = packed_view
+            .get_item(PySlice::new(buffer.py(), start_index, end_index, 1))
+            .map_err(|_| {
+                encoded_buffer_error(format!(
+                    "encoded buffer {name} canonical packed range is inaccessible",
+                ))
+            })?;
+        if !buffer.eq(&expected).map_err(|_| {
+            encoded_buffer_error(format!(
+                "encoded buffer {name} cannot be compared with its packed range",
+            ))
+        })? {
+            return Err(EncodedDirectUnsupportedError::new_err(format!(
+                "encoded buffer {name} does not match the canonical packed bytes layout",
+            )));
+        }
+        retained.push(RetainedDirectBuffer {
+            exporter: PyBackedBytes::from(exporter),
+            start,
+            end,
+        });
+        start = end;
+    }
+    Ok(retained)
 }
 
 fn checked_memoryview_length(buffer: &Bound<'_, PyAny>, name: &str) -> PyResult<usize> {

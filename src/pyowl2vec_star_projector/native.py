@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 28
+ENCODED_DIRECT_KERNEL_VERSION = 29
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -940,9 +940,10 @@ def prepare_native_encoded_direct(
 ) -> NativeEncodedDirectCompiler:
     """Bind one validated public lease to the unadvertised Rust foundation.
 
-    No memoryview is copied.  The Rust constructor accepts only exact, full
-    immutable-``bytes`` exporters.  Mmap, sliced, and other valid exporters are
-    deliberately reported as unsupported until the abi3-safe design expands.
+    No memoryview is copied.  The Rust constructor accepts exact full immutable-``bytes``
+    exporters or the canonical eleven-column packed layout over one such exporter.  Arbitrary
+    slices, mmap, and other valid exporters are deliberately reported as unsupported until the
+    abi3-safe design expands.
     """
 
     if type(lease) is not EncodedStructuralLease:
