@@ -2592,104 +2592,124 @@ class _EncodedColumns:
         )
 
     def _validate_data_range_graph(self) -> None:
-        """Reject cycles in recursive data ranges even when their consumer falls back."""
+        """Reject cycles in recursive data ranges without consuming the call stack."""
 
-        validated: set[int] = set()
-        try:
-            for node_id in range(1, self.node_count + 1):
-                if self.node_tag(node_id) in _COMPOSITE_DATA_RANGE_TAGS:
-                    self._validate_data_range_node(node_id, set(), validated)
-        except RecursionError as error:
-            raise SnapshotCompatibilityError(
-                "encoded subset data-range graph exceeds the safe recursion depth"
-            ) from error
-
-    def _validate_data_range_node(
-        self,
-        node_id: int,
-        active: set[int],
-        validated: set[int],
-    ) -> None:
-        if self._is_named_datatype(node_id) or node_id in validated:
+        recursive_tags = {
+            _TAG_DATA_INTERSECTION_OF,
+            _TAG_DATA_UNION_OF,
+            _TAG_DATA_COMPLEMENT_OF,
+        }
+        if not any(
+            self.node_tag(node_id) in recursive_tags
+            for node_id in range(1, self.node_count + 1)
+        ):
             return
-        if self.node_tag(node_id) not in _COMPOSITE_DATA_RANGE_TAGS:
-            raise SnapshotCompatibilityError(
-                "encoded subset recursive data-range reference has the wrong constructor"
-            )
-        if node_id in active:
-            raise SnapshotCompatibilityError("encoded subset data-range graph is cyclic")
-        active.add(node_id)
-        try:
-            tag = self.node_tag(node_id)
-            if tag in {_TAG_DATA_INTERSECTION_OF, _TAG_DATA_UNION_OF}:
-                start = self._exact_fields(node_id, 1)
-                item_start, length = self._node_set_range(start, minimum=2)
-                for item_index in range(item_start, item_start + length):
-                    self._validate_data_range_node(
-                        self._item_node(item_index),
-                        active,
-                        validated,
+
+        colors = bytearray(self.node_count + 1)
+        stack: list[tuple[int, bool]] = []
+        for start_id in range(1, self.node_count + 1):
+            if self.node_tag(start_id) not in recursive_tags or colors[start_id] == 2:
+                continue
+            stack.append((start_id, False))
+            while stack:
+                node_id, exiting = stack.pop()
+                if exiting:
+                    colors[node_id] = 2
+                    continue
+                if colors[node_id] == 2:
+                    continue
+                if colors[node_id] == 1:
+                    raise SnapshotCompatibilityError("encoded subset data-range graph is cyclic")
+                colors[node_id] = 1
+                stack.append((node_id, True))
+                tag = self.node_tag(node_id)
+                child_ids: Iterator[int]
+                if tag in {_TAG_DATA_INTERSECTION_OF, _TAG_DATA_UNION_OF}:
+                    start = self._exact_fields(node_id, 1)
+                    item_start, length = self._node_set_range(start, minimum=2)
+                    child_ids = (
+                        self._item_node(item_index)
+                        for item_index in range(item_start + length - 1, item_start - 1, -1)
                     )
-            elif tag == _TAG_DATA_COMPLEMENT_OF:
-                start = self._exact_fields(node_id, 1)
-                self._validate_data_range_node(
-                    self._field_node(start),
-                    active,
-                    validated,
-                )
-            validated.add(node_id)
-        finally:
-            active.remove(node_id)
+                elif tag == _TAG_DATA_COMPLEMENT_OF:
+                    start = self._exact_fields(node_id, 1)
+                    child_ids = iter((self._field_node(start),))
+                else:  # pragma: no cover - immutable after the local preflight
+                    raise SnapshotCompatibilityError(
+                        "encoded subset recursive data-range cursor changed after preflight"
+                    )
+                for child_id in child_ids:
+                    child_tag = self.node_tag(child_id)
+                    if self._is_named_datatype(child_id):
+                        continue
+                    if child_tag not in _COMPOSITE_DATA_RANGE_TAGS:
+                        raise SnapshotCompatibilityError(
+                            "encoded subset recursive data-range reference has the wrong "
+                            "constructor"
+                        )
+                    if child_tag not in recursive_tags:
+                        continue
+                    if colors[child_id] == 1:
+                        raise SnapshotCompatibilityError(
+                            "encoded subset data-range graph is cyclic"
+                        )
+                    if colors[child_id] == 0:
+                        stack.append((child_id, False))
 
     def _validate_class_expression_graph(self) -> None:
-        """Reject cycles in the recursively owned non-projecting class envelope."""
+        """Reject cycles in the recursive class envelope without recursive calls."""
 
-        validated: set[int] = set()
         recursive_tags = _AGGREGATE_TAGS | {_TAG_OBJECT_COMPLEMENT_OF}
-        try:
-            for node_id in range(1, self.node_count + 1):
-                if self.node_tag(node_id) in recursive_tags:
-                    self._validate_class_expression_node(node_id, set(), validated)
-        except RecursionError as error:
-            raise SnapshotCompatibilityError(
-                "encoded subset class-expression graph exceeds the safe recursion depth"
-            ) from error
-
-    def _validate_class_expression_node(
-        self,
-        node_id: int,
-        active: set[int],
-        validated: set[int],
-    ) -> None:
-        if self._is_named_class(node_id) or node_id in validated:
-            return
-        tag = self.node_tag(node_id)
-        if tag in _RESTRICTION_TAGS | (
-            _NONPROJECTING_CLASS_EXPRESSION_TAGS - {_TAG_OBJECT_COMPLEMENT_OF}
+        if not any(
+            self.node_tag(node_id) in recursive_tags
+            for node_id in range(1, self.node_count + 1)
         ):
-            validated.add(node_id)
             return
-        if tag not in _AGGREGATE_TAGS | {_TAG_OBJECT_COMPLEMENT_OF}:
-            return
-        if node_id in active:
-            raise SnapshotCompatibilityError("encoded subset class-expression graph is cyclic")
-        active.add(node_id)
-        try:
-            if tag in _AGGREGATE_TAGS:
-                start = self._exact_fields(node_id, 1)
-                item_start, length = self._node_set_range(start, minimum=2)
-                for item_index in range(item_start, item_start + length):
-                    item_id = self._item_node(item_index)
-                    if self._is_validated_class_expression(item_id):
-                        self._validate_class_expression_node(item_id, active, validated)
-            else:
-                start = self._exact_fields(node_id, 1)
-                operand_id = self._field_node(start)
-                if self._is_validated_class_expression(operand_id):
-                    self._validate_class_expression_node(operand_id, active, validated)
-            validated.add(node_id)
-        finally:
-            active.remove(node_id)
+
+        colors = bytearray(self.node_count + 1)
+        stack: list[tuple[int, bool]] = []
+        for start_id in range(1, self.node_count + 1):
+            if self.node_tag(start_id) not in recursive_tags or colors[start_id] == 2:
+                continue
+            stack.append((start_id, False))
+            while stack:
+                node_id, exiting = stack.pop()
+                if exiting:
+                    colors[node_id] = 2
+                    continue
+                if colors[node_id] == 2:
+                    continue
+                if colors[node_id] == 1:
+                    raise SnapshotCompatibilityError(
+                        "encoded subset class-expression graph is cyclic"
+                    )
+                colors[node_id] = 1
+                stack.append((node_id, True))
+                tag = self.node_tag(node_id)
+                child_ids: Iterator[int]
+                if tag in _AGGREGATE_TAGS:
+                    start = self._exact_fields(node_id, 1)
+                    item_start, length = self._node_set_range(start, minimum=2)
+                    child_ids = (
+                        self._item_node(item_index)
+                        for item_index in range(item_start + length - 1, item_start - 1, -1)
+                    )
+                elif tag == _TAG_OBJECT_COMPLEMENT_OF:
+                    start = self._exact_fields(node_id, 1)
+                    child_ids = iter((self._field_node(start),))
+                else:  # pragma: no cover - immutable after the local preflight
+                    raise SnapshotCompatibilityError(
+                        "encoded subset recursive class-expression cursor changed after preflight"
+                    )
+                for child_id in child_ids:
+                    if self.node_tag(child_id) not in recursive_tags:
+                        continue
+                    if colors[child_id] == 1:
+                        raise SnapshotCompatibilityError(
+                            "encoded subset class-expression graph is cyclic"
+                        )
+                    if colors[child_id] == 0:
+                        stack.append((child_id, False))
 
     def _is_supported_object_property_expression(self, node_id: int) -> bool:
         return self._projected_object_property_iri(node_id) is not None

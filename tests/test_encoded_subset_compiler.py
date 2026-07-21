@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from itertools import pairwise
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, cast
@@ -11380,6 +11381,35 @@ def test_nonprojecting_class_structural_corruption_fails_before_output(
         )
 
 
+def test_deep_class_expression_graph_is_validated_iteratively() -> None:
+    depth = 1_200
+    view = _snapshot(
+        " ".join(
+            f"SubClassOf(:Root{index} ObjectComplementOf(:Leaf{index}))"
+            for index in range(depth)
+        )
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    complement_ids = tuple(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns.node_tag(node_id) == 32
+    )
+    assert len(complement_ids) == depth
+    buffers = dict(lease.buffers)
+    values = bytearray(buffers["field_values"])
+    for node_id, child_id in pairwise(complement_ids):
+        field_index = columns._exact_fields(node_id, 1)
+        values[field_index * 8 : (field_index + 1) * 8] = child_id.to_bytes(8, "little")
+    buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    inspection = _EncodedColumns(hostile).inspect(classify_roots=False)
+
+    assert inspection.counters.nodes_inspected == columns.node_count
+
+
 @pytest.mark.parametrize(
     ("tag", "arity"),
     [(34, 2), (35, 2), (38, 3), (39, 3)],
@@ -12385,6 +12415,35 @@ def test_data_range_structural_corruption_fails_before_output(corruption: str) -
             EncodedNegotiation("encoded-native", lease=hostile),
             batch_edges=1,
         )
+
+
+def test_deep_data_range_graph_is_validated_iteratively() -> None:
+    depth = 1_200
+    view = _snapshot(
+        " ".join(
+            f"DataPropertyRange(:dp{index} DataComplementOf(<urn:datatype:{index}>))"
+            for index in range(depth)
+        )
+    )
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    complement_ids = tuple(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns.node_tag(node_id) == 23
+    )
+    assert len(complement_ids) == depth
+    buffers = dict(lease.buffers)
+    values = bytearray(buffers["field_values"])
+    for node_id, child_id in pairwise(complement_ids):
+        field_index = columns._exact_fields(node_id, 1)
+        values[field_index * 8 : (field_index + 1) * 8] = child_id.to_bytes(8, "little")
+    buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+
+    inspection = _EncodedColumns(hostile).inspect(classify_roots=False)
+
+    assert inspection.counters.nodes_inspected == columns.node_count
 
 
 @pytest.mark.parametrize(
