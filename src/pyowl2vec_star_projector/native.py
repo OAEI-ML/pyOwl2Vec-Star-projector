@@ -257,6 +257,14 @@ def _native_ignored_counts(
     """Return exact grouped scalar ignores that carry diagnostics."""
 
     return (
+        (
+            "AnnotationAssertion",
+            (
+                statistics.annotation_assertions - statistics.annotation_edges
+                if options.include_literals
+                else 0
+            ),
+        ),
         ("ClassAssertion", statistics.ignored_class_assertions),
         (
             "SubClassOf",
@@ -801,9 +809,7 @@ def prepare_native_encoded_compilation(
             == native_statistics.object_property_domains
             * native_statistics.object_property_ranges
         )
-        expected_annotation_edges = (
-            native_statistics.annotation_assertions if options.include_literals else 0
-        )
+        expected_annotation_edges = native_statistics.annotation_edges
         skipped_roots = sum(
             count for _constructor, count in _native_skipped_counts(native_statistics)
         )
@@ -845,7 +851,9 @@ def prepare_native_encoded_compilation(
             <= native_statistics.class_assertions
             and native_statistics.object_property_chains
             <= native_statistics.sub_object_properties
-            and native_statistics.annotation_edges == expected_annotation_edges
+            and native_statistics.annotation_edges
+            <= native_statistics.annotation_assertions
+            and (options.include_literals or native_statistics.annotation_edges == 0)
             and native_statistics.non_string_literal_renderings
             <= expected_annotation_edges
             and complete_domain_range_product
@@ -859,8 +867,8 @@ def prepare_native_encoded_compilation(
                 "private native batch integration accepts only declarations and diagnostic-free "
                 "named subclass or supported restriction, equivalence, named class-assertion, or "
                 "supported-individual object-property-assertion axioms, direct named/inverse "
-                "role maps, plus one complete named domain/range product and fully selected "
-                "class annotations with validated silent and skipped roots",
+                "role maps, plus one complete named domain/range product and fully selected or "
+                "exactly partitioned class annotations with validated silent and skipped roots",
             )
         return (
             NativeEncodedDirectCompilation(

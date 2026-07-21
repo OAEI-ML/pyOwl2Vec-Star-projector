@@ -643,11 +643,11 @@ def test_hidden_iterator_admits_fully_selected_class_annotations(
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
 
-def test_hidden_iterator_annotation_selection_is_option_dependent() -> None:
+def test_hidden_iterator_admits_option_dependent_ignored_annotations() -> None:
     view = _snapshot(
         "Declaration(Class(:A)) AnnotationAssertion(<urn:unsupported> :A \"ignored\")"
     )
-    for include_literals, expected_path in ((False, "encoded-native"), (True, "scalar-native")):
+    for include_literals, ignored_shapes in ((False, 0), (True, 1)):
         python_options = ProjectionOptions(
             backend="python",
             order="encounter",
@@ -669,13 +669,63 @@ def test_hidden_iterator_annotation_selection_is_option_dependent() -> None:
 
         assert actual == expected == []
         _assert_semantic_report_parity(expected_report, actual_report)
-        assert actual_report.provenance.ingestion.path == expected_path
+        assert actual_report.provenance.ingestion.path == "encoded-native"
+        assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
         if include_literals:
-            assert actual_report.provenance.ingestion.reason is not None
-            assert actual_report.provenance.counts.ignored_shapes == 1
+            assert tuple(
+                (item.code, item.constructor, item.count)
+                for item in actual_report.diagnostics
+            ) == (("MOWL_IGNORED_SHAPE", "AnnotationAssertion", 1),)
         else:
             assert actual_report.provenance.ingestion.reason is None
-            assert actual_report.provenance.counts.ignored_shapes == 0
+            assert actual_report.diagnostics == ()
+
+
+def test_hidden_iterator_preserves_mixed_scalar_diagnostic_order() -> None:
+    label = "<http://www.w3.org/2000/01/rdf-schema#label>"
+    integer = "<http://www.w3.org/2001/XMLSchema#integer>"
+    view = _snapshot(
+        "Declaration(Class(:A)) "
+        "SubClassOf(:A ObjectOneOf(:member)) "
+        "ClassAssertion(:A _:anonymous) "
+        'AnnotationAssertion(<urn:unsupported> :A "ignored") '
+        f'AnnotationAssertion({label} :A "7"^^{integer}) '
+        'DataPropertyAssertion(:dp :member "skipped")'
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert tuple(
+        (item.code, item.constructor, item.count) for item in actual_report.diagnostics
+    ) == (
+        ("MOWL_IGNORED_SHAPE", "AnnotationAssertion", 1),
+        ("MOWL_IGNORED_SHAPE", "ClassAssertion", 1),
+        ("MOWL_IGNORED_SHAPE", "SubClassOf", 1),
+        ("MOWL_NON_STRING_LITERAL_RENDERING", "Literal", 1),
+        ("MOWL_SKIPPED_AXIOM", "DataPropertyAssertion", 1),
+    )
+    assert actual_report.provenance.counts.ignored_shapes == 3
+    assert actual_report.provenance.counts.skipped_axioms == 1
+    assert actual_report.provenance.counts.warnings == 1
+    assert actual_report.provenance.ingestion.path == "encoded-native"
 
 
 @pytest.mark.parametrize(
@@ -1012,8 +1062,8 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
         "private native batch integration accepts only declarations and diagnostic-free named "
         "subclass or supported restriction, equivalence, named class-assertion, or "
         "supported-individual object-property-assertion axioms, direct named/inverse role maps, "
-        "plus one complete named domain/range product and fully selected class annotations"
-        " with validated silent and skipped roots"
+        "plus one complete named domain/range product and fully selected or exactly partitioned "
+        "class annotations with validated silent and skipped roots"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
