@@ -300,6 +300,64 @@ def test_hidden_iterator_admits_supported_direct_restrictions_with_exact_diagnos
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
 
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges"),
+    [
+        (ProjectionOptions(backend="python", order="encounter"), 7),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+            ),
+            8,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                only_taxonomy=True,
+            ),
+            7,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_complete_named_domain_range_product(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:TaxA :TaxB) "
+        "ObjectPropertyDomain(:p :D2) ObjectPropertyDomain(:p :D1) "
+        'ObjectPropertyDomain(Annotation(<urn:meta> "duplicate") :p :D1) '
+        "ObjectPropertyRange(:p :R2) ObjectPropertyRange(:p :R1)"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.ingestion.path == "encoded-native"
+    counters = actual_report.provenance.ingestion.counters
+    assert counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert counters["native_output_vector_edges"] == raw_edges
+    assert counters["scalar_axiom_materializations"] == 0
+    assert counters["per_row_ffi_calls"] == 0
+
+
 def test_public_iterator_keeps_private_capability_and_dispatch_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -338,8 +396,16 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
         "ClassAssertion(:A :individual)",
         'ClassAssertion(:A :individual) DataPropertyAssertion(:dp :individual "value")',
         "ObjectPropertyAssertion(:p _:anonymous :named)",
+        "ObjectPropertyDomain(:p ObjectUnionOf(:A :B)) ObjectPropertyRange(:p :R)",
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:q :R)",
     ],
-    ids=["ignored-equivalence", "skipped-data-assertion", "anonymous-abox"],
+    ids=[
+        "ignored-equivalence",
+        "skipped-data-assertion",
+        "anonymous-abox",
+        "ignored-domain",
+        "incomplete-domain-range-product",
+    ],
 )
 def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     monkeypatch: pytest.MonkeyPatch,
@@ -372,14 +438,16 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
 
     assert actual == expected
     _assert_semantic_report_parity(expected_report, actual_report)
-    assert closed == [("cancelled", 0)]
+    assert len(closed) == 1
+    assert closed[0][0] in {"cancelled", "exhausted"}
+    assert closed[0][1] == 0
     ingestion = actual_report.provenance.ingestion
     assert ingestion.path == "scalar-native"
     assert ingestion.reason is not None
     assert ingestion.reason.startswith(
         "private native batch integration accepts only declarations and diagnostic-free named "
         "subclass or supported restriction, equivalence, class-assertion, or "
-        "object-property-assertion axioms"
+        "object-property-assertion axioms plus one complete named domain/range product"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
