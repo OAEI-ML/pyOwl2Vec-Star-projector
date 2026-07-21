@@ -591,7 +591,7 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
 
 @dataclass(slots=True)
 class NativeEncodedDirectCompilation:
-    """Hidden production-adjacent adapter for the exact direct-taxonomy slice."""
+    """Hidden production-adjacent adapter for the exact named-edge slice."""
 
     view: object
     lease: EncodedStructuralLease
@@ -661,7 +661,7 @@ def prepare_native_encoded_compilation(
     max_total_edges: int | None,
     cancellation_token: CancellationTokenLike | None,
 ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
-    """Prepare the hidden exact taxonomy seam or request whole-call fallback."""
+    """Prepare the hidden exact named-edge seam or request whole-call fallback."""
 
     if options.compatibility_state != "isolated":
         return None, "private native direct batches do not bind Scala-instance state"
@@ -681,23 +681,45 @@ def prepare_native_encoded_compilation(
         if cancellation_token is not None:
             cancellation_token.check()
         native_statistics = batches.statistics
-        expected_edges = native_statistics.subclasses * (
-            2 if options.bidirectional_taxonomy else 1
+        taxonomy_edges = (
+            native_statistics.subclasses + native_statistics.equivalents
+        ) * (2 if options.bidirectional_taxonomy else 1)
+        expected_edges = (
+            taxonomy_edges
+            + native_statistics.class_assertions
+            + native_statistics.object_property_assertions
         )
-        exact_direct_taxonomy = (
+        admitted_roots = (
+            native_statistics.declarations
+            + native_statistics.subclasses
+            + native_statistics.equivalents
+            + native_statistics.class_assertions
+            + native_statistics.object_property_assertions
+        )
+        exact_named_edges = (
             native_statistics.roots
-            == native_statistics.declarations + native_statistics.subclasses
+            == admitted_roots
+            and native_statistics.anonymous_individuals == 0
+            and native_statistics.ontology_annotations == 0
+            and native_statistics.swrl_rules == 0
             and native_statistics.restriction_subclasses == 0
             and native_statistics.ignored_subclasses == 0
+            and native_statistics.aggregate_equivalents == 0
+            and native_statistics.ignored_class_assertions == 0
+            and native_statistics.annotation_edges == 0
+            and native_statistics.non_string_literal_renderings == 0
+            and native_statistics.domain_range_edges == 0
+            and native_statistics.role_expansion_edges == 0
             and native_statistics.edges == expected_edges
             and native_statistics.skipped_axioms == 0
         )
-        if not exact_direct_taxonomy:
+        if not exact_named_edges:
             batches.close()
             return (
                 None,
-                "private native batch integration accepts only declarations and direct named "
-                "subclass axioms",
+                "private native batch integration accepts only declarations and diagnostic-free "
+                "named subclass, equivalence, class-assertion, or object-property-assertion "
+                "axioms",
             )
         return (
             NativeEncodedDirectCompilation(

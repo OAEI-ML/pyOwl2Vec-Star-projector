@@ -148,6 +148,79 @@ def test_hidden_iterator_matches_scalar_and_reports_exact_native_batches(
         assert counters[name] == 0
 
 
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges"),
+    [
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                duplicates="preserve",
+            ),
+            4,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+            ),
+            6,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                only_taxonomy=True,
+                include_literals=True,
+            ),
+            4,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_exact_named_tbox_and_abox_edges(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+) -> None:
+    view = _snapshot(
+        "Declaration(Class(:Z)) Declaration(Class(:AA)) Declaration(Class(:B)) "
+        "Declaration(Class(:Top)) Declaration(NamedIndividual(:i)) "
+        "Declaration(NamedIndividual(:j)) Declaration(ObjectProperty(:p)) "
+        "SubClassOf(:Z :Top) "
+        'EquivalentClasses(Annotation(<urn:meta> "equivalence") :Z :AA :B) '
+        'ClassAssertion(Annotation(<urn:meta> "type") :Z :i) '
+        'ObjectPropertyAssertion(Annotation(<urn:meta> "property") :p :i :j)'
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    counters = ingestion.counters
+    assert counters["native_batch_edges"] == 2
+    assert counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert counters["native_output_vector_edges"] == raw_edges
+    assert counters["per_row_ffi_calls"] == 0
+    assert counters["scalar_axiom_materializations"] == 0
+    assert counters["scalar_term_materializations"] == 0
+
+
 def test_public_iterator_keeps_private_capability_and_dispatch_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -178,13 +251,22 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
     assert not any(name.startswith("native_") for name in ingestion.counters)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Declaration(Class(:A)) Declaration(Class(:B)) "
+        "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B)) "
+        "ClassAssertion(:A :individual)",
+        'ClassAssertion(:A :individual) DataPropertyAssertion(:dp :individual "value")',
+        "ObjectPropertyAssertion(:p _:anonymous :named)",
+    ],
+    ids=["ignored-equivalence", "skipped-data-assertion", "anonymous-abox"],
+)
 def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     monkeypatch: pytest.MonkeyPatch,
+    body: str,
 ) -> None:
-    view = _snapshot(
-        "Declaration(Class(:A)) Declaration(Class(:B)) "
-        "EquivalentClasses(:A :B) ClassAssertion(:A :individual)"
-    )
+    view = _snapshot(body)
     python_options = ProjectionOptions(backend="python", order="encounter")
     expected_projector = Projector()
     expected = expected_projector.project(view, options=python_options)
@@ -216,8 +298,8 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     assert ingestion.path == "scalar-native"
     assert ingestion.reason is not None
     assert ingestion.reason.startswith(
-        "private native batch integration accepts only declarations and direct named subclass "
-        "axioms"
+        "private native batch integration accepts only declarations and diagnostic-free named "
+        "subclass, equivalence, class-assertion, or object-property-assertion axioms"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
