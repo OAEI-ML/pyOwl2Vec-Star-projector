@@ -5130,6 +5130,49 @@ def test_private_native_batch_final_edges_commit_with_cursor(
     assert batches.state == "exhausted"
 
 
+def test_private_native_batch_statistics_factory_is_in_session_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    statistics_calls = 0
+
+    def failing_statistics(*values: int) -> NativeEncodedDirectStatistics:
+        nonlocal statistics_calls
+        statistics_calls += 1
+        assert len(values) == 60
+        raise MemoryError("injected final batch statistics construction failure")
+
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "pyowl2vec_star_projector.native.NativeEncodedDirectStatistics",
+            failing_statistics,
+        )
+        with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+            compiler.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+                role_state=role_state,
+            )
+
+    assert statistics_calls == 1
+    assert compiler.state == "failed"
+    assert compiler._kernel.batch_state == "absent"
+    assert compiler._kernel.remaining_batch_edges == 0
+    assert compiler._kernel.batch_boundary_calls == 0
+    assert compiler._kernel.emitted_edge_batches == 0
+    assert compiler._kernel.peak_buffered_batch_edges == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+
 def test_private_native_coarse_list_uses_bounded_internal_chunks() -> None:
     edge_count = 600
     view = _snapshot(

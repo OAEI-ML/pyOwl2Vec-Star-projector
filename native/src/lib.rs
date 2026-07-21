@@ -33,7 +33,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 36;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 37;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -441,26 +441,6 @@ impl RetainedRoleState {
         )
         .map_err(kernel_error)
     }
-
-    fn prepare_batches_claimed(
-        &self,
-        columns: DirectColumns<'_>,
-        root_annotation_columns: Option<DirectColumns<'_>>,
-        options: DirectCompileOptions,
-        compiler_state: &AtomicU8,
-    ) -> PyResult<PreparedDirectBatches> {
-        let mut roles = self.roles.lock().map_err(|_| {
-            PyRuntimeError::new_err("encoded direct role state is permanently failed")
-        })?;
-        prepare_direct_batches_with_retained_role_state(
-            columns,
-            root_annotation_columns,
-            options,
-            compiler_state,
-            Some(&mut roles),
-        )
-        .map_err(kernel_error)
-    }
 }
 
 /// Private retained role maps for explicit Scala-instance compatibility calls.
@@ -698,7 +678,7 @@ impl EncodedDirectCompiler {
         let result = guarded(|| {
             py.detach(|| {
                 if let Some(retained) = retained_role_state.as_ref() {
-                    retained.prepare_batches_claimed(
+                    retained.prepare_batches_uncommitted_claimed(
                         columns,
                         root_annotation_columns,
                         options,
@@ -716,7 +696,10 @@ impl EncodedDirectCompiler {
                 }
             })
         });
-        let stream = self.finish_result(result)?;
+        let stream = match result {
+            Ok(stream) => stream,
+            Err(error) => return self.finish_result(Err(error)),
+        };
         let statistics = stream.statistics();
         Ok((stream, statistics, retained_role_use))
     }
@@ -942,6 +925,7 @@ impl EncodedDirectCompiler {
         max_edges,
         max_iri_bytes,
         batch_edges,
+        statistics_factory,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
@@ -955,11 +939,12 @@ impl EncodedDirectCompiler {
         max_edges: usize,
         max_iri_bytes: usize,
         batch_edges: usize,
+        statistics_factory: &Bound<'_, PyAny>,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
         role_state: Option<PyRef<'_, EncodedDirectRoleState>>,
-    ) -> PyResult<Py<PyTuple>> {
+    ) -> PyResult<Py<PyAny>> {
         if max_edges == 0 {
             return Err(PyValueError::new_err("max_edges must be positive"));
         }
@@ -979,14 +964,52 @@ impl EncodedDirectCompiler {
         };
         let retained_role_state = role_state.map(|value| Arc::clone(&value.retained));
         let (stream, stats, retained_role_use) =
-            self.prepare_batches_owned(py, options, retained_role_state)?;
-        let statistics = direct_statistics_tuple(py, stats)?;
-        self.batch_output
-            .lock()
-            .map_err(|_| {
-                PyRuntimeError::new_err("encoded direct batch output is permanently failed")
-            })?
-            .install(stream, batch_edges);
+            self.prepare_batches_owned(py, options, retained_role_state.clone())?;
+        let result = guarded(|| {
+            let statistics = statistics_factory
+                .call1(direct_statistics_tuple(py, stats)?)?
+                .unbind();
+            let next_role_state =
+                if retained_role_state.is_some() && !options.asserted_taxonomy_only {
+                    Some(stream.try_clone_role_state().map_err(kernel_error)?)
+                } else {
+                    None
+                };
+            Ok((statistics, next_role_state))
+        });
+        let (statistics, next_role_state) = match result {
+            Ok(result) => result,
+            Err(error) => return self.finish_result(Err(error)),
+        };
+        let mut output = match self.batch_output.lock() {
+            Ok(output) => output,
+            Err(_) => {
+                return self.finish_result(Err(PyRuntimeError::new_err(
+                    "encoded direct batch output is permanently failed",
+                )))
+            }
+        };
+        if let Some(next_role_state) = next_role_state {
+            let Some(retained) = retained_role_state.as_ref() else {
+                return self.finish_result(Err(PyRuntimeError::new_err(
+                    "encoded batch role-state transaction lost its owner",
+                )));
+            };
+            let mut roles = match retained.roles.lock() {
+                Ok(roles) => roles,
+                Err(_) => {
+                    return self.finish_result(Err(PyRuntimeError::new_err(
+                        "encoded direct role state is permanently failed",
+                    )))
+                }
+            };
+            self.finish_result(Ok(()))?;
+            output.install(stream, batch_edges);
+            *roles = next_role_state;
+        } else {
+            self.finish_result(Ok(()))?;
+            output.install(stream, batch_edges);
+        }
         drop(retained_role_use);
         Ok(statistics)
     }

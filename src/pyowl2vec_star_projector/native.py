@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 36
+ENCODED_DIRECT_KERNEL_VERSION = 37
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -527,6 +527,12 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
+        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values())
+        expected_root_bytes = (
+            0
+            if self.root_annotation_lease is None
+            else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+        )
 
         raw_stats = _call_encoded_direct(
             self._module,
@@ -535,6 +541,7 @@ class NativeEncodedDirectCompiler:
                 max_edges,
                 max_iri_bytes,
                 batch_edges,
+                NativeEncodedDirectStatistics,
                 asserted_taxonomy_only,
                 only_taxonomy,
                 include_literals,
@@ -542,19 +549,13 @@ class NativeEncodedDirectCompiler:
             ),
         )
         try:
-            if type(raw_stats) is not tuple or len(raw_stats) != 60:
+            if type(raw_stats) is not NativeEncodedDirectStatistics:
                 raise ProjectionError(
                     "native encoded compiler returned an invalid streaming envelope"
                 )
-            statistics = NativeEncodedDirectStatistics(*raw_stats)
-            expected_root_bytes = (
-                0
-                if self.root_annotation_lease is None
-                else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
-            )
+            statistics = raw_stats
             if (
-                statistics.buffer_bytes
-                != sum(buffer.nbytes for buffer in self.lease.buffers.values())
+                statistics.buffer_bytes != expected_buffer_bytes
                 or statistics.root_provenance_buffer_bytes != expected_root_bytes
             ):
                 raise ProjectionError(
