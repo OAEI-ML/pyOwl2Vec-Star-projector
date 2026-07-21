@@ -381,20 +381,25 @@ artifact, counter, timing-vector, pre-fix fallback, and limitation record is com
 
 ## Imported-annotation provenance guard
 
-Revision `50ad5ab61196fa5504cb65469a3446ea5c35a286` closes a hidden-candidate
-correctness hole at the private adapter boundary. The Rust kernel compiles a closure-scoped direct
-table, while the scalar profile exposes selected annotation assertions only from the root ontology.
-Before admitting visible annotations, the adapter now requests and validates the root-scoped table,
-requires that table to satisfy the same exact full-`bytes` or canonical packed-arena contract, and
-compares all eleven borrowed columns without copying. A byte-identical selection remains native;
-an unavailable, non-direct, sliced, mmap-backed, segmented, or different selection closes the
-unpublished native batch session and selects one whole-operation scalar compiler.
+Revisions `50ad5ab61196fa5504cb65469a3446ea5c35a286` and
+`a71dca0d261366db6faaa25d26673bd38a146610` close a hidden-candidate correctness hole at the
+private adapter boundary. The Rust kernel compiles a closure-scoped direct table, while the scalar
+profile exposes selected annotation assertions only from the root ontology. A bounded borrowed
+root-ID/node-tag scan detects whether annotation provenance is relevant before native compilation.
+When it is, the adapter requests and validates the root-scoped table, requires that table to satisfy
+the same exact full-`bytes` or canonical packed-arena contract, and compares all eleven borrowed
+columns without copying. A byte-identical selection remains native; an unavailable, non-direct,
+sliced, mmap-backed, segmented, or different selection selects one whole-operation scalar compiler
+before closure compilation or its edge limit. Annotation-free imported closures do not request the
+root table and remain eligible for native compilation.
 
-An isolated installed probe binds the exact projector revision above and core revision
+An isolated installed probe binds the latest exact projector revision above and core revision
 `6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf`. On a two-document closure, the imported subclass and
 root label matched scalar output while the imported label was suppressed; ingestion truthfully
-reported `scalar-native` with the root-provenance fallback reason. With annotations hidden, the
-same closure stayed `encoded-native`. Single-document visible annotations stayed native for both
+reported `scalar-native` with the root-provenance fallback reason, including when the scalar edge
+count was below the rejected closure's native edge count. With annotations hidden, the same
+closure stayed `encoded-native`; an annotation-free imported closure also stayed native with
+`include_literals=True`. Single-document visible annotations stayed native for both
 the Python provider's independent exact-byte exporters and the native provider's one-exporter
 canonical packed arena. The capability ledger remains only `abi3-py310` and `bounded-batches`.
 
@@ -408,15 +413,15 @@ edge digests, provider identities, and remaining blockers are recorded in
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`50ad5ab`:
+`a71dca0`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 30 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 217 passed |
-| Focused foundation/private-integration/benchmark/dispatch tests | 292 passed |
-| Complete projector test suite | 1,102 passed |
+| Focused foundation/private-integration/benchmark/dispatch tests | 294 passed |
+| Complete projector test suite | 1,104 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -525,8 +530,9 @@ state atomicity; bytes-exporter and exact-owner lifetime across the expanded sli
 concurrent cancellation; reusable role-state exclusion/release; and continued absence of the
 production encoded feature; exact root-scope annotation selection for independent and canonical
 packed direct bytes; whole-call scalar fallback for unequal imported-closure selections and
-arbitrary sliced root evidence before publication; imported-annotation suppression when literals
-are hidden; plus hidden-iterator differential parity for encounter/preserve and
+arbitrary sliced root evidence before compilation and native edge-limit enforcement;
+annotation-free imported closure admission; imported-annotation suppression when literals are
+hidden; plus hidden-iterator differential parity for encounter/preserve and
 canonical/unique/bidirectional calls, annotated duplicate taxonomy roots, exact report and
 zero-forbidden-work counters, unchanged public dispatch, named n-ary equivalence/class assertion/
 object-property assertion parity under normal, bidirectional, canonical-unique, historical

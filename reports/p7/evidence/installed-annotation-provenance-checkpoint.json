@@ -7,13 +7,13 @@
   "performance_claim": false,
   "source_revisions": {
     "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
-    "projector": "50ad5ab61196fa5504cb65469a3446ea5c35a286",
+    "projector": "a71dca0d261366db6faaa25d26673bd38a146610",
     "native_binary_donor_projector": "cedfc9134d34c713eab9290dfc263c443c778805"
   },
   "artifacts": {
     "projector_source_archive": {
-      "bytes": 3348480,
-      "sha256": "93eeafc3987dc92cf52c642c2ab74e14d5c937c4cf5e318af033655c4ab04176"
+      "bytes": 3368960,
+      "sha256": "f70474dc9971dd9f11ff5695a9c17ea83fe495da41d96fcdb560f0f50c12f427"
     },
     "core_wheel": {
       "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
@@ -24,20 +24,20 @@
     },
     "projector_fallback_wheel": {
       "filename": "pyowl2vec_star_projector-0.1.0rc1-py3-none-any.whl",
-      "bytes": 108730,
-      "sha256": "38712c0f37577b97b71d95028da34d1bdf184bcbc39afb7be05efbe4d7064d03"
+      "bytes": 109223,
+      "sha256": "30705f293110518ca182fccfd6d0778f270393e930c2330cace7c5ff5c56cd2b"
     },
     "projector_installed_checkpoint_wheel": {
       "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
-      "bytes": 418291,
-      "sha256": "e774f626e98249c1793bb2f48178879712418c9f55b5e9b1ed88fe3fcc34684a",
-      "record_text_sha256": "b333183f5e617b94d10bb8503ca7e679de6dee66ab83437b4d98f5611152000f",
-      "record_file_sha256": "8c92ae712f73b50b7e1fe78673d9f04a2ff1e3d868c4e2314ad85bc0fc6dce39"
+      "bytes": 418784,
+      "sha256": "4d91b4b3c9e2bde4387d228e8b96bb3622f4e0d9ef8115b24a396d7c6c6fb0c4",
+      "record_text_sha256": "fc2efd2b815ef3b4e9be7c17e110b12ef095e3fcb01831150a6eef48c8b0ee0c",
+      "record_file_sha256": "79bf13bcd8b60f9926c69d68175f49589be93a42b1caef7d532978958de3ac3e"
     },
     "installed_projector_seam": {
       "filename": "pyowl2vec_star_projector/native.py",
-      "bytes": 50748,
-      "sha256": "d68551e7e0cae3aa640664028520a41078c67e5cc1dffea15a0bf3b84496e5ee",
+      "bytes": 51401,
+      "sha256": "e7b15f0f18a7e7175fc75f9dbf00ae38dc2294bf474cd501f5081f0075c25baf",
       "matches_projector_revision": true
     },
     "installed_projector_native": {
@@ -51,9 +51,9 @@
       ]
     },
     "installed_probe": {
-      "bytes": 2257,
-      "sha256": "e30b60c6c77b4c0ccb82c0ebdeb80ecfacf29131c328a510a6cb3f17d3e0ca3d",
-      "harness_sha256": "3795d2ed5653fc4713e98d4695b96ac58d1ab8d755ab7c0701ea0654dec76ca7"
+      "bytes": 3039,
+      "sha256": "385ec362dee45e09cb9ab86b997479d87e56eefdca09f922ecd9b3498824a5c1",
+      "harness_sha256": "11c623b9aa4a0e670d658dc02811ffd8d875430cec755e4ab67a94e3cd831bee"
     }
   },
   "checkpoint_wheel_construction": {
@@ -110,6 +110,15 @@
       "ingestion_path": "scalar-native",
       "fallback_reason": "private native direct batches do not bind root-scoped annotation provenance; selected whole-operation scalar compiler"
     },
+    "visible_annotations_at_scalar_edge_limit": {
+      "scalar_parity": true,
+      "native_closure_limit_error_avoided": true,
+      "edge_limit": 2,
+      "edge_count": 2,
+      "edges_sha256": "e88ca296c5a6305e1f0dc12ac74a45ea572ab81ab9a63155aca321ec97f1cb45",
+      "ingestion_path": "scalar-native",
+      "fallback_reason": "private native direct batches do not bind root-scoped annotation provenance; selected whole-operation scalar compiler"
+    },
     "hidden_annotations": {
       "scalar_parity": true,
       "edge_count": 1,
@@ -117,6 +126,15 @@
       "ingestion_path": "encoded-native",
       "fallback_reason": null
     }
+  },
+  "annotation_free_imported_closure": {
+    "provider": "python",
+    "scalar_parity": true,
+    "root_provenance_preflight_required": false,
+    "edge_count": 1,
+    "edges_sha256": "57f7092ff118a18caf37d3e6caa098fdda43c0529077c9d3d112bd8bd4beb59d",
+    "ingestion_path": "encoded-native",
+    "fallback_reason": null
   },
   "single_document_visible_annotations": {
     "python_provider": {
@@ -141,12 +159,14 @@
     }
   },
   "source_verification": {
-    "annotation_provenance_cases": 5,
-    "private_native_integration_cases": 47,
-    "full_suite_cases": 1102,
+    "annotation_provenance_cases": 7,
+    "private_native_integration_cases": 49,
+    "full_suite_cases": 1104,
     "ruff_changed_files": "passed",
     "mypy_source": "passed",
     "sliced_root_scope_exporter_falls_back": true,
+    "root_provenance_precedes_native_edge_limit": true,
+    "annotation_free_imports_skip_root_preflight": true,
     "public_capability_remains_hidden": true
   },
   "remaining_structural_gap": "The private Rust kernel cannot yet intersect a distinct root-scoped direct table with a multi-document closure, so visible annotations on unequal selections use one whole-operation scalar fallback.",

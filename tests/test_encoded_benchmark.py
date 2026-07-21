@@ -271,10 +271,22 @@ def test_installed_annotation_provenance_checkpoint_is_fail_closed_and_nonpublic
     )
     assert ["urn:root#A", "rdfs:label", "root"] in visible["edges"]
     assert not any(edge[-1] == "leaf" for edge in visible["edges"])
+    limited = imported["visible_annotations_at_scalar_edge_limit"]
+    assert limited["scalar_parity"] is True
+    assert limited["native_closure_limit_error_avoided"] is True
+    assert limited["edge_count"] == limited["edge_limit"] == visible["edge_count"]
+    assert limited["edges_sha256"] == visible["edges_sha256"]
+    assert limited["ingestion_path"] == "scalar-native"
     hidden = imported["hidden_annotations"]
     assert hidden["scalar_parity"] is True
     assert hidden["ingestion_path"] == "encoded-native"
     assert hidden["fallback_reason"] is None
+
+    annotation_free = checkpoint["annotation_free_imported_closure"]
+    assert annotation_free["scalar_parity"] is True
+    assert annotation_free["root_provenance_preflight_required"] is False
+    assert annotation_free["ingestion_path"] == "encoded-native"
+    assert annotation_free["fallback_reason"] is None
 
     single = checkpoint["single_document_visible_annotations"]
     assert single["python_provider"]["closure_exporter_count"] > 1
@@ -282,6 +294,10 @@ def test_installed_annotation_provenance_checkpoint_is_fail_closed_and_nonpublic
     assert single["python_provider"]["edges_sha256"] == single["native_provider"]["edges_sha256"]
     assert all(lane["ingestion_path"] == "encoded-native" for lane in single.values())
     assert all(lane["scalar_parity"] is True for lane in single.values())
+
+    verification = checkpoint["source_verification"]
+    assert verification["root_provenance_precedes_native_edge_limit"] is True
+    assert verification["annotation_free_imports_skip_root_preflight"] is True
 
     for artifact in checkpoint["artifacts"].values():
         assert len(artifact["sha256"]) == 64

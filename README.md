@@ -205,8 +205,9 @@ it is explicitly private, incomplete, and not release-performance evidence.
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
 annotations. Byte-identical single-document root/closure tables remain native for both independent
 exact-byte and canonical packed providers. A different imported-closure selection, unavailable
-root scope, or non-direct/sliced exporter closes the unpublished native session and selects one
-whole-operation scalar compiler, preventing imported-only annotations from leaking into output.
+root scope, or non-direct/sliced exporter selects one whole-operation scalar compiler before
+closure compilation or its native edge limit, preventing imported-only annotations from leaking
+into output. Annotation-free imported closures skip that root proof and remain native-eligible.
 The installed correctness checkpoint and its assembly limitations are recorded in
 [`reports/p7/evidence/installed-annotation-provenance-checkpoint.json`](reports/p7/evidence/installed-annotation-provenance-checkpoint.json);
 it carries no release or performance claim.
