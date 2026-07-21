@@ -61,8 +61,10 @@ commits only after Python list construction. The private counter ledger separate
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete
-Python output construction. Public dispatch remains unchanged and the encoded capability remains
-absent from the extension feature ledger.
+Python output construction. Kernel v35 constructs final `Edge` and statistics objects in that
+transaction, removing the wrapper's second complete tuple-edge list and preserving state atomicity
+when either final factory fails. Public dispatch remains unchanged and the encoded capability
+remains absent from the extension feature ledger.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

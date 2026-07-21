@@ -124,8 +124,9 @@ at most the configured edge count, and commits that state only after the Python 
 constructed. GIL-detached generation does not hold the output mutex; a raced close discards the
 unpublished bounded batch. Kernel v34 routes the legacy private coarse call through the same cursor
 in fixed 256-edge native chunks. That call still returns one materialized Python list, but retains
-no complete Rust output vector; its reusable role state commits only after the list and statistics
-tuple are complete.
+no complete Rust output vector. Kernel v35 constructs the final `Edge` instances and statistics
+object inside that same transaction, without a second complete tuple-edge list; its reusable role
+state commits only after those final objects are complete.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

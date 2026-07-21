@@ -1,0 +1,188 @@
+{
+  "schema": "pyowl-projector.p7-installed-final-result-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "969c62eeaf34a5be7ce834156d16a62cb834581b"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-969c62e.tar",
+      "bytes": 3614720,
+      "sha256": "03d2a6d53df04a1d50003f27533277e9325f56ecfa1a81961a1fdf71a95b4318"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 443641,
+      "sha256": "174b8e4d5d3477d779cb717a2752389b6b83b91599abc8624693e3d813762e45",
+      "wheel_record_sha256": "71377baf7e9af343d8e7cda98a20aa18218350c9a7e787ca876beabe86cbbe29",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "efe01886c6045990f9ad5f691d6963250a2860465bff61dbbfdd9905df058995"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_projector_api": {
+      "filename": "pyowl2vec_star_projector/api.py",
+      "bytes": 45211,
+      "sha256": "86790c5a91283b6c70ef2bde25fe70d15a2173acd1f6c08bef7829e1a8aa2f40",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 58513,
+      "sha256": "b4ebfc50d8c7574ac7a5d76a1af956569b36cc0921c5a1c83469359a958e2097",
+      "matches_projector_revision": true
+    },
+    "installed_provenance_contract": {
+      "filename": "pyowl2vec_star_projector/provenance.py",
+      "bytes": 10298,
+      "sha256": "cca455407eb599b765a5b1df712aa6306bedf63c90c512f86478e5529af55e45",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 741768,
+      "sha256": "42d4e25fe03a33d6e28ab091e08294dee9fb6d194c15ae71c84718d8981a97f4",
+      "encoded_direct_kernel_version": 35,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_sources": {
+      "foundation": {
+        "filename": "tests/test_native_encoded_foundation.py",
+        "bytes": 194729,
+        "sha256": "af33d067e7acfb6b4ee9a4ae36cd0f2938388b5f3816a9f65fd840c8e8ec981a"
+      },
+      "integration": {
+        "filename": "tests/test_private_native_encoded_integration.py",
+        "bytes": 72205,
+        "sha256": "5d28f827df8fc0b2fffb203f2cc63bf8b2d80ad17f6cb4739159852e83aa7878"
+      }
+    },
+    "benchmark_harness": {
+      "filename": "benchmarks/benchmark_encoded_compiler.py",
+      "bytes": 27746,
+      "sha256": "80ce26ecc8b280e178f476c8f496f34783012255f9cc44f239b4103657698f4e"
+    },
+    "rust_source": {
+      "encoded_direct_rs_bytes": 305651,
+      "encoded_direct_rs_sha256": "1f8a40c30780af1aec7d3adeff16a2a905741e4398a76fc1bd3753d9ee56b23f",
+      "lib_rs_bytes": 62575,
+      "lib_rs_sha256": "8f73166b96b912d58f43c6f28408db6d439065c51b2295fc7fef34edd2392315",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 35,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "final_result_transaction_result": "7 passed",
+    "audit_and_benchmark_result": "11 passed",
+    "complete_suite_result": "1120 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "coarse_final_result": {
+        "compiled_edges": 600,
+        "final_edge_instances": 600,
+        "intermediate_list_edges": 0,
+        "internal_chunk_edges": 256,
+        "native_chunks": 3,
+        "output_vector_edges": 0,
+        "peak_buffered_edges": 256,
+        "ordered_edge_sha256": "d0a77a26e3edf48c8d2a982f0540ff2c730738e6bc5f4543ed7cf4903ba14abd"
+      },
+      "final_edge_factory_transaction": {
+        "failure": "injected MemoryError on the second final Edge construction",
+        "compiler_state": "failed",
+        "published_output_chunks": 0,
+        "role_use_released": true,
+        "subrole_properties_after_failure": 0,
+        "inverse_properties_after_failure": 0
+      },
+      "final_statistics_factory_transaction": {
+        "failure": "injected MemoryError after final Edge list construction",
+        "compiler_state": "failed",
+        "published_output_chunks": 0,
+        "role_use_released": true,
+        "subrole_properties_after_failure": 0,
+        "inverse_properties_after_failure": 0
+      }
+    }
+  },
+  "source_verification": {
+    "coarse_final_result_invariant": {
+      "production_complete_rust_output_vector": false,
+      "duplicate_production_emitter": false,
+      "intermediate_tuple_edge_list": false,
+      "final_edge_objects_constructed_inside_native_transaction": true,
+      "final_statistics_object_constructed_inside_native_transaction": true,
+      "retained_role_commit_after_final_result_construction": true,
+      "fixed_internal_chunk_edges": 256
+    },
+    "private_native_foundation_cases": 221,
+    "private_native_integration_cases": 54,
+    "foundation_plus_private_integration_cases": 275,
+    "broad_encoded_compiler_cases": 672,
+    "complete_suite_cases": 1120,
+    "audit_and_benchmark_cases": 11,
+    "rust_unit_cases": 38,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "The legacy private coarse call now constructs its final Python Edge list and final statistics object within the native retained-role transaction. It no longer returns a complete tuple-edge list for the wrapper to duplicate, and either final-object allocation failure leaves reusable role state unchanged.",
+  "known_blockers": [
+    "The compatibility coarse call still returns one O(E) Python list; only the hidden iterator exposes caller-bounded Python results.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public iterator, sink, digest, artifact, dispatch, and Scala-instance lifecycle integration remain open; the candidate is reachable only through the hidden seam.",
+    "Labelled large-corpus time-to-first-edge, throughput, and RSS measurements remain required.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness and final-result atomicity checkpoint; it carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The final Python Edge list remains proportional to the result size; only the duplicate complete tuple-edge list and complete Rust output vector are absent.",
+    "One Python factory call still occurs for each final Edge inside the single coarse PyO3 invocation.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

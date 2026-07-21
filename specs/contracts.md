@@ -235,11 +235,14 @@ encoded input, role maps, or validation indexes. Kernel-v33 source evidence addi
 zero cursor emission attempts at preparation; output traversal begins at the first drain.
 Kernel-v34 coarse-call evidence additionally records the fixed internal chunk bound, native chunk
 count, zero complete Rust output-vector edges, and peak native coarse buffer. The returned Python
-list remains the legacy call's materialized result, while reusable role state commits only after
-that list and its statistics tuple are complete. Zero operation counters assert that the projector
-handoff itself did not perform that work; they do not describe acquisition completed before an
-existing view was supplied. The publication duration includes public encoded-view acquisition and
-the Projector adapter's in-place validation. These fields are monotonic, non-negative, path-free
+list remains the legacy call's materialized result. Kernel-v35 evidence additionally records zero
+intermediate complete tuple-edge-list entries and requires both final `Edge` instances and the
+final statistics object to be constructed before reusable role state commits. A failed final
+factory publishes neither counters nor role-state changes. Zero operation counters assert that the
+projector handoff itself did not perform that work; they do not describe acquisition completed
+before an existing view was supplied. The publication duration includes public encoded-view
+acquisition and the Projector adapter's in-place validation. These fields are monotonic,
+non-negative, path-free
 diagnostics; they do not enter portable artifact bytes or semantic digests. Reading the report
 cannot trigger another core view request.
 

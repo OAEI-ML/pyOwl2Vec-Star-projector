@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- The legacy private coarse compiler now constructs final `Edge` and statistics objects inside its
+  retained-role transaction, eliminating the wrapper's second ontology-sized Python edge list.
+  Injected final-edge and final-statistics allocation failures leave reusable role state unchanged;
+  the capability remains unadvertised.
 - The legacy private coarse compiler now builds its required Python result list through a shared
   resumable cursor in 256-edge native chunks, with zero complete Rust output-vector edges. Its
   retained Scala role-state transition commits only after every edge and statistics tuple has
