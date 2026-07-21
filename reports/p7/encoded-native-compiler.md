@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `f812f9d`. pyOWLCore candidate revision:
+Date: 2026-07-21. Projector implementation through `947dcb0`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -53,6 +53,18 @@ candidate drain feeds the existing encounter/canonical and duplicate policy mach
 public edge limit and cancellation token, and records exact encoded-buffer and native-batch
 counters in its ordinary `ProjectionReport`. The normal `Projector.iter_edges(...)`, sink, digest,
 and artifact entry points cannot select this path.
+
+The load-excluded benchmark now has a separately labelled
+`private-native-candidate` execution surface. It hashes every complete ingestion-counter and
+post-view core-operation ledger, binds the runner plus loaded package/native artifacts by SHA-256,
+records distribution `RECORD` hashes, native features and kernel version, and accepts only full
+40-character projector/core revisions. `private_candidate_boundary_ready` describes only the
+hidden counter contract. The stronger `private_candidate_evidence_ready` additionally requires
+installed distribution payloads and both revisions. Neither field can set public
+`acceptance_ready`; private mode is rejected if combined with the public
+`--require-encoded-native` gate. The harness also emits the whole-output-vector,
+direct-bytes-only, unwired-public-surfaces, and scalar-public-lifecycle blockers in every result.
+No installed-wheel or corpus result is inferred from the source-tree harness checks below.
 
 This checkpoint adds a real but deliberately private Rust foundation. It proves one useful
 semantic slice across the actual PyO3 boundary without changing the production claim:
@@ -341,15 +353,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`f812f9d`:
+`947dcb0`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 30 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 215 passed |
-| Focused native/dispatch/streaming/API/integration/contract tests | 323 passed |
-| Complete projector test suite | 1,088 passed |
+| Focused native/dispatch/streaming/API/integration/contract tests | 328 passed |
+| Complete projector test suite | 1,093 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -484,6 +496,12 @@ and historical `only_taxonomy` options, exact grouped skip diagnostics across al
 scalar-skipped constructors, silent ontology-annotation and SWRL admission, and resource failure
 without a partial report.
 
+The benchmark-specific cases additionally prove that public scalar runs retain their existing
+surface and rejection behavior; the private candidate selects encoded-native with exact
+compile-plus-drain counters; its complete counter/core-operation ledgers and loaded native binary
+are hash-bound; it remains unable to satisfy public acceptance; and invalid backend, gate, or
+revision combinations fail before ontology loading.
+
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
 
@@ -498,7 +516,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
 | Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, and hidden iterator close/cancel/fallback/resource tests pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
 | Zero forbidden-work ledger | Reported by the successful hidden exact named-edge candidate; no public production-path claim |
-| Corpus performance/RSS gates | Open |
+| Corpus performance/RSS gates | Private load-excluded harness now binds execution surface, exact ledgers, runtime artifacts, and revisions; installed NCIT/DOID/GO/large-corpus measurements and thresholds remain open |
 | Exact shared-stack acceptance | Open for this kernel |
 | Wheels/SBOM/platform matrix | Open for this kernel |
 
@@ -507,8 +525,8 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 Public `auto` and explicit native negotiation remain unchanged. Before advertising
 `encoded-structural-compiler-v1`, P7 still needs:
 
-1. complete Rust rule, option, multiplicity, order, diagnostic, and error parity, then bind the
-   proven retained role maps to public lifecycle locking, invocation history, and provenance;
+1. preserve the completed exact-direct hidden-adapter semantic ledger while binding the proven
+   retained role maps to public lifecycle locking, invocation history, and provenance;
 2. replace the private whole-output vector with genuinely bounded Rust production, then promote
    its hidden iterator proof into the public iterator, protocol sink, digest, artifact, and
    cancellation surfaces;

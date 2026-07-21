@@ -184,6 +184,21 @@ Use `--require-encoded-native` only as a release-evidence gate. It fails unless 
 selects encoded-native and exposes a complete zero-forbidden-counter, zero-staging-copy,
 released-GIL record; it never relabels scalar fallback as accelerated evidence.
 
+P7 development can separately measure the unadvertised exact-direct candidate with
+`--private-native-candidate`. This calls the hidden iterator, labels every sample
+`private-native-candidate`, hashes the complete ingestion and core-operation ledgers, and records
+the loaded distribution `RECORD`, package module, native binary, feature ledger, and kernel
+version. Supply the exact 40-character revisions with `--projector-revision` and
+`--core-revision`. `--require-private-native-candidate` additionally requires both packages to be
+loaded from installed distribution payloads. Source-tree runs can prove the private boundary but
+cannot pass that installed-evidence gate.
+
+Private-candidate mode is deliberately incompatible with `--require-encoded-native` and can never
+set public `acceptance_ready`. Its evidence records the current production blockers: Rust still
+materializes the complete output vector before bounded drains, only exact direct `bytes` owners
+are supported, public iterator/sink/digest/artifact dispatch is unchanged, and the public
+Scala-instance lifecycle remains scalar.
+
 ## Optional native build
 
 Every distribution contains the complete Python backend. The default build is always the
