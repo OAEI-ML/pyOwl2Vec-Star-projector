@@ -250,6 +250,22 @@ def _native_skipped_counts(
     )
 
 
+def _native_ignored_counts(
+    statistics: NativeEncodedDirectStatistics,
+    options: ProjectionOptions,
+) -> tuple[tuple[str, int], ...]:
+    """Return exact grouped scalar ignores that carry diagnostics."""
+
+    return (
+        ("ClassAssertion", statistics.ignored_class_assertions),
+        (
+            "SubClassOf",
+            statistics.ignored_subclasses
+            + (statistics.restriction_subclasses if options.only_taxonomy else 0),
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class NativeEncodedDirectRoleState:
     """Private retained role maps for explicit Scala-instance parity."""
@@ -653,21 +669,19 @@ class NativeEncodedDirectCompilation:
 
     @property
     def diagnostics(self) -> tuple[ProjectionDiagnostic, ...]:
-        diagnostics: list[ProjectionDiagnostic] = []
-        ignored_restrictions = (
-            self.native_statistics.restriction_subclasses
-            if self.options.only_taxonomy
-            else 0
-        )
-        if ignored_restrictions:
-            diagnostics.append(
-                ProjectionDiagnostic(
-                    code="MOWL_IGNORED_SHAPE",
-                    message="constructor does not emit an edge in the pinned profile",
-                    count=ignored_restrictions,
-                    constructor="SubClassOf",
-                )
+        diagnostics: list[ProjectionDiagnostic] = [
+            ProjectionDiagnostic(
+                code="MOWL_IGNORED_SHAPE",
+                message="constructor does not emit an edge in the pinned profile",
+                count=count,
+                constructor=constructor,
             )
+            for constructor, count in _native_ignored_counts(
+                self.native_statistics,
+                self.options,
+            )
+            if count
+        ]
         if self.native_statistics.non_string_literal_renderings:
             diagnostics.append(
                 ProjectionDiagnostic(
@@ -767,8 +781,9 @@ def prepare_native_encoded_compilation(
         if cancellation_token is not None:
             cancellation_token.check()
         native_statistics = batches.statistics
-        direct_subclasses = (
-            native_statistics.subclasses - native_statistics.restriction_subclasses
+        direct_subclasses = native_statistics.subclasses - (
+            native_statistics.restriction_subclasses
+            + native_statistics.ignored_subclasses
         )
         taxonomy_edges = (direct_subclasses + native_statistics.equivalents) * (
             2 if options.bidirectional_taxonomy else 1
@@ -795,7 +810,10 @@ def prepare_native_encoded_compilation(
         expected_edges = (
             taxonomy_edges
             + restriction_edges
-            + native_statistics.class_assertions
+            + (
+                native_statistics.class_assertions
+                - native_statistics.ignored_class_assertions
+            )
             + native_statistics.object_property_assertions
             + native_statistics.domain_range_edges
             + native_statistics.role_expansion_edges
@@ -819,10 +837,12 @@ def prepare_native_encoded_compilation(
         exact_named_edges = (
             native_statistics.roots
             == admitted_roots
-            and native_statistics.restriction_subclasses <= native_statistics.subclasses
-            and native_statistics.ignored_subclasses == 0
+            and native_statistics.restriction_subclasses
+            + native_statistics.ignored_subclasses
+            <= native_statistics.subclasses
             and native_statistics.aggregate_equivalents == 0
-            and native_statistics.ignored_class_assertions == 0
+            and native_statistics.ignored_class_assertions
+            <= native_statistics.class_assertions
             and native_statistics.object_property_chains
             <= native_statistics.sub_object_properties
             and native_statistics.annotation_edges == expected_annotation_edges
@@ -850,10 +870,12 @@ def prepare_native_encoded_compilation(
                 batches=batches,
                 native_statistics=native_statistics,
                 statistics=CompileStatistics(
-                    ignored_shapes=(
-                        native_statistics.restriction_subclasses
-                        if options.only_taxonomy
-                        else 0
+                    ignored_shapes=sum(
+                        count
+                        for _constructor, count in _native_ignored_counts(
+                            native_statistics,
+                            options,
+                        )
                     )
                     + native_statistics.object_property_chains,
                     skipped_axioms=native_statistics.skipped_axioms,

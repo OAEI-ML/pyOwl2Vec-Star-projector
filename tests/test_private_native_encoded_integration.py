@@ -312,6 +312,79 @@ def test_hidden_iterator_admits_supported_direct_restrictions_with_exact_diagnos
 
 
 @pytest.mark.parametrize(
+    ("python_options", "raw_edges", "ignored_shapes", "subclass_ignores"),
+    [
+        (ProjectionOptions(backend="python", order="encounter"), 3, 3, 1),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+            ),
+            4,
+            3,
+            1,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                only_taxonomy=True,
+            ),
+            2,
+            4,
+            2,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_exact_ignored_subclasses_and_class_assertions(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+    ignored_shapes: int,
+    subclass_ignores: int,
+) -> None:
+    view = _snapshot(
+        "SubClassOf(:TaxA :TaxB) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
+        "SubClassOf(:Ignored ObjectOneOf(:member)) "
+        "ClassAssertion(:TaxA :named) "
+        "ClassAssertion(:TaxA _:anonymous) "
+        "ClassAssertion(ObjectHasSelf(:p) :named)"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    assert len(actual) == raw_edges
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
+    assert tuple(
+        (item.code, item.constructor, item.count) for item in actual_report.diagnostics
+    ) == (
+        ("MOWL_IGNORED_SHAPE", "ClassAssertion", 2),
+        ("MOWL_IGNORED_SHAPE", "SubClassOf", subclass_ignores),
+    )
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+
+
+@pytest.mark.parametrize(
     ("python_options", "raw_edges"),
     [
         (ProjectionOptions(backend="python", order="encounter"), 7),
@@ -889,14 +962,11 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
         "Declaration(Class(:A)) Declaration(Class(:B)) "
         "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B)) "
         "ClassAssertion(:A :individual)",
-        "ClassAssertion(:A _:anonymous) "
-        "ObjectPropertyAssertion(:p _:anonymous :named)",
         "ObjectPropertyDomain(:p ObjectUnionOf(:A :B)) ObjectPropertyRange(:p :R)",
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:q :R)",
     ],
     ids=[
         "ignored-equivalence",
-        "ignored-anonymous-class-assertion",
         "ignored-domain",
         "incomplete-domain-range-product",
     ],
