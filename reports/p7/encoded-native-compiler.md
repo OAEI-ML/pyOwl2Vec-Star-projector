@@ -1,19 +1,32 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `f2e87f9`. pyOWLCore candidate revision:
-`cb86ab1`. Exact-OM integration revision: `fe46141`.
+Date: 2026-07-21. Projector implementation through `78ab6fc`. pyOWLCore candidate revision:
+`6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
 
-P7 is **not accepted, integrated, advertised, or promoted**. Production projection still uses the
-Python semantic compiler. When the native backend is selected, that Python compiler materializes
-projector `Edge` values and the established Rust `EdgeBatchProcessor` receives owned string tuples
-only to apply edge policy. The broad decoder in `encoded_compiler.py` is Python code; its tests and
-counter ledger are not evidence of a Rust ontology compiler.
+P7 is **not accepted, publicly integrated, advertised, or promoted**. Production projection still
+uses the Python semantic compiler. When the native backend is selected through a public API, that
+Python compiler materializes projector `Edge` values and the established Rust
+`EdgeBatchProcessor` receives owned string tuples only to apply edge policy. The broad decoder in
+`encoded_compiler.py` is Python code; its tests and counter ledger are not evidence of a Rust
+ontology compiler.
 
 The extension feature ledger remains exactly `abi3-py310` and `bounded-batches`.
 `encoded-structural-compiler-v1` is absent, so normal backend negotiation cannot select an
 encoded-native production compiler.
+
+An explicitly private candidate, `Projector._iter_native_encoded_edges(...)`, now exercises one
+production-adjacent iterator integration without changing that ledger. It privately requests the
+unadvertised structural-columns candidate and selects Rust only for isolated direct views whose
+roots are declarations or direct named `SubClassOf` axioms. Candidate-unavailable inputs and
+successfully preflighted views outside that narrow adapter subset select the complete scalar-native
+compiler for the whole call before an edge is yielded; malformed, resource, cancellation, and
+pinned-reference failures retain their typed error paths. A successful candidate drain feeds the
+existing encounter/canonical and duplicate policy machinery, honors the public edge limit and
+cancellation token, and records exact encoded-buffer and native-batch counters in its ordinary
+`ProjectionReport`. The normal `Projector.iter_edges(...)`, sink, digest, and artifact entry points
+cannot select this path.
 
 This checkpoint adds a real but deliberately private Rust foundation. It proves one useful
 semantic slice across the actual PyO3 boundary without changing the production claim:
@@ -168,7 +181,11 @@ semantic slice across the actual PyO3 boundary without changing the production c
   named `SubClassOf`, with no annotation leakage; and
 - the original one-call coarse output plus a private iterator/sink session that drains exact-order
   caller-bounded batches with one PyO3 call per batch and no per-root or per-edge call inside a
-  batch.
+  batch; and
+- one hidden isolated iterator adapter that admits only the declaration/direct-named-taxonomy
+  subset, closes a declined session before scalar fallback, routes accepted batches through the
+  existing streaming policy, and publishes exact batch/copy/materialization provenance after
+  complete consumption.
 
 Any other valid segment, exporter, constructor, nonprojecting expression outside the supported root
 positions, or structurally unsupported object-property chain is rejected as unsupported before
@@ -180,7 +197,8 @@ not valid UTF-8 remains an exact whole-call fallback because the scalar hash pat
 encoding its surrogateescaped value. Malformed supported columns fail closed.
 Same-operation isolated role expansion and ordered retained role-state reuse across supported
 direct views are proven. The retained handle is still a private seam: `Projector` does not bind it
-to public `compatibility_state="scala-instance"`, and call-history/provenance integration is open.
+to public `compatibility_state="scala-instance"`. The hidden isolated iterator now uses ordinary
+call-history and ingestion provenance, but no public lifecycle or dispatch claim follows from it.
 This is kernel version 26 of a private foundation, not the complete compiler described by WP-P7.
 
 ## What the private kernel actually does
@@ -233,9 +251,12 @@ detached/zero-copy buffers, zero indexed buffers, zero staging/structural copy b
 FFI calls, one native boundary call, and GIL release. The private batch wrapper separately reports
 the configured bound, compiled-plus-drain boundary calls, nonempty edge batches, published edges,
 and zero per-row FFI calls. Each `next_batch()` first allocates every Python tuple/list object for
-that bounded slice and advances the native cursor only after construction succeeds. These counters
-describe only private calls. They are not currently attached to `ProjectionReport`, because the
-production projector does not dispatch to the private kernel. Aggregate and domain/range
+that bounded slice and advances the native cursor only after construction succeeds. The hidden
+direct-taxonomy iterator attaches the corresponding encoded-buffer count/bytes, detached and
+zero-copy buffer count, configured batch bound, compile-plus-drain boundary calls, nonempty batch
+count, complete native output-vector edge count, and zero forbidden-work values to
+`ProjectionReport.provenance.ingestion`. These counters describe only explicitly private candidate
+calls; public production dispatch still does not select the kernel. Aggregate and domain/range
 counting/ordering use repeated
 borrowed scans; selected annotation membership likewise uses repeated borrowed class-entity scans.
 When anonymous nodes exist, one bit-packed reachability vector, depth-bounded traversal stack, and
@@ -262,9 +283,10 @@ conversion is bounded below that arity.
 
 The batch seam is deliberately not described as a complete streaming compiler. Rust still
 materializes one ontology-sized output vector after preflight; only the Python transfer and sink
-delivery are bounded. It is not connected to `Projector.iter_edges`, canonical spill, digest, or
-artifact publication, and therefore does not yet satisfy P7 deliverable 3 or its production memory
-acceptance criterion.
+delivery are bounded. It is connected only to the hidden direct-taxonomy iterator, which reuses
+the canonical spill machinery; it is not connected to public `Projector.iter_edges`, protocol
+sink, digest, or artifact publication. It therefore does not yet satisfy P7 deliverable 3 or its
+production memory acceptance criterion.
 
 ## No-copy boundary and exact blocker
 
@@ -282,15 +304,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`f2e87f9`:
+`78ab6fc`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 30 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 215 passed |
-| Native backend, private foundation, and encoded-dispatch tests | 262 passed |
-| Complete projector test suite | 1,045 passed |
+| Focused native/dispatch/streaming/API/integration/contract tests | 287 passed |
+| Complete projector test suite | 1,052 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -396,7 +418,11 @@ empty retained-role calls without a drain; synchronous callable sinks; sink-fail
 close cleanup after partial consumption; batch-wrapper ownership until close; failed edge-limit
 state atomicity; bytes-exporter and exact-owner lifetime across the expanded slice; GIL release;
 concurrent cancellation; reusable role-state exclusion/release; and continued absence of the
-production encoded feature.
+production encoded feature; plus hidden-iterator differential parity for encounter/preserve and
+canonical/unique/bidirectional calls, annotated duplicate taxonomy roots, exact report and
+zero-forbidden-work counters, unchanged public dispatch, whole-call fallback with declined-session
+cleanup, partial iterator close, cancellation between native batches, and resource failure without
+a partial report.
 
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
@@ -406,25 +432,26 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; public lifecycle binding, call-history/provenance, and remaining option/surface integration are unsupported |
-| Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; Rust still materializes the full output vector, and production iterator/digest/artifact integration remains open |
-| Production dispatch and provenance | Open; private kernel is not selected and its counters are not reported by `ProjectionReport` |
+| Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; one hidden isolated taxonomy adapter records call history/provenance, while public lifecycle binding and remaining option/surface integration are unsupported |
+| Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; one hidden taxonomy iterator now consumes those batches through P4 policy, but Rust still materializes the full output vector and public iterator/digest/artifact integration remains open |
+| Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden direct-taxonomy iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
-| Lifetime/GIL/cancel/failure safety | Focused private bytes-path and batch close/collection/sink-failure/state-atomicity tests pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
-| Zero forbidden-work ledger | Proven only for the private bytes call; no production-path claim |
+| Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, and hidden iterator close/cancel/fallback/resource tests pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
+| Zero forbidden-work ledger | Reported by the successful hidden exact-taxonomy candidate; no public production-path claim |
 | Corpus performance/RSS gates | Open |
 | Exact shared-stack acceptance | Open for this kernel |
 | Wheels/SBOM/platform matrix | Open for this kernel |
 
 ## Promotion decision and next work
 
-`auto` and explicit native negotiation remain unchanged. Before advertising
+Public `auto` and explicit native negotiation remain unchanged. Before advertising
 `encoded-structural-compiler-v1`, P7 still needs:
 
 1. complete Rust rule, option, multiplicity, order, diagnostic, and error parity, then bind the
    proven retained role maps to public lifecycle locking, invocation history, and provenance;
-2. replace the private whole-output vector with genuinely bounded Rust production, then integrate
-   its batches into public iterator, protocol sink, digest, artifact, and cancellation surfaces;
+2. replace the private whole-output vector with genuinely bounded Rust production, then promote
+   its hidden iterator proof into the public iterator, protocol sink, digest, artifact, and
+   cancellation surfaces;
 3. safe no-copy direct/mmap/overlay/composite ownership and segment traversal;
 4. production provenance wired only after it describes actual Rust work;
 5. full oracle/generated/hostile/fuzz/sanitizer/thread/fork/shutdown/platform verification;
