@@ -1,0 +1,165 @@
+{
+  "schema": "pyowl-projector.p7-installed-scala-lifecycle-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "eabb8c856bd55baf72bbd36b41bfc54bf11f2029"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-eabb8c8.tar",
+      "bytes": 3522560,
+      "sha256": "c00f827bfc816d20e6b97cf0011fb1f0348b0eb8abf347725f8280c3a87145f1"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 430862,
+      "sha256": "8f616d56c148f203d51e7797133b54bb1fd75ae072a6d908b4b34d137a44daf8",
+      "wheel_record_sha256": "20844d8d58dea054c713969a696baf5966b64ca39a170bf9e940526f182332f5",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "1e43d8d27d53c918510d641de61620ba6089eaeb7bbe3e4f66e750a277962f87"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_projector_api": {
+      "filename": "pyowl2vec_star_projector/api.py",
+      "bytes": 45211,
+      "sha256": "86790c5a91283b6c70ef2bde25fe70d15a2173acd1f6c08bef7829e1a8aa2f40",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 56813,
+      "sha256": "7d5f2e2ed7cb6cc51c8cf915abc6bdcfc3a95c2ae19afe7159d583f50f296a16",
+      "matches_projector_revision": true
+    },
+    "installed_provenance_contract": {
+      "filename": "pyowl2vec_star_projector/provenance.py",
+      "bytes": 10227,
+      "sha256": "0bb2de0786d59a1119c8cc4361112132f04d729d4fd17e60eeea4b73c476ab65",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 704788,
+      "sha256": "08642244cf48e1ec3f3efe9222a0044cbfb0e4e2a07573c217765a7c205a8773",
+      "encoded_direct_kernel_version": 31,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_source": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 71394,
+      "sha256": "1655d63aa2b64554f2cca0886f14dbff5fc0aec536335b85c020f7c7e7f636fe"
+    },
+    "rust_source": {
+      "encoded_direct_rs_sha256": "5ed674b6eb6b317f9567aabfe7386dff754f05945cc1e8cab16cccfa0c4910f1",
+      "lib_rs_sha256": "f08be01b73a8b05db72ec9633d144021e445938aea00d31f4b5b21ea4757acdd",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 31,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "scala_lifecycle_cases": 4,
+    "scala_lifecycle_result": "4 passed",
+    "audit_and_benchmark_result": "11 passed",
+    "complete_suite_result": "1118 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "retained_native_sequence": {
+        "ordered_calls": 3,
+        "edge_counts": [
+          0,
+          6,
+          3
+        ],
+        "final_ingestion_path": "encoded-native",
+        "final_invocation_count": 3,
+        "retained_subrole_properties": 1,
+        "retained_inverse_properties": 3,
+        "conflicting_map_overwrite_parity": true,
+        "scalar_report_parity": true
+      },
+      "scalar_transition": {
+        "first_call_path": "encoded-native",
+        "declined_call_path": "scalar-native",
+        "subsequent_native_prepare_calls": 0,
+        "state_and_edge_parity": true
+      },
+      "failure_atomicity": {
+        "edge_limit_failure_committed_role_maps": false,
+        "subsequent_successful_commit": true
+      },
+      "state_snapshot": {
+        "scalar_compatible_shape": true,
+        "strict_boundary_validation": true
+      }
+    }
+  },
+  "source_verification": {
+    "private_native_foundation_cases": 219,
+    "foundation_plus_private_integration_cases": 273,
+    "broad_encoded_compiler_cases": 670,
+    "complete_suite_cases": 1118,
+    "audit_and_benchmark_cases": 11,
+    "rust_unit_cases": 36,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "The hidden Projector iterator now binds its non-concurrent Scala-instance lifecycle to persistent Rust role maps across ordered calls and transitions permanently to the scalar lifecycle after any whole-operation scalar selection.",
+  "known_blockers": [
+    "The Rust compiler still materializes a complete output vector before caller-bounded drains.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public encoded dispatch plus sink, digest, and artifact integration remain open; this lifecycle proof is reachable only through the hidden candidate.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness checkpoint and carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The scalar-compatible shadow copies retained role-map strings after successful hidden native preparation so a later whole-operation scalar transition preserves history.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

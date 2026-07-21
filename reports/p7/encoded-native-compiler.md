@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `86fd23b`. pyOWLCore candidate revision:
+Date: 2026-07-21. Projector implementation through `eabb8c8`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -18,7 +18,8 @@ encoded-native production compiler.
 
 An explicitly private candidate, `Projector._iter_native_encoded_edges(...)`, now exercises one
 production-adjacent iterator integration without changing that ledger. It privately requests the
-unadvertised structural-columns candidate and selects Rust only for isolated direct views whose
+unadvertised structural-columns candidate and selects Rust only for isolated or explicitly
+stateful direct views whose
 roots are declarations; direct named or supported named-filler Some/All/Min/Max restriction
 `SubClassOf`, plus structurally validated nonprojecting `SubClassOf`; named-pair, aggregate, or
 nonprojecting `EquivalentClasses`; named or structurally validated nonprojecting `ClassAssertion`;
@@ -147,7 +148,10 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - an optional private retained role-state handle for ordered Scala-instance compatibility calls:
   it copies out only normalized subrole/inverse IRI strings, reuses them across otherwise
   independent one-shot compiler/view owners, applies the next view's exact OWLAPI visitation and
-  overwrite order before emission, and rejects overlapping use for the complete PyO3 call;
+  overwrite order before emission, and rejects overlapping use for the complete PyO3 call; the
+  hidden Projector iterator now owns this handle under its existing non-concurrent lifecycle lock,
+  mirrors successful maps into its scalar-compatible shadow, and never re-enters native state
+  after a whole-operation scalar selection;
 - named-or-inverse canonical `EquivalentObjectProperties` and `DisjointObjectProperties` sets plus
   `FunctionalObjectProperty`, `InverseFunctionalObjectProperty`, `ReflexiveObjectProperty`,
   `IrreflexiveObjectProperty`, `SymmetricObjectProperty`, `AsymmetricObjectProperty`, and
@@ -221,7 +225,7 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - the original one-call coarse output plus a private iterator/sink session that drains exact-order
   caller-bounded batches with one PyO3 call per batch and no per-root or per-edge call inside a
   batch; and
-- one hidden isolated iterator adapter that admits only the named taxonomy, supported direct
+- one hidden iterator adapter that admits only the named taxonomy, supported direct
   named-filler restriction, pair/aggregate/nonprojecting equivalence, class-assertion, and direct
   object-property-assertion
   subset plus direct named/inverse role maps and exactly partitioned arbitrary domain/range roots,
@@ -234,8 +238,9 @@ semantic slice across the actual PyO3 boundary without changing the production c
   exactly counted scalar-skipped axiom constructors; synthesizes exact grouped ignored-shape,
   non-string-rendering, and skipped-axiom diagnostics; and publishes exact
   batch/copy/materialization provenance after complete
-  consumption. Public
-  `compatibility_state="scala-instance"` still selects the scalar lifecycle before native setup.
+  consumption. Public entry points still keep
+  `compatibility_state="scala-instance"` on the scalar compiler; only the explicitly hidden
+  iterator reaches this native lifecycle checkpoint.
 
 Any other valid segment, exporter, constructor, nonprojecting expression outside the supported root
 positions, or structurally unsupported object-property chain is rejected as unsupported before
@@ -246,10 +251,11 @@ validated. A role annotation whose anonymous local-key bytes are
 not valid UTF-8 remains an exact whole-call fallback because the scalar hash path raises while
 encoding its surrogateescaped value. Malformed supported columns fail closed.
 Same-operation isolated role expansion and ordered retained role-state reuse across supported
-direct views are proven. The retained handle is still a private seam: `Projector` does not bind it
-to public `compatibility_state="scala-instance"`. The hidden isolated iterator now uses ordinary
-call-history and ingestion provenance, but no public lifecycle or dispatch claim follows from it.
-This is kernel version 29 of a private foundation, not the complete compiler described by WP-P7.
+direct views are proven. The retained handle remains a private seam, but the hidden Projector
+iterator binds it to the same lock, invocation history, and ingestion provenance used by
+`compatibility_state="scala-instance"`. A scalar-compatible shadow supports an exact one-way
+fallback transition; no public lifecycle or dispatch claim follows from it. This is kernel version
+31 of a private foundation, not the complete compiler described by WP-P7.
 
 ## What the private kernel actually does
 
@@ -549,6 +555,32 @@ whole-operation fallback. All four focused cases, 670 broad encoded-compiler cas
 feature ledger were unchanged. Hashes and limitations are recorded in
 [`installed-segmented-provenance-checkpoint.json`](evidence/installed-segmented-provenance-checkpoint.json).
 
+### Hidden Scala-instance lifecycle binding
+
+Revision `eabb8c856bd55baf72bbd36b41bfc54bf11f2029` connects the private retained
+Rust role-state handle to the hidden Projector iterator. Explicit `scala-instance` calls now share
+one handle under the Projector's existing non-concurrent lock. Successful preparations copy a
+strictly validated subrole/inverse snapshot into the scalar-compatible shadow; if a later call
+selects any whole-operation scalar compiler, the Projector permanently disables native state and
+continues from that shadow. This prevents a mixed lifecycle from silently re-entering stale native
+maps.
+
+The installed three-call sequence covers initial role acquisition, later restriction and
+domain/range consumption, and a conflicting subrole/inverse overwrite. Its edge counts are 0, 6,
+and 3; all calls report encoded-native, the final invocation count is three, and retained-map
+counters report one subrole property and three inverse properties. A separate injected-decline
+sequence proves the first scalar-native transition and zero later native preparation calls. The
+direct foundation also retains edge-limit failure atomicity before a subsequent successful state
+commit.
+
+An isolated CPython 3.12 environment installed a release-profile wheel built from the exact
+implementation archive plus bound pyOWLCore `6750aa0`. The four focused lifecycle cases, 11 audit
+and benchmark cases, and all 1,118 projector tests passed from installed payloads. Rust's 36 unit
+tests, rustfmt, Clippy with warnings denied, Ruff, and mypy passed on the same exact source. Kernel
+metadata remains v31 and the public feature ledger remains exactly `abi3-py310` and
+`bounded-batches`. Artifact hashes and limitations are recorded in
+[`installed-scala-lifecycle-checkpoint.json`](evidence/installed-scala-lifecycle-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -574,16 +606,16 @@ release or performance claim. Exact artifact hashes are recorded in
 ## Verification at this checkpoint
 
 The following source-tree and exact-installed checks passed for the implementation sequence
-`39a5656` through `924f944`:
+`39a5656` through `eabb8c8`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 36 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 219 passed |
-| Foundation plus private-integration tests | 272 passed |
+| Foundation plus private-integration tests | 273 passed |
 | Broad encoded-compiler tests | 670 passed |
-| Complete projector test suite | 1,117 passed |
+| Complete projector test suite | 1,118 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
@@ -592,6 +624,7 @@ The following source-tree and exact-installed checks passed for the implementati
 | Exact installed canonical-cursor cases | 5 passed |
 | Exact installed segment-resolution cases | 5 passed |
 | Exact installed segmented-provenance cases | 4 passed |
+| Exact installed Scala-instance lifecycle cases | 4 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -719,7 +752,9 @@ inconsistent-ledger fallback cleanup, partial iterator close, cancellation betwe
 batches, same-call named/inverse subrole expansion across restrictions and domain/range products,
 direct assertion non-expansion, normal/bidirectional/canonical-unique/`only_taxonomy` report parity,
 exact ignored property-chain admission without diagnostics or role-map mutation, explicit
-Scala-instance scalar lifecycle preservation, selected
+Scala-instance native lifecycle retention across role acquisition, later consumers, and
+conflicting overwrites, strict scalar-compatible map snapshots, one-way scalar transition after a
+native decline, retained-map provenance counters, selected
 IRI/plain/language/typed class annotations, annotated duplicate preservation, malformed non-string
 rendering and grouped warning parity, combined warning/ignored-diagnostic order, option-dependent
 silent versus exactly counted ignored admission for unselected annotation properties, exact mixed
@@ -745,7 +780,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables. Public Scala-instance lifecycle binding and remaining projecting rules/options/surfaces are unsupported |
+| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables. The hidden Projector now binds retained Scala-instance maps with an exact one-way scalar transition, but public binding and remaining projecting rules/options/surfaces are unsupported |
 | Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; one hidden named-edge iterator now consumes those batches through P4 policy, but Rust still materializes the full output vector and public iterator/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
@@ -760,8 +795,8 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 Public `auto` and explicit native negotiation remain unchanged. Before advertising
 `encoded-structural-compiler-v1`, P7 still needs:
 
-1. bind retained role maps and the direct compiler to public lifecycle locking, invocation
-   history, and provenance;
+1. promote the proven hidden retained-role lifecycle, locking, invocation history, counters, and
+   one-way scalar transition into public encoded selection only after the remaining gates pass;
 2. replace the private whole-output vector with genuinely bounded Rust production, then promote
    its hidden iterator proof into the public iterator, protocol sink, digest, artifact, and
    cancellation surfaces;

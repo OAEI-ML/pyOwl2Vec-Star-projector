@@ -99,6 +99,12 @@ overwrite behavior. `SubObjectPropertyOf` axioms whose subproperty is an ordered
 mutate that role state. Each increments `ignored_shapes` once without adding a grouped diagnostic,
 matching the scalar role scan. Ignored chains still contribute to OWLAPI hash-set capacity, so
 unrelated executable role axioms retain their exact scalar visitation and overwrite order.
+For the hidden Projector candidate, one retained native state belongs to the same non-concurrent
+`scala-instance` lock and call history as its Projector. Each successfully prepared call snapshots
+the maps into the scalar-compatible shadow. If any stateful call selects a whole-operation scalar
+compiler, that shadow becomes authoritative and later calls on the Projector cannot re-enter the
+native state. Isolated calls never receive a retained handle. The public encoded feature remains
+unadvertised until the rest of the production gates pass.
 Annotations on every otherwise-executable declaration/logical axiom are
 fully preflighted and remain part of canonical root identity, preserving annotated-variant
 multiplicity and cross-table structural deduplication. Annotation property/value hashes contribute

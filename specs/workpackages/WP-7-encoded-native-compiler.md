@@ -49,6 +49,12 @@ explicit frames too, admitting deep valid segment manifests while retaining sour
 semantics, owner lifetime, cache reuse, and active-path cycle rejection. The broad compiler now
 uses that same resolver on both sides of its multi-document root-annotation join, so segmented
 closure/root selections preserve scalar provenance without flattening or scalar traversal.
+The hidden Projector iterator now also binds explicit `scala-instance` calls to a persistent native
+role-state handle. Ordered consumers and conflicting overwrites match the scalar lifecycle, while
+an exact scalar-compatible shadow permits a one-way transition after any whole-operation native
+decline or other scalar selection. Retained subrole/inverse property counts are public-path-safe
+diagnostics, but public dispatch remains unchanged and the encoded capability remains absent from
+the extension feature ledger.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

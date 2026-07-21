@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- The hidden native iterator now binds explicit `scala-instance` calls to persistent Rust
+  subrole/inverse maps across ordered and conflicting views, reports retained-map counts, and
+  switches permanently to the scalar lifecycle after any whole-operation scalar selection. Exact
+  installed-wheel parity and transition evidence is recorded without advertising the compiler.
 - The hidden broad encoded compiler now performs root-only annotation provenance joins for
   segmented multi-document closure and root tables, retaining every resolved lease and exposing
   exact closure/root segment counters without scalar traversal.

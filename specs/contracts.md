@@ -226,12 +226,13 @@ immutable allowlisted counter map. The map covers consumer-side scalar rows mate
 borrowed/zero-copy encoded buffers and bytes, detached/indexed buffers, segment/referenced-view
 and posting counts, bounded staging and total structural-copy bytes, parser/resolver/wire calls,
 scalar axiom/term materializations, base flattening, per-row FFI, and whether compilation released
-the GIL. Zero operation counters assert that the projector handoff itself did not perform that
-work; they do not describe acquisition completed before an existing view was supplied. The
-publication duration includes public encoded-view acquisition and the Projector adapter's in-place
-validation. These fields are monotonic, non-negative, path-free diagnostics; they do not enter
-portable artifact bytes or semantic digests. Reading the report cannot trigger another core
-view request.
+the GIL. Hidden native lifecycle checkpoints additionally report the retained subrole- and
+inverse-property map sizes without exposing IRIs. Zero operation counters assert that the projector
+handoff itself did not perform that work; they do not describe acquisition completed before an
+existing view was supplied. The publication duration includes public encoded-view acquisition and
+the Projector adapter's in-place validation. These fields are monotonic, non-negative, path-free
+diagnostics; they do not enter portable artifact bytes or semantic digests. Reading the report
+cannot trigger another core view request.
 
 It never records a secret resolver credential or assumes the original source path is portable.
 Two runs can be semantically compared by fingerprints, profile, options, and schema without

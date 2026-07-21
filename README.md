@@ -82,10 +82,11 @@ After successful consumption, `projector.last_report.provenance.ingestion` expos
 path and its path-safe handoff diagnostics. It records monotonic encoded-view
 publication/validation and compiler-setup durations plus bounded scalar-row, borrowed-buffer,
 segment, posting, staging/structural-copy, parser/resolver/wire, scalar-materialization,
-base-flattening, per-row-FFI, and GIL counters. The operation-local zero counters document work
-that the projector boundary did not perform; scalar paths publish the same vocabulary with exact
-zero encoded values. These execution diagnostics are intentionally excluded from portable
-artifact hashes, and reading them never asks core for another encoded view.
+base-flattening, per-row-FFI, GIL, and retained native role-map property counters. The
+operation-local zero counters document work that the projector boundary did not perform; scalar
+paths publish the same vocabulary with exact zero encoded values. These execution diagnostics are
+intentionally excluded from portable artifact hashes, and reading them never asks core for
+another encoded view.
 
 For low-latency consumption, set `order="encounter"` and use `iter_edges`; for bounded delivery,
 use `project_to_sink` with a batch callback. `project_taxonomy` is the separate asserted named-
@@ -198,9 +199,19 @@ set public `acceptance_ready`. Its evidence records the current production block
 materializes the complete output vector before bounded drains, only exact full `bytes` exporters
 or the canonical eleven-column packed direct-`bytes` arena are supported, public
 iterator/sink/digest/artifact dispatch is unchanged, and the public Scala-instance lifecycle
-remains scalar. The exact installed-wheel checkpoint is recorded in
+remains scalar. The hidden iterator does retain Scala-instance role maps natively across ordered
+calls, while maintaining a scalar-compatible shadow and selecting the scalar lifecycle permanently
+after any native decline or other whole-operation scalar selection. The exact installed-wheel
+candidate checkpoint is recorded in
 [`reports/p7/evidence/installed-private-checkpoint.json`](reports/p7/evidence/installed-private-checkpoint.json);
 it is explicitly private, incomplete, and not release-performance evidence.
+
+The lifecycle binding is independently hash-bound in
+[`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
+Three native calls cover initial role acquisition, later restriction/domain/range consumption, and
+conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
+to scalar compilation without re-entering stale native state. Kernel v31 and the public feature
+ledger remain unchanged.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
 annotations. Kernel v30 retains an unequal exact-direct root table alongside the closure and joins
