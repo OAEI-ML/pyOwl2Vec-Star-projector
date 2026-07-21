@@ -22,9 +22,9 @@ use std::sync::{Arc, Mutex};
 use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
-    DirectColumns, DirectCompileOptions, DirectCompileStats, KernelError, OwnedRoleSnapshot,
-    OwnedRoleState, PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED,
-    STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    DirectColumns, DirectCompileOptions, DirectCompileStats, DirectEdge, KernelError,
+    OwnedRoleSnapshot, OwnedRoleState, PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES,
+    STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -33,7 +33,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyString, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 42;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 43;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -857,7 +857,11 @@ impl EncodedDirectCompiler {
                     })
                     .map_err(kernel_error)?;
                 let amount = edges.len();
-                for edge in edges {
+                let mut values: Vec<Py<PyAny>> = Vec::new();
+                values.try_reserve_exact(amount).map_err(|_| {
+                    PyMemoryError::new_err("encoded coarse chunk allocation failed")
+                })?;
+                for edge in &edges {
                     let value = edge_factory.call1((
                         edge.source.as_str(),
                         edge.relation.as_str(),
@@ -871,6 +875,16 @@ impl EncodedDirectCompiler {
                         edge.destination.as_str(),
                         "encoded direct edge factory returned an invalid final object",
                     )?;
+                    values.push(value.unbind());
+                }
+                require_exact_edge_batch_results(
+                    py,
+                    &values,
+                    edge_type,
+                    &edges,
+                    "encoded direct edge factory returned an invalid final object",
+                )?;
+                for value in values {
                     output.append(value)?;
                 }
                 // The Python list is still local. Commit cursor movement only
@@ -1035,6 +1049,15 @@ impl EncodedDirectCompiler {
                 batch_edges,
                 "encoded direct iterator factory returned an invalid final object",
             )?;
+            // The iterator constructor receives the statistics object and may
+            // execute arbitrary Python. Revalidate the earlier result after
+            // that final callback and before any session or role publication.
+            require_exact_statistics_factory_result(
+                statistics.bind(py),
+                statistics_type,
+                stats,
+                "encoded direct statistics factory returned an invalid final object",
+            )?;
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)
@@ -1156,7 +1179,7 @@ impl EncodedDirectCompiler {
                 values.try_reserve_exact(amount).map_err(|_| {
                     PyMemoryError::new_err("encoded direct drain allocation failed")
                 })?;
-                for edge in edges {
+                for edge in &edges {
                     let value = edge_factory.call1((
                         edge.source.as_str(),
                         edge.relation.as_str(),
@@ -1176,6 +1199,16 @@ impl EncodedDirectCompiler {
                     edge_factory,
                     edge_type,
                     "encoded direct edge factory is not canonical",
+                )?;
+                // A later constructor in the same native batch may retain and
+                // mutate an earlier exact Edge. Validate the complete batch as
+                // one transaction and require one final object per edge.
+                require_exact_edge_batch_results(
+                    py,
+                    &values,
+                    edge_type,
+                    &edges,
+                    "encoded direct edge factory returned an invalid final object",
                 )?;
                 PyTuple::new(py, values).map(|values| values.unbind())
             })();
@@ -1417,6 +1450,37 @@ fn require_exact_edge_factory_result<'py>(
         if observed != expected {
             return Err(PyValueError::new_err(message));
         }
+    }
+    Ok(())
+}
+
+fn require_exact_edge_batch_results(
+    py: Python<'_>,
+    values: &[Py<PyAny>],
+    expected_type: &Bound<'_, PyAny>,
+    expected: &[DirectEdge],
+    message: &'static str,
+) -> PyResult<()> {
+    if values.len() != expected.len() {
+        return Err(PyValueError::new_err(message));
+    }
+    let mut identities = HashSet::new();
+    identities.try_reserve(values.len()).map_err(|_| {
+        PyMemoryError::new_err("encoded direct edge identity validation allocation failed")
+    })?;
+    for (value, edge) in values.iter().zip(expected) {
+        let value = value.bind(py);
+        if !identities.insert(value.as_ptr()) {
+            return Err(PyValueError::new_err(message));
+        }
+        require_exact_edge_factory_result(
+            value,
+            expected_type,
+            edge.source.as_str(),
+            edge.relation.as_str(),
+            edge.destination.as_str(),
+            message,
+        )?;
     }
     Ok(())
 }

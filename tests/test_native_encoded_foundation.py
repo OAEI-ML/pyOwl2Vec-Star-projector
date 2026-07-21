@@ -5818,6 +5818,115 @@ def test_private_native_final_payloads_validate_before_state_commit(
         assert compiler._kernel.peak_buffered_batch_edges == 0
 
 
+@pytest.mark.parametrize("surface", ("coarse", "batches"))
+def test_private_native_edge_batches_revalidate_after_all_constructors(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = (
+        compiler.iter_batches(
+            bidirectional=False,
+            max_edges=len(expected),
+            max_iri_bytes=1024 * 1024,
+            batch_edges=2,
+        )
+        if surface == "batches"
+        else None
+    )
+    canonical_post_init = Edge.__post_init__
+    constructed: list[Edge] = []
+
+    def mutating_later_post_init(edge: Edge) -> None:
+        canonical_post_init(edge)
+        if constructed:
+            object.__setattr__(constructed[0], "source", "urn:corrupted-by-later-edge")
+        constructed.append(edge)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Edge, "__post_init__", mutating_later_post_init)
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            if batches is None:
+                compiler.compile_batch(
+                    bidirectional=False,
+                    max_edges=len(expected),
+                    max_iri_bytes=1024 * 1024,
+                )
+            else:
+                next(batches)
+
+    assert len(constructed) >= 2
+    if batches is None:
+        assert compiler.state == "failed"
+        assert compiler.coarse_output_chunks == 0
+        assert compiler.coarse_output_vector_edges == 0
+        assert compiler.coarse_intermediate_list_edges == 0
+        assert compiler.peak_buffered_coarse_edges == 0
+    else:
+        assert batches.state == "active"
+        assert batches.yielded_edges == 0
+        assert batches.remaining_edges == len(expected)
+        assert batches.edge_batches == 0
+        assert batches.peak_buffered_edges == 0
+        assert [edge for batch in batches for edge in batch] == expected
+        assert batches.state == "exhausted"
+
+
+def test_private_native_iterator_revalidates_statistics_after_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
+
+    def statistics_mutating_iterator_init(
+        iterator: NativeEncodedDirectBatchIterator,
+        compiler_owner: NativeEncodedDirectCompiler,
+        statistics: NativeEncodedDirectStatistics,
+        batch_edges: int,
+    ) -> None:
+        canonical_iterator_init(iterator, compiler_owner, statistics, batch_edges)
+        object.__setattr__(statistics, "roots", statistics.roots + 1)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            NativeEncodedDirectBatchIterator,
+            "__init__",
+            statistics_mutating_iterator_init,
+        )
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            compiler.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+                role_state=role_state,
+            )
+
+    assert compiler.state == "failed"
+    assert compiler._kernel.batch_state == "absent"
+    assert compiler._kernel.remaining_batch_edges == 0
+    assert compiler._kernel.batch_boundary_calls == 0
+    assert compiler._kernel.emitted_edge_batches == 0
+    assert compiler._kernel.peak_buffered_batch_edges == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+
 def test_private_native_batch_close_and_sink_failure_clear_unpublished_output() -> None:
     view = _snapshot(" ".join(f"SubClassOf(:C{index} :Top)" for index in range(25)))
     compiler = prepare_native_encoded_direct(_lease(view))
