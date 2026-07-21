@@ -28,6 +28,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Fixed
 
+- Canonical structural identity comparison now computes memoized node lengths and streams bytes
+  with explicit frames, preserving public-core canonical bytes for deep graphs without Python
+  recursion or whole-node canonical materialization.
 - Broad structural class-expression and data-range cycle preflights now use iterative color walks;
   valid 1,200-node chains no longer fail at Python's recursion limit, while forged cycles still
   fail before root classification or output.

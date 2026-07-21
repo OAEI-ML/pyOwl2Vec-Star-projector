@@ -235,6 +235,13 @@ and stable cycle failures. Exact installed tests admit independently forged 1,20
 chains for both graph families, reject both cyclic variants before output, and are recorded in
 [`reports/p7/evidence/installed-recursive-graph-checkpoint.json`](reports/p7/evidence/installed-recursive-graph-checkpoint.json).
 
+Cross-table and cross-segment canonical identity comparison no longer reintroduces a recursion
+limit after that preflight. The cursor computes child-first lengths with explicit frames and emits
+the same public-core canonical bytes through lazy component frames, retaining only its per-node
+length cache and traversal state. Exact byte parity, sequence order, 1,200-node class/data streams,
+and generic cycle rejection are recorded in
+[`reports/p7/evidence/installed-canonical-cursor-checkpoint.json`](reports/p7/evidence/installed-canonical-cursor-checkpoint.json).
+
 The same v31 boundary is installed-tested over diamond and cyclic import graphs. A shared diamond
 member is projected once, a two-document cycle terminates with both taxonomy edges, and in each
 topology only the root document's annotation remains visible. Both runs retain the independent

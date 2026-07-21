@@ -42,7 +42,9 @@ closure deduplication remain correct beyond a one-level import. The broad Python
 now applies the same iterative acyclic-annotation invariant before root classification, including
 when it independently inspects a retained root-provenance table. Its supported recursive
 class-expression and data-range graph checks are iterative too, admitting valid deep columns
-without weakening cycle rejection or expanding the advertised capability.
+without weakening cycle rejection or expanding the advertised capability. Canonical identity
+length calculation and incremental byte emission use explicit frames as well, preserving exact
+cross-table comparison for deep valid graphs.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

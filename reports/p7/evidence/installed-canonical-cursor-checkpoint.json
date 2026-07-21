@@ -1,0 +1,145 @@
+{
+  "schema": "pyowl-projector.p7-installed-canonical-cursor-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "5b7799ad59de6596712a31d12ab9943b8a10b522"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-5b7799a.tar",
+      "bytes": 3471360,
+      "sha256": "95cd653ce5403261699c8a278865c09e526320824bd6245ff560aa026a72873e"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 424770,
+      "sha256": "f4dd94c7cf78c8535094f4e6d272f203ee6aded6419ae038148fa2775d574df8",
+      "wheel_record_sha256": "19aa157022593a5806a93c284d8c731d6e9ae5dadaeb565e8273763aeff5cce4",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "d8ea937da70b7b15755e398090183ca227db0282c757492eb87113a7fde71a55"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_broad_decoder": {
+      "filename": "pyowl2vec_star_projector/encoded_compiler.py",
+      "bytes": 189763,
+      "sha256": "8cd22e5d2f02ae3af72ca9869f230d8220121b3e2bd38dbbc63b909bc94abafb",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 54168,
+      "sha256": "50d98543402b15fb5301a86c8692d53f82189feea115faf9a278054167623b20",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 688380,
+      "sha256": "34d0ac222b10c71b47723567ffdb97089beb9f04c4cb1d480b2101a79fec868b",
+      "encoded_direct_kernel_version": 31,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_source": {
+      "filename": "tests/test_encoded_subset_compiler.py",
+      "bytes": 607714,
+      "sha256": "5f2f3c1eed2d433a1afa0a859e7ff4eeadee4f2231ade55ff66bc3a18d5b4c9b"
+    },
+    "rust_source_continuity": {
+      "encoded_direct_rs_sha256": "82fdb868c56251b76551bd58293f8411dc723a6dab09286e563f3e16598258fb",
+      "matches_exact_revision_8d92563": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 31,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "canonical_cursor_cases": 5,
+    "canonical_cursor_result": "5 passed",
+    "complete_suite_result": "1115 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "executable_graph_bytes": {
+        "matches_public_core_canonical_bytes": true,
+        "memoized_lengths_match_emitted_bytes": true
+      },
+      "sequence_component_bytes": {
+        "encounter_order_differs_from_node_id_order": true,
+        "matches_public_core_canonical_bytes": true
+      },
+      "class_expression_chain": {
+        "depth": 1200,
+        "length_calculated_iteratively": true,
+        "bytes_emitted_iteratively": true
+      },
+      "data_range_chain": {
+        "depth": 1200,
+        "length_calculated_iteratively": true,
+        "bytes_emitted_iteratively": true
+      },
+      "generic_node_cycle": {
+        "failed_before_comparison_or_output": true,
+        "error_category": "SnapshotCompatibilityError",
+        "error_text": "encoded subset canonical cursor found a cyclic node graph"
+      }
+    }
+  },
+  "source_verification": {
+    "broad_encoded_compiler_cases": 668,
+    "complete_suite_cases": 1115,
+    "audit_and_benchmark_cases": 11,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "rust_verification": "Native sources are bit-identical to exact revision 8d92563, where 36 unit tests, rustfmt, and Clippy with warnings denied passed."
+  },
+  "closed_gap": "Canonical structural identity length calculation and byte emission now remain incremental and stack-safe for resource-bounded deep node graphs.",
+  "known_blockers": [
+    "The Rust compiler still materializes a complete output vector before caller-bounded drains.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public dispatch, Scala-instance lifecycle, sink, digest, and artifact integration remain open.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness checkpoint and carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "Canonical lengths are memoized per node, and byte emission is incremental; this checkpoint does not claim a measured memory threshold.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

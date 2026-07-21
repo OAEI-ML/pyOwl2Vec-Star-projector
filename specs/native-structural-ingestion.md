@@ -80,6 +80,9 @@ whole-operation scalar fallback before output; malformed auxiliary columns fail 
 Before root classification, the broad decoder validates nested annotation, supported recursive
 class-expression, and recursive data-range graphs with iterative color walks. Valid depth is not
 bounded by Python's call stack; self or transitive cycles fail before fallback selection or output.
+Canonical root identity lengths and bytes are likewise traversed with explicit frames, so retained
+root, overlay, and composite comparisons do not reintroduce graph recursion or build whole-node
+canonical byte strings.
 Named-subject `SubClassOf` axioms over
 named-property/named-filler some, all, minimum, and maximum restrictions use the same role
 expansion as domain/range edges. A one-level `ObjectInverseOf` property expression in those

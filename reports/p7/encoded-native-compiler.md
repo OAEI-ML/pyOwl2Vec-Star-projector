@@ -499,6 +499,23 @@ from installed payloads. Native source and the hidden v31 feature ledger were un
 hash-bound correctness record is
 [`installed-recursive-graph-checkpoint.json`](evidence/installed-recursive-graph-checkpoint.json).
 
+### Stack-safe canonical identity cursor
+
+Revision `5b7799ad59de6596712a31d12ab9943b8a10b522` removes graph recursion from both
+stages of `_CanonicalCursor`. Node lengths are computed child-first through explicit iterator
+frames and memoized by node ID. Canonical bytes are then yielded from lazy node/component
+frames; no whole-node canonical byte string is constructed. Generic active-node detection retains
+the typed cycle failure before root merging, retained-root intersection, or output.
+
+Installed exact-byte cases match public pyOWLCore canonical bytes for the executable constructor
+mix, sequence encounter order, and anonymous scope remapping exercised by the full suite. The
+1,200-node class and data-range fixtures now pass length calculation and complete byte iteration,
+and a separately forged self-cycle fails in the cursor itself. The exact-archive wheel passed all
+five focused cases and the complete 1,115-test suite on CPython 3.12 with bound pyOWLCore
+`6750aa0`. Native source and the unadvertised v31 feature ledger were unchanged. Hashes and caveats
+are recorded in
+[`installed-canonical-cursor-checkpoint.json`](evidence/installed-canonical-cursor-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -524,7 +541,7 @@ release or performance claim. Exact artifact hashes are recorded in
 ## Verification at this checkpoint
 
 The following source-tree and exact-installed checks passed for the implementation sequence
-`39a5656` through `b9ca9a5`:
+`39a5656` through `5b7799a`:
 
 | Gate | Result |
 |---|---|
@@ -532,13 +549,14 @@ The following source-tree and exact-installed checks passed for the implementati
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 219 passed |
 | Foundation plus private-integration tests | 272 passed |
-| Broad encoded-compiler tests | 667 passed |
-| Complete projector test suite | 1,114 passed |
+| Broad encoded-compiler tests | 668 passed |
+| Complete projector test suite | 1,115 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
 | Exact installed broad-decoder annotation-cycle cases | 2 passed |
 | Exact installed broad-decoder recursive-graph cases | 4 passed |
+| Exact installed canonical-cursor cases | 5 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
