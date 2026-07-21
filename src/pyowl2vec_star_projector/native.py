@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -20,7 +21,8 @@ from .errors import (
     UnsupportedAxiomShapeError,
 )
 from .model import Edge
-from .options import DuplicatePolicy, EdgeOrder
+from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
+from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
 ENCODED_DIRECT_KERNEL_VERSION = 26
@@ -585,6 +587,132 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
         except Exception:
             pass
         self._compiler = None
+
+
+@dataclass(slots=True)
+class NativeEncodedDirectCompilation:
+    """Hidden production-adjacent adapter for the exact direct-taxonomy slice."""
+
+    view: object
+    lease: EncodedStructuralLease
+    options: ProjectionOptions
+    batches: NativeEncodedDirectBatchIterator
+    native_statistics: NativeEncodedDirectStatistics
+    statistics: CompileStatistics
+
+    @property
+    def diagnostics(self) -> tuple[Any, ...]:
+        return ()
+
+    def prepare_role_state(self) -> None:
+        if self.options.compatibility_state != "isolated":  # pragma: no cover - preparation gate
+            raise ProjectionError("hidden native compilation cannot retain Scala-instance state")
+
+    @property
+    def ingestion_counters(self) -> Mapping[str, int | bool]:
+        return MappingProxyType(
+            {
+                "base_flattening_bytes": 0,
+                "encoded_buffer_bytes": self.native_statistics.buffer_bytes,
+                "encoded_buffer_count": len(self.lease.buffers),
+                "encoded_compiler_gil_released": True,
+                "encoded_detached_buffer_count": len(self.lease.buffers),
+                "encoded_indexed_buffer_count": 0,
+                "encoded_posting_bytes": 0,
+                "encoded_referenced_view_count": 0,
+                "encoded_segment_count": len(self.lease.segments),
+                "encoded_staging_copy_bytes": 0,
+                "encoded_zero_copy_buffers": len(self.lease.buffers),
+                "materialized_scalar_rows": 0,
+                "native_batch_edges": self.batches.batch_edges,
+                "native_boundary_calls": self.batches.boundary_calls,
+                "native_edge_batches": self.batches.edge_batches,
+                "native_output_vector_edges": self.native_statistics.edges,
+                "parser_calls": 0,
+                "per_row_ffi_calls": 0,
+                "resolver_calls": 0,
+                "scalar_axiom_materializations": 0,
+                "scalar_term_materializations": 0,
+                "structural_copy_bytes": 0,
+                "wire_decoder_calls": 0,
+                "wire_encoder_calls": 0,
+            }
+        )
+
+    def iter_raw_edges(
+        self,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> Iterator[Edge]:
+        try:
+            for batch in self.batches:
+                if cancellation_token is not None:
+                    cancellation_token.check()
+                yield from batch
+        finally:
+            self.batches.close()
+
+
+def prepare_native_encoded_compilation(
+    view: object,
+    lease: EncodedStructuralLease,
+    options: ProjectionOptions,
+    *,
+    batch_edges: int,
+    max_total_edges: int | None,
+    cancellation_token: CancellationTokenLike | None,
+) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+    """Prepare the hidden exact taxonomy seam or request whole-call fallback."""
+
+    if options.compatibility_state != "isolated":
+        return None, "private native direct batches do not bind Scala-instance state"
+    if cancellation_token is not None:
+        cancellation_token.check()
+    compiler = prepare_native_encoded_direct(lease)
+    maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
+    batches = compiler.iter_batches(
+        bidirectional=options.bidirectional_taxonomy,
+        max_edges=maximum_edges,
+        max_iri_bytes=sys.maxsize,
+        batch_edges=batch_edges,
+        only_taxonomy=options.only_taxonomy,
+        include_literals=options.include_literals,
+    )
+    try:
+        if cancellation_token is not None:
+            cancellation_token.check()
+        native_statistics = batches.statistics
+        expected_edges = native_statistics.subclasses * (
+            2 if options.bidirectional_taxonomy else 1
+        )
+        exact_direct_taxonomy = (
+            native_statistics.roots
+            == native_statistics.declarations + native_statistics.subclasses
+            and native_statistics.restriction_subclasses == 0
+            and native_statistics.ignored_subclasses == 0
+            and native_statistics.edges == expected_edges
+            and native_statistics.skipped_axioms == 0
+        )
+        if not exact_direct_taxonomy:
+            batches.close()
+            return (
+                None,
+                "private native batch integration accepts only declarations and direct named "
+                "subclass axioms",
+            )
+        return (
+            NativeEncodedDirectCompilation(
+                view=view,
+                lease=lease,
+                options=options,
+                batches=batches,
+                native_statistics=native_statistics,
+                statistics=CompileStatistics(),
+            ),
+            None,
+        )
+    except Exception:
+        batches.close()
+        raise
 
 
 def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:

@@ -31,7 +31,7 @@ from .compiler import (
     prepare_streaming_compilation,
     validate_view,
 )
-from .encoded import EncodedNegotiation, select_ingestion
+from .encoded import EncodedNegotiation, select_ingestion, select_private_direct_ingestion
 from .encoded_compiler import (
     EncodedSubsetCompilation,
     EncodedSubsetCounters,
@@ -44,8 +44,11 @@ from .errors import (
 )
 from .model import Edge
 from .native import (
+    NativeEncodedDirectCompilation,
+    NativeEncodedDirectUnsupported,
     iter_native_passthrough,
     native_runtime_metadata,
+    prepare_native_encoded_compilation,
 )
 from .options import Backend, DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .protocols import EdgeBatchSinkV1
@@ -148,6 +151,32 @@ class Projector:
             temp_directory=temp_directory,
             streaming_limits=_streaming_limits(streaming_limits),
             cancellation_token=cancellation_token,
+        )
+
+    def _iter_native_encoded_edges(
+        self,
+        view: object,
+        *,
+        options: ProjectionOptions | None = None,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> Iterator[Edge]:
+        """Exercise the hidden P7 direct-batch iterator with whole-call fallback."""
+
+        _positive_int("buffer_edges", buffer_edges)
+        effective = options or ProjectionOptions(backend="native")
+        return self._iter_view(
+            view,
+            effective,
+            source_kind=_view_source_kind(view),
+            native_batch_edges=buffer_edges,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=_streaming_limits(streaming_limits),
+            cancellation_token=cancellation_token,
+            private_encoded_direct=True,
         )
 
     def project_to_sink(
@@ -342,9 +371,11 @@ class Projector:
         temp_directory: PathLike[str] | None = None,
         streaming_limits: StreamingLimits | None = None,
         cancellation_token: CancellationTokenLike | None = None,
+        private_encoded_direct: bool = False,
     ) -> Iterator[Edge]:
         def generate() -> Iterator[Edge]:
             acquired = False
+            native_encoded_compilation: NativeEncodedDirectCompilation | None = None
             if options.compatibility_state == "scala-instance":
                 acquired = self._scala_lock.acquire(blocking=False)
                 if not acquired:
@@ -358,12 +389,19 @@ class Projector:
                 warn_if_auto_fallback(selection)
                 checked = validate_view(view)
                 publication_started = perf_counter()
-                ingestion = select_ingestion(
-                    checked,
-                    selected_backend=selection.selected,
-                    native_features=native_features,
-                    backend_fallback_reason=selection.fallback_reason,
-                )
+                if private_encoded_direct:
+                    ingestion = select_private_direct_ingestion(
+                        checked,
+                        selected_backend=selection.selected,
+                        backend_fallback_reason=selection.fallback_reason,
+                    )
+                else:
+                    ingestion = select_ingestion(
+                        checked,
+                        selected_backend=selection.selected,
+                        native_features=native_features,
+                        backend_fallback_reason=selection.fallback_reason,
+                    )
                 publication_seconds = perf_counter() - publication_started
                 encoded_view_publication_seconds = (
                     publication_seconds if ingestion.path == "encoded-native" else None
@@ -374,17 +412,60 @@ class Projector:
                     else RoleState.empty()
                 )
                 compile_started = perf_counter()
-                encoded_compilation, ingestion, encoded_counters = (
-                    prepare_encoded_subset_compilation(
-                        checked,
-                        options,
-                        ingestion,
-                        batch_edges=native_batch_edges,
-                        role_state=role_state,
+                limits = _streaming_limits(streaming_limits)
+                if private_encoded_direct and ingestion.path == "encoded-native":
+                    lease = ingestion.lease
+                    if lease is None:  # pragma: no cover - guarded by negotiation
+                        raise SnapshotCompatibilityError(
+                            "hidden native encoded ingestion lost its validated lease"
+                        )
+                    try:
+                        native_encoded_compilation, private_fallback_reason = (
+                            prepare_native_encoded_compilation(
+                                checked,
+                                lease,
+                                options,
+                                batch_edges=native_batch_edges,
+                                max_total_edges=limits.max_total_edges,
+                                cancellation_token=cancellation_token,
+                            )
+                        )
+                    except (
+                        NativeBackendUnavailableError,
+                        NativeEncodedDirectUnsupported,
+                    ) as error:
+                        private_fallback_reason = (
+                            f"private native direct compiler unavailable: {error}"
+                        )
+                    if native_encoded_compilation is None:
+                        reason = private_fallback_reason or (
+                            "private native direct compiler declined the encoded view"
+                        )
+                        ingestion = EncodedNegotiation(
+                            "scalar-native",
+                            f"{reason}; selected whole-operation scalar compiler",
+                        )
+                if native_encoded_compilation is None:
+                    encoded_compilation, ingestion, encoded_counters = (
+                        prepare_encoded_subset_compilation(
+                            checked,
+                            options,
+                            ingestion,
+                            batch_edges=native_batch_edges,
+                            role_state=role_state,
+                        )
                     )
+                else:
+                    encoded_compilation = None
+                    encoded_counters = None
+                compilation: (
+                    Compilation
+                    | EncodedSubsetCompilation
+                    | NativeEncodedDirectCompilation
                 )
-                compilation: Compilation | EncodedSubsetCompilation
-                if encoded_compilation is None:
+                if native_encoded_compilation is not None:
+                    compilation = native_encoded_compilation
+                elif encoded_compilation is None:
                     compilation = prepare_streaming_compilation(checked, options, role_state)
                 else:
                     compilation = encoded_compilation
@@ -401,12 +482,13 @@ class Projector:
                     else:
                         invocation = 1
                 output_count = 0
-                raw_edges: Iterator[Edge] = (
-                    self._iter_encoded_raw(encoded_compilation)
-                    if encoded_compilation is not None
-                    else compilation.iter_raw_edges()
-                )
-                if selection.selected == "native":
+                if native_encoded_compilation is not None:
+                    raw_edges = native_encoded_compilation.iter_raw_edges(cancellation_token)
+                elif encoded_compilation is not None:
+                    raw_edges = self._iter_encoded_raw(encoded_compilation)
+                else:
+                    raw_edges = compilation.iter_raw_edges()
+                if selection.selected == "native" and native_encoded_compilation is None:
                     raw_edges = iter_native_passthrough(
                         raw_edges,
                         batch_edges=native_batch_edges,
@@ -417,7 +499,7 @@ class Projector:
                     order=options.order,
                     buffer_edges=buffer_edges,
                     temp_directory=temp_directory,
-                    limits=_streaming_limits(streaming_limits),
+                    limits=limits,
                     statistics=compilation.statistics,
                     cancellation_token=cancellation_token,
                     metrics_sink=self._remember_spill_metrics,
@@ -442,10 +524,13 @@ class Projector:
                     encoded_view_publication_seconds,
                     consumer_compile_seconds,
                     encoded_compilation,
+                    native_encoded_compilation,
                 )
                 with self._metadata_lock:
                     self._last_report = report
             finally:
+                if native_encoded_compilation is not None:
+                    native_encoded_compilation.batches.close()
                 if acquired:
                     self._scala_lock.release()
 
@@ -483,6 +568,7 @@ class Projector:
         encoded_view_publication_seconds: float | None,
         consumer_compile_seconds: float,
         encoded_compilation: EncodedSubsetCompilation | None,
+        native_encoded_compilation: NativeEncodedDirectCompilation | None,
     ) -> ProjectionReport:
         diagnostic_payload = [asdict(item) for item in diagnostics]
         diagnostic_bytes = json.dumps(
@@ -541,6 +627,7 @@ class Projector:
                 encoded_view_publication_seconds=encoded_view_publication_seconds,
                 consumer_compile_seconds=consumer_compile_seconds,
                 encoded_compilation=encoded_compilation,
+                native_encoded_compilation=native_encoded_compilation,
             ),
         )
         return ProjectionReport(provenance, diagnostics)
@@ -641,6 +728,7 @@ def _ingestion_provenance(
     encoded_view_publication_seconds: float | None,
     consumer_compile_seconds: float,
     encoded_compilation: EncodedSubsetCompilation | None,
+    native_encoded_compilation: NativeEncodedDirectCompilation | None,
 ) -> IngestionProvenance:
     lease = ingestion.lease
     return IngestionProvenance(
@@ -654,9 +742,13 @@ def _ingestion_provenance(
         ),
         consumer_compile_seconds=consumer_compile_seconds,
         counters=(
-            _empty_ingestion_counters()
-            if encoded_compilation is None
-            else encoded_compilation.ingestion_counters
+            native_encoded_compilation.ingestion_counters
+            if native_encoded_compilation is not None
+            else (
+                _empty_ingestion_counters()
+                if encoded_compilation is None
+                else encoded_compilation.ingestion_counters
+            )
         ),
     )
 

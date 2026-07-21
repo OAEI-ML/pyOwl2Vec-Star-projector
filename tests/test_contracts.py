@@ -177,6 +177,34 @@ class ProvenanceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     ProjectionCounts(edges=value)  # type: ignore[arg-type]
 
+    def test_native_batch_ingestion_counters_are_bounded_public_integers(self) -> None:
+        metadata = {
+            "path": "encoded-native",
+            "encoded_schema_name": "pyowl-core/structural-columns",
+            "encoded_schema_version": 1,
+            "encoded_descriptor_sha256": "ab" * 32,
+        }
+        names = (
+            "native_batch_edges",
+            "native_boundary_calls",
+            "native_edge_batches",
+            "native_output_vector_edges",
+        )
+        for name in names:
+            with self.subTest(name=name, case="accepted"):
+                provenance = IngestionProvenance(
+                    **metadata,  # type: ignore[arg-type]
+                    counters={name: 1},
+                )
+                self.assertEqual(provenance.counters[name], 1)
+            for value in (True, -1):
+                with self.subTest(name=name, value=value):
+                    with self.assertRaises(ValueError):
+                        IngestionProvenance(
+                            **metadata,  # type: ignore[arg-type]
+                            counters={name: value},
+                        )
+
 
 if __name__ == "__main__":
     unittest.main()

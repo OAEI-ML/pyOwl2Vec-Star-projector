@@ -182,6 +182,49 @@ def select_ingestion(
     return EncodedNegotiation("encoded-native", lease=lease)
 
 
+def select_private_direct_ingestion(
+    view: object,
+    *,
+    selected_backend: Literal["native", "python"],
+    backend_fallback_reason: str | None = None,
+    core_module: object | None = None,
+) -> EncodedNegotiation:
+    """Request the unadvertised direct schema without changing public negotiation."""
+
+    if selected_backend == "python":
+        return EncodedNegotiation("scalar-python", backend_fallback_reason)
+    core = core_module if core_module is not None else importlib.import_module("pyowl_core")
+    encoded_type = getattr(core, "EncodedStructuralView", None)
+    if not isinstance(encoded_type, type):
+        return EncodedNegotiation(
+            "scalar-native",
+            "core does not expose the private candidate encoded view type",
+        )
+    factory = getattr(view, "view", None)
+    if not callable(factory):
+        return EncodedNegotiation(
+            "scalar-native",
+            "core view cannot publish the private candidate encoded view",
+        )
+    scope_type = getattr(core, "AxiomScope", None)
+    scope = getattr(scope_type, "CLOSURE", "closure")
+    try:
+        encoded = factory(
+            encoded_type,
+            schema_version=ENCODED_SCHEMA_VERSION,
+            scope=scope,
+        )
+    except MemoryError:
+        raise
+    except Exception as error:
+        return EncodedNegotiation(
+            "scalar-native",
+            f"core declined the private candidate encoded view: {type(error).__name__}",
+        )
+    lease = _validate_encoded_view(view, encoded, encoded_type, scope)
+    return EncodedNegotiation("encoded-native", lease=lease)
+
+
 def _acquire_root_encoded_lease(
     source_view: object,
     closure_lease: EncodedStructuralLease,
