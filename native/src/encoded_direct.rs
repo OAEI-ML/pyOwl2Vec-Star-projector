@@ -3849,11 +3849,6 @@ pub(crate) fn compile_direct_with_retained_role_state(
     } else {
         columns.build_role_state(counts, max_iri_bytes, state, retained.as_deref())?
     };
-    if !asserted_taxonomy_only {
-        if let Some(retained) = retained {
-            *retained = role_state.to_owned()?;
-        }
-    }
     let directions = 1_usize + usize::from(bidirectional);
     let direct_subclasses = counts
         .subclasses
@@ -4163,6 +4158,15 @@ pub(crate) fn compile_direct_with_retained_role_state(
         edges: edges.len(),
         buffer_bytes,
     };
+    // Retained Scala-instance compatibility state is a transaction outcome,
+    // not preflight state.  Commit only after every validation, capacity,
+    // cancellation, and output-count check has succeeded so a failed call
+    // cannot influence a later independent view.
+    if !asserted_taxonomy_only {
+        if let Some(retained) = retained {
+            *retained = role_state.to_owned()?;
+        }
+    }
     Ok((edges, stats))
 }
 
@@ -5811,7 +5815,7 @@ mod tests {
     }
 
     #[test]
-    fn retained_role_state_expands_later_views_and_commits_before_output_limits() {
+    fn retained_role_state_commits_only_after_successful_output_preparation() {
         let role_fixture = named_role_axiom_fixture();
         let mut retained = OwnedRoleState::default();
         let result = compile_direct_with_retained_role_state(
@@ -5828,6 +5832,24 @@ mod tests {
             Some(&mut retained),
         );
         assert!(matches!(result, Err(KernelError::Resource(_))));
+        assert_eq!(retained.subrole_count(), 0);
+        assert_eq!(retained.inverse_count(), 0);
+
+        let (edges, _stats) = compile_direct_with_retained_role_state(
+            role_fixture.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 6,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            Some(&mut retained),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 6);
         assert_eq!(retained.subrole_count(), 1);
         assert_eq!(retained.inverse_count(), 2);
 

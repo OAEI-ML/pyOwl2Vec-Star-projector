@@ -39,6 +39,7 @@ from pyowl2vec_star_projector.errors import (
 )
 from pyowl2vec_star_projector.native import (
     ENCODED_DIRECT_BUFFER_ORDER,
+    NativeEncodedDirectBatchIterator,
     NativeEncodedDirectCancelled,
     NativeEncodedDirectCompiler,
     NativeEncodedDirectRoleState,
@@ -4714,6 +4715,27 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
     gc.collect()
     assert owner_ref() is None
 
+    def create_batches() -> tuple[
+        NativeEncodedDirectBatchIterator,
+        weakref.ReferenceType[object],
+    ]:
+        compiler, owner_ref = create()
+        batches = compiler.iter_batches(
+            bidirectional=False,
+            max_edges=16,
+            max_iri_bytes=1024 * 1024,
+            batch_edges=2,
+        )
+        return batches, owner_ref
+
+    batches, owner_ref = create_batches()
+    gc.collect()
+    assert owner_ref() is not None
+    assert len(next(batches)) == 2
+    assert batches.close() is True
+    gc.collect()
+    assert owner_ref() is None
+
 
 def test_retained_role_state_matches_ordered_scala_instance_calls_across_views() -> None:
     role_view = _snapshot(
@@ -4780,6 +4802,170 @@ def test_retained_role_state_matches_ordered_scala_instance_calls_across_views()
     assert role_state.in_use is False
     assert role_state.subrole_property_count == 1
     assert role_state.inverse_property_count == 3
+
+
+def test_private_native_batches_preserve_exact_order_and_bound_each_ffi_transfer() -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A :B) SubClassOf(:A ObjectSomeValuesFrom(:p :C)) "
+        "EquivalentClasses(:A :D :E) ClassAssertion(:A :individual) "
+        "ObjectPropertyAssertion(:p :individual :other) "
+        "ObjectPropertyDomain(:p :Domain) ObjectPropertyRange(:p :Range)"
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = compiler.iter_batches(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        batch_edges=3,
+    )
+
+    assert isinstance(batches, NativeEncodedDirectBatchIterator)
+    assert batches.state == "active"
+    assert batches.remaining_edges == len(expected)
+    assert batches.boundary_calls == 1
+    assert batches.edge_batches == 0
+
+    actual_batches = list(batches)
+    assert all(type(batch) is tuple and 1 <= len(batch) <= 3 for batch in actual_batches)
+    assert [edge for batch in actual_batches for edge in batch] == expected
+    assert batches.state == "exhausted"
+    assert batches.remaining_edges == 0
+    assert batches.yielded_edges == len(expected)
+    assert batches.edge_batches == (len(expected) + 2) // 3
+    assert batches.boundary_calls == batches.edge_batches + 1
+    assert dict(batches.ingestion_counters) == {
+        "configured_batch_edges": 3,
+        "native_boundary_calls": batches.edge_batches + 1,
+        "native_edge_batches": batches.edge_batches,
+        "per_row_ffi_calls": 0,
+        "published_edges": len(expected),
+    }
+    assert compiler.state == "finished"
+
+    sink_batches: list[tuple[Edge, ...]] = []
+    sink_statistics = prepare_native_encoded_direct(_lease(view)).compile_to_sink(
+        sink_batches.append,
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        batch_edges=4,
+    )
+    assert [edge for batch in sink_batches for edge in batch] == expected
+    assert [len(batch) for batch in sink_batches] == [4] * (len(expected) // 4) + (
+        [len(expected) % 4] if len(expected) % 4 else []
+    )
+    assert sink_statistics.edges == len(expected)
+
+
+def test_private_native_batch_close_and_sink_failure_clear_unpublished_output() -> None:
+    view = _snapshot(" ".join(f"SubClassOf(:C{index} :Top)" for index in range(25)))
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = compiler.iter_batches(
+        bidirectional=False,
+        max_edges=25,
+        max_iri_bytes=1024 * 1024,
+        batch_edges=4,
+    )
+    assert len(next(batches)) == 4
+    assert batches.remaining_edges == 21
+    assert batches.close() is True
+    assert batches.state == "cancelled"
+    assert batches.remaining_edges == 0
+    assert batches.boundary_calls == 2
+    assert batches.edge_batches == 1
+    assert batches.close() is False
+    with pytest.raises(StopIteration):
+        next(batches)
+
+    class FailingSink:
+        def __init__(self) -> None:
+            self.batches: list[tuple[Edge, ...]] = []
+
+        def write_batch(self, batch: tuple[Edge, ...]) -> None:
+            self.batches.append(batch)
+            if len(self.batches) == 2:
+                raise RuntimeError("injected sink failure")
+
+    failing = FailingSink()
+    sink_compiler = prepare_native_encoded_direct(_lease(view))
+    with pytest.raises(RuntimeError, match="injected sink failure"):
+        sink_compiler.compile_to_sink(
+            failing,
+            bidirectional=False,
+            max_edges=25,
+            max_iri_bytes=1024 * 1024,
+            batch_edges=4,
+        )
+    assert [len(batch) for batch in failing.batches] == [4, 4]
+    assert sink_compiler._kernel.batch_state == "cancelled"
+    assert sink_compiler._kernel.remaining_batch_edges == 0
+    assert sink_compiler._kernel.batch_boundary_calls == 3
+    assert sink_compiler._kernel.emitted_edge_batches == 2
+
+
+def test_failed_private_batch_compile_does_not_commit_retained_role_state() -> None:
+    failing_view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(failing_view))
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        compiler.iter_batches(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024 * 1024,
+            batch_edges=1,
+            role_state=role_state,
+        )
+    assert compiler.state == "failed"
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+    role_view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
+    )
+    empty_batches = prepare_native_encoded_direct(_lease(role_view)).iter_batches(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+        batch_edges=1,
+        role_state=role_state,
+    )
+    assert list(empty_batches) == []
+    assert empty_batches.boundary_calls == 1
+    assert role_state.subrole_property_count == 1
+    assert role_state.inverse_property_count == 2
+
+    consumer_view = _snapshot("SubClassOf(:X ObjectSomeValuesFrom(:p :Y))")
+    expected = Projector()
+    options = ProjectionOptions(
+        backend="python",
+        compatibility_state="scala-instance",
+        order="encounter",
+    )
+    expected.project(role_view, options=options)
+    expected_edges = expected.project(consumer_view, options=options)
+    consumer_batches = prepare_native_encoded_direct(_lease(consumer_view)).iter_batches(
+        bidirectional=False,
+        max_edges=len(expected_edges),
+        max_iri_bytes=1024 * 1024,
+        batch_edges=2,
+        role_state=role_state,
+    )
+    assert [edge for batch in consumer_batches for edge in batch] == expected_edges
+    assert consumer_batches.edge_batches == 2
+    assert consumer_batches.boundary_calls == 3
 
 
 def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:

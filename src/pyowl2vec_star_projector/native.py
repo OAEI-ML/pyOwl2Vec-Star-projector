@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Protocol, cast
@@ -23,7 +23,7 @@ from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 25
+ENCODED_DIRECT_KERNEL_VERSION = 26
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -275,8 +275,9 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
-        try:
-            raw_edges, raw_stats = self._kernel.compile_batch(
+        raw_edges, raw_stats = _call_encoded_direct(
+            self._module,
+            lambda: self._kernel.compile_batch(
                 bidirectional,
                 max_edges,
                 max_iri_bytes,
@@ -284,27 +285,8 @@ class NativeEncodedDirectCompiler:
                 only_taxonomy,
                 include_literals,
                 None if role_state is None else role_state._kernel,
-            )
-        except MemoryError as error:
-            raise _resource_error(error) from error
-        except self._module.EncodedDirectUnsupportedError as error:
-            raise NativeEncodedDirectUnsupported(str(error)) from error
-        except self._module.EncodedDirectReferenceError as error:
-            raise UnsupportedAxiomShapeError(
-                str(error),
-                details={
-                    "constructor": "ObjectInverseOf",
-                    "reference_error": "java.lang.ClassCastException",
-                },
-            ) from error
-        except self._module.EncodedDirectBufferError as error:
-            raise SnapshotCompatibilityError(str(error)) from error
-        except self._module.EncodedDirectCancelledError as error:
-            raise NativeEncodedDirectCancelled(str(error)) from error
-        except ProjectionError:
-            raise
-        except Exception as error:
-            raise _execution_error(error) from error
+            ),
+        )
 
         if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 54:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
@@ -327,6 +309,109 @@ class NativeEncodedDirectCompiler:
             )
         return edges, statistics
 
+    def iter_batches(
+        self,
+        *,
+        bidirectional: bool,
+        max_edges: int,
+        max_iri_bytes: int,
+        batch_edges: int,
+        asserted_taxonomy_only: bool = False,
+        only_taxonomy: bool = False,
+        include_literals: bool = False,
+        role_state: NativeEncodedDirectRoleState | None = None,
+    ) -> NativeEncodedDirectBatchIterator:
+        """Compile once and drain private caller-bounded native edge batches."""
+
+        if type(bidirectional) is not bool:
+            raise TypeError("bidirectional must be bool")
+        if type(asserted_taxonomy_only) is not bool:
+            raise TypeError("asserted_taxonomy_only must be bool")
+        if type(only_taxonomy) is not bool:
+            raise TypeError("only_taxonomy must be bool")
+        if type(include_literals) is not bool:
+            raise TypeError("include_literals must be bool")
+        if type(max_edges) is not int or max_edges < 1:
+            raise ValueError("max_edges must be a positive int")
+        if type(max_iri_bytes) is not int or max_iri_bytes < 1:
+            raise ValueError("max_iri_bytes must be a positive int")
+        if type(batch_edges) is not int or batch_edges < 1:
+            raise ValueError("batch_edges must be a positive int")
+        if role_state is not None and type(role_state) is not NativeEncodedDirectRoleState:
+            raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
+        if role_state is not None and role_state._module is not self._module:
+            raise ProjectionError("native encoded role state belongs to another native module")
+
+        raw_stats = _call_encoded_direct(
+            self._module,
+            lambda: self._kernel.compile_batches(
+                bidirectional,
+                max_edges,
+                max_iri_bytes,
+                batch_edges,
+                asserted_taxonomy_only,
+                only_taxonomy,
+                include_literals,
+                None if role_state is None else role_state._kernel,
+            ),
+        )
+        try:
+            if type(raw_stats) is not tuple or len(raw_stats) != 54:
+                raise ProjectionError(
+                    "native encoded compiler returned an invalid streaming envelope"
+                )
+            statistics = NativeEncodedDirectStatistics(*raw_stats)
+            if statistics.buffer_bytes != sum(
+                buffer.nbytes for buffer in self.lease.buffers.values()
+            ):
+                raise ProjectionError(
+                    "native encoded compiler statistics do not match its retained input"
+                )
+            return NativeEncodedDirectBatchIterator(self, statistics, batch_edges)
+        except Exception:
+            _close_encoded_batches_quietly(self)
+            raise
+
+    def compile_to_sink(
+        self,
+        sink: object,
+        *,
+        bidirectional: bool,
+        max_edges: int,
+        max_iri_bytes: int,
+        batch_edges: int,
+        asserted_taxonomy_only: bool = False,
+        only_taxonomy: bool = False,
+        include_literals: bool = False,
+        role_state: NativeEncodedDirectRoleState | None = None,
+    ) -> NativeEncodedDirectStatistics:
+        """Push private native batches to one synchronous batch sink."""
+
+        candidate = getattr(sink, "write_batch", None)
+        writer: Callable[[tuple[Edge, ...]], object]
+        if callable(candidate):
+            writer = cast(Callable[[tuple[Edge, ...]], object], candidate)
+        elif callable(sink):
+            writer = cast(Callable[[tuple[Edge, ...]], object], sink)
+        else:
+            raise TypeError("sink must be callable or expose write_batch(batch)")
+        batches = self.iter_batches(
+            bidirectional=bidirectional,
+            max_edges=max_edges,
+            max_iri_bytes=max_iri_bytes,
+            batch_edges=batch_edges,
+            asserted_taxonomy_only=asserted_taxonomy_only,
+            only_taxonomy=only_taxonomy,
+            include_literals=include_literals,
+            role_state=role_state,
+        )
+        try:
+            for batch in batches:
+                writer(batch)
+        finally:
+            batches.close()
+        return batches.statistics
+
     def cancel(self) -> bool:
         try:
             result = self._kernel.cancel()
@@ -335,6 +420,171 @@ class NativeEncodedDirectCompiler:
         if type(result) is not bool:
             raise ProjectionError("native encoded compiler returned an invalid cancellation result")
         return result
+
+
+@dataclass(slots=True)
+class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
+    """Private batch iterator backed by one retained native output vector."""
+
+    _compiler: NativeEncodedDirectCompiler | None
+    statistics: NativeEncodedDirectStatistics
+    batch_edges: int
+    _yielded_edges: int = 0
+    _boundary_calls: int = 1
+    _edge_batches: int = 0
+    _terminal_state: str = "active"
+
+    def __iter__(self) -> NativeEncodedDirectBatchIterator:
+        return self
+
+    def __next__(self) -> tuple[Edge, ...]:
+        compiler = self._compiler
+        if compiler is None:
+            raise StopIteration
+        if self._yielded_edges == self.statistics.edges:
+            self._finish_exhausted(compiler)
+            raise StopIteration
+        raw_batch = _call_encoded_direct(compiler._module, compiler._kernel.next_batch)
+        try:
+            if type(raw_batch) is not list or not raw_batch or len(raw_batch) > self.batch_edges:
+                raise ProjectionError("native encoded compiler returned an invalid bounded batch")
+            batch = tuple(Edge(*value) for value in raw_batch)
+        except (MemoryError, OverflowError) as error:
+            self.close()
+            raise _resource_error(error) from error
+        except ProjectionError:
+            self.close()
+            raise
+        except Exception as error:
+            self.close()
+            raise ProjectionError(
+                "native encoded compiler returned an invalid edge batch"
+            ) from error
+        next_count = self._yielded_edges + len(batch)
+        if next_count > self.statistics.edges:
+            self.close()
+            raise ProjectionError("native encoded batch output exceeds its compiled edge count")
+        self._yielded_edges = next_count
+        if self._yielded_edges == self.statistics.edges:
+            self._finish_exhausted(compiler)
+        return batch
+
+    @property
+    def state(self) -> str:
+        compiler = self._compiler
+        if compiler is None:
+            return self._terminal_state
+        value = getattr(compiler._kernel, "batch_state", None)
+        if value not in {"active", "exhausted", "cancelled"}:
+            raise ProjectionError("native encoded batch iterator returned invalid state")
+        return cast(str, value)
+
+    @property
+    def yielded_edges(self) -> int:
+        return self._yielded_edges
+
+    @property
+    def boundary_calls(self) -> int:
+        compiler = self._compiler
+        if compiler is not None:
+            return _native_nonnegative_int(
+                compiler._kernel,
+                "batch_boundary_calls",
+                "boundary-call count",
+            )
+        return self._boundary_calls
+
+    @property
+    def edge_batches(self) -> int:
+        compiler = self._compiler
+        if compiler is not None:
+            return _native_nonnegative_int(
+                compiler._kernel,
+                "emitted_edge_batches",
+                "edge-batch count",
+            )
+        return self._edge_batches
+
+    @property
+    def remaining_edges(self) -> int:
+        compiler = self._compiler
+        if compiler is None:
+            return 0
+        return _native_nonnegative_int(
+            compiler._kernel,
+            "remaining_batch_edges",
+            "remaining-edge count",
+        )
+
+    @property
+    def ingestion_counters(self) -> Mapping[str, int]:
+        """Return batch-boundary facts without counting metadata getters."""
+
+        return MappingProxyType(
+            {
+                "configured_batch_edges": self.batch_edges,
+                "native_boundary_calls": self.boundary_calls,
+                "native_edge_batches": self.edge_batches,
+                "per_row_ffi_calls": 0,
+                "published_edges": self._yielded_edges,
+            }
+        )
+
+    def close(self) -> bool:
+        """Cancel and release all not-yet-published native edges."""
+
+        compiler = self._compiler
+        if compiler is None:
+            return False
+        result = _call_encoded_direct(compiler._module, compiler._kernel.close_batches)
+        if type(result) is not bool:
+            raise ProjectionError("native encoded batch iterator returned invalid close status")
+        self._capture_counters(compiler)
+        state = getattr(compiler._kernel, "batch_state", None)
+        if state not in {"exhausted", "cancelled"}:
+            raise ProjectionError("native encoded batch iterator did not close")
+        self._terminal_state = cast(str, state)
+        self._compiler = None
+        return result
+
+    cancel = close
+
+    def _finish_exhausted(self, compiler: NativeEncodedDirectCompiler) -> None:
+        if getattr(compiler._kernel, "batch_state", None) != "exhausted":
+            self.close()
+            raise ProjectionError("native encoded batch iterator ended before native exhaustion")
+        if _native_nonnegative_int(
+            compiler._kernel,
+            "remaining_batch_edges",
+            "remaining-edge count",
+        ) != 0:
+            self.close()
+            raise ProjectionError("native encoded batch iterator retained edges after exhaustion")
+        self._capture_counters(compiler)
+        self._terminal_state = "exhausted"
+        self._compiler = None
+
+    def _capture_counters(self, compiler: NativeEncodedDirectCompiler) -> None:
+        self._boundary_calls = _native_nonnegative_int(
+            compiler._kernel,
+            "batch_boundary_calls",
+            "boundary-call count",
+        )
+        self._edge_batches = _native_nonnegative_int(
+            compiler._kernel,
+            "emitted_edge_batches",
+            "edge-batch count",
+        )
+
+    def __del__(self) -> None:
+        compiler = self._compiler
+        if compiler is None:
+            return
+        try:
+            compiler._kernel.close_batches()
+        except Exception:
+            pass
+        self._compiler = None
 
 
 def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:
@@ -620,6 +870,45 @@ def _call(operation: Any) -> Any:
         raise _execution_error(error) from error
 
 
+def _call_encoded_direct(module: Any, operation: Callable[[], Any]) -> Any:
+    try:
+        return operation()
+    except MemoryError as error:
+        raise _resource_error(error) from error
+    except module.EncodedDirectUnsupportedError as error:
+        raise NativeEncodedDirectUnsupported(str(error)) from error
+    except module.EncodedDirectReferenceError as error:
+        raise UnsupportedAxiomShapeError(
+            str(error),
+            details={
+                "constructor": "ObjectInverseOf",
+                "reference_error": "java.lang.ClassCastException",
+            },
+        ) from error
+    except module.EncodedDirectBufferError as error:
+        raise SnapshotCompatibilityError(str(error)) from error
+    except module.EncodedDirectCancelledError as error:
+        raise NativeEncodedDirectCancelled(str(error)) from error
+    except ProjectionError:
+        raise
+    except Exception as error:
+        raise _execution_error(error) from error
+
+
+def _close_encoded_batches_quietly(compiler: NativeEncodedDirectCompiler) -> None:
+    try:
+        compiler._kernel.close_batches()
+    except Exception:
+        pass
+
+
+def _native_nonnegative_int(kernel: Any, attribute: str, label: str) -> int:
+    value = getattr(kernel, attribute, None)
+    if type(value) is not int or value < 0:
+        raise ProjectionError(f"native encoded batch iterator returned invalid {label}")
+    return value
+
+
 def _resource_error(error: BaseException) -> ProjectionResourceError:
     return ProjectionResourceError(
         "native projector exhausted its configured edge resources",
@@ -650,6 +939,7 @@ __all__ = [
     "ENCODED_DIRECT_BUFFER_ORDER",
     "ENCODED_DIRECT_KERNEL_VERSION",
     "NATIVE_API_VERSION",
+    "NativeEncodedDirectBatchIterator",
     "NativeEncodedDirectCancelled",
     "NativeEncodedDirectCompiler",
     "NativeEncodedDirectRoleState",
