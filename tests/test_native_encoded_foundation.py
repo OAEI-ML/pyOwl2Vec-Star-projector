@@ -442,6 +442,8 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.skipped_axioms == 0
     assert statistics.object_property_domains == 0
     assert statistics.object_property_ranges == 0
+    assert statistics.ignored_object_property_domains == 0
+    assert statistics.ignored_object_property_ranges == 0
     assert statistics.domain_range_edges == 0
     assert statistics.role_expansion_edges == 0
     assert statistics.edges == 4
@@ -899,6 +901,8 @@ def test_named_restrictions_and_domain_range_products_match_python_oracle(
     assert statistics.class_assertions == 1
     assert statistics.object_property_domains == 3
     assert statistics.object_property_ranges == 3
+    assert statistics.ignored_object_property_domains == 0
+    assert statistics.ignored_object_property_ranges == 0
     assert statistics.domain_range_edges == 5
     assert statistics.edges == len(expected)
     assert actual[-5:] == [
@@ -1385,6 +1389,8 @@ def test_inverse_restrictions_project_and_complex_domain_range_roots_are_ignored
     assert statistics.equivalents == statistics.aggregate_equivalents == 1
     assert statistics.object_property_domains == 3
     assert statistics.object_property_ranges == 3
+    assert statistics.ignored_object_property_domains == 2
+    assert statistics.ignored_object_property_ranges == 2
     assert statistics.domain_range_edges == 1
     assert statistics.role_expansion_edges == (2 if only_taxonomy else 12)
     assert not any(

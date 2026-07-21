@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 27
+ENCODED_DIRECT_KERNEL_VERSION = 28
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -117,6 +117,8 @@ class NativeEncodedDirectStatistics:
     skipped_axioms: int
     object_property_domains: int
     object_property_ranges: int
+    ignored_object_property_domains: int
+    ignored_object_property_ranges: int
     domain_range_edges: int
     role_expansion_edges: int
     edges: int
@@ -176,6 +178,8 @@ class NativeEncodedDirectStatistics:
             self.skipped_axioms,
             self.object_property_domains,
             self.object_property_ranges,
+            self.ignored_object_property_domains,
+            self.ignored_object_property_ranges,
             self.domain_range_edges,
             self.role_expansion_edges,
             self.edges,
@@ -271,6 +275,8 @@ def _native_ignored_counts(
         ),
         ("ClassAssertion", statistics.ignored_class_assertions),
         ("EquivalentClasses", statistics.ignored_equivalents),
+        ("ObjectPropertyDomain", statistics.ignored_object_property_domains),
+        ("ObjectPropertyRange", statistics.ignored_object_property_ranges),
         (
             "SubClassOf",
             statistics.ignored_subclasses
@@ -370,7 +376,7 @@ class NativeEncodedDirectCompiler:
             ),
         )
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 56:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 58:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
@@ -438,7 +444,7 @@ class NativeEncodedDirectCompiler:
             ),
         )
         try:
-            if type(raw_stats) is not tuple or len(raw_stats) != 56:
+            if type(raw_stats) is not tuple or len(raw_stats) != 58:
                 raise ProjectionError(
                     "native encoded compiler returned an invalid streaming envelope"
                 )
@@ -804,16 +810,6 @@ def prepare_native_encoded_compilation(
         restriction_edges = (
             0 if options.only_taxonomy else native_statistics.restriction_subclasses
         )
-        complete_domain_range_product = (
-            native_statistics.object_property_domains == 0
-            and native_statistics.object_property_ranges == 0
-        ) or (
-            native_statistics.object_property_domains > 0
-            and native_statistics.object_property_ranges > 0
-            and native_statistics.domain_range_edges
-            == native_statistics.object_property_domains
-            * native_statistics.object_property_ranges
-        )
         expected_annotation_edges = native_statistics.annotation_edges
         skipped_roots = sum(
             count for _constructor, count in _native_skipped_counts(native_statistics)
@@ -865,7 +861,19 @@ def prepare_native_encoded_compilation(
             and (options.include_literals or native_statistics.annotation_edges == 0)
             and native_statistics.non_string_literal_renderings
             <= expected_annotation_edges
-            and complete_domain_range_product
+            and native_statistics.ignored_object_property_domains
+            <= native_statistics.object_property_domains
+            and native_statistics.ignored_object_property_ranges
+            <= native_statistics.object_property_ranges
+            and native_statistics.domain_range_edges
+            <= (
+                native_statistics.object_property_domains
+                - native_statistics.ignored_object_property_domains
+            )
+            * (
+                native_statistics.object_property_ranges
+                - native_statistics.ignored_object_property_ranges
+            )
             and native_statistics.edges == expected_edges
             and native_statistics.skipped_axioms == skipped_roots
         )
@@ -873,11 +881,8 @@ def prepare_native_encoded_compilation(
             batches.close()
             return (
                 None,
-                "private native batch integration accepts only declarations and diagnostic-free "
-                "named subclass or supported restriction, equivalence, named class-assertion, or "
-                "supported-individual object-property-assertion axioms, direct named/inverse "
-                "role maps, plus one complete named domain/range product and fully selected or "
-                "exactly partitioned class annotations with validated silent and skipped roots",
+                "private native batch integration requires exact root partitions, base-edge "
+                "totals, role expansion, diagnostics, and skipped or silent ledgers",
             )
         return (
             NativeEncodedDirectCompilation(

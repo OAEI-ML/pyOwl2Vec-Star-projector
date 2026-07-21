@@ -272,6 +272,8 @@ pub(crate) struct DirectCompileStats {
     pub(crate) skipped_axioms: usize,
     pub(crate) object_property_domains: usize,
     pub(crate) object_property_ranges: usize,
+    pub(crate) ignored_object_property_domains: usize,
+    pub(crate) ignored_object_property_ranges: usize,
     pub(crate) domain_range_edges: usize,
     pub(crate) role_expansion_edges: usize,
     pub(crate) edges: usize,
@@ -431,6 +433,8 @@ struct RootCounts {
     annotation_property_ranges: usize,
     object_property_domains: usize,
     object_property_ranges: usize,
+    ignored_object_property_domains: usize,
+    ignored_object_property_ranges: usize,
 }
 
 impl RootCounts {
@@ -3277,9 +3281,29 @@ impl<'a> DirectColumns<'a> {
                 }
                 (ROOT_AXIOM, TAG_OBJECT_PROPERTY_DOMAIN) => {
                     counts.object_property_domains += 1;
+                    if self
+                        .object_property_class_projection(
+                            node_id,
+                            TAG_OBJECT_PROPERTY_DOMAIN,
+                            maximum_iri,
+                        )?
+                        .is_none()
+                    {
+                        counts.ignored_object_property_domains += 1;
+                    }
                 }
                 (ROOT_AXIOM, TAG_OBJECT_PROPERTY_RANGE) => {
                     counts.object_property_ranges += 1;
+                    if self
+                        .object_property_class_projection(
+                            node_id,
+                            TAG_OBJECT_PROPERTY_RANGE,
+                            maximum_iri,
+                        )?
+                        .is_none()
+                    {
+                        counts.ignored_object_property_ranges += 1;
+                    }
                 }
                 (ROOT_AXIOM, TAG_CLASS_ASSERTION) => {
                     counts.class_assertions += 1;
@@ -4190,6 +4214,8 @@ pub(crate) fn compile_direct_with_retained_role_state(
         skipped_axioms,
         object_property_domains: counts.object_property_domains,
         object_property_ranges: counts.object_property_ranges,
+        ignored_object_property_domains: counts.ignored_object_property_domains,
+        ignored_object_property_ranges: counts.ignored_object_property_ranges,
         domain_range_edges,
         role_expansion_edges,
         edges: edges.len(),
@@ -5975,6 +6001,8 @@ mod tests {
         assert_eq!(edges[2].relation, "urn:pinv");
         assert_eq!(stats.object_property_domains, 2);
         assert_eq!(stats.object_property_ranges, 2);
+        assert_eq!(stats.ignored_object_property_domains, 1);
+        assert_eq!(stats.ignored_object_property_ranges, 1);
         assert_eq!(stats.domain_range_edges, 1);
         assert_eq!(stats.role_expansion_edges, 4);
 
@@ -5989,6 +6017,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(only_taxonomy.len(), 3);
+        assert_eq!(stats.ignored_object_property_domains, 1);
+        assert_eq!(stats.ignored_object_property_ranges, 1);
         assert_eq!(stats.domain_range_edges, 1);
         assert_eq!(stats.role_expansion_edges, 2);
     }

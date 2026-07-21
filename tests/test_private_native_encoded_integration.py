@@ -20,6 +20,7 @@ from pyowl2vec_star_projector.native import (
     ENCODED_DIRECT_BUFFER_ORDER,
     NativeEncodedDirectBatchIterator,
     NativeEncodedDirectCompilation,
+    NativeEncodedDirectCompiler,
     load_native_module,
 )
 from pyowl2vec_star_projector.provenance import ProjectionReport
@@ -506,6 +507,78 @@ def test_hidden_iterator_admits_complete_named_domain_range_product(
     assert counters["native_output_vector_edges"] == raw_edges
     assert counters["scalar_axiom_materializations"] == 0
     assert counters["per_row_ffi_calls"] == 0
+
+
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges"),
+    [
+        (ProjectionOptions(backend="python", order="encounter"), 14),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+            ),
+            15,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                only_taxonomy=True,
+            ),
+            14,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_partitioned_multi_property_domain_ranges(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:TaxA :TaxB) "
+        "ObjectPropertyDomain(:p :D1) ObjectPropertyDomain(:p :D2) "
+        "ObjectPropertyRange(:p :R1) ObjectPropertyRange(:p :R2) "
+        "ObjectPropertyDomain(:q :QD) ObjectPropertyRange(:q :QR) "
+        "ObjectPropertyDomain(:domainOnly :UnpairedD) "
+        "ObjectPropertyRange(:rangeOnly :UnpairedR) "
+        "ObjectPropertyDomain(ObjectInverseOf(:p) :IgnoredInverseD) "
+        "ObjectPropertyDomain(:complexD ObjectUnionOf(:A :B)) "
+        "ObjectPropertyRange(ObjectInverseOf(:p) :IgnoredInverseR) "
+        "ObjectPropertyRange(:complexR ObjectComplementOf(:C))"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=3,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    assert len(actual) == raw_edges
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.counts.ignored_shapes == 4
+    assert tuple(
+        (item.code, item.constructor, item.count) for item in actual_report.diagnostics
+    ) == (
+        ("MOWL_IGNORED_SHAPE", "ObjectPropertyDomain", 2),
+        ("MOWL_IGNORED_SHAPE", "ObjectPropertyRange", 2),
+    )
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_edge_batches"] == (raw_edges + 2) // 3
+    assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 2) // 3
+    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
 @pytest.mark.parametrize(
@@ -1072,22 +1145,10 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
     assert not any(name.startswith("native_") for name in ingestion.counters)
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        "ObjectPropertyDomain(:p ObjectUnionOf(:A :B)) ObjectPropertyRange(:p :R)",
-        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:q :R)",
-    ],
-    ids=[
-        "ignored-domain",
-        "incomplete-domain-range-product",
-    ],
-)
 def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     monkeypatch: pytest.MonkeyPatch,
-    body: str,
 ) -> None:
-    view = _snapshot(body)
+    view = _snapshot("SubClassOf(:A :B)")
     python_options = ProjectionOptions(backend="python", order="encounter")
     expected_projector = Projector()
     expected = expected_projector.project(view, options=python_options)
@@ -1095,6 +1156,19 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
 
     closed: list[tuple[str, int]] = []
     real_close = NativeEncodedDirectBatchIterator.close
+    real_iter_batches = NativeEncodedDirectCompiler.iter_batches
+
+    def inconsistent_iter_batches(
+        self: NativeEncodedDirectCompiler,
+        *args: Any,
+        **kwargs: Any,
+    ) -> NativeEncodedDirectBatchIterator:
+        batches = real_iter_batches(self, *args, **kwargs)
+        batches.statistics = replace(
+            batches.statistics,
+            roots=batches.statistics.roots + 1,
+        )
+        return batches
 
     def tracking_close(self: NativeEncodedDirectBatchIterator) -> bool:
         result = real_close(self)
@@ -1102,6 +1176,11 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
         return result
 
     monkeypatch.setattr(NativeEncodedDirectBatchIterator, "close", tracking_close)
+    monkeypatch.setattr(
+        NativeEncodedDirectCompiler,
+        "iter_batches",
+        inconsistent_iter_batches,
+    )
     projector = Projector()
     actual = list(
         projector._iter_native_encoded_edges(
@@ -1121,11 +1200,8 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     assert ingestion.path == "scalar-native"
     assert ingestion.reason is not None
     assert ingestion.reason.startswith(
-        "private native batch integration accepts only declarations and diagnostic-free named "
-        "subclass or supported restriction, equivalence, named class-assertion, or "
-        "supported-individual object-property-assertion axioms, direct named/inverse role maps, "
-        "plus one complete named domain/range product and fully selected or exactly partitioned "
-        "class annotations with validated silent and skipped roots"
+        "private native batch integration requires exact root partitions, base-edge totals, "
+        "role expansion, diagnostics, and skipped or silent ledgers"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
