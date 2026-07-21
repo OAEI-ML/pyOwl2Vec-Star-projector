@@ -130,11 +130,17 @@ publication boundary; iterator allocation failure likewise publishes neither. Ke
 canonical factory identities and exact result types before commit, so malformed final objects also
 publish neither. GIL-detached generation does not hold the output mutex; a raced close discards the
 unpublished bounded batch.
+Kernel v40 applies that validation to every bounded-drain `Edge`: the final result must have the
+exact canonical type and the factory identity must remain canonical before cursor position or
+counters commit. A malformed result or replaced factory leaves the complete batch retryable.
 Kernel v34 routes the legacy private coarse call through the same cursor
 in fixed 256-edge native chunks. That call still returns one materialized Python list, but retains
 no complete Rust output vector. Kernel v35 constructs the final `Edge` instances and statistics
 object inside that same transaction, without a second complete tuple-edge list; its reusable role
 state commits only after those final objects are complete.
+Kernel v40 also validates each coarse `Edge` plus the final statistics result and their canonical
+factory identities before retained-role or output-counter commit. A malformed or replaced factory
+therefore leaves reusable role maps unchanged and publishes no partial coarse result.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

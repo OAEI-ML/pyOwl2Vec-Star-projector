@@ -227,6 +227,10 @@ inside that same transaction; exact allocation-failure evidence is recorded in
 Canonical factory identities and exact result types are validated before the transaction publishes;
 exact malformed-result evidence is recorded in
 [`reports/p7/evidence/installed-factory-validation-checkpoint.json`](reports/p7/evidence/installed-factory-validation-checkpoint.json).
+Every final bounded-drain `Edge` and every legacy coarse-call `Edge`/statistics result now receives
+the same exact-type and canonical-factory validation before cursor or retained-role commit; exact
+retry and state-atomicity evidence is recorded in
+[`reports/p7/evidence/installed-edge-factory-validation-checkpoint.json`](reports/p7/evidence/installed-edge-factory-validation-checkpoint.json).
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
@@ -234,8 +238,9 @@ Three native calls cover initial role acquisition, later restriction/domain/rang
 conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
 to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
 kernel v31; the bounded, lazy, coarse-cursor, final-result, final-batch, batch-session,
-iterator-publication, and factory-validation checkpoints advance the private kernel through v32,
-v33, v34, v35, v36, v37, v38, and v39 while the public feature ledger remains exactly
+iterator-publication, factory-validation, and edge-factory-validation checkpoints advance the
+private kernel through v32, v33, v34, v35, v36, v37, v38, v39, and v40 while the public feature
+ledger remains exactly
 `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible

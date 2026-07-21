@@ -250,6 +250,10 @@ factory has the same absent-session, zero-counter, and unchanged-role outcome.
 Kernel-v39 evidence additionally requires canonical statistics/iterator factory identities and
 exact result types to validate inside that transaction. Malformed returns have the same
 absent-session, zero-counter, and unchanged-role outcome.
+Kernel-v40 evidence applies exact-result and canonical-factory validation to every bounded-drain
+`Edge` before cursor/counter commit, and to every coarse `Edge` plus final statistics before
+retained-role/output-counter commit. Bounded failures must remain exactly retryable; coarse
+failures must release role use and leave retained maps unchanged.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These
