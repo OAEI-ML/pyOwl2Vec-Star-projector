@@ -2753,6 +2753,21 @@ def _encode_varint(value: int) -> bytes:
             return bytes(result)
 
 
+@dataclass(frozen=True, slots=True)
+class _CanonicalNodePart:
+    node_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CanonicalComponentPart:
+    owner_node_id: int | None
+    index: int
+    item: bool = False
+
+
+_CanonicalPart = int | bytes | memoryview | _CanonicalNodePart | _CanonicalComponentPart
+
+
 class _CanonicalCursor:
     """Stream exact canonical-model bytes from one borrowed column table.
 
@@ -2771,42 +2786,107 @@ class _CanonicalCursor:
         self._lengths: dict[int, int] = {}
 
     def node_length(self, node_id: int) -> int:
-        try:
-            return self._node_length(node_id, set())
-        except RecursionError as error:
-            raise SnapshotCompatibilityError(
-                "encoded subset canonical cursor exceeds the safe graph depth"
-            ) from error
-
-    def _node_length(self, node_id: int, active: set[int]) -> int:
         cached = self._lengths.get(node_id)
         if cached is not None:
             return cached
         self.columns.node_tag(node_id)
-        if node_id in active:
-            raise SnapshotCompatibilityError(
-                "encoded subset canonical cursor found a cyclic node graph"
-            )
-        active.add(node_id)
-        try:
-            result = len(_encode_varint(self.columns.node_tag(node_id)))
-            start, end = self.columns._field_range(node_id)
-            for field_index in range(start, end):
-                result += self._component_length(
-                    node_id,
-                    field_index,
-                    active,
+        active = {node_id}
+        frames: list[tuple[int, Iterator[int]]] = [
+            (node_id, self._iter_node_child_ids(node_id))
+        ]
+        while frames:
+            current_id, children = frames[-1]
+            try:
+                child_id = next(children)
+            except StopIteration:
+                result = len(_encode_varint(self.columns.node_tag(current_id)))
+                start, end = self.columns._field_range(current_id)
+                for field_index in range(start, end):
+                    result += self._component_length(current_id, field_index)
+                self._lengths[current_id] = result
+                active.remove(current_id)
+                frames.pop()
+                continue
+            if child_id in self._lengths:
+                continue
+            self.columns.node_tag(child_id)
+            if child_id in active:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical cursor found a cyclic node graph"
                 )
-            self._lengths[node_id] = result
-            return result
-        finally:
-            active.remove(node_id)
+            active.add(child_id)
+            frames.append((child_id, self._iter_node_child_ids(child_id)))
+        requested_length = self._lengths.get(node_id)
+        if requested_length is None:  # pragma: no cover - the initial frame always completes
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor did not calculate the requested node length"
+            )
+        return requested_length
+
+    def _iter_node_child_ids(self, node_id: int) -> Iterator[int]:
+        start, end = self.columns._field_range(node_id)
+        for field_index in range(start, end):
+            yield from self._iter_component_child_ids(
+                node_id,
+                field_index,
+            )
+
+    def _iter_component_child_ids(
+        self,
+        owner_node_id: int | None,
+        index: int,
+        *,
+        item: bool = False,
+    ) -> Iterator[int]:
+        prefix = "item" if item else "field"
+        kind = self.columns._read(f"{prefix}_kinds", index, 1)
+        value = self.columns._read(f"{prefix}_values", index, 8)
+        length = self.columns._read(f"{prefix}_lengths", index, 8)
+        if kind == _COMPONENT_NONE:
+            if value or length:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical cursor found a noncanonical none component"
+                )
+            return
+        if kind == _COMPONENT_NODE:
+            if length:
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical cursor found a sized node component"
+                )
+            yield self.columns._node_id(value)
+            return
+        if kind in {_COMPONENT_TEXT, _COMPONENT_BYTES, _COMPONENT_ENUM}:
+            self._scalar_payload(owner_node_id, index, kind, item=item)
+            return
+        if kind == _COMPONENT_INTEGER:
+            payload = self._scalar_payload(owner_node_id, index, kind, item=item)
+            if not payload.nbytes or (payload.nbytes > 1 and payload[-1] == 0):
+                raise SnapshotCompatibilityError(
+                    "encoded subset canonical cursor found a nonminimal integer"
+                )
+            return
+        if kind not in {_COMPONENT_SET, _COMPONENT_SEQUENCE} or item:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor found an invalid component kind"
+            )
+        if value > self.columns.item_count or length > self.columns.item_count - value:
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor collection is out of bounds"
+            )
+        for item_index in range(value, value + length):
+            if kind == _COMPONENT_SET:
+                yield self.columns._item_node(item_index)
+            else:
+                yield from self._iter_component_child_ids(
+                    None,
+                    item_index,
+                    item=True,
+                )
 
     def _component_length(
         self,
         owner_node_id: int | None,
         index: int,
-        active: set[int],
         *,
         item: bool = False,
     ) -> int:
@@ -2825,7 +2905,7 @@ class _CanonicalCursor:
                 raise SnapshotCompatibilityError(
                     "encoded subset canonical cursor found a sized node component"
                 )
-            child_length = self._node_length(self.columns._node_id(value), active)
+            child_length = self._cached_node_length(self.columns._node_id(value))
             return 1 + len(_encode_varint(child_length)) + child_length
         if kind in {_COMPONENT_TEXT, _COMPONENT_BYTES, _COMPONENT_ENUM}:
             payload = self._scalar_payload(owner_node_id, index, kind, item=item)
@@ -2849,15 +2929,22 @@ class _CanonicalCursor:
         for item_index in range(value, value + length):
             if kind == _COMPONENT_SET:
                 child_id = self.columns._item_node(item_index)
-                child_length = self._node_length(child_id, active)
+                child_length = self._cached_node_length(child_id)
                 result += len(_encode_varint(child_length)) + child_length
             else:
                 result += self._component_length(
                     None,
                     item_index,
-                    active,
                     item=True,
                 )
+        return result
+
+    def _cached_node_length(self, node_id: int) -> int:
+        result = self._lengths.get(node_id)
+        if result is None:  # pragma: no cover - iterative postorder guarantees children first
+            raise SnapshotCompatibilityError(
+                "encoded subset canonical cursor child length is unavailable after preflight"
+            )
         return result
 
     def _scalar_payload(
@@ -2894,34 +2981,44 @@ class _CanonicalCursor:
 
     def iter_node_bytes(self, node_id: int) -> Iterator[int]:
         self.node_length(node_id)
-        return self._iter_node_bytes(node_id, set())
+        return self._iter_node_bytes(node_id)
 
-    def _iter_node_bytes(self, node_id: int, active: set[int]) -> Iterator[int]:
-        if node_id in active:  # pragma: no cover - length preflight rejects cycles
-            raise SnapshotCompatibilityError(
-                "encoded subset canonical cursor found a cyclic node graph"
-            )
-        active.add(node_id)
-        try:
-            yield from _encode_varint(self.columns.node_tag(node_id))
-            start, end = self.columns._field_range(node_id)
-            for field_index in range(start, end):
-                yield from self._iter_component_bytes(
-                    node_id,
-                    field_index,
-                    active,
+    def _iter_node_bytes(self, node_id: int) -> Iterator[int]:
+        frames: list[Iterator[_CanonicalPart]] = [self._iter_node_parts(node_id)]
+        while frames:
+            try:
+                part = next(frames[-1])
+            except StopIteration:
+                frames.pop()
+                continue
+            if isinstance(part, int):
+                yield part
+            elif isinstance(part, _CanonicalNodePart):
+                frames.append(self._iter_node_parts(part.node_id))
+            elif isinstance(part, _CanonicalComponentPart):
+                frames.append(
+                    self._iter_component_parts(
+                        part.owner_node_id,
+                        part.index,
+                        item=part.item,
+                    )
                 )
-        finally:
-            active.remove(node_id)
+            else:
+                yield from part
 
-    def _iter_component_bytes(
+    def _iter_node_parts(self, node_id: int) -> Iterator[_CanonicalPart]:
+        yield _encode_varint(self.columns.node_tag(node_id))
+        start, end = self.columns._field_range(node_id)
+        for field_index in range(start, end):
+            yield _CanonicalComponentPart(node_id, field_index)
+
+    def _iter_component_parts(
         self,
         owner_node_id: int | None,
         index: int,
-        active: set[int],
         *,
         item: bool = False,
-    ) -> Iterator[int]:
+    ) -> Iterator[_CanonicalPart]:
         prefix = "item" if item else "field"
         kind = self.columns._read(f"{prefix}_kinds", index, 1)
         value = self.columns._read(f"{prefix}_values", index, 8)
@@ -2932,7 +3029,7 @@ class _CanonicalCursor:
         if kind == _COMPONENT_NODE:
             child_id = self.columns._node_id(value)
             yield from _encode_varint(self.node_length(child_id))
-            yield from self._iter_node_bytes(child_id, active)
+            yield _CanonicalNodePart(child_id)
             return
         if kind in {_COMPONENT_TEXT, _COMPONENT_BYTES, _COMPONENT_ENUM}:
             payload = self._scalar_payload(owner_node_id, index, kind, item=item)
@@ -2952,12 +3049,11 @@ class _CanonicalCursor:
             if kind == _COMPONENT_SET:
                 child_id = self.columns._item_node(item_index)
                 yield from _encode_varint(self.node_length(child_id))
-                yield from self._iter_node_bytes(child_id, active)
+                yield _CanonicalNodePart(child_id)
             else:
-                yield from self._iter_component_bytes(
+                yield _CanonicalComponentPart(
                     None,
                     item_index,
-                    active,
                     item=True,
                 )
 

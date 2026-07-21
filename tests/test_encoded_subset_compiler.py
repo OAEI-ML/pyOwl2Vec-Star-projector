@@ -808,6 +808,27 @@ def test_canonical_cursor_matches_core_bytes_for_sequence_components() -> None:
     assert actual == expected
 
 
+def test_canonical_cursor_rejects_a_cyclic_node_graph_without_recursion() -> None:
+    view = _snapshot("SubClassOf(:A ObjectComplementOf(:B))")
+    lease = _lease(view)
+    columns = _EncodedColumns(lease)
+    complement_id = next(
+        node_id
+        for node_id in range(1, columns.node_count + 1)
+        if columns.node_tag(node_id) == 32
+    )
+    field_index = columns._exact_fields(complement_id, 1)
+    buffers = dict(lease.buffers)
+    values = bytearray(buffers["field_values"])
+    values[field_index * 8 : (field_index + 1) * 8] = complement_id.to_bytes(8, "little")
+    buffers["field_values"] = memoryview(bytes(values))
+    hostile = replace(lease, buffers=MappingProxyType(buffers))
+    cursor = _CanonicalCursor(_EncodedColumns(hostile), {})
+
+    with pytest.raises(SnapshotCompatibilityError, match=r"canonical cursor.*cyclic node graph"):
+        cursor.node_length(complement_id)
+
+
 def test_overlay_base_exclusion_matches_scalar_and_retains_direct_owner() -> None:
     base = _snapshot("ObjectPropertyAssertion(:p _:a :i) ObjectPropertyAssertion(:p _:z :j)")
     source_lease = _lease(base)
@@ -11406,8 +11427,11 @@ def test_deep_class_expression_graph_is_validated_iteratively() -> None:
     hostile = replace(lease, buffers=MappingProxyType(buffers))
 
     inspection = _EncodedColumns(hostile).inspect(classify_roots=False)
+    cursor = _CanonicalCursor(_EncodedColumns(hostile), {})
+    encoded = bytes(cursor.iter_node_bytes(complement_ids[0]))
 
     assert inspection.counters.nodes_inspected == columns.node_count
+    assert len(encoded) == cursor.node_length(complement_ids[0])
 
 
 @pytest.mark.parametrize(
@@ -12442,8 +12466,11 @@ def test_deep_data_range_graph_is_validated_iteratively() -> None:
     hostile = replace(lease, buffers=MappingProxyType(buffers))
 
     inspection = _EncodedColumns(hostile).inspect(classify_roots=False)
+    cursor = _CanonicalCursor(_EncodedColumns(hostile), {})
+    encoded = bytes(cursor.iter_node_bytes(complement_ids[0]))
 
     assert inspection.counters.nodes_inspected == columns.node_count
+    assert len(encoded) == cursor.node_length(complement_ids[0])
 
 
 @pytest.mark.parametrize(
