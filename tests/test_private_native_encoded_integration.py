@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import MappingProxyType
 from typing import Any
+from unittest.mock import patch
 
 import pyowl_core
 import pytest
 from pyowl_core.backends.python import PythonParser
 
 import pyowl2vec_star_projector.api as api_module
+import pyowl2vec_star_projector.native as native_module
 from pyowl2vec_star_projector import (
     ProjectionOptions,
     ProjectionResourceError,
@@ -33,14 +36,39 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _snapshot(body: str) -> object:
+def _snapshot(
+    body: str,
+    *,
+    backend: pyowl_core.BackendPreference = pyowl_core.BackendPreference.PYTHON,
+) -> object:
     source = f"Prefix(:=<urn:native-integration#>) Ontology(<urn:native-integration> {body})"
     return pyowl_core.load_snapshot(
         source.encode(),
         options=pyowl_core.LoadOptions(
             imports=pyowl_core.ImportPolicy.IGNORE,
+            backend=backend,
+        ),
+    )
+
+
+def _imported_snapshot() -> object:
+    root = (
+        b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
+        b"Declaration(Class(:A)) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
+    )
+    leaf = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> Declaration(Class(:L)) "
+        b"SubClassOf(:L <urn:root#A>) "
+        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :L "leaf"))'
+    )
+    return pyowl_core.load_snapshot(
+        root,
+        options=pyowl_core.LoadOptions(
+            imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
             backend=pyowl_core.BackendPreference.PYTHON,
         ),
+        resolver=pyowl_core.MappingResolver({"urn:leaf": leaf}),
     )
 
 
@@ -783,9 +811,7 @@ def test_hidden_iterator_admits_fully_selected_class_annotations(
 
 
 def test_hidden_iterator_admits_option_dependent_ignored_annotations() -> None:
-    view = _snapshot(
-        "Declaration(Class(:A)) AnnotationAssertion(<urn:unsupported> :A \"ignored\")"
-    )
+    view = _snapshot('Declaration(Class(:A)) AnnotationAssertion(<urn:unsupported> :A "ignored")')
     for include_literals, ignored_shapes in ((False, 0), (True, 1)):
         python_options = ProjectionOptions(
             backend="python",
@@ -812,12 +838,208 @@ def test_hidden_iterator_admits_option_dependent_ignored_annotations() -> None:
         assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
         if include_literals:
             assert tuple(
-                (item.code, item.constructor, item.count)
-                for item in actual_report.diagnostics
+                (item.code, item.constructor, item.count) for item in actual_report.diagnostics
             ) == (("MOWL_IGNORED_SHAPE", "AnnotationAssertion", 1),)
         else:
             assert actual_report.provenance.ingestion.reason is None
             assert actual_report.diagnostics == ()
+
+
+def test_hidden_iterator_falls_back_for_imported_annotation_provenance() -> None:
+    view = _imported_snapshot()
+    assert view.report.backend == "python"  # type: ignore[attr-defined]
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    real_scalar_prepare = api_module.prepare_streaming_compilation
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        wraps=real_scalar_prepare,
+    ) as scalar_prepare:
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    assert {edge.destination for edge in actual} >= {"urn:root#A", "root"}
+    assert "leaf" not in {edge.destination for edge in actual}
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert scalar_prepare.call_count == 1
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.reason.startswith(
+        "private native direct batches do not bind root-scoped annotation provenance"
+    )
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+    assert not any(name.startswith("native_") for name in ingestion.counters)
+
+
+def test_hidden_iterator_keeps_imported_annotations_unobserved_on_native_path() -> None:
+    view = _imported_snapshot()
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=False,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("unobserved imported annotations reached scalar traversal"),
+    ):
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.ingestion.path == "encoded-native"
+    assert actual_report.provenance.ingestion.reason is None
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_proves_single_document_annotation_selection(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root")',
+        backend=provider_backend,
+    )
+    assert view.report.backend == provider_backend.value  # type: ignore[attr-defined]
+    closure = view.view(  # type: ignore[attr-defined]
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    exporter_count = len({id(buffer.obj) for buffer in closure.buffers.values()})
+    if provider_backend is pyowl_core.BackendPreference.NATIVE:
+        assert exporter_count == 1
+    else:
+        assert exporter_count > 1
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    real_acquire = native_module._acquire_root_encoded_lease
+
+    with (
+        patch.object(
+            native_module,
+            "_acquire_root_encoded_lease",
+            wraps=real_acquire,
+        ) as acquire_root,
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("equal root annotation selection reached scalar traversal"),
+        ),
+    ):
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert acquire_root.call_count == 1
+    assert actual_report.provenance.ingestion.path == "encoded-native"
+
+
+def test_hidden_iterator_rejects_sliced_root_annotation_provenance() -> None:
+    view = _snapshot(
+        "Declaration(Class(:A)) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root")'
+    )
+    selection = api_module.select_private_direct_ingestion(
+        view,
+        selected_backend="native",
+    )
+    assert selection.lease is not None
+    direct_root = native_module._acquire_root_encoded_lease(view, selection.lease)
+    assert direct_root is not None
+    replacements = dict(direct_root.buffers)
+    root_kinds = bytes(replacements["root_kinds"])
+    replacements["root_kinds"] = memoryview(b"x" + root_kinds)[1:]
+    sliced_buffers = MappingProxyType(replacements)
+    sliced_encoded = replace(direct_root.encoded_view, buffers=sliced_buffers)
+    sliced_root = replace(
+        direct_root,
+        encoded_view=sliced_encoded,
+        buffers=sliced_buffers,
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        native_module,
+        "_acquire_root_encoded_lease",
+        return_value=sliced_root,
+    ):
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, actual_report)
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.reason.startswith(
+        "root-scoped native annotation provenance is not exact-direct"
+    )
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
 
 
 def test_hidden_iterator_preserves_mixed_scalar_diagnostic_order() -> None:
@@ -971,8 +1193,8 @@ def test_hidden_iterator_admits_exact_grouped_skipped_axioms(
         "DataPropertyRange(:dp <http://www.w3.org/2001/XMLSchema#string>) "
         "FunctionalDataProperty(:dp) "
         "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>) "
-        "DataPropertyAssertion(:dp :i \"value\") "
-        "NegativeDataPropertyAssertion(:dp :i \"blocked\") "
+        'DataPropertyAssertion(:dp :i "value") '
+        'NegativeDataPropertyAssertion(:dp :i "blocked") '
         "SubAnnotationPropertyOf(:ap :aq) AnnotationPropertyDomain(:ap <urn:domain>) "
         "AnnotationPropertyRange(:ap <urn:range>)"
     )

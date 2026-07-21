@@ -13,7 +13,7 @@ from typing import Any, Protocol, cast
 from .backend import native_runtime_policy_reason
 from .compiler import Compilation, CompileStatistics
 from .diagnostics import ProjectionDiagnostic
-from .encoded import EncodedStructuralLease
+from .encoded import EncodedStructuralLease, _acquire_root_encoded_lease
 from .errors import (
     NativeBackendUnavailableError,
     ProjectionError,
@@ -641,11 +641,14 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
         if getattr(compiler._kernel, "batch_state", None) != "exhausted":
             self.close()
             raise ProjectionError("native encoded batch iterator ended before native exhaustion")
-        if _native_nonnegative_int(
-            compiler._kernel,
-            "remaining_batch_edges",
-            "remaining-edge count",
-        ) != 0:
+        if (
+            _native_nonnegative_int(
+                compiler._kernel,
+                "remaining_batch_edges",
+                "remaining-edge count",
+            )
+            != 0
+        ):
             self.close()
             raise ProjectionError("native encoded batch iterator retained edges after exhaustion")
         self._capture_counters(compiler)
@@ -800,16 +803,19 @@ def prepare_native_encoded_compilation(
         if cancellation_token is not None:
             cancellation_token.check()
         native_statistics = batches.statistics
+        if options.include_literals and native_statistics.annotation_assertions:
+            annotation_fallback_reason = _native_annotation_provenance_fallback_reason(
+                view,
+                lease,
+            )
+            if annotation_fallback_reason is not None:
+                batches.close()
+                return None, annotation_fallback_reason
         direct_subclasses = native_statistics.subclasses - (
-            native_statistics.restriction_subclasses
-            + native_statistics.ignored_subclasses
+            native_statistics.restriction_subclasses + native_statistics.ignored_subclasses
         )
-        taxonomy_edges = direct_subclasses * (
-            2 if options.bidirectional_taxonomy else 1
-        )
-        restriction_edges = (
-            0 if options.only_taxonomy else native_statistics.restriction_subclasses
-        )
+        taxonomy_edges = direct_subclasses * (2 if options.bidirectional_taxonomy else 1)
+        restriction_edges = 0 if options.only_taxonomy else native_statistics.restriction_subclasses
         expected_annotation_edges = native_statistics.annotation_edges
         skipped_roots = sum(
             count for _constructor, count in _native_skipped_counts(native_statistics)
@@ -818,10 +824,7 @@ def prepare_native_encoded_compilation(
             taxonomy_edges
             + restriction_edges
             + native_statistics.equivalent_base_edges
-            + (
-                native_statistics.class_assertions
-                - native_statistics.ignored_class_assertions
-            )
+            + (native_statistics.class_assertions - native_statistics.ignored_class_assertions)
             + native_statistics.object_property_assertions
             + native_statistics.domain_range_edges
             + native_statistics.role_expansion_edges
@@ -843,24 +846,16 @@ def prepare_native_encoded_compilation(
             + skipped_roots
         )
         exact_named_edges = (
-            native_statistics.roots
-            == admitted_roots
-            and native_statistics.restriction_subclasses
-            + native_statistics.ignored_subclasses
+            native_statistics.roots == admitted_roots
+            and native_statistics.restriction_subclasses + native_statistics.ignored_subclasses
             <= native_statistics.subclasses
-            and native_statistics.aggregate_equivalents
-            <= native_statistics.equivalents
-            and native_statistics.equivalent_base_edges
-            <= native_statistics.edges
-            and native_statistics.ignored_class_assertions
-            <= native_statistics.class_assertions
-            and native_statistics.object_property_chains
-            <= native_statistics.sub_object_properties
-            and native_statistics.annotation_edges
-            <= native_statistics.annotation_assertions
+            and native_statistics.aggregate_equivalents <= native_statistics.equivalents
+            and native_statistics.equivalent_base_edges <= native_statistics.edges
+            and native_statistics.ignored_class_assertions <= native_statistics.class_assertions
+            and native_statistics.object_property_chains <= native_statistics.sub_object_properties
+            and native_statistics.annotation_edges <= native_statistics.annotation_assertions
             and (options.include_literals or native_statistics.annotation_edges == 0)
-            and native_statistics.non_string_literal_renderings
-            <= expected_annotation_edges
+            and native_statistics.non_string_literal_renderings <= expected_annotation_edges
             and native_statistics.ignored_object_property_domains
             <= native_statistics.object_property_domains
             and native_statistics.ignored_object_property_ranges
@@ -908,6 +903,35 @@ def prepare_native_encoded_compilation(
     except Exception:
         batches.close()
         raise
+
+
+def _native_annotation_provenance_fallback_reason(
+    view: object,
+    closure_lease: EncodedStructuralLease,
+) -> str | None:
+    """Prove that closure annotations are exactly the scalar root selection.
+
+    The private Rust kernel currently compiles one direct table and cannot join a
+    second root-scoped table.  A byte-identical root selection is safe (the normal
+    single-document case).  Any unavailable, non-direct, or different selection
+    must therefore fall back before a native edge is published.
+    """
+
+    root_lease = _acquire_root_encoded_lease(view, closure_lease)
+    if root_lease is None:
+        return "core view does not support root-scoped native annotation provenance"
+    try:
+        root_compiler = prepare_native_encoded_direct(root_lease)
+    except NativeEncodedDirectUnsupported:
+        return "root-scoped native annotation provenance is not exact-direct"
+    del root_compiler
+
+    for name in ENCODED_DIRECT_BUFFER_ORDER:
+        closure_buffer = closure_lease.buffers[name]
+        root_buffer = root_lease.buffers[name]
+        if closure_buffer.nbytes != root_buffer.nbytes or closure_buffer != root_buffer:
+            return "private native direct batches do not bind root-scoped annotation provenance"
+    return None
 
 
 def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:
@@ -992,8 +1016,10 @@ def prepare_native_encoded_direct(
             "native encoded foundation buffer order is incompatible"
         )
     exceptions = (unsupported, buffer_error, cancelled, reference_error)
-    if not callable(compiler) or not callable(role_state_factory) or not all(
-        isinstance(value, type) and issubclass(value, Exception) for value in exceptions
+    if (
+        not callable(compiler)
+        or not callable(role_state_factory)
+        or not all(isinstance(value, type) and issubclass(value, Exception) for value in exceptions)
     ):
         raise NativeBackendUnavailableError("native encoded foundation is incomplete")
     unsupported_type = cast(type[Exception], unsupported)
