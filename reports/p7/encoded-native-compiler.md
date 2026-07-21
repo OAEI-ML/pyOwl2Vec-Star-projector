@@ -533,6 +533,22 @@ pyOWLCore `6750aa0`. Native source and the unadvertised v31 feature ledger were 
 hash-bound correctness record is
 [`installed-segment-resolution-checkpoint.json`](evidence/installed-segment-resolution-checkpoint.json).
 
+### Segmented annotation provenance
+
+Revision `924f944586774a25bddc1b62f762d970cef31477` removes the broad compiler's
+conservative multi-document fallback for segmented closure and root tables. Both sides now pass
+through the same fully validated resolver and canonical root merge before annotation-assertion
+identity intersection. Root-only selection, closure-wide class membership and anonymous IDs,
+source-local postings/scope maps, exact counters, and every resolved owner lifetime remain intact.
+
+Installed hidden-path cases cover overlay and composite closure manifests plus an independently
+segmented root selection. Each matches the scalar report and edges, retains only the root
+document's label, and crosses no scalar traversal; unavailable root scope still selects one
+whole-operation fallback. All four focused cases, 670 broad encoded-compiler cases, and the full
+1,117-test suite passed with bound pyOWLCore `6750aa0`. Native source and the unadvertised v31
+feature ledger were unchanged. Hashes and limitations are recorded in
+[`installed-segmented-provenance-checkpoint.json`](evidence/installed-segmented-provenance-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -558,7 +574,7 @@ release or performance claim. Exact artifact hashes are recorded in
 ## Verification at this checkpoint
 
 The following source-tree and exact-installed checks passed for the implementation sequence
-`39a5656` through `b5bf5f3`:
+`39a5656` through `924f944`:
 
 | Gate | Result |
 |---|---|
@@ -566,8 +582,8 @@ The following source-tree and exact-installed checks passed for the implementati
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 219 passed |
 | Foundation plus private-integration tests | 272 passed |
-| Broad encoded-compiler tests | 669 passed |
-| Complete projector test suite | 1,116 passed |
+| Broad encoded-compiler tests | 670 passed |
+| Complete projector test suite | 1,117 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
@@ -575,6 +591,7 @@ The following source-tree and exact-installed checks passed for the implementati
 | Exact installed broad-decoder recursive-graph cases | 4 passed |
 | Exact installed canonical-cursor cases | 5 passed |
 | Exact installed segment-resolution cases | 5 passed |
+| Exact installed segmented-provenance cases | 4 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;

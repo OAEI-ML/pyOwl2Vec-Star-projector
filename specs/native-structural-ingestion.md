@@ -71,12 +71,13 @@ preflighted but unobserved. Structurally valid ontology `Annotation` roots are a
 they emit no edge or diagnostic, cannot mutate role state, and anonymous values reachable only
 from those roots do not participate in scalar-compatible blank-ID assignment.
 
-For a canonical direct multi-document closure with visible annotation assertions, the compiler
-requests and retains a second public `EncodedStructuralView` at `AxiomScope.ROOT`, fully validates
-its direct columns, and intersects its annotation-assertion identities with the closure roots.
-Class-signature membership and blank IDs still come from the closure. Missing public manifest
-metadata, unavailable root scope, or segmented closure/root provenance selects one
-whole-operation scalar fallback before output; malformed auxiliary columns fail closed.
+For a canonical supported multi-document closure with visible annotation assertions, the compiler
+requests and retains a second public `EncodedStructuralView` at `AxiomScope.ROOT`, resolves and
+fully validates direct, overlay, or composite columns on both sides, and intersects its
+annotation-assertion identities with the closure roots. Class-signature membership and blank IDs
+still come from the closure. Missing public manifest metadata or unavailable root scope selects one
+whole-operation scalar fallback before output; malformed auxiliary columns or segment graphs fail
+closed.
 Before root classification, the broad decoder validates nested annotation, supported recursive
 class-expression, and recursive data-range graphs with iterative color walks. Valid depth is not
 bounded by Python's call stack; self or transitive cycles fail before fallback selection or output.

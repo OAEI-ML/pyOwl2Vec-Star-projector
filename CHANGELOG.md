@@ -7,6 +7,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- The hidden broad encoded compiler now performs root-only annotation provenance joins for
+  segmented multi-document closure and root tables, retaining every resolved lease and exposing
+  exact closure/root segment counters without scalar traversal.
 - Exact installed-wheel P7 evidence that the private root-provenance join preserves root-only
   annotations across diamond import deduplication and cyclic import closures without scalar
   materialization; the encoded compiler remains unadvertised.

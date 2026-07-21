@@ -248,6 +248,12 @@ lease retention, cache reuse, and active-path cycle rejection. An exact installe
 chain plus nested overlay/composite and hostile-cycle cases are recorded in
 [`reports/p7/evidence/installed-segment-resolution-checkpoint.json`](reports/p7/evidence/installed-segment-resolution-checkpoint.json).
 
+That resolver now also covers the broad compiler's multi-document annotation-provenance join.
+Supported overlay/composite closure tables and segmented root selections retain all source leases,
+intersect canonical root identities, and suppress imported-only annotations without scalar
+traversal. Exact installed parity and fallback evidence is recorded in
+[`reports/p7/evidence/installed-segmented-provenance-checkpoint.json`](reports/p7/evidence/installed-segmented-provenance-checkpoint.json).
+
 The same v31 boundary is installed-tested over diamond and cyclic import graphs. A shared diamond
 member is projected once, a two-document cycle terminates with both taxonomy edges, and in each
 topology only the root document's annotation remains visible. Both runs retain the independent

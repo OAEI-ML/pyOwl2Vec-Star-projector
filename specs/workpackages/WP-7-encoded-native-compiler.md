@@ -46,7 +46,9 @@ without weakening cycle rejection or expanding the advertised capability. Canoni
 length calculation and incremental byte emission use explicit frames as well, preserving exact
 cross-table comparison for deep valid graphs. Overlay and composite dependency resolution now uses
 explicit frames too, admitting deep valid segment manifests while retaining source-local posting
-semantics, owner lifetime, cache reuse, and active-path cycle rejection.
+semantics, owner lifetime, cache reuse, and active-path cycle rejection. The broad compiler now
+uses that same resolver on both sides of its multi-document root-annotation join, so segmented
+closure/root selections preserve scalar provenance without flattening or scalar traversal.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact
