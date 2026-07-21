@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Each hidden native iterator drain now constructs its final bounded tuple of `Edge` objects inside
+  the cursor transaction. The wrapper no longer duplicates an intermediate Python tuple-edge list,
+  and injected final-edge allocation failure leaves cursor position and counters retryable; the
+  capability remains unadvertised.
 - The legacy private coarse compiler now constructs final `Edge` and statistics objects inside its
   retained-role transaction, eliminating the wrapper's second ontology-sized Python edge list.
   Injected final-edge and final-statistics allocation failures leave reusable role state unchanged;
@@ -17,8 +21,8 @@ from packaging or performance changes because profile output is a data contract.
   been constructed successfully; the capability remains unadvertised.
 - The hidden native iterator now emits through a resumable Rust cursor instead of retaining a
   complete projected-edge vector. Each FFI drain buffers at most the configured caller batch,
-  cursor movement commits only after Python list construction, and additive provenance counters
-  distinguish compiled edges, zero vector-backed edges, and the peak buffered batch. Exact
+  cursor movement commits only after final `Edge` tuple construction, and additive provenance
+  counters distinguish compiled edges, zero vector-backed edges, and the peak buffered batch. Exact
   immutable-input preflight now publishes that cursor with zero emission attempts, so ordered
   output traversal starts at the first caller drain. Installed-wheel evidence is recorded without
   advertising the compiler.

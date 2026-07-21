@@ -202,25 +202,30 @@ remains scalar. The hidden iterator does retain Scala-instance role maps nativel
 calls, while maintaining a scalar-compatible shadow and selecting the scalar lifecycle permanently
 after any native decline or other whole-operation scalar selection. Its native output is now a
 resumable cursor: each drain owns at most the configured batch, reports zero vector-backed output
-edges, and commits only after the Python list exists. Exhaustive immutable-input and exact-count
-preflight remains fail-before-publication, but the cursor records zero emission attempts until the
-first caller drain. The legacy private coarse call now uses the same cursor to build only its
-required Python list through 256-edge native chunks; it retains no complete Rust output vector or
-second complete tuple-edge list. Final `Edge` and statistics factories run inside the same
+edges, and commits only after its final `Edge` tuple exists. No intermediate Python tuple-edge list
+is returned to the wrapper, and a final-edge allocation failure leaves the cursor retryable.
+Exhaustive immutable-input and exact-count preflight remains fail-before-publication, but the cursor
+records zero emission attempts until the first caller drain. The legacy private coarse call now
+uses the same cursor to build only its required Python list through 256-edge native chunks; it
+retains no complete Rust output vector or second complete tuple-edge list. Final `Edge` and
+statistics factories run inside the same
 transaction, so reusable role state commits only after the complete final Python result exists.
 The exact installed-wheel candidate checkpoints are recorded in
 [`reports/p7/evidence/installed-coarse-cursor-checkpoint.json`](reports/p7/evidence/installed-coarse-cursor-checkpoint.json)
 and
 [`reports/p7/evidence/installed-final-result-checkpoint.json`](reports/p7/evidence/installed-final-result-checkpoint.json);
-it is explicitly private, incomplete, and not release-performance evidence.
+they are explicitly private, incomplete, and not release-performance evidence.
+
+The final bounded-batch transaction is independently hash-bound in
+[`reports/p7/evidence/installed-final-batch-checkpoint.json`](reports/p7/evidence/installed-final-batch-checkpoint.json).
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
 Three native calls cover initial role acquisition, later restriction/domain/range consumption, and
 conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
 to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
-kernel v31; the bounded, lazy, coarse-cursor, and final-result checkpoints advance the private
-kernel through v32, v33, v34, and v35 while the public feature ledger remains exactly
+kernel v31; the bounded, lazy, coarse-cursor, final-result, and final-batch checkpoints advance the
+private kernel through v32, v33, v34, v35, and v36 while the public feature ledger remains exactly
 `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible

@@ -120,8 +120,10 @@ For the hidden kernel-v33 iterator, caller-bounded means the Rust output itself 
 Exhaustive immutable structural, semantic, output-count, and capacity preflight publishes no
 partial session on failure and starts the cursor with zero emission attempts; there is no complete
 projected-edge vector or pre-publication output replay. A drain clones the small cursor state, owns
-at most the configured edge count, and commits that state only after the Python batch has been
-constructed. GIL-detached generation does not hold the output mutex; a raced close discards the
+at most the configured edge count, and commits that state only after the final Python batch has
+been constructed. Kernel v36 creates final `Edge` objects and their tuple inside that transaction,
+without an intermediate Python tuple-edge list; factory failure restores the unchanged cursor for
+an exact retry. GIL-detached generation does not hold the output mutex; a raced close discards the
 unpublished bounded batch. Kernel v34 routes the legacy private coarse call through the same cursor
 in fixed 256-edge native chunks. That call still returns one materialized Python list, but retains
 no complete Rust output vector. Kernel v35 constructs the final `Edge` instances and statistics

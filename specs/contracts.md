@@ -238,12 +238,15 @@ count, zero complete Rust output-vector edges, and peak native coarse buffer. Th
 list remains the legacy call's materialized result. Kernel-v35 evidence additionally records zero
 intermediate complete tuple-edge-list entries and requires both final `Edge` instances and the
 final statistics object to be constructed before reusable role state commits. A failed final
-factory publishes neither counters nor role-state changes. Zero operation counters assert that the
-projector handoff itself did not perform that work; they do not describe acquisition completed
-before an existing view was supplied. The publication duration includes public encoded-view
+factory publishes neither counters nor role-state changes. Kernel-v36 bounded-drain evidence
+additionally records zero intermediate Python-list edges and requires the final bounded `Edge`
+tuple to exist before cursor/counter commit. A final-edge factory failure leaves the drain exactly
+retryable. Zero operation counters assert that the projector handoff itself did not perform that
+work; they do not describe acquisition completed before an existing view was supplied. The
+publication duration includes public encoded-view
 acquisition and the Projector adapter's in-place validation. These fields are monotonic,
-non-negative, path-free
-diagnostics; they do not enter portable artifact bytes or semantic digests. Reading the report
+non-negative, path-free diagnostics; they do not enter portable artifact bytes or semantic
+digests. Reading the report
 cannot trigger another core view request.
 
 It never records a secret resolver credential or assumes the original source path is portable.
