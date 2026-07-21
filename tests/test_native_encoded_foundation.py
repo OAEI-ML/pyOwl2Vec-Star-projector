@@ -5047,6 +5047,7 @@ def test_private_native_batches_preserve_exact_order_and_bound_each_ffi_transfer
     assert batches.boundary_calls == 1
     assert batches.edge_batches == 0
     assert batches.peak_buffered_edges == 0
+    assert compiler.batch_intermediate_list_edges == 0
 
     actual_batches = list(batches)
     assert all(type(batch) is tuple and 1 <= len(batch) <= 3 for batch in actual_batches)
@@ -5080,6 +5081,53 @@ def test_private_native_batches_preserve_exact_order_and_bound_each_ffi_transfer
         [len(expected) % 4] if len(expected) % 4 else []
     )
     assert sink_statistics.edges == len(expected)
+
+
+def test_private_native_batch_final_edges_commit_with_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = compiler.iter_batches(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        batch_edges=2,
+    )
+    remaining_edges = batches.remaining_edges
+    boundary_calls = batches.boundary_calls
+    edge_calls = 0
+
+    def failing_edge(source: str, relation: str, destination: str) -> Edge:
+        nonlocal edge_calls
+        edge_calls += 1
+        if edge_calls == 2:
+            raise MemoryError("injected final batch edge construction failure")
+        return Edge(source, relation, destination)
+
+    with monkeypatch.context() as patch:
+        patch.setattr("pyowl2vec_star_projector.native.Edge", failing_edge)
+        with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+            next(batches)
+
+    assert edge_calls == 2
+    assert batches.state == "active"
+    assert batches.yielded_edges == 0
+    assert batches.remaining_edges == remaining_edges
+    assert batches.boundary_calls == boundary_calls
+    assert batches.edge_batches == 0
+    assert batches.peak_buffered_edges == 0
+    assert compiler.batch_intermediate_list_edges == 0
+    assert [edge for batch in batches for edge in batch] == expected
+    assert batches.state == "exhausted"
 
 
 def test_private_native_coarse_list_uses_bounded_internal_chunks() -> None:

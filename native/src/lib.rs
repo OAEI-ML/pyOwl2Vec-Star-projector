@@ -33,7 +33,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 35;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 36;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -991,8 +991,8 @@ impl EncodedDirectCompiler {
         Ok(statistics)
     }
 
-    /// Return one fully constructed batch; cursor movement commits afterwards.
-    fn next_batch(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+    /// Return one final Edge tuple; cursor movement commits afterwards.
+    fn next_batch(&self, py: Python<'_>, edge_factory: &Bound<'_, PyAny>) -> PyResult<Py<PyTuple>> {
         guarded(|| {
             let (mut stream, batch_edges, next_boundary_calls, next_edge_batches) = {
                 let mut output = self.batch_output.lock().map_err(|_| {
@@ -1009,7 +1009,7 @@ impl EncodedDirectCompiler {
                     ));
                 }
                 if output.exhausted {
-                    return Ok(PyList::empty(py).unbind());
+                    return Ok(PyTuple::empty(py).unbind());
                 }
                 if output.draining {
                     return Err(PyValueError::new_err(
@@ -1058,14 +1058,18 @@ impl EncodedDirectCompiler {
             };
             let amount = edges.len();
             let batch = (|| {
-                let mut values = Vec::new();
+                let mut values: Vec<Py<PyAny>> = Vec::new();
                 values.try_reserve_exact(amount).map_err(|_| {
                     PyMemoryError::new_err("encoded direct drain allocation failed")
                 })?;
                 for edge in edges {
-                    values.push((edge.source, edge.relation, edge.destination));
+                    values.push(
+                        edge_factory
+                            .call1((edge.source, edge.relation, edge.destination))?
+                            .unbind(),
+                    );
                 }
-                PyList::new(py, values).map(|values| values.unbind())
+                PyTuple::new(py, values).map(|values| values.unbind())
             })();
             let mut output = self.batch_output.lock().map_err(|_| {
                 PyRuntimeError::new_err("encoded direct batch output is permanently failed")
@@ -1154,6 +1158,11 @@ impl EncodedDirectCompiler {
             .map_err(|_| {
                 PyRuntimeError::new_err("encoded direct batch output is permanently failed")
             })
+    }
+
+    #[getter]
+    fn batch_intermediate_list_edges(&self) -> usize {
+        0
     }
 
     #[getter]

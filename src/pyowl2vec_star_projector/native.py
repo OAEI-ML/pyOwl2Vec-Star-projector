@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 35
+ENCODED_DIRECT_KERNEL_VERSION = 36
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -390,6 +390,14 @@ class NativeEncodedDirectCompiler:
         )
 
     @property
+    def batch_intermediate_list_edges(self) -> int:
+        return _native_nonnegative_int(
+            self._kernel,
+            "batch_intermediate_list_edges",
+            "batch intermediate-list edge count",
+        )
+
+    @property
     def coarse_output_chunks(self) -> int:
         return _native_nonnegative_int(
             self._kernel,
@@ -630,11 +638,19 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
         if self._yielded_edges == self.statistics.edges:
             self._finish_exhausted(compiler)
             raise StopIteration
-        raw_batch = _call_encoded_direct(compiler._module, compiler._kernel.next_batch)
+        raw_batch = _call_encoded_direct(
+            compiler._module,
+            lambda: compiler._kernel.next_batch(Edge),
+        )
         try:
-            if type(raw_batch) is not list or not raw_batch or len(raw_batch) > self.batch_edges:
+            if (
+                type(raw_batch) is not tuple
+                or not raw_batch
+                or len(raw_batch) > self.batch_edges
+                or not all(type(value) is Edge for value in raw_batch)
+            ):
                 raise ProjectionError("native encoded compiler returned an invalid bounded batch")
-            batch = tuple(Edge(*value) for value in raw_batch)
+            batch = cast(tuple[Edge, ...], raw_batch)
         except (MemoryError, OverflowError) as error:
             self.close()
             raise _resource_error(error) from error
