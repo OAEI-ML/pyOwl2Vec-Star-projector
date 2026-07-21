@@ -77,6 +77,9 @@ its direct columns, and intersects its annotation-assertion identities with the 
 Class-signature membership and blank IDs still come from the closure. Missing public manifest
 metadata, unavailable root scope, or segmented closure/root provenance selects one
 whole-operation scalar fallback before output; malformed auxiliary columns fail closed.
+Before root classification, the broad decoder validates nested annotation, supported recursive
+class-expression, and recursive data-range graphs with iterative color walks. Valid depth is not
+bounded by Python's call stack; self or transitive cycles fail before fallback selection or output.
 Named-subject `SubClassOf` axioms over
 named-property/named-filler some, all, minimum, and maximum restrictions use the same role
 expansion as domain/range edges. A one-level `ObjectInverseOf` property expression in those

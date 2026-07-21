@@ -28,6 +28,9 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Fixed
 
+- Broad structural class-expression and data-range cycle preflights now use iterative color walks;
+  valid 1,200-node chains no longer fail at Python's recursion limit, while forged cycles still
+  fail before root classification or output.
 - The broad Python structural decoder now performs the same iterative nested-annotation cycle
   preflight as kernel v31 for closure and retained root-provenance tables, closing the hidden
   fallback seam before root classification or output without advertising the compiler.

@@ -482,6 +482,23 @@ because wheel 0.47.0 was installed instead of pinned 0.46.3, so the hash-bound r
 correctness-only checkpoint:
 [`installed-broad-annotation-cycle-checkpoint.json`](evidence/installed-broad-annotation-cycle-checkpoint.json).
 
+### Stack-safe broad class/data graphs
+
+Revision `b9ca9a558b4f99ac495d3ae350bab18123ee8307` removes the remaining Python
+call-stack dependency from the broad decoder's supported recursive class-expression and data-range
+graph preflights. The accepted constructor envelope and fallback decisions are unchanged. Compact
+color arrays and enter/exit event stacks now traverse aggregate/complement edges, retain completed
+shared subgraphs, and raise the same typed cyclic-graph errors on gray-node references.
+
+Two flat public-core snapshots were rewritten only at the retained structural-column boundary into
+acyclic chains of 1,200 `ObjectComplementOf` and 1,200 `DataComplementOf` nodes. Both now complete
+preflight rather than being rejected at Python's recursion limit; the existing forged cycle cases
+still fail before output. An isolated CPython 3.12 environment installed an exact-archive native
+wheel plus bound pyOWLCore `6750aa0`; the four focused cases and all 1,114 projector tests passed
+from installed payloads. Native source and the hidden v31 feature ledger were unchanged. The
+hash-bound correctness record is
+[`installed-recursive-graph-checkpoint.json`](evidence/installed-recursive-graph-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -507,7 +524,7 @@ release or performance claim. Exact artifact hashes are recorded in
 ## Verification at this checkpoint
 
 The following source-tree and exact-installed checks passed for the implementation sequence
-`39a5656` through `8d92563`:
+`39a5656` through `b9ca9a5`:
 
 | Gate | Result |
 |---|---|
@@ -515,12 +532,13 @@ The following source-tree and exact-installed checks passed for the implementati
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 219 passed |
 | Foundation plus private-integration tests | 272 passed |
-| Broad encoded-compiler tests | 665 passed |
-| Complete projector test suite | 1,112 passed |
+| Broad encoded-compiler tests | 667 passed |
+| Complete projector test suite | 1,114 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
 | Exact installed broad-decoder annotation-cycle cases | 2 passed |
+| Exact installed broad-decoder recursive-graph cases | 4 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;

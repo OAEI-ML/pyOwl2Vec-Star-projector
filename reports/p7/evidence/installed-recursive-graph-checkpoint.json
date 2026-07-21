@@ -1,0 +1,143 @@
+{
+  "schema": "pyowl-projector.p7-installed-recursive-graph-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "b9ca9a558b4f99ac495d3ae350bab18123ee8307"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-b9ca9a5.tar",
+      "bytes": 3461120,
+      "sha256": "3b0f263eed106b7665965c00b6559129db46dd30a12f939df676139bc5b49ee9"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 424128,
+      "sha256": "1dfedc8a35ba7cabdcdb40f041ddb8c1c230f0bcf29038823a936edd0f0c3cb0",
+      "wheel_record_sha256": "4d8bc40063431e895b833c5e7f643f825f8c3aa9f00233d91e089e2c91eeab7a",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "caf82483ef4c86402cc2992fd540acf90aa026201df33254c30d1c7a5f8386bc"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_broad_decoder": {
+      "filename": "pyowl2vec_star_projector/encoded_compiler.py",
+      "bytes": 185809,
+      "sha256": "03e7a6084a896409deec41bcac5e7898d625830644422faf751700d4ef213547",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 54168,
+      "sha256": "50d98543402b15fb5301a86c8692d53f82189feea115faf9a278054167623b20",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 688380,
+      "sha256": "34d0ac222b10c71b47723567ffdb97089beb9f04c4cb1d480b2101a79fec868b",
+      "encoded_direct_kernel_version": 31,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_source": {
+      "filename": "tests/test_encoded_subset_compiler.py",
+      "bytes": 606431,
+      "sha256": "83eb02ba5813f96422ac4676cd7b90795bd77488fcdfc2675703973d65c88bb9"
+    },
+    "rust_source_continuity": {
+      "encoded_direct_rs_sha256": "82fdb868c56251b76551bd58293f8411dc723a6dab09286e563f3e16598258fb",
+      "matches_exact_revision_8d92563": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 31,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "recursive_graph_cases": 4,
+    "recursive_graph_result": "4 passed",
+    "complete_suite_result": "1114 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "class_expression_chain": {
+        "depth": 1200,
+        "acyclic": true,
+        "accepted_without_python_recursion": true
+      },
+      "data_range_chain": {
+        "depth": 1200,
+        "acyclic": true,
+        "accepted_without_python_recursion": true
+      },
+      "class_expression_cycle": {
+        "failed_before_output": true,
+        "error_category": "SnapshotCompatibilityError",
+        "error_text": "encoded subset class-expression graph is cyclic"
+      },
+      "data_range_cycle": {
+        "failed_before_output": true,
+        "error_category": "SnapshotCompatibilityError",
+        "error_text": "encoded subset data-range graph is cyclic"
+      }
+    }
+  },
+  "source_verification": {
+    "broad_encoded_compiler_cases": 667,
+    "focused_deep_and_hostile_cases": 28,
+    "complete_suite_cases": 1114,
+    "audit_and_benchmark_cases": 11,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "rust_verification": "Native sources are bit-identical to exact revision 8d92563, where 36 unit tests, rustfmt, and Clippy with warnings denied passed."
+  },
+  "closed_gap": "The broad Python structural decoder now validates resource-bounded deep supported class-expression and data-range graphs iteratively while retaining pre-output cycle rejection.",
+  "known_blockers": [
+    "The Rust compiler still materializes a complete output vector before caller-bounded drains.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public dispatch, Scala-instance lifecycle, sink, digest, and artifact integration remain open.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness checkpoint and carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The deep cases deliberately rewire locally valid flat structural columns into 1,200-node acyclic chains; they test decoder stack behavior rather than parser nesting.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

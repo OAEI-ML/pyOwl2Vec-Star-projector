@@ -229,6 +229,12 @@ so the hidden broad-decoder path cannot compare or compile a forged cyclic annot
 Two exact installed-wheel hostile cases and the complete suite are hash-bound in
 [`reports/p7/evidence/installed-broad-annotation-cycle-checkpoint.json`](reports/p7/evidence/installed-broad-annotation-cycle-checkpoint.json).
 
+The broad decoder's recursive class-expression and data-range checks are stack-safe as well. They
+now use iterative color walks while retaining their existing accepted envelope, fallback choices,
+and stable cycle failures. Exact installed tests admit independently forged 1,200-node acyclic
+chains for both graph families, reject both cyclic variants before output, and are recorded in
+[`reports/p7/evidence/installed-recursive-graph-checkpoint.json`](reports/p7/evidence/installed-recursive-graph-checkpoint.json).
+
 The same v31 boundary is installed-tested over diamond and cyclic import graphs. A shared diamond
 member is projected once, a two-document cycle terminates with both taxonomy edges, and in each
 topology only the root document's annotation remains visible. Both runs retain the independent
