@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `f62e8e4`. pyOWLCore candidate revision:
+Date: 2026-07-21. Projector implementation through `f812f9d`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -22,9 +22,9 @@ unadvertised structural-columns candidate and selects Rust only for isolated dir
 roots are declarations; direct named or supported named-filler Some/All/Min/Max restriction
 `SubClassOf`, plus structurally validated nonprojecting `SubClassOf`; named-pair, aggregate, or
 nonprojecting `EquivalentClasses`; named or structurally validated nonprojecting `ClassAssertion`;
-and
-named-property `ObjectPropertyAssertion` axioms over named or anonymous individuals; plus a
-complete named object-property domain/range cross-product. Direct named/inverse
+and named-property `ObjectPropertyAssertion` axioms over named or anonymous individuals; plus
+arbitrary named-property object domain/range products, unpaired named roots, and inverse/complex
+ignored roots. Direct named/inverse
 `SubObjectPropertyOf` and
 `InverseObjectProperties` roots may build same-call isolated role maps; property chains remain on
 the exact ignored-shape path without mutating those maps, and the native `role_expansion_edges`
@@ -34,16 +34,17 @@ native edges is admitted as scalar ignored shapes with a grouped `AnnotationAsse
 Selected anonymous annotation values and anonymous assertion operands use the kernel's exact
 axiom-derived blank-ID order, including anonymous axiom metadata. Native ignored-subclass and
 ignored-class-assertion partitions are admitted with exact constructor-grouped diagnostics and
-counts. Kernel v27 also exposes aggregate-aware equivalence base-edge and ignored-shape counts, so
+counts. Kernel v28 exposes aggregate-aware equivalence base-edge and ignored-shape counts, so
 aggregate role expansions and operand-level ignores are admitted without inferring either from the
-total output. The native non-string rendering count produces the
+total output. It also partitions projecting and ignored object domain/range roots; the adapter
+bounds the native product count by the projectable cross-product while preserving exact
+multi-property matching, unpaired silence, role expansion, and grouped diagnostics. The native
+non-string rendering count produces the
 exact grouped warning diagnostic. Ontology annotations and SWRL rules are admitted as validated
 silent roots. Every supported scalar-skipped family is admitted only when the exact sum of its 27
 per-constructor native counters equals the native skipped total; the adapter synthesizes the same
-constructor-sorted grouped diagnostics as the scalar compiler. The
-product gate admits multiple roots only when the native product count equals
-`domain_count * range_count`, proving that every root is named and all belong to one matched
-property group. Under historical `only_taxonomy`, admitted restrictions are suppressed and publish
+constructor-sorted grouped diagnostics as the scalar compiler. Under historical `only_taxonomy`,
+admitted restrictions are suppressed and publish
 the same grouped ignored-shape diagnostic/count as the scalar compiler.
 Candidate-unavailable inputs and successfully preflighted views outside that narrow adapter subset
 select the complete scalar-native compiler for the whole call before an edge is yielded; malformed,
@@ -210,7 +211,8 @@ semantic slice across the actual PyO3 boundary without changing the production c
 - one hidden isolated iterator adapter that admits only the named taxonomy, supported direct
   named-filler restriction, pair/aggregate/nonprojecting equivalence, class-assertion, and direct
   object-property-assertion
-  subset plus direct named/inverse role maps and one complete named domain/range product, closes a
+  subset plus direct named/inverse role maps and exactly partitioned arbitrary domain/range roots,
+  closes a
   declined session before scalar fallback, routes accepted batches through the existing streaming
   policy, admits anonymous positive-assertion operands, nonprojecting subclass/class-assertion
   shapes, selected or exactly partitioned annotation roots including anonymous values/metadata,
@@ -226,15 +228,15 @@ Any other valid segment, exporter, constructor, nonprojecting expression outside
 positions, or structurally unsupported object-property chain is rejected as unsupported before
 output. N-ary
 equivalents beyond the selected first two, non-selected supported aggregate expressions, complete
-supported disjoint/property sets, every supported literal and annotation node, and unpaired object
-domain/range roots are still fully validated. A role annotation whose anonymous local-key bytes are
+supported disjoint/property sets, and every supported literal and annotation node are still fully
+validated. A role annotation whose anonymous local-key bytes are
 not valid UTF-8 remains an exact whole-call fallback because the scalar hash path raises while
 encoding its surrogateescaped value. Malformed supported columns fail closed.
 Same-operation isolated role expansion and ordered retained role-state reuse across supported
 direct views are proven. The retained handle is still a private seam: `Projector` does not bind it
 to public `compatibility_state="scala-instance"`. The hidden isolated iterator now uses ordinary
 call-history and ingestion provenance, but no public lifecycle or dispatch claim follows from it.
-This is kernel version 27 of a private foundation, not the complete compiler described by WP-P7.
+This is kernel version 28 of a private foundation, not the complete compiler described by WP-P7.
 
 ## What the private kernel actually does
 
@@ -313,7 +315,7 @@ encountering a sink exception clears every not-yet-published native edge and rel
 view/owner when the wrapper is its last reference. Unsupported, malformed, pinned reference,
 resource, cancelled, and panic outcomes cross the boundary as distinct typed failures; no output
 session is published by a failed compile. The private v26 ABI returns
-its fifty-six counters as an explicitly constructed Python tuple because PyO3's automatic tuple
+its fifty-eight counters as an explicitly constructed Python tuple because PyO3's automatic tuple
 conversion is bounded below that arity.
 
 The batch seam is deliberately not described as a complete streaming compiler. Rust still
@@ -339,15 +341,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`f62e8e4`:
+`f812f9d`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 30 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 215 passed |
-| Focused native/dispatch/streaming/API/integration/contract tests | 321 passed |
-| Complete projector test suite | 1,086 passed |
+| Focused native/dispatch/streaming/API/integration/contract tests | 323 passed |
+| Complete projector test suite | 1,088 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -464,8 +466,9 @@ direct Some/All/Min/Max restriction parity in both orientations with named/inver
 cardinality-discard duplicates, normal/bidirectional/canonical-unique behavior, exact historical
 `only_taxonomy` suppression and grouped ignored-shape diagnostics, complete three-by-two named
 domain/range cross-products with annotated duplicate roots under encounter, canonical-unique,
-bidirectional, and historical `only_taxonomy` options, conservative fallback for complex and
-property-mismatched domain/range groups, partial iterator close, cancellation between native
+bidirectional, and historical `only_taxonomy` options, exact multi-property and unpaired named
+domain/range admission, inverse/complex ignored partitions and grouped diagnostics, forced
+inconsistent-ledger fallback cleanup, partial iterator close, cancellation between native
 batches, same-call named/inverse subrole expansion across restrictions and domain/range products,
 direct assertion non-expansion, normal/bidirectional/canonical-unique/`only_taxonomy` report parity,
 exact ignored property-chain admission without diagnostics or role-map mutation, explicit
@@ -489,7 +492,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; one hidden isolated named-edge adapter records call history/provenance for direct taxonomy and supported restrictions, pair/aggregate/nonprojecting equivalences, nonprojecting subclasses and class assertions, named/anonymous positive object-property assertions, selected or exactly partitioned annotation roots with IRI/literal/anonymous values, same-call named/inverse role maps, a complete named domain/range product, ignored property chains, silent ontology annotations and SWRL rules, and every exactly counted supported scalar-skip family, including exact axiom-derived blank IDs, exact equivalence base edges, ignored-shape partitions and grouped diagnostics, non-string-rendering warnings, and grouped skipped-axiom diagnostics, while public Scala-instance lifecycle binding and remaining option/surface integration are unsupported |
+| Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; one hidden isolated named-edge adapter records call history/provenance for direct taxonomy and supported restrictions, pair/aggregate/nonprojecting equivalences, nonprojecting subclasses and class assertions, named/anonymous positive object-property assertions, selected or exactly partitioned annotation roots with IRI/literal/anonymous values, same-call named/inverse role maps, arbitrary named-property domain/range products plus unpaired and ignored partitions, ignored property chains, silent ontology annotations and SWRL rules, and every exactly counted supported scalar-skip family, including exact axiom-derived blank IDs, exact equivalence base edges, ignored-shape partitions and grouped diagnostics, non-string-rendering warnings, and grouped skipped-axiom diagnostics, while public Scala-instance lifecycle binding and remaining option/surface integration are unsupported |
 | Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; one hidden named-edge iterator now consumes those batches through P4 policy, but Rust still materializes the full output vector and public iterator/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
