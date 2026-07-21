@@ -13584,6 +13584,7 @@ def test_anonymous_individual_corruption_fails_before_edge_output(corruption: st
         ("annotation-property", "property"),
         ("annotation-value", "value"),
         ("nested-set-item", "annotation set"),
+        ("nested-cycle", "cyclic"),
     ],
 )
 def test_annotated_logical_axiom_corruption_fails_before_output(
@@ -13633,11 +13634,15 @@ def test_annotated_logical_axiom_corruption_fails_before_output(
         kinds = bytearray(buffers["field_kinds"])
         kinds[axiom_start + 2] = 1
         buffers["field_kinds"] = memoryview(bytes(kinds))
-    elif corruption in {"root-set-item", "nested-set-item"}:
+    elif corruption in {"root-set-item", "nested-set-item", "nested-cycle"}:
         set_field = axiom_start + 2 if corruption == "root-set-item" else outer_start + 2
         item_start = int.from_bytes(values[set_field * 8 : (set_field + 1) * 8], "little")
         item_values = bytearray(buffers["item_values"])
-        item_values[item_start * 8 : (item_start + 1) * 8] = literal_id.to_bytes(8, "little")
+        replacement_id = outer_annotation_id if corruption == "nested-cycle" else literal_id
+        item_values[item_start * 8 : (item_start + 1) * 8] = replacement_id.to_bytes(
+            8,
+            "little",
+        )
         buffers["item_values"] = memoryview(bytes(item_values))
     elif corruption == "annotation-arity":
         changed_offsets = bytearray(offsets)
@@ -14928,11 +14933,15 @@ def test_ontology_annotation_root_corruption_fails_before_output(corruption: str
         )
 
 
-@pytest.mark.parametrize("corruption", ["root-kind", "root-reference", "annotation-arity"])
+@pytest.mark.parametrize(
+    "corruption",
+    ["root-kind", "root-reference", "annotation-arity", "annotation-cycle"],
+)
 def test_root_annotation_provenance_corruption_fails_before_output(corruption: str) -> None:
     root = (
         b"Prefix(:=<urn:root#>) Ontology(<urn:root> Import(<urn:leaf>) "
-        b"Annotation(<urn:ontology> _:rootOntology) Declaration(Class(:A)) "
+        b'Annotation(Annotation(<urn:nested> "inner") <urn:ontology> _:rootOntology) '
+        b"Declaration(Class(:A)) "
         b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "root"))'
     )
     leaf = (
@@ -14962,6 +14971,16 @@ def test_root_annotation_provenance_corruption_fails_before_output(corruption: s
         offset = root_index * 4
         root_ids[offset : offset + 4] = (columns.node_count + 1).to_bytes(4, "little")
         buffers["root_ids"] = memoryview(bytes(root_ids))
+    elif corruption == "annotation-cycle":
+        start = columns._exact_fields(annotation_id, 3)
+        item_start, length = columns._annotation_set_range(start + 2)
+        assert length == 1
+        item_values = bytearray(buffers["item_values"])
+        item_values[item_start * 8 : (item_start + 1) * 8] = annotation_id.to_bytes(
+            8,
+            "little",
+        )
+        buffers["item_values"] = memoryview(bytes(item_values))
     else:
         offsets = bytearray(buffers["node_field_offsets"])
         end_offset = annotation_id * 8
@@ -14978,7 +14997,7 @@ def test_root_annotation_provenance_corruption_fails_before_output(corruption: s
         ),
         pytest.raises(
             SnapshotCompatibilityError,
-            match=r"ontology-annotation root kind|node reference|arity",
+            match=r"ontology-annotation root kind|node reference|arity|cyclic",
         ),
     ):
         prepare_encoded_subset_compilation(

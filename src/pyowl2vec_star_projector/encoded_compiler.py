@@ -1057,6 +1057,7 @@ class _EncodedColumns:
         inspection = _Inspection(counters)
         for node_id in range(1, self.node_count + 1):
             self._inspect_node(node_id, inspection)
+        self._validate_annotation_graph()
         self._validate_data_range_graph()
         self._validate_class_expression_graph()
         previous_root: tuple[int, int] | None = None
@@ -2539,6 +2540,51 @@ class _EncodedColumns:
             return False
         kind, _iri_id, _checked = self._entity(node_id)
         return kind == b"datatype"
+
+    def _validate_annotation_graph(self) -> None:
+        """Reject cycles in nested annotation metadata without recursive calls."""
+
+        has_nested_annotations = False
+        for node_id in range(1, self.node_count + 1):
+            if self.node_tag(node_id) != _TAG_ANNOTATION:
+                continue
+            start = self._exact_fields(node_id, 3)
+            _item_start, length = self._annotation_set_range(start + 2)
+            if length:
+                has_nested_annotations = True
+                break
+        if not has_nested_annotations:
+            return
+
+        colors = bytearray(self.node_count + 1)
+        stack: list[tuple[int, bool]] = []
+        for start_id in range(1, self.node_count + 1):
+            if self.node_tag(start_id) != _TAG_ANNOTATION or colors[start_id] == 2:
+                continue
+            stack.append((start_id, False))
+            while stack:
+                node_id, exiting = stack.pop()
+                if exiting:
+                    colors[node_id] = 2
+                    continue
+                if colors[node_id] == 2:
+                    continue
+                if colors[node_id] == 1:
+                    raise SnapshotCompatibilityError(
+                        "encoded subset annotation metadata graph is cyclic"
+                    )
+                colors[node_id] = 1
+                stack.append((node_id, True))
+                start = self._exact_fields(node_id, 3)
+                item_start, length = self._annotation_set_range(start + 2)
+                for item_index in range(item_start + length - 1, item_start - 1, -1):
+                    child_id = self._item_node(item_index)
+                    if colors[child_id] == 1:
+                        raise SnapshotCompatibilityError(
+                            "encoded subset annotation metadata graph is cyclic"
+                        )
+                    if colors[child_id] == 0:
+                        stack.append((child_id, False))
 
     def _is_data_range(self, node_id: int) -> bool:
         return (
