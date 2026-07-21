@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Native final-object validation now checks payload identity as well as exact type: every `Edge`
+  string, all 60 statistics integers, and the iterator owner/statistics/batch/initial-count fields
+  must match their native inputs before cursor, session, counters, or retained Scala role state can
+  commit. Constructor-injected corruption fails atomically; the capability remains unadvertised.
 - Post-native coarse, session, and bounded-drain envelope validation now uses import-time canonical
   `Edge`, statistics, and iterator identities. A canonical constructor that mutates its replaceable
   module factory name can no longer make Python reject already-committed cursor progress, counters,

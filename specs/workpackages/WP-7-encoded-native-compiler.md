@@ -69,8 +69,10 @@ to each bounded-drain `Edge` before cursor/counter commit and to every coarse `E
 statistics before retained-role/output-counter commit; bounded failures remain retryable and
 coarse failures leave role maps unchanged. Kernel v41 also pins the post-native Python envelope
 checks to the same retained canonical identities, preventing a constructor-time module-global
-mutation from rejecting state that native code already committed. The private counter ledger
-separates compiled edges
+mutation from rejecting state that native code already committed. Kernel v42 validates every
+final edge/statistics payload field plus the iterator's owner, statistics, bound, and initial count
+before native commit, preserving the same atomic outcomes for constructor-injected payload
+corruption. The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete

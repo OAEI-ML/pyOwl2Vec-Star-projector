@@ -145,6 +145,10 @@ Kernel v41 makes the post-native Python envelope checks use the same retained im
 statistics, and iterator identities. A canonical constructor may mutate its replaceable module
 global without causing Python to reject cursor progress, session publication, or retained-role
 state that the native transaction has already committed.
+Kernel v42 validates the final payloads before that commit: every exact `Edge` string and all 60
+exact statistics integers must match their native inputs, while the iterator must retain the exact
+compiler/statistics identities, batch bound, and zero initial yielded count. Constructor-injected
+payload corruption therefore retains the v40 failure-atomic outcomes.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

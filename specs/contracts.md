@@ -258,6 +258,10 @@ Kernel-v41 evidence requires post-native coarse, session, and drain envelope che
 against those retained canonical identities rather than mutable module globals. A canonical
 constructor that mutates its module-level name must preserve the successful native transaction and
 its exact final objects, cursor counters, and retained role maps.
+Kernel-v42 evidence requires payload equality before native commit: exact edge strings and all 60
+exact statistics integers must match their construction inputs; iterator owner/statistics
+identities, batch bound, and zero initial yielded count must also match. Corruption must retain
+bounded retry or the absent-session/zero-counter/unchanged-role outcome as applicable.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These
