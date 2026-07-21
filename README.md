@@ -218,15 +218,18 @@ they are explicitly private, incomplete, and not release-performance evidence.
 
 The final bounded-batch transaction is independently hash-bound in
 [`reports/p7/evidence/installed-final-batch-checkpoint.json`](reports/p7/evidence/installed-final-batch-checkpoint.json).
+Iterator preparation likewise constructs its final statistics object before publishing the batch
+session or retained role transition; its exact failure-atomicity evidence is recorded in
+[`reports/p7/evidence/installed-batch-session-checkpoint.json`](reports/p7/evidence/installed-batch-session-checkpoint.json).
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
 Three native calls cover initial role acquisition, later restriction/domain/range consumption, and
 conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
 to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
-kernel v31; the bounded, lazy, coarse-cursor, final-result, and final-batch checkpoints advance the
-private kernel through v32, v33, v34, v35, and v36 while the public feature ledger remains exactly
-`abi3-py310` and `bounded-batches`.
+kernel v31; the bounded, lazy, coarse-cursor, final-result, final-batch, and batch-session
+checkpoints advance the private kernel through v32, v33, v34, v35, v36, and v37 while the public
+feature ledger remains exactly `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
 annotations. Kernel v30 retains an unequal exact-direct root table alongside the closure and joins

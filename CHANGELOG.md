@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden iterator preparation now constructs its final statistics object before publishing the
+  batch session or retained Scala role-state transition. Injected statistics allocation failure
+  publishes no session/counters, releases exclusive role use, and leaves retained maps unchanged;
+  the capability remains unadvertised.
 - Each hidden native iterator drain now constructs its final bounded tuple of `Edge` objects inside
   the cursor transaction. The wrapper no longer duplicates an intermediate Python tuple-edge list,
   and injected final-edge allocation failure leaves cursor position and counters retryable; the

@@ -59,8 +59,10 @@ immutable structural, semantic, count, and capacity preflight publishes the curs
 emission attempts. Each drain buffers no more than the configured batch, and cursor movement
 commits only after final batch construction. Kernel v36 constructs the final `Edge` tuple inside
 that transaction, removes the wrapper's intermediate Python tuple-edge list, and restores the exact
-cursor/counters if a final-edge factory fails. The private counter ledger separates compiled edges
-from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
+cursor/counters if a final-edge factory fails. Kernel v37 constructs final statistics before the
+session, compiler-finished state, and retained role transition are published; factory failure
+publishes none of them. The private counter ledger separates compiled edges from zero vector-backed
+output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete
 Python output construction. Kernel v35 constructs final `Edge` and statistics objects in that

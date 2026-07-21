@@ -123,8 +123,10 @@ projected-edge vector or pre-publication output replay. A drain clones the small
 at most the configured edge count, and commits that state only after the final Python batch has
 been constructed. Kernel v36 creates final `Edge` objects and their tuple inside that transaction,
 without an intermediate Python tuple-edge list; factory failure restores the unchanged cursor for
-an exact retry. GIL-detached generation does not hold the output mutex; a raced close discards the
-unpublished bounded batch. Kernel v34 routes the legacy private coarse call through the same cursor
+an exact retry. Kernel v37 also constructs the final statistics object before installing that
+session or committing its retained role-state transition; failure publishes neither. GIL-detached
+generation does not hold the output mutex; a raced close discards the unpublished bounded batch.
+Kernel v34 routes the legacy private coarse call through the same cursor
 in fixed 256-edge native chunks. That call still returns one materialized Python list, but retains
 no complete Rust output vector. Kernel v35 constructs the final `Edge` instances and statistics
 object inside that same transaction, without a second complete tuple-edge list; its reusable role

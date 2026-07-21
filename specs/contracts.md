@@ -241,12 +241,14 @@ final statistics object to be constructed before reusable role state commits. A 
 factory publishes neither counters nor role-state changes. Kernel-v36 bounded-drain evidence
 additionally records zero intermediate Python-list edges and requires the final bounded `Edge`
 tuple to exist before cursor/counter commit. A final-edge factory failure leaves the drain exactly
-retryable. Zero operation counters assert that the projector handoff itself did not perform that
-work; they do not describe acquisition completed before an existing view was supplied. The
-publication duration includes public encoded-view
-acquisition and the Projector adapter's in-place validation. These fields are monotonic,
-non-negative, path-free diagnostics; they do not enter portable artifact bytes or semantic
-digests. Reading the report
+retryable. Kernel-v37 session evidence requires the final statistics object to exist before the
+batch session, compiler-finished state, or retained role transition is published. A failed
+statistics factory leaves the session absent, its counters zero, and retained roles unchanged.
+Zero operation counters assert that the projector handoff itself did not perform that work; they do
+not describe acquisition completed before an existing view was supplied. The publication duration
+includes public encoded-view acquisition and the Projector adapter's in-place validation. These
+fields are monotonic, non-negative, path-free diagnostics; they do not enter portable artifact
+bytes or semantic digests. Reading the report
 cannot trigger another core view request.
 
 It never records a secret resolver credential or assumes the original source path is portable.
