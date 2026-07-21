@@ -223,6 +223,12 @@ fail-before-output rejection. The exact installed correctness checkpoint is reco
 [`reports/p7/evidence/installed-annotation-cycle-checkpoint.json`](reports/p7/evidence/installed-annotation-cycle-checkpoint.json);
 the public feature ledger remains unchanged.
 
+The broad Python structural decoder now enforces the same acyclic nested-metadata invariant before
+root classification. This covers both its closure table and the independently retained root table,
+so the hidden broad-decoder path cannot compare or compile a forged cyclic annotation identity.
+Two exact installed-wheel hostile cases and the complete suite are hash-bound in
+[`reports/p7/evidence/installed-broad-annotation-cycle-checkpoint.json`](reports/p7/evidence/installed-broad-annotation-cycle-checkpoint.json).
+
 The same v31 boundary is installed-tested over diamond and cyclic import graphs. A shared diamond
 member is projected once, a two-document cycle terminates with both taxonomy edges, and in each
 topology only the root document's annotation remains visible. Both runs retain the independent

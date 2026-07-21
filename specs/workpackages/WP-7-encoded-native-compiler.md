@@ -38,7 +38,9 @@ blocker. Kernel v31 additionally rejects cycles in nested annotation metadata wi
 preflight over both closure and retained root tables. This closes a hostile structural-columns
 case without advertising the encoded compiler or changing valid projection output. Exact installed
 diamond and cyclic import cases additionally prove that the v30 join's canonical root subset and
-closure deduplication remain correct beyond a one-level import.
+closure deduplication remain correct beyond a one-level import. The broad Python structural decoder
+now applies the same iterative acyclic-annotation invariant before root classification, including
+when it independently inspects a retained root-provenance table.
 
 This checkpoint does not satisfy any deliverable that says complete, every, production, or full
 matrix. `ENCODED_NATIVE_FEATURE` remains absent from the extension feature ledger. The exact

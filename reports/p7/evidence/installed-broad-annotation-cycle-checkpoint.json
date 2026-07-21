@@ -1,0 +1,132 @@
+{
+  "schema": "pyowl-projector.p7-installed-broad-annotation-cycle-checkpoint/1",
+  "generated_on": "2026-07-21",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "8d925638caf54158f203de40e6cf8a835fb31112"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-8d92563.tar",
+      "bytes": 3440640,
+      "sha256": "db19ae2f6ae5ca8ef22e571601cf4c1bc58edab23b39dca417de2b47e83995c4"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 424047,
+      "sha256": "2c6b2fc3d935e30924cda8787bf6a2e23c215298a5872cc74c11d39924a277f1",
+      "wheel_record_sha256": "5b5184a50f1ea5681b8bc55cd44a0ce263a49cda5b71b3a653368eadf392b963",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "f56477944a5f4dea921eb3806816dc779bd8fc2c5ecdd70dc593236485671124"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1197343,
+      "sha256": "a9f9f984309907a1c678ace589b8e039e036767cbd90adcc617c68334356a2fd",
+      "installed_record_sha256": "ea3e09c1f7ed147844bab85220fc58f3f7a35845216a1b2d4a3e4317aab49a25"
+    },
+    "installed_broad_decoder": {
+      "filename": "pyowl2vec_star_projector/encoded_compiler.py",
+      "bytes": 184538,
+      "sha256": "ac022576179fb68a01ce332872f44d0d63cbd41a9720213d93d49f3f156d1e57",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 54168,
+      "sha256": "50d98543402b15fb5301a86c8692d53f82189feea115faf9a278054167623b20",
+      "matches_projector_revision": true
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 688380,
+      "sha256": "34d0ac222b10c71b47723567ffdb97089beb9f04c4cb1d480b2101a79fec868b",
+      "encoded_direct_kernel_version": 31,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_case_source": {
+      "filename": "tests/test_encoded_subset_compiler.py",
+      "bytes": 604281,
+      "sha256": "c1e8e8a7294458b32d20328a46e6e52063f7067b0b7318b5172669a3cf3e5eff"
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 31,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false
+  },
+  "installed_verification": {
+    "installed_smoke": "passed",
+    "broad_decoder_cycle_cases": 2,
+    "broad_decoder_cycle_result": "2 passed",
+    "complete_suite_result": "1112 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "closure_cycle": {
+        "local_annotation_shape_valid": true,
+        "failed_before_output": true,
+        "error_category": "SnapshotCompatibilityError",
+        "error_text": "encoded subset annotation metadata graph is cyclic"
+      },
+      "retained_root_provenance_cycle": {
+        "closure_table_valid": true,
+        "failed_before_provenance_join": true,
+        "failed_before_output": true,
+        "error_category": "SnapshotCompatibilityError",
+        "error_text": "encoded subset annotation metadata graph is cyclic"
+      }
+    }
+  },
+  "source_verification": {
+    "rust_unit_cases": 36,
+    "rust_format": "passed",
+    "rust_clippy_warnings_denied": "passed",
+    "broad_encoded_compiler_cases": 665,
+    "complete_suite_cases": 1112,
+    "ruff": "passed",
+    "mypy_source": "passed"
+  },
+  "closed_gap": "The broad Python structural decoder now rejects cyclic nested annotation metadata in closure and retained root tables before root classification, provenance matching, or output.",
+  "known_blockers": [
+    "The Rust compiler still materializes a complete output vector before caller-bounded drains.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public dispatch, Scala-instance lifecycle, sink, digest, and artifact integration remain open.",
+    "Fuzz, sanitizer, thread/fork/shutdown, platform, corpus, threshold, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a hostile-input correctness checkpoint and carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The installed cases cover self-cycle mutations through closure and retained-root boundaries; the kernel's 4,096-level acyclic and transitive-cycle checks remain Rust unit cases.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

@@ -462,6 +462,26 @@ the environment has wheel 0.47.0 rather than the pinned 0.46.3, so this remains 
 checkpoint evidence with no release or performance claim. Exact hashes and caveats are recorded in
 [`installed-annotation-cycle-checkpoint.json`](evidence/installed-annotation-cycle-checkpoint.json).
 
+### Broad decoder parity
+
+Revision `8d925638caf54158f203de40e6cf8a835fb31112` closes the corresponding hostile-input
+gap in the broad Python structural decoder. Its local `Annotation` validation already rejected
+wrong properties, values, arities, and set members, but could admit a graph whose locally valid
+nested references formed a cycle. `_EncodedColumns.inspect()` now runs a color-marked iterative
+walk before data-range/class-expression graph validation and root classification. Shared acyclic
+metadata remains valid; a gray-node encounter raises `SnapshotCompatibilityError` before any root
+selection, retained-root identity comparison, or edge publication.
+
+The closure case forges a self-reference in annotated `SubClassOf` metadata. The root-provenance
+case keeps the closure valid and independently forges the retained ontology annotation, proving the
+auxiliary table is preflighted before the join. An isolated CPython 3.12 environment installed the
+release-profile v31 wheel built from an exact archive of that revision plus bound pyOWLCore
+`6750aa0`; both hostile cases and all 1,112 projector tests passed from installed payloads. The
+feature ledger stayed exactly `abi3-py310` and `bounded-batches`. Dependency checking was skipped
+because wheel 0.47.0 was installed instead of pinned 0.46.3, so the hash-bound record remains a
+correctness-only checkpoint:
+[`installed-broad-annotation-cycle-checkpoint.json`](evidence/installed-broad-annotation-cycle-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -486,8 +506,8 @@ release or performance claim. Exact artifact hashes are recorded in
 
 ## Verification at this checkpoint
 
-The following source-tree checks passed for the implementation sequence `39a5656` through
-`18ed10e`:
+The following source-tree and exact-installed checks passed for the implementation sequence
+`39a5656` through `8d92563`:
 
 | Gate | Result |
 |---|---|
@@ -495,10 +515,12 @@ The following source-tree checks passed for the implementation sequence `39a5656
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 219 passed |
 | Foundation plus private-integration tests | 272 passed |
-| Complete projector test suite | 1,110 passed |
+| Broad encoded-compiler tests | 665 passed |
+| Complete projector test suite | 1,112 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
+| Exact installed broad-decoder annotation-cycle cases | 2 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
