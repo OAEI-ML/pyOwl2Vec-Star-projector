@@ -5081,6 +5081,39 @@ def test_private_native_batches_preserve_exact_order_and_bound_each_ffi_transfer
     assert sink_statistics.edges == len(expected)
 
 
+def test_private_native_coarse_list_uses_bounded_internal_chunks() -> None:
+    edge_count = 600
+    view = _snapshot(
+        " ".join(f"SubClassOf(:C{index} :Top)" for index in range(edge_count))
+    )
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    assert compiler.coarse_output_chunks == 0
+    assert compiler.coarse_output_vector_edges == 0
+    assert compiler.peak_buffered_coarse_edges == 0
+
+    actual, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=edge_count,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert actual == expected
+    assert statistics.edges == edge_count
+    assert compiler.coarse_chunk_edges == 256
+    assert compiler.coarse_output_chunks == 3
+    assert compiler.coarse_output_vector_edges == 0
+    assert compiler.peak_buffered_coarse_edges == 256
+    assert compiler.peak_buffered_coarse_edges < statistics.edges
+
+
 def test_private_native_batch_close_and_sink_failure_clear_unpublished_output() -> None:
     view = _snapshot(" ".join(f"SubClassOf(:C{index} :Top)" for index in range(25)))
     compiler = prepare_native_encoded_direct(_lease(view))
@@ -5132,6 +5165,23 @@ def test_failed_private_batch_compile_does_not_commit_retained_role_state() -> N
         "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
         "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
     )
+    coarse_role_state = prepare_native_encoded_role_state()
+    coarse_compiler = prepare_native_encoded_direct(_lease(failing_view))
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        coarse_compiler.compile_batch(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024 * 1024,
+            role_state=coarse_role_state,
+        )
+    assert coarse_compiler.state == "failed"
+    assert coarse_compiler.coarse_output_chunks == 0
+    assert coarse_compiler.coarse_output_vector_edges == 0
+    assert coarse_compiler.peak_buffered_coarse_edges == 0
+    assert coarse_role_state.in_use is False
+    assert coarse_role_state.subrole_property_count == 0
+    assert coarse_role_state.inverse_property_count == 0
+
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(failing_view))
     with pytest.raises(ProjectionResourceError, match="configured edge resources"):

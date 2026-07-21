@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 33
+ENCODED_DIRECT_KERNEL_VERSION = 34
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -380,6 +380,38 @@ class NativeEncodedDirectCompiler:
         if type(value) is not int or value < 0:
             raise ProjectionError("native encoded compiler returned invalid buffer count")
         return value
+
+    @property
+    def coarse_chunk_edges(self) -> int:
+        return _native_nonnegative_int(
+            self._kernel,
+            "coarse_chunk_edges",
+            "coarse chunk-edge limit",
+        )
+
+    @property
+    def coarse_output_chunks(self) -> int:
+        return _native_nonnegative_int(
+            self._kernel,
+            "coarse_output_chunks",
+            "coarse output-chunk count",
+        )
+
+    @property
+    def coarse_output_vector_edges(self) -> int:
+        return _native_nonnegative_int(
+            self._kernel,
+            "coarse_output_vector_edges",
+            "coarse output-vector edge count",
+        )
+
+    @property
+    def peak_buffered_coarse_edges(self) -> int:
+        return _native_nonnegative_int(
+            self._kernel,
+            "peak_buffered_coarse_edges",
+            "peak buffered coarse-edge count",
+        )
 
     def compile_batch(
         self,

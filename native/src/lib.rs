@@ -15,14 +15,16 @@ mod encoded_direct;
 
 use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
-    compile_direct_with_retained_role_state, prepare_direct_batches_with_retained_role_state,
-    DirectColumns, DirectCompileOptions, DirectCompileStats, DirectEdge, KernelError,
-    OwnedRoleSnapshot, OwnedRoleState, PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES,
-    STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
+    DirectColumns, DirectCompileOptions, DirectCompileStats, KernelError, OwnedRoleSnapshot,
+    OwnedRoleState, PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED,
+    STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -31,7 +33,8 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 33;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 34;
+const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -47,8 +50,7 @@ create_exception!(_native, EncodedDirectBufferError, PyValueError);
 create_exception!(_native, EncodedDirectCancelledError, PyRuntimeError);
 create_exception!(_native, EncodedDirectReferenceError, PyValueError);
 
-type EdgeTuple = (String, String, String);
-type EncodedDirectBatch = (Vec<EdgeTuple>, Py<PyTuple>);
+type EncodedDirectBatch = (Py<PyList>, Py<PyTuple>);
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct Edge {
@@ -396,6 +398,7 @@ impl RetainedRoleState {
         })
     }
 
+    #[cfg(test)]
     fn compile_claimed(
         &self,
         columns: DirectColumns<'_>,
@@ -415,6 +418,26 @@ impl RetainedRoleState {
             options,
             compiler_state,
             Some(&mut roles),
+        )
+        .map_err(kernel_error)
+    }
+
+    fn prepare_batches_uncommitted_claimed(
+        &self,
+        columns: DirectColumns<'_>,
+        root_annotation_columns: Option<DirectColumns<'_>>,
+        options: DirectCompileOptions,
+        compiler_state: &AtomicU8,
+    ) -> PyResult<PreparedDirectBatches> {
+        let roles = self.roles.lock().map_err(|_| {
+            PyRuntimeError::new_err("encoded direct role state is permanently failed")
+        })?;
+        prepare_direct_batches_uncommitted(
+            columns,
+            root_annotation_columns,
+            options,
+            compiler_state,
+            Some(&roles),
         )
         .map_err(kernel_error)
     }
@@ -583,6 +606,8 @@ struct EncodedDirectCompiler {
     _root_annotation_owner: Option<Py<PyAny>>,
     root_annotation_buffers: Option<Vec<RetainedDirectBuffer>>,
     state: AtomicU8,
+    coarse_output_chunks: AtomicUsize,
+    coarse_peak_buffered_edges: AtomicUsize,
     batch_output: Mutex<DirectBatchOutput>,
 }
 
@@ -642,48 +667,6 @@ impl EncodedDirectCompiler {
                 Err(_) => Err(error),
             },
         }
-    }
-
-    fn compile_owned(
-        &self,
-        py: Python<'_>,
-        options: DirectCompileOptions,
-        retained_role_state: Option<Arc<RetainedRoleState>>,
-    ) -> PyResult<(Vec<DirectEdge>, DirectCompileStats, Option<RetainedRoleUse>)> {
-        self.begin()?;
-        let slices: [&[u8]; BUFFER_COUNT] =
-            std::array::from_fn(|index| self.buffers[index].as_slice());
-        let columns = DirectColumns::from_ordered(slices);
-        let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
-            let slices: [&[u8]; BUFFER_COUNT] =
-                std::array::from_fn(|index| buffers[index].as_slice());
-            DirectColumns::from_ordered(slices)
-        });
-        let retained_role_use = match retained_role_state.as_ref() {
-            Some(retained) => match retained.claim() {
-                Ok(role_use) => Some(role_use),
-                Err(error) => return self.finish_result(Err(error)),
-            },
-            None => None,
-        };
-        let result = guarded(|| {
-            py.detach(|| {
-                if let Some(retained) = retained_role_state.as_ref() {
-                    retained.compile_claimed(columns, root_annotation_columns, options, &self.state)
-                } else {
-                    compile_direct_with_retained_role_state(
-                        columns,
-                        root_annotation_columns,
-                        options,
-                        &self.state,
-                        None,
-                    )
-                    .map_err(kernel_error)
-                }
-            })
-        });
-        let (edges, stats) = self.finish_result(result)?;
-        Ok((edges, stats, retained_role_use))
     }
 
     fn prepare_batches_owned(
@@ -793,11 +776,13 @@ impl EncodedDirectCompiler {
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
             root_annotation_buffers,
             state: AtomicU8::new(STATE_IDLE),
+            coarse_output_chunks: AtomicUsize::new(0),
+            coarse_peak_buffered_edges: AtomicUsize::new(0),
             batch_output: Mutex::new(DirectBatchOutput::default()),
         })
     }
 
-    /// Compile the complete supported view into one caller-bounded coarse batch.
+    /// Compile one materialized Python list through bounded native chunks.
     #[pyo3(signature = (
         bidirectional,
         max_edges,
@@ -834,21 +819,113 @@ impl EncodedDirectCompiler {
             max_iri_bytes,
         };
         let retained_role_state = role_state.map(|value| Arc::clone(&value.retained));
-        self.compile_owned(py, options, retained_role_state)
-            .and_then(|(edges, stats, retained_role_use)| {
-                let mut output = Vec::new();
-                output.try_reserve_exact(edges.len()).map_err(|_| {
-                    PyMemoryError::new_err("encoded native tuple-batch allocation failed")
+        self.begin()?;
+        let slices: [&[u8]; BUFFER_COUNT] =
+            std::array::from_fn(|index| self.buffers[index].as_slice());
+        let columns = DirectColumns::from_ordered(slices);
+        let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            DirectColumns::from_ordered(slices)
+        });
+        let retained_role_use = match retained_role_state.as_ref() {
+            Some(retained) => match retained.claim() {
+                Ok(role_use) => Some(role_use),
+                Err(error) => return self.finish_result(Err(error)),
+            },
+            None => None,
+        };
+        let result = guarded(|| {
+            let mut stream = py.detach(|| {
+                if let Some(retained) = retained_role_state.as_ref() {
+                    retained.prepare_batches_uncommitted_claimed(
+                        columns,
+                        root_annotation_columns,
+                        options,
+                        &self.state,
+                    )
+                } else {
+                    prepare_direct_batches_uncommitted(
+                        columns,
+                        root_annotation_columns,
+                        options,
+                        &self.state,
+                        None,
+                    )
+                    .map_err(kernel_error)
+                }
+            })?;
+            let statistics = stream.statistics();
+            let output = PyList::empty(py);
+            let mut output_chunks = 0_usize;
+            let mut peak_buffered_edges = 0_usize;
+            while stream.remaining_edges() != 0 {
+                let (edges, cursor) = py
+                    .detach(|| {
+                        stream.prepare_next_batch(columns, &self.state, COARSE_OUTPUT_CHUNK_EDGES)
+                    })
+                    .map_err(kernel_error)?;
+                let amount = edges.len();
+                for edge in edges {
+                    output.append((edge.source, edge.relation, edge.destination))?;
+                }
+                // The Python list is still local. Commit cursor movement only
+                // after the complete native chunk was appended successfully.
+                stream.commit_cursor(cursor);
+                output_chunks = output_chunks.checked_add(1).ok_or_else(|| {
+                    PyMemoryError::new_err("encoded coarse chunk counter overflow")
                 })?;
-                output.extend(
-                    edges
-                        .into_iter()
-                        .map(|edge| (edge.source, edge.relation, edge.destination)),
-                );
-                let statistics = direct_statistics_tuple(py, stats)?;
-                drop(retained_role_use);
-                Ok((output, statistics))
-            })
+                peak_buffered_edges = peak_buffered_edges.max(amount);
+            }
+            let statistics = direct_statistics_tuple(py, statistics)?;
+            let next_role_state =
+                if retained_role_state.is_some() && !options.asserted_taxonomy_only {
+                    Some(stream.try_clone_role_state().map_err(kernel_error)?)
+                } else {
+                    None
+                };
+            Ok((
+                output.unbind(),
+                statistics,
+                next_role_state,
+                output_chunks,
+                peak_buffered_edges,
+            ))
+        });
+        let (output, statistics, next_role_state, output_chunks, peak_buffered_edges) = match result
+        {
+            Ok(result) => result,
+            Err(error) => return self.finish_result(Err(error)),
+        };
+
+        // All fallible output construction and retained-state cloning is now
+        // complete. Holding the role mutex across the state transition makes
+        // the retained commit indivisible from a successful coarse call.
+        if let Some(next_role_state) = next_role_state {
+            let Some(retained) = retained_role_state.as_ref() else {
+                return self.finish_result(Err(PyRuntimeError::new_err(
+                    "encoded coarse role-state transaction lost its owner",
+                )));
+            };
+            let mut roles = match retained.roles.lock() {
+                Ok(roles) => roles,
+                Err(_) => {
+                    return self.finish_result(Err(PyRuntimeError::new_err(
+                        "encoded direct role state is permanently failed",
+                    )));
+                }
+            };
+            self.finish_result(Ok(()))?;
+            *roles = next_role_state;
+        } else {
+            self.finish_result(Ok(()))?;
+        }
+        self.coarse_output_chunks
+            .store(output_chunks, Ordering::Release);
+        self.coarse_peak_buffered_edges
+            .store(peak_buffered_edges, Ordering::Release);
+        drop(retained_role_use);
+        Ok((output, statistics))
     }
 
     /// Compile atomically, then retain a resumable cursor for bounded drains.
@@ -1069,6 +1146,26 @@ impl EncodedDirectCompiler {
             .map_err(|_| {
                 PyRuntimeError::new_err("encoded direct batch output is permanently failed")
             })
+    }
+
+    #[getter]
+    fn coarse_chunk_edges(&self) -> usize {
+        COARSE_OUTPUT_CHUNK_EDGES
+    }
+
+    #[getter]
+    fn coarse_output_chunks(&self) -> usize {
+        self.coarse_output_chunks.load(Ordering::Acquire)
+    }
+
+    #[getter]
+    fn coarse_output_vector_edges(&self) -> usize {
+        0
+    }
+
+    #[getter]
+    fn peak_buffered_coarse_edges(&self) -> usize {
+        self.coarse_peak_buffered_edges.load(Ordering::Acquire)
     }
 
     /// Cancel idle or detached work.  A racing successful result is discarded.

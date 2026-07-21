@@ -377,13 +377,6 @@ struct AnnotationEdgeCounts {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct EquivalentEmitOptions {
-    bidirectional: bool,
-    only_taxonomy: bool,
-    maximum_iri: usize,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct DirectCompileOptions {
     pub(crate) bidirectional: bool,
     pub(crate) asserted_taxonomy_only: bool,
@@ -4124,63 +4117,6 @@ impl<'a> DirectColumns<'a> {
         Ok(next)
     }
 
-    fn push_equivalent_projection(
-        self,
-        edges: &mut Vec<DirectEdge>,
-        projection: EquivalentProjection<'a>,
-        role_state: &RoleState<'a>,
-        options: EquivalentEmitOptions,
-        state: &AtomicU8,
-    ) -> Result<(), KernelError> {
-        match projection {
-            EquivalentProjection::Pair {
-                source,
-                destination,
-            } => push_taxonomy_edges(edges, source, destination, options.bidirectional),
-            EquivalentProjection::Aggregate {
-                source,
-                expression_id,
-            } => {
-                let mut previous: Option<(&str, usize)> = None;
-                while let Some((destination, node_id)) = self.next_named_aggregate_operand(
-                    expression_id,
-                    previous,
-                    options.maximum_iri,
-                    state,
-                )? {
-                    push_taxonomy_edges(edges, source, destination, options.bidirectional)?;
-                    previous = Some((destination, node_id));
-                }
-                if options.only_taxonomy {
-                    return Ok(());
-                }
-                let (item_start, length) = self.aggregate_operand_range(expression_id)?;
-                for tag in [
-                    TAG_OBJECT_SOME_VALUES_FROM,
-                    TAG_OBJECT_ALL_VALUES_FROM,
-                    TAG_OBJECT_MIN_CARDINALITY,
-                    TAG_OBJECT_MAX_CARDINALITY,
-                ] {
-                    for item_index in item_start..item_start + length {
-                        check_cancel(state, item_index)?;
-                        let operand_id = self.item_node(item_index)?;
-                        if self.node_tag(operand_id)? != tag {
-                            continue;
-                        }
-                        let Some((relation, destination)) =
-                            self.restriction_projection(operand_id, options.maximum_iri)?
-                        else {
-                            continue;
-                        };
-                        push_role_edges(edges, role_state, source, relation, destination)?;
-                    }
-                }
-                Ok(())
-            }
-            EquivalentProjection::Ignored => Ok(()),
-        }
-    }
-
     fn restriction_role_edge_count(
         self,
         role_state: &RoleState<'a>,
@@ -4561,7 +4497,9 @@ impl DirectEmissionCursor {
                             source,
                             relation,
                             destination,
-                        } if !preparation.options.only_taxonomy => {
+                        } if !preparation.options.asserted_taxonomy_only
+                            && !preparation.options.only_taxonomy =>
+                        {
                             self.set_role(source, relation, destination)?;
                         }
                         SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {}
@@ -4893,6 +4831,10 @@ impl PreparedDirectBatches {
             .saturating_sub(self.cursor.emitted)
     }
 
+    pub(crate) fn try_clone_role_state(&self) -> Result<OwnedRoleState, KernelError> {
+        self.preparation.role_state.try_clone()
+    }
+
     #[cfg(test)]
     pub(crate) fn is_exhausted(&self) -> bool {
         self.remaining_edges() == 0
@@ -4948,8 +4890,7 @@ fn prepare_direct(
     options: DirectCompileOptions,
     state: &AtomicU8,
     retained: Option<&OwnedRoleState>,
-    materialize_output: bool,
-) -> Result<(DirectPreparation, Option<Vec<DirectEdge>>), KernelError> {
+) -> Result<DirectPreparation, KernelError> {
     let DirectCompileOptions {
         bidirectional,
         asserted_taxonomy_only,
@@ -5094,188 +5035,6 @@ fn prepare_direct(
         )));
     }
 
-    // The legacy coarse call still materializes one vector. The streaming
-    // preparation skips this branch and validates the same emission through
-    // its resumable one-edge cursor below.
-    let edges = if materialize_output {
-        let mut edges = Vec::new();
-        edges
-            .try_reserve_exact(projected)
-            .map_err(|_| KernelError::resource("encoded direct output allocation failed"))?;
-        for index in 0..columns.root_count() {
-            check_cancel(state, index)?;
-            let node_id = columns.root_id(index)?;
-            if columns.node_tag(node_id)? != TAG_SUB_CLASS_OF {
-                continue;
-            }
-            match columns.subclass_projection(node_id, max_iri_bytes)? {
-                SubclassProjection::Taxonomy {
-                    source,
-                    destination,
-                } => {
-                    edges.push(DirectEdge {
-                        source: clone_text(source)?,
-                        relation: clone_text(SUBCLASS_OF)?,
-                        destination: clone_text(destination)?,
-                    });
-                    if bidirectional {
-                        edges.push(DirectEdge {
-                            source: clone_text(destination)?,
-                            relation: clone_text(SUPERCLASS_OF)?,
-                            destination: clone_text(source)?,
-                        });
-                    }
-                }
-                SubclassProjection::Restriction {
-                    source,
-                    relation,
-                    destination,
-                } if !asserted_taxonomy_only && !only_taxonomy => {
-                    push_role_edges(&mut edges, &role_state, source, relation, destination)?;
-                }
-                SubclassProjection::Restriction { .. } => {}
-                SubclassProjection::Ignored => {}
-            }
-        }
-
-        // The reference compiler emits the class-axiom categories explicitly:
-        // asserted subclasses, equivalents, selected annotations, then ABox class
-        // assertions. Separate bounded scans preserve that order even for
-        // hostile-but-monotone root IDs.
-        if !asserted_taxonomy_only {
-            for index in 0..columns.root_count() {
-                check_cancel(state, index)?;
-                let node_id = columns.root_id(index)?;
-                if columns.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
-                    continue;
-                }
-                let projection = columns.equivalent_projection(node_id, max_iri_bytes)?;
-                columns.push_equivalent_projection(
-                    &mut edges,
-                    projection,
-                    &role_state,
-                    EquivalentEmitOptions {
-                        bidirectional,
-                        only_taxonomy,
-                        maximum_iri: max_iri_bytes,
-                    },
-                    state,
-                )?;
-            }
-
-            if include_literals {
-                if let Some(selected) = selected_annotation_nodes.as_deref() {
-                    for (index, node_id) in selected.iter().copied().enumerate() {
-                        check_cancel(state, index)?;
-                        if let Some(projection) =
-                            columns.annotation_projection(node_id, max_iri_bytes, state)?
-                        {
-                            push_annotation_edge(&mut edges, projection, &anonymous_ids)?;
-                        }
-                    }
-                } else {
-                    for index in 0..columns.root_count() {
-                        check_cancel(state, index)?;
-                        let node_id = columns.root_id(index)?;
-                        if columns.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
-                            continue;
-                        }
-                        if let Some(projection) =
-                            columns.annotation_projection(node_id, max_iri_bytes, state)?
-                        {
-                            push_annotation_edge(&mut edges, projection, &anonymous_ids)?;
-                        }
-                    }
-                }
-            }
-
-            for index in 0..columns.root_count() {
-                check_cancel(state, index)?;
-                let node_id = columns.root_id(index)?;
-                if columns.node_tag(node_id)? != TAG_CLASS_ASSERTION {
-                    continue;
-                }
-                if let ClassAssertionProjection::Edge { individual, class } =
-                    columns.class_assertion_projection(node_id, max_iri_bytes)?
-                {
-                    edges.push(DirectEdge {
-                        source: clone_text(individual)?,
-                        relation: clone_text(RDF_TYPE)?,
-                        destination: clone_text(class)?,
-                    });
-                }
-            }
-
-            for index in 0..columns.root_count() {
-                check_cancel(state, index)?;
-                let node_id = columns.root_id(index)?;
-                if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_ASSERTION {
-                    continue;
-                }
-                let (source, relation, destination) =
-                    columns.object_property_assertion_parts(node_id, max_iri_bytes)?;
-                edges.push(DirectEdge {
-                    source: render_individual(source, &anonymous_ids)?,
-                    relation: clone_text(relation)?,
-                    destination: render_individual(destination, &anonymous_ids)?,
-                });
-            }
-
-            let mut previous_property: Option<&str> = None;
-            while let Some(property) =
-                columns.next_paired_property(previous_property, max_iri_bytes, state)?
-            {
-                for domain_index in 0..columns.root_count() {
-                    check_cancel(state, domain_index)?;
-                    let domain_id = columns.root_id(domain_index)?;
-                    if columns.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
-                        continue;
-                    }
-                    let Some((domain_property, domain)) = columns
-                        .object_property_class_projection(
-                            domain_id,
-                            TAG_OBJECT_PROPERTY_DOMAIN,
-                            max_iri_bytes,
-                        )?
-                    else {
-                        continue;
-                    };
-                    if domain_property != property {
-                        continue;
-                    }
-                    for range_index in 0..columns.root_count() {
-                        check_cancel(state, range_index)?;
-                        let range_id = columns.root_id(range_index)?;
-                        if columns.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
-                            continue;
-                        }
-                        let Some((range_property, range)) = columns
-                            .object_property_class_projection(
-                                range_id,
-                                TAG_OBJECT_PROPERTY_RANGE,
-                                max_iri_bytes,
-                            )?
-                        else {
-                            continue;
-                        };
-                        if range_property == property {
-                            push_role_edges(&mut edges, &role_state, domain, property, range)?;
-                        }
-                    }
-                }
-                previous_property = Some(property);
-            }
-        }
-        check_cancel(state, columns.root_count())?;
-        if edges.len() != projected {
-            return Err(KernelError::malformed(
-                "encoded direct output count changed after successful preflight",
-            ));
-        }
-        Some(edges)
-    } else {
-        None
-    };
     let stats = DirectCompileStats {
         roots: columns.root_count(),
         nodes: columns.node_count(),
@@ -5347,33 +5106,24 @@ fn prepare_direct(
         #[cfg(test)]
         emission_attempts: AtomicUsize::new(0),
     };
-    Ok((preparation, edges))
+    Ok(preparation)
 }
 
-pub(crate) fn compile_direct_with_retained_role_state(
+pub(crate) fn prepare_direct_batches_uncommitted(
     columns: DirectColumns<'_>,
     root_annotation_columns: Option<DirectColumns<'_>>,
     options: DirectCompileOptions,
     state: &AtomicU8,
-    retained: Option<&mut OwnedRoleState>,
-) -> Result<(Vec<DirectEdge>, DirectCompileStats), KernelError> {
-    let (preparation, edges) = prepare_direct(
-        columns,
-        root_annotation_columns,
-        options,
-        state,
-        retained.as_deref(),
-        true,
-    )?;
-    let edges = edges.ok_or_else(|| {
-        KernelError::malformed("encoded coarse output was not materialized after preflight")
-    })?;
-    if !options.asserted_taxonomy_only {
-        if let Some(retained) = retained {
-            *retained = preparation.role_state.try_clone()?;
-        }
-    }
-    Ok((edges, preparation.statistics))
+    retained: Option<&OwnedRoleState>,
+) -> Result<PreparedDirectBatches, KernelError> {
+    let preparation = prepare_direct(columns, root_annotation_columns, options, state, retained)?;
+    // Every column read reachable from the cursor has already passed the
+    // immutable structural, semantic, count, and capacity preflight above.
+    // Output remains absent until the caller requests a bounded drain.
+    Ok(PreparedDirectBatches {
+        preparation,
+        cursor: DirectEmissionCursor::default(),
+    })
 }
 
 pub(crate) fn prepare_direct_batches_with_retained_role_state(
@@ -5383,32 +5133,53 @@ pub(crate) fn prepare_direct_batches_with_retained_role_state(
     state: &AtomicU8,
     retained: Option<&mut OwnedRoleState>,
 ) -> Result<PreparedDirectBatches, KernelError> {
-    let (preparation, edges) = prepare_direct(
+    let prepared = prepare_direct_batches_uncommitted(
         columns,
         root_annotation_columns,
         options,
         state,
         retained.as_deref(),
-        false,
     )?;
-    if edges.is_some() {
-        return Err(KernelError::malformed(
-            "encoded streaming preparation materialized coarse output",
-        ));
-    }
-    // Every column read reachable from the cursor has already passed the
-    // immutable structural, semantic, count, and capacity preflight above.
-    // Replaying full emission here added ontology-wide work before the first
-    // caller drain without validating any additional input state.
     if !options.asserted_taxonomy_only {
         if let Some(retained) = retained {
-            *retained = preparation.role_state.try_clone()?;
+            *retained = prepared.try_clone_role_state()?;
         }
     }
-    Ok(PreparedDirectBatches {
-        preparation,
-        cursor: DirectEmissionCursor::default(),
-    })
+    Ok(prepared)
+}
+
+#[cfg(test)]
+pub(crate) fn compile_direct_with_retained_role_state(
+    columns: DirectColumns<'_>,
+    root_annotation_columns: Option<DirectColumns<'_>>,
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&mut OwnedRoleState>,
+) -> Result<(Vec<DirectEdge>, DirectCompileStats), KernelError> {
+    let mut prepared = prepare_direct_batches_uncommitted(
+        columns,
+        root_annotation_columns,
+        options,
+        state,
+        retained.as_deref(),
+    )?;
+    let statistics = prepared.statistics();
+    let mut edges = Vec::new();
+    edges
+        .try_reserve_exact(statistics.edges)
+        .map_err(|_| KernelError::resource("encoded test output allocation failed"))?;
+    while prepared.remaining_edges() != 0 {
+        let (batch, cursor) =
+            prepared.prepare_next_batch(columns, state, prepared.remaining_edges())?;
+        edges.extend(batch);
+        prepared.commit_cursor(cursor);
+    }
+    if !options.asserted_taxonomy_only {
+        if let Some(retained) = retained {
+            *retained = prepared.try_clone_role_state()?;
+        }
+    }
+    Ok((edges, statistics))
 }
 
 #[cfg(test)]
@@ -5580,56 +5351,6 @@ fn compare_canonical_varints(left: usize, right: usize) -> std::cmp::Ordering {
     left_bytes[..left_length].cmp(&right_bytes[..right_length])
 }
 
-fn push_role_edges(
-    edges: &mut Vec<DirectEdge>,
-    role_state: &RoleState<'_>,
-    source: &str,
-    relation: &str,
-    destination: &str,
-) -> Result<(), KernelError> {
-    edges.push(DirectEdge {
-        source: clone_text(source)?,
-        relation: clone_text(relation)?,
-        destination: clone_text(destination)?,
-    });
-    for subrole in role_state.subroles_for(relation) {
-        edges.push(DirectEdge {
-            source: clone_text(source)?,
-            relation: clone_text(subrole.as_ref())?,
-            destination: clone_text(destination)?,
-        });
-    }
-    if let Some(inverse) = role_state.inverse_for(relation) {
-        edges.push(DirectEdge {
-            source: clone_text(destination)?,
-            relation: clone_text(inverse)?,
-            destination: clone_text(source)?,
-        });
-    }
-    Ok(())
-}
-
-fn push_taxonomy_edges(
-    edges: &mut Vec<DirectEdge>,
-    source: &str,
-    destination: &str,
-    bidirectional: bool,
-) -> Result<(), KernelError> {
-    edges.push(DirectEdge {
-        source: clone_text(source)?,
-        relation: clone_text(SUBCLASS_OF)?,
-        destination: clone_text(destination)?,
-    });
-    if bidirectional {
-        edges.push(DirectEdge {
-            source: clone_text(destination)?,
-            relation: clone_text(SUPERCLASS_OF)?,
-            destination: clone_text(source)?,
-        });
-    }
-    Ok(())
-}
-
 fn clone_text(value: &str) -> Result<String, KernelError> {
     let mut output = String::new();
     output
@@ -5696,15 +5417,6 @@ fn render_typed_annotation_literal(lexical: &str, datatype: &str) -> Result<Stri
         output.push_str(datatype);
     }
     Ok(output)
-}
-
-fn push_annotation_edge(
-    edges: &mut Vec<DirectEdge>,
-    projection: AnnotationProjection<'_>,
-    anonymous_ids: &AnonymousIds,
-) -> Result<(), KernelError> {
-    edges.push(annotation_edge(projection, anonymous_ids)?);
-    Ok(())
 }
 
 fn annotation_edge(
@@ -7256,6 +6968,46 @@ mod tests {
         assert_eq!(prepared.remaining_edges(), 0);
         assert_eq!(prepared.emission_attempts(), expected.len() + preview.len());
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn uncommitted_cursor_defers_retained_roles_until_complete_drain() {
+        let fixture = named_role_axiom_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 6,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut retained = OwnedRoleState::default();
+        let mut prepared = prepare_direct_batches_uncommitted(
+            fixture.columns(),
+            None,
+            options,
+            &state,
+            Some(&retained),
+        )
+        .unwrap();
+        assert_eq!(retained.subrole_count(), 0);
+        assert_eq!(retained.inverse_count(), 0);
+
+        while !prepared.is_exhausted() {
+            let (batch, cursor) = prepared
+                .prepare_next_batch(fixture.columns(), &state, 2)
+                .unwrap();
+            assert!(!batch.is_empty());
+            assert!(batch.len() <= 2);
+            prepared.commit_cursor(cursor);
+            assert_eq!(retained.subrole_count(), 0);
+            assert_eq!(retained.inverse_count(), 0);
+        }
+
+        retained = prepared.try_clone_role_state().unwrap();
+        assert_eq!(retained.subrole_count(), 1);
+        assert_eq!(retained.inverse_count(), 2);
     }
 
     #[test]
