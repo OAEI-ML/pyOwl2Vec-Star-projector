@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `d0c9036`. pyOWLCore candidate revision:
+Date: 2026-07-21. Projector implementation through `9843ce2`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -20,7 +20,8 @@ An explicitly private candidate, `Projector._iter_native_encoded_edges(...)`, no
 production-adjacent iterator integration without changing that ledger. It privately requests the
 unadvertised structural-columns candidate and selects Rust only for isolated direct views whose
 roots are declarations; direct named or supported named-filler Some/All/Min/Max restriction
-`SubClassOf`; selected named `EquivalentClasses`; named `ClassAssertion`; and
+`SubClassOf`, plus structurally validated nonprojecting `SubClassOf`; selected named
+`EquivalentClasses`; named or structurally validated nonprojecting `ClassAssertion`; and
 named-property `ObjectPropertyAssertion` axioms over named or anonymous individuals; plus a
 complete named object-property domain/range cross-product. Direct named/inverse
 `SubObjectPropertyOf` and
@@ -30,8 +31,9 @@ count participates in the exact raw-edge proof. Validated class `AnnotationAsser
 silent when `include_literals=False`; when
 enabled, every annotation root must have produced exactly one native edge or the whole call falls
 back. Selected anonymous annotation values and anonymous assertion operands use the kernel's exact
-axiom-derived blank-ID order, including anonymous axiom metadata; ignored anonymous class
-assertions remain on the scalar fallback path. The native non-string rendering count produces the
+axiom-derived blank-ID order, including anonymous axiom metadata. Native ignored-subclass and
+ignored-class-assertion partitions are admitted with exact constructor-grouped diagnostics and
+counts. The native non-string rendering count produces the
 exact grouped warning diagnostic. Ontology annotations and SWRL rules are admitted as validated
 silent roots. Every supported scalar-skipped family is admitted only when the exact sum of its 27
 per-constructor native counters equals the native skipped total; the adapter synthesizes the same
@@ -206,11 +208,12 @@ semantic slice across the actual PyO3 boundary without changing the production c
   named-filler restriction, equivalence, class-assertion, and direct object-property-assertion
   subset plus direct named/inverse role maps and one complete named domain/range product, closes a
   declined session before scalar fallback, routes accepted batches through the existing streaming
-  policy, admits anonymous positive-assertion operands and fully selected anonymous annotation
-  values/metadata, ignored property chains, silent ontology annotations and SWRL rules, and all 27
-  exactly counted scalar-skipped axiom constructors; synthesizes exact `only_taxonomy`
-  ignored-restriction, non-string-rendering, and grouped skipped-axiom diagnostics; and publishes
-  exact batch/copy/materialization provenance after complete
+  policy, admits anonymous positive-assertion operands, nonprojecting subclass/class-assertion
+  shapes, fully selected anonymous annotation values/metadata, ignored property chains, silent
+  ontology annotations and SWRL rules, and all 27
+  exactly counted scalar-skipped axiom constructors; synthesizes exact grouped ignored-shape,
+  non-string-rendering, and skipped-axiom diagnostics; and publishes exact
+  batch/copy/materialization provenance after complete
   consumption. Public
   `compatibility_state="scala-instance"` still selects the scalar lifecycle before native setup.
 
@@ -331,15 +334,15 @@ no-copy Rust input proven here.
 ## Verification at this checkpoint
 
 The following source-tree checks passed for the implementation sequence `39a5656` through
-`d0c9036`:
+`9843ce2`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 30 passed |
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 215 passed |
-| Focused native/dispatch/streaming/API/integration/contract tests | 316 passed |
-| Complete projector test suite | 1,081 passed |
+| Focused native/dispatch/streaming/API/integration/contract tests | 318 passed |
+| Complete projector test suite | 1,083 passed |
 | Focused Python Ruff and mypy checks | passed |
 
 The focused tests cover Python-oracle parity for named class, role, and object-assertion edges;
@@ -465,9 +468,11 @@ IRI/plain/language/typed class annotations, annotated duplicate preservation, ma
 rendering and grouped warning parity, combined warning/ignored-diagnostic order, option-dependent
 silent validation versus fallback for unselected annotation properties, exact anonymous positive
 assertion and selected-annotation value IDs including metadata-only blank-ID participation across
-encounter/canonical/include/suppress options, retained fallback for ignored anonymous class
-assertions, exact grouped skip diagnostics across all 27 supported scalar-skipped constructors,
-silent ontology-annotation and SWRL admission, and resource failure without a partial report.
+encounter/canonical/include/suppress options, exact ignored subclass and class-assertion partitions,
+constructor-grouped diagnostics, and raw-edge accounting across normal, bidirectional/canonical,
+and historical `only_taxonomy` options, exact grouped skip diagnostics across all 27 supported
+scalar-skipped constructors, silent ontology-annotation and SWRL admission, and resource failure
+without a partial report.
 
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
@@ -477,7 +482,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; one hidden isolated named-edge adapter records call history/provenance for direct taxonomy and supported restrictions, selected named equivalence, named class assertions, named/anonymous positive object-property assertions, selected named-class annotations with IRI/literal/anonymous values, same-call named/inverse role maps, a complete named domain/range product, ignored property chains, silent ontology annotations and SWRL rules, and every exactly counted supported scalar-skip family, including exact axiom-derived blank IDs, historical `only_taxonomy` restriction diagnostics, non-string-rendering warnings, and grouped skipped-axiom diagnostics, while public Scala-instance lifecycle binding and remaining option/surface integration are unsupported |
+| Complete Rust projection rules/options | Open; Rust implements only the direct ABox/taxonomy/restriction slice with fully recursive structural class-expression and data-range validation across selected projecting, ignored, skipped, and silent consumers, selected IRI/literal/anonymous class annotations, ontology annotations, annotation-property axioms, metadata on supported axioms, exact axiom-derived anonymous identifiers, named/inverse-property plus named-filler object-restriction emission, named/named projecting or inverse/complex ignored object domains/ranges, exact annotated role-axiom hashes, same-operation named/inverse role expansion, private ordered retained role-map reuse across supported direct views, capacity-exact ignored property chains, structurally validated silent SWRL extensions, and validated disjoint/key/individual-identity/object/data-property families; one hidden isolated named-edge adapter records call history/provenance for direct taxonomy and supported restrictions, nonprojecting subclasses and class assertions, selected named equivalence, named/anonymous positive object-property assertions, selected named-class annotations with IRI/literal/anonymous values, same-call named/inverse role maps, a complete named domain/range product, ignored property chains, silent ontology annotations and SWRL rules, and every exactly counted supported scalar-skip family, including exact axiom-derived blank IDs, exact ignored-shape partitions and grouped diagnostics, non-string-rendering warnings, and grouped skipped-axiom diagnostics, while public Scala-instance lifecycle binding and remaining option/surface integration are unsupported |
 | Bounded batches without per-row FFI | Private iterator/callable-sink drains are caller-bounded and use one FFI call per batch with exact order/counters; one hidden named-edge iterator now consumes those batches through P4 policy, but Rust still materializes the full output vector and public iterator/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes direct views only; mmap and segmented families are unsupported |
