@@ -4736,6 +4736,12 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
     gc.collect()
     assert owner_ref() is None
 
+    collected_batches, collected_owner_ref = create_batches()
+    assert len(next(collected_batches)) == 2
+    del collected_batches
+    gc.collect()
+    assert collected_owner_ref() is None
+
 
 def test_retained_role_state_matches_ordered_scala_instance_calls_across_views() -> None:
     role_view = _snapshot(
