@@ -31,7 +31,7 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PyTuple};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 26;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 27;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
@@ -934,6 +934,8 @@ fn direct_statistics_tuple(py: Python<'_>, stats: DirectCompileStats) -> PyResul
             stats.ignored_subclasses,
             stats.equivalents,
             stats.aggregate_equivalents,
+            stats.equivalent_base_edges,
+            stats.ignored_equivalents,
             stats.disjoint_classes,
             stats.disjoint_unions,
             stats.has_keys,

@@ -235,6 +235,72 @@ def test_hidden_iterator_admits_exact_named_tbox_and_abox_edges(
 @pytest.mark.parametrize(
     ("python_options", "raw_edges", "ignored_shapes"),
     [
+        (ProjectionOptions(backend="python", order="encounter"), 5, 2),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="canonical",
+                duplicates="unique",
+                bidirectional_taxonomy=True,
+            ),
+            7,
+            2,
+        ),
+        (
+            ProjectionOptions(
+                backend="python",
+                order="encounter",
+                only_taxonomy=True,
+            ),
+            2,
+            1,
+        ),
+    ],
+)
+def test_hidden_iterator_admits_exact_aggregate_and_ignored_equivalences(
+    python_options: ProjectionOptions,
+    raw_edges: int,
+    ignored_shapes: int,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "EquivalentClasses(:PairA :PairB) "
+        "EquivalentClasses(:A ObjectIntersectionOf("
+        ":B ObjectSomeValuesFrom(:p :C) ObjectHasSelf(:q))) "
+        "EquivalentClasses(:Ignored ObjectSomeValuesFrom(:r :Y))"
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    native_projector = Projector()
+    actual = list(
+        native_projector._iter_native_encoded_edges(
+            view,
+            options=replace(python_options, backend="native"),
+            buffer_edges=2,
+        )
+    )
+    actual_report = _completed_report(native_projector)
+
+    assert actual == expected
+    assert len(actual) == raw_edges
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert actual_report.provenance.counts.ignored_shapes == ignored_shapes
+    assert tuple(
+        (item.code, item.constructor, item.count) for item in actual_report.diagnostics
+    ) == (("MOWL_IGNORED_SHAPE", "EquivalentClasses", ignored_shapes),)
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
+    assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
+    assert ingestion.counters["native_output_vector_edges"] == raw_edges
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+
+
+@pytest.mark.parametrize(
+    ("python_options", "raw_edges", "ignored_shapes"),
+    [
         (
             ProjectionOptions(backend="python", order="encounter"),
             9,
@@ -1009,14 +1075,10 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
 @pytest.mark.parametrize(
     "body",
     [
-        "Declaration(Class(:A)) Declaration(Class(:B)) "
-        "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B)) "
-        "ClassAssertion(:A :individual)",
         "ObjectPropertyDomain(:p ObjectUnionOf(:A :B)) ObjectPropertyRange(:p :R)",
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:q :R)",
     ],
     ids=[
-        "ignored-equivalence",
         "ignored-domain",
         "incomplete-domain-range-product",
     ],

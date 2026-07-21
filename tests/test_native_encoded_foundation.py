@@ -401,6 +401,8 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert statistics.ignored_subclasses == 0
     assert statistics.equivalents == 0
     assert statistics.aggregate_equivalents == 0
+    assert statistics.equivalent_base_edges == 0
+    assert statistics.ignored_equivalents == 0
     assert statistics.disjoint_classes == 0
     assert statistics.disjoint_unions == 0
     assert statistics.has_keys == 0
@@ -574,6 +576,10 @@ def test_named_aggregate_equivalents_match_operand_order_roles_and_duplicates(
     assert statistics.roots == 6
     assert statistics.equivalents == 4
     assert statistics.aggregate_equivalents == 3
+    assert statistics.equivalent_base_edges == (
+        7 if only_taxonomy else 20 if bidirectional else 13
+    )
+    assert statistics.ignored_equivalents == 0
     assert statistics.role_expansion_edges == (0 if only_taxonomy else 12)
     assert statistics.edges == len(expected)
     assert len(actual) == (7 if only_taxonomy else 32 if bidirectional else 25)

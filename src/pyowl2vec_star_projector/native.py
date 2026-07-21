@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 26
+ENCODED_DIRECT_KERNEL_VERSION = 27
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -76,6 +76,8 @@ class NativeEncodedDirectStatistics:
     ignored_subclasses: int
     equivalents: int
     aggregate_equivalents: int
+    equivalent_base_edges: int
+    ignored_equivalents: int
     disjoint_classes: int
     disjoint_unions: int
     has_keys: int
@@ -133,6 +135,8 @@ class NativeEncodedDirectStatistics:
             self.ignored_subclasses,
             self.equivalents,
             self.aggregate_equivalents,
+            self.equivalent_base_edges,
+            self.ignored_equivalents,
             self.disjoint_classes,
             self.disjoint_unions,
             self.has_keys,
@@ -266,6 +270,7 @@ def _native_ignored_counts(
             ),
         ),
         ("ClassAssertion", statistics.ignored_class_assertions),
+        ("EquivalentClasses", statistics.ignored_equivalents),
         (
             "SubClassOf",
             statistics.ignored_subclasses
@@ -365,7 +370,7 @@ class NativeEncodedDirectCompiler:
             ),
         )
 
-        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 54:
+        if type(raw_edges) is not list or type(raw_stats) is not tuple or len(raw_stats) != 56:
             raise ProjectionError("native encoded compiler returned an invalid batch envelope")
         try:
             statistics = NativeEncodedDirectStatistics(*raw_stats)
@@ -433,7 +438,7 @@ class NativeEncodedDirectCompiler:
             ),
         )
         try:
-            if type(raw_stats) is not tuple or len(raw_stats) != 54:
+            if type(raw_stats) is not tuple or len(raw_stats) != 56:
                 raise ProjectionError(
                     "native encoded compiler returned an invalid streaming envelope"
                 )
@@ -793,7 +798,7 @@ def prepare_native_encoded_compilation(
             native_statistics.restriction_subclasses
             + native_statistics.ignored_subclasses
         )
-        taxonomy_edges = (direct_subclasses + native_statistics.equivalents) * (
+        taxonomy_edges = direct_subclasses * (
             2 if options.bidirectional_taxonomy else 1
         )
         restriction_edges = (
@@ -816,6 +821,7 @@ def prepare_native_encoded_compilation(
         expected_edges = (
             taxonomy_edges
             + restriction_edges
+            + native_statistics.equivalent_base_edges
             + (
                 native_statistics.class_assertions
                 - native_statistics.ignored_class_assertions
@@ -846,7 +852,10 @@ def prepare_native_encoded_compilation(
             and native_statistics.restriction_subclasses
             + native_statistics.ignored_subclasses
             <= native_statistics.subclasses
-            and native_statistics.aggregate_equivalents == 0
+            and native_statistics.aggregate_equivalents
+            <= native_statistics.equivalents
+            and native_statistics.equivalent_base_edges
+            <= native_statistics.edges
             and native_statistics.ignored_class_assertions
             <= native_statistics.class_assertions
             and native_statistics.object_property_chains

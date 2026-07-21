@@ -231,6 +231,8 @@ pub(crate) struct DirectCompileStats {
     pub(crate) ignored_subclasses: usize,
     pub(crate) equivalents: usize,
     pub(crate) aggregate_equivalents: usize,
+    pub(crate) equivalent_base_edges: usize,
+    pub(crate) ignored_equivalents: usize,
     pub(crate) disjoint_classes: usize,
     pub(crate) disjoint_unions: usize,
     pub(crate) has_keys: usize,
@@ -357,6 +359,7 @@ struct EquivalentEdgeCounts {
     edges: usize,
     base_role_edges: usize,
     expanded_role_edges: usize,
+    ignored_shapes: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -3523,6 +3526,12 @@ impl<'a> DirectColumns<'a> {
                                 let Some((relation, _destination)) =
                                     self.restriction_projection(operand_id, maximum_iri)?
                                 else {
+                                    counts.ignored_shapes =
+                                        counts.ignored_shapes.checked_add(1).ok_or_else(|| {
+                                            KernelError::resource(
+                                                "encoded equivalent ignored-shape count overflow",
+                                            )
+                                        })?;
                                     continue;
                                 };
                                 let expanded = role_state.edge_count(relation)?;
@@ -3548,7 +3557,16 @@ impl<'a> DirectColumns<'a> {
                                     })?;
                             }
                             tag if is_restriction_tag(tag) => {}
-                            tag if is_nonprojecting_class_tag(tag) || is_aggregate_tag(tag) => {}
+                            tag if is_nonprojecting_class_tag(tag) || is_aggregate_tag(tag) => {
+                                if !only_taxonomy {
+                                    counts.ignored_shapes =
+                                        counts.ignored_shapes.checked_add(1).ok_or_else(|| {
+                                            KernelError::resource(
+                                                "encoded equivalent ignored-shape count overflow",
+                                            )
+                                        })?;
+                                }
+                            }
                             _ => {
                                 return Err(KernelError::malformed(
                                     "encoded aggregate operand changed after successful preflight",
@@ -3557,7 +3575,12 @@ impl<'a> DirectColumns<'a> {
                         }
                     }
                 }
-                EquivalentProjection::Ignored => {}
+                EquivalentProjection::Ignored => {
+                    counts.ignored_shapes =
+                        counts.ignored_shapes.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded equivalent ignored-shape count overflow")
+                        })?;
+                }
             }
         }
         Ok(counts)
@@ -3869,6 +3892,18 @@ pub(crate) fn compile_direct_with_retained_role_state(
             state,
         )?
     };
+    let equivalent_role_expansion_edges = equivalent_counts
+        .expanded_role_edges
+        .checked_sub(equivalent_counts.base_role_edges)
+        .ok_or_else(|| {
+            KernelError::malformed("encoded equivalent role-edge counters are inconsistent")
+        })?;
+    let equivalent_base_edges = equivalent_counts
+        .edges
+        .checked_sub(equivalent_role_expansion_edges)
+        .ok_or_else(|| {
+            KernelError::malformed("encoded equivalent edge counters are inconsistent")
+        })?;
     let subclass_restriction_edges = if asserted_taxonomy_only || only_taxonomy {
         0
     } else {
@@ -4114,6 +4149,8 @@ pub(crate) fn compile_direct_with_retained_role_state(
         ignored_subclasses: counts.ignored_subclasses,
         equivalents: counts.equivalents,
         aggregate_equivalents: counts.aggregate_equivalents,
+        equivalent_base_edges,
+        ignored_equivalents: equivalent_counts.ignored_shapes,
         disjoint_classes: counts.disjoint_classes,
         disjoint_unions: counts.disjoint_unions,
         has_keys: counts.has_keys,
@@ -6046,6 +6083,8 @@ mod tests {
         assert_eq!(edges.len(), 10);
         assert_eq!(stats.equivalents, 1);
         assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.equivalent_base_edges, 2);
+        assert_eq!(stats.ignored_equivalents, 0);
         assert_eq!(stats.role_expansion_edges, 6);
         assert_eq!(
             &edges[3..7],
@@ -6085,6 +6124,8 @@ mod tests {
         .unwrap();
         assert_eq!(only_taxonomy.len(), 4);
         assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.equivalent_base_edges, 1);
+        assert_eq!(stats.ignored_equivalents, 0);
         assert_eq!(stats.role_expansion_edges, 2);
 
         let (asserted, stats) = compile_direct(
@@ -6099,6 +6140,8 @@ mod tests {
         .unwrap();
         assert!(asserted.is_empty());
         assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.equivalent_base_edges, 0);
+        assert_eq!(stats.ignored_equivalents, 0);
         assert_eq!(stats.role_expansion_edges, 0);
     }
 
@@ -6246,6 +6289,8 @@ mod tests {
         assert_eq!(stats.ignored_subclasses, 8);
         assert_eq!(stats.equivalents, 2);
         assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.equivalent_base_edges, 1);
+        assert_eq!(stats.ignored_equivalents, 3);
         assert_eq!(stats.class_assertions, 3);
         assert_eq!(stats.ignored_class_assertions, 3);
         assert_eq!(stats.disjoint_classes, 1);
@@ -6269,6 +6314,8 @@ mod tests {
         .unwrap();
         assert!(asserted.is_empty());
         assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.equivalent_base_edges, 0);
+        assert_eq!(stats.ignored_equivalents, 0);
         assert_eq!(stats.ignored_subclasses, 8);
         assert_eq!(stats.ignored_class_assertions, 3);
         assert_eq!(stats.skipped_axioms, 0);
