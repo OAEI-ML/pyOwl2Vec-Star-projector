@@ -845,6 +845,50 @@ impl LocalProjectionMode {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LocalRuleContext {
+    mode: LocalProjectionMode,
+    local_scope_remap_available: bool,
+}
+
+impl LocalRuleContext {
+    fn new(options: DirectCompileOptions, local_scope_remap_available: bool) -> Self {
+        Self {
+            mode: LocalProjectionMode::from_options(options),
+            local_scope_remap_available,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalAnonymousScopePolicy {
+    ExcludedByGrammar,
+    RejectWithoutRemap,
+}
+
+impl LocalAnonymousScopePolicy {
+    fn validate(
+        self,
+        columns: DirectColumns<'_>,
+        context: LocalRuleContext,
+        constructor: &str,
+        state: &AtomicU8,
+    ) -> Result<(), KernelError> {
+        match self {
+            Self::ExcludedByGrammar => Ok(()),
+            Self::RejectWithoutRemap
+                if !context.local_scope_remap_available
+                    && !columns.axiom_anonymous_ids(state)?.node_ids.is_empty() =>
+            {
+                Err(KernelError::unsupported(format!(
+                    "bounded local-overlay ignored {constructor} root requires no anonymous individuals or local scope remap",
+                )))
+            }
+            Self::RejectWithoutRemap => Ok(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ObjectPropertyClassRuleKind {
     Domain,
     Range,
@@ -896,7 +940,7 @@ struct ObjectPropertyClassRule {
     kind: ObjectPropertyClassRuleKind,
     constructor: &'static str,
     retain_ignored_by_mode: [bool; 3],
-    allow_anonymous_without_scope_remap: bool,
+    scope_policy: LocalAnonymousScopePolicy,
 }
 
 const OBJECT_PROPERTY_CLASS_RULES: [ObjectPropertyClassRule; 2] = [
@@ -905,14 +949,14 @@ const OBJECT_PROPERTY_CLASS_RULES: [ObjectPropertyClassRule; 2] = [
         kind: ObjectPropertyClassRuleKind::Domain,
         constructor: "ObjectPropertyDomain",
         retain_ignored_by_mode: [true, true, true],
-        allow_anonymous_without_scope_remap: false,
+        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
     },
     ObjectPropertyClassRule {
         tag: TAG_OBJECT_PROPERTY_RANGE,
         kind: ObjectPropertyClassRuleKind::Range,
         constructor: "ObjectPropertyRange",
         retain_ignored_by_mode: [true, true, true],
-        allow_anonymous_without_scope_remap: false,
+        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
     },
 ];
 
@@ -924,8 +968,7 @@ struct ObjectPropertyClassRulePlan {
 }
 
 impl ObjectPropertyClassRulePlan {
-    fn classify(counts: RootCounts, tag: u16, options: DirectCompileOptions) -> Option<Self> {
-        let mode = LocalProjectionMode::from_options(options);
+    fn classify(counts: RootCounts, tag: u16, context: LocalRuleContext) -> Option<Self> {
         OBJECT_PROPERTY_CLASS_RULES
             .iter()
             .copied()
@@ -933,7 +976,7 @@ impl ObjectPropertyClassRulePlan {
             .map(|rule| Self {
                 rule,
                 ignored: rule.kind.is_ignored(counts),
-                retain_ignored_counter: rule.retain_ignored_by_mode[mode.index()],
+                retain_ignored_counter: rule.retain_ignored_by_mode[context.mode.index()],
             })
     }
 
@@ -941,7 +984,7 @@ impl ObjectPropertyClassRulePlan {
         self,
         columns: DirectColumns<'_>,
         root: usize,
-        local_scope_remap_available: bool,
+        context: LocalRuleContext,
         state: &AtomicU8,
     ) -> Result<(), KernelError> {
         let field_start = columns.exact_fields(root, 3)?;
@@ -958,16 +1001,9 @@ impl ObjectPropertyClassRulePlan {
                 self.rule.constructor,
             )));
         }
-        if !local_scope_remap_available
-            && !self.rule.allow_anonymous_without_scope_remap
-            && !columns.axiom_anonymous_ids(state)?.node_ids.is_empty()
-        {
-            return Err(KernelError::unsupported(format!(
-                "bounded local-overlay ignored {} root requires no anonymous individuals or local scope remap",
-                self.rule.constructor,
-            )));
-        }
-        Ok(())
+        self.rule
+            .scope_policy
+            .validate(columns, context, self.rule.constructor, state)
     }
 
     fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
@@ -1008,6 +1044,146 @@ impl ObjectPropertyClassRulePlan {
                         })?;
                 }
             }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalRoleRuleKind {
+    SimpleSubProperty,
+    PropertyChain,
+    InverseProperties,
+}
+
+impl LocalRoleRuleKind {
+    fn matches_single_root(self, counts: RootCounts) -> bool {
+        match self {
+            Self::SimpleSubProperty => {
+                counts
+                    == (RootCounts {
+                        sub_object_properties: 1,
+                        ..RootCounts::default()
+                    })
+            }
+            Self::PropertyChain => {
+                counts
+                    == (RootCounts {
+                        sub_object_properties: 1,
+                        object_property_chains: 1,
+                        ..RootCounts::default()
+                    })
+            }
+            Self::InverseProperties => {
+                counts
+                    == (RootCounts {
+                        inverse_object_properties: 1,
+                        ..RootCounts::default()
+                    })
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LocalRoleRule {
+    tag: u16,
+    kind: LocalRoleRuleKind,
+    constructor: &'static str,
+    state_neutral: bool,
+    retain_chain_by_mode: [bool; 3],
+    scope_policy: LocalAnonymousScopePolicy,
+}
+
+const LOCAL_ROLE_RULES: [LocalRoleRule; 3] = [
+    LocalRoleRule {
+        tag: TAG_SUB_OBJECT_PROPERTY_OF,
+        kind: LocalRoleRuleKind::SimpleSubProperty,
+        constructor: "SubObjectPropertyOf",
+        state_neutral: false,
+        retain_chain_by_mode: [false, false, false],
+        scope_policy: LocalAnonymousScopePolicy::ExcludedByGrammar,
+    },
+    LocalRoleRule {
+        tag: TAG_SUB_OBJECT_PROPERTY_OF,
+        kind: LocalRoleRuleKind::PropertyChain,
+        constructor: "SubObjectPropertyOf",
+        state_neutral: true,
+        retain_chain_by_mode: [true, true, true],
+        scope_policy: LocalAnonymousScopePolicy::ExcludedByGrammar,
+    },
+    LocalRoleRule {
+        tag: TAG_INVERSE_OBJECT_PROPERTIES,
+        kind: LocalRoleRuleKind::InverseProperties,
+        constructor: "InverseObjectProperties",
+        state_neutral: false,
+        retain_chain_by_mode: [false, false, false],
+        scope_policy: LocalAnonymousScopePolicy::ExcludedByGrammar,
+    },
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LocalRoleRulePlan {
+    rule: LocalRoleRule,
+    retain_chain_counter: bool,
+}
+
+impl LocalRoleRulePlan {
+    fn classify(counts: RootCounts, tag: u16, context: LocalRuleContext) -> Option<Self> {
+        LOCAL_ROLE_RULES
+            .iter()
+            .copied()
+            .find(|rule| rule.tag == tag && rule.kind.matches_single_root(counts))
+            .map(|rule| Self {
+                rule,
+                retain_chain_counter: rule.retain_chain_by_mode[context.mode.index()],
+            })
+    }
+
+    fn validate(
+        self,
+        columns: DirectColumns<'_>,
+        root: usize,
+        context: LocalRuleContext,
+        state: &AtomicU8,
+    ) -> Result<(), KernelError> {
+        let field_start = columns.exact_fields(root, 3)?;
+        let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {} root must be unannotated",
+                self.rule.constructor,
+            )));
+        }
+        self.rule
+            .scope_policy
+            .validate(columns, context, self.rule.constructor, state)?;
+        if !self.rule.state_neutral {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {} root requires retained role-state recomputation before base projection",
+                self.rule.constructor,
+            )));
+        }
+        Ok(())
+    }
+
+    fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
+        if self.rule.kind != LocalRoleRuleKind::PropertyChain {
+            return Err(KernelError::malformed(
+                "encoded local role rule changed after successful preflight",
+            ));
+        }
+        statistics.sub_object_properties = statistics
+            .sub_object_properties
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded sub-object-property count overflow"))?;
+        if self.retain_chain_counter {
+            statistics.object_property_chains = statistics
+                .object_property_chains
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded object-property-chain count overflow")
+                })?;
         }
         Ok(())
     }
@@ -7175,6 +7351,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         ));
     }
     let delta_tag = delta_columns.node_tag(delta_root)?;
+    let local_rule_context = LocalRuleContext::new(options, false);
     let silent_object_property_root = SilentObjectPropertyRoot::classify(delta_counts, delta_tag);
     let silent_annotation_property_root =
         SilentAnnotationPropertyRoot::classify(delta_counts, delta_tag);
@@ -7184,7 +7361,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let silent_ignored_equivalent_root =
         SilentIgnoredEquivalentRoot::classify(delta_counts, delta_tag);
     let object_property_class_rule =
-        ObjectPropertyClassRulePlan::classify(delta_counts, delta_tag, options);
+        ObjectPropertyClassRulePlan::classify(delta_counts, delta_tag, local_rule_context);
+    let local_role_rule = LocalRoleRulePlan::classify(delta_counts, delta_tag, local_rule_context);
     let projection = if delta_tag == TAG_SUB_CLASS_OF
         && (delta_counts
             == (RootCounts {
@@ -7349,7 +7527,10 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         }
         None
     } else if let Some(rule) = object_property_class_rule {
-        rule.validate(delta_columns, delta_root, false, state)?;
+        rule.validate(delta_columns, delta_root, local_rule_context, state)?;
+        None
+    } else if let Some(rule) = local_role_rule {
+        rule.validate(delta_columns, delta_root, local_rule_context, state)?;
         None
     } else if delta_counts
         == (RootCounts {
@@ -7804,7 +7985,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named or ignored-shape SubClassOf, named or ignored-shape ClassAssertion, ignored-shape EquivalentClasses, ignored-shape ObjectPropertyDomain or ObjectPropertyRange, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named or ignored-shape SubClassOf, named or ignored-shape ClassAssertion, ignored-shape EquivalentClasses, ignored-shape ObjectPropertyDomain or ObjectPropertyRange, state-neutral property-chain SubObjectPropertyOf, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -8004,6 +8185,12 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None if object_property_class_rule.is_some() => {
             let Some(rule) = object_property_class_rule else {
                 unreachable!("matched object-property class rule remains available");
+            };
+            rule.apply_statistics(statistics)?;
+        }
+        None if local_role_rule.is_some() => {
+            let Some(rule) = local_role_rule else {
+                unreachable!("matched local role rule remains available");
             };
             rule.apply_statistics(statistics)?;
         }
@@ -9258,6 +9445,71 @@ mod tests {
         };
         fixture.push_node_ref(property_id);
         fixture.push_node_ref(class_id);
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(root_tag);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn local_role_delta_fixture(
+        root_tag: u16,
+        chain_length: usize,
+        inverse_member: bool,
+        annotated: bool,
+    ) -> Fixture {
+        assert!([TAG_SUB_OBJECT_PROPERTY_OF, TAG_INVERSE_OBJECT_PROPERTIES].contains(&root_tag));
+        if root_tag == TAG_SUB_OBJECT_PROPERTY_OF {
+            assert!(chain_length == 0 || (2..=3).contains(&chain_length));
+        } else {
+            assert_eq!(chain_length, 0);
+        }
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:p".as_slice(),
+            b"urn:q",
+            b"urn:r",
+            b"urn:super",
+            b"urn:label",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=5
+        }
+        for iri_id in 1_u64..=4 {
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 6..=9
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 10
+        fixture.push_node_ref(7);
+        fixture.finish_node(TAG_OBJECT_INVERSE_OF); // 11
+
+        let first_id = if chain_length == 0 {
+            6
+        } else {
+            let mut members = vec![6, if inverse_member { 11 } else { 7 }];
+            if chain_length == 3 {
+                members.push(8);
+            }
+            fixture.push_node_sequence(&members);
+            fixture.finish_node(TAG_OBJECT_PROPERTY_CHAIN);
+            fixture.node_tags.len() as u64 / 2
+        };
+        let annotation_ids = if annotated {
+            fixture.push_node_ref(10);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            vec![fixture.node_tags.len() as u64 / 2]
+        } else {
+            Vec::new()
+        };
+        fixture.push_node_ref(first_id);
+        fixture.push_node_ref(9);
         fixture.push_node_set(&annotation_ids);
         fixture.finish_node(root_tag);
         fixture.root_kinds.push(ROOT_AXIOM);
@@ -14012,8 +14264,12 @@ mod tests {
                     .columns()
                     .classify_roots(options.max_iri_bytes, &running_state())
                     .unwrap();
-                let plan =
-                    ObjectPropertyClassRulePlan::classify(counts, root_tag, options).unwrap();
+                let plan = ObjectPropertyClassRulePlan::classify(
+                    counts,
+                    root_tag,
+                    LocalRuleContext::new(options, false),
+                )
+                .unwrap();
                 assert_eq!(plan.rule.tag, root_tag);
                 assert!(plan.ignored);
                 let root = delta.columns().root_id(0).unwrap();
@@ -14172,6 +14428,166 @@ mod tests {
                 ),
                 Err(KernelError::Unsupported(message))
                     if message.contains("no anonymous individuals or local scope remap")
+            ));
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_state_neutral_property_chains() {
+        let base = named_subclass_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        for chain_length in [2, 3] {
+            for inverse_member in [false, true] {
+                let delta = local_role_delta_fixture(
+                    TAG_SUB_OBJECT_PROPERTY_OF,
+                    chain_length,
+                    inverse_member,
+                    false,
+                );
+                let counts = delta
+                    .columns()
+                    .classify_roots(options.max_iri_bytes, &running_state())
+                    .unwrap();
+                let plan = LocalRoleRulePlan::classify(
+                    counts,
+                    TAG_SUB_OBJECT_PROPERTY_OF,
+                    LocalRuleContext::new(options, false),
+                )
+                .unwrap();
+                assert_eq!(plan.rule.kind, LocalRoleRuleKind::PropertyChain);
+                assert!(plan.rule.state_neutral);
+                let root = delta.columns().root_id(0).unwrap();
+                assert!(delta
+                    .columns()
+                    .validate_sub_object_property_of(root, options.max_iri_bytes)
+                    .unwrap());
+
+                for variant in [
+                    options,
+                    DirectCompileOptions {
+                        only_taxonomy: true,
+                        ..options
+                    },
+                    DirectCompileOptions {
+                        asserted_taxonomy_only: true,
+                        ..options
+                    },
+                ] {
+                    let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                        base.columns(),
+                        delta.columns(),
+                        variant,
+                        &running_state(),
+                        None,
+                        canonical_limits().max_work,
+                        canonical_limits().max_workspace_bytes,
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "property chain length={chain_length} inverse={inverse_member}: {error:?}"
+                        )
+                    });
+                    let statistics = prepared.statistics();
+                    assert_eq!(statistics.roots, 3);
+                    assert_eq!(statistics.sub_object_properties, 1);
+                    assert_eq!(statistics.object_property_chains, 1);
+                    assert_eq!(statistics.role_expansion_edges, 0);
+                    assert_eq!(statistics.skipped_axioms, 0);
+                    assert_eq!(statistics.edges, 1);
+                    assert_eq!(prepared.emission_attempts(), 0);
+                    assert!(prepared.preparation.overlay_delta.is_none());
+                    let (edges, cursor) = prepared
+                        .prepare_next_batch(base.columns(), &running_state(), 1)
+                        .unwrap();
+                    prepared.commit_cursor(cursor);
+                    assert_eq!(
+                        edges,
+                        vec![DirectEdge {
+                            source: "urn:A".into(),
+                            relation: SUBCLASS_OF.into(),
+                            destination: "urn:B".into(),
+                        }]
+                    );
+                    assert!(prepared.is_exhausted());
+                }
+            }
+        }
+
+        let delta = local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 2, true, false);
+        let excluded_subclass = 2_u32.to_le_bytes();
+        let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+        let silent = prepare_single_overlay_delta_batches_uncommitted(
+            selected_declaration,
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(silent.statistics().roots, 2);
+        assert_eq!(silent.statistics().sub_object_properties, 1);
+        assert_eq!(silent.statistics().object_property_chains, 1);
+        assert_eq!(silent.statistics().edges, 0);
+        assert_eq!(silent.statistics().skipped_axioms, 0);
+        assert_eq!(silent.emission_attempts(), 0);
+        assert!(silent.preparation.overlay_delta.is_none());
+        assert!(silent.is_exhausted());
+
+        let duplicate_base = local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 2, true, false);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                duplicate_base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        let annotated = local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 2, false, true);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+        ));
+
+        for stateful in [
+            local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 0, false, false),
+            local_role_delta_fixture(TAG_INVERSE_OBJECT_PROPERTIES, 0, false, false),
+        ] {
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    stateful.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message))
+                    if message.contains(
+                        "requires retained role-state recomputation before base projection"
+                    )
             ));
         }
     }
