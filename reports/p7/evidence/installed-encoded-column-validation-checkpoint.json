@@ -1,0 +1,199 @@
+{
+  "schema": "pyowl-projector.p7-installed-encoded-column-validation-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "fuzz_claim": false,
+  "exhaustive_invalid_input_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector_validation": "bf24a90c0bdd8f3f5c35dc5b38d58bd675c06c5b",
+    "projector_product_payload": "e531a02c5526a60b1d488dd835977394f3c50a9e"
+  },
+  "source_archive": {
+    "filename": "projector-bf24a90.tar",
+    "bytes": 3973120,
+    "sha256": "5f37ccb6ddbd5f3634076c2be9403b2589fa2200aea89b159c9eef381eeac249",
+    "tree": "a0165e81305a264d99bd879ca06e83ecf02f91e8"
+  },
+  "product_source_equivalence": {
+    "compared_paths": [
+      "_build_backend.py",
+      "MANIFEST.in",
+      "native",
+      "pyproject.toml",
+      "setup.py",
+      "src"
+    ],
+    "diff_empty": true,
+    "src_tree": "c2954da7e267f0d4ef68945c54d699ab8db7a8f2",
+    "native_tree": "25071886d819b0987d38a93f5dcd657084154403"
+  },
+  "artifacts": {
+    "validation_tool": {
+      "filename": "tools/hostile_encoded_native.py",
+      "bytes": 24090,
+      "sha256": "e0a8c1d6a76202be111cb00021ee004994e9e6e5b220ea1c7939719ec9fe5554"
+    },
+    "validation_contract_test": {
+      "filename": "tests/test_encoded_native_hostile.py",
+      "bytes": 4949,
+      "sha256": "48d58842b6a74e4b769045c1884cfc2b3eba27bcd7b3690213b4b3474ff68955"
+    },
+    "installed_validation_result": {
+      "filename": "installed-encoded-column-validation.json",
+      "bytes": 9594239,
+      "sha256": "5f34b957e70b56d08dd7c9cad7097cb304ea6ae94da2e78aebbb3e975f684d1d"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 470036,
+      "sha256": "291fd105ad25e75b81e518284a92cd9ec4635999543b2e333e42a6c3a6313fb0",
+      "record_sha256": "b6634fe445d23d4a18e9f47c95974d5451f654d87dd835d585b27c9881285d7f"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "b3d6672daf52dde6a60091f28ac4c982b9ce366112c41732af436cf48b3b0dbf"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 807628,
+      "sha256": "f44fa3de535019e8506fa8e90a3b89fa6fa834e588ae8f5fb9636e5198383660",
+      "encoded_direct_kernel_version": 46,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    }
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "installed_product_runtime_reused": true,
+    "runtime_install_no_deps": true,
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true
+  },
+  "configuration": {
+    "generator": "splitmix64-v1",
+    "first_seed": 0,
+    "generated_source_documents": 256,
+    "provider_backends": [
+      "python",
+      "native"
+    ],
+    "provider_layouts": [
+      "independent-bytes",
+      "packed-bytes"
+    ],
+    "predefined_invalid_cases_per_source": 29,
+    "executed_cases": 14848,
+    "failure_category": "validation",
+    "mutation_categories": [
+      "canonicality",
+      "offset",
+      "reference",
+      "scalar",
+      "shape",
+      "tag"
+    ],
+    "structural_columns": [
+      "root_kinds",
+      "root_ids",
+      "node_tags",
+      "node_field_offsets",
+      "field_kinds",
+      "field_values",
+      "field_lengths",
+      "item_kinds",
+      "item_values",
+      "item_lengths",
+      "scalar_bytes"
+    ]
+  },
+  "result": {
+    "passed": true,
+    "provider_execution_counts": {
+      "native": 7424,
+      "python": 7424
+    },
+    "mutation_category_execution_counts": {
+      "canonicality": 3072,
+      "offset": 4096,
+      "reference": 1536,
+      "scalar": 512,
+      "shape": 3584,
+      "tag": 2048
+    },
+    "column_execution_counts": {
+      "root_kinds": 1536,
+      "root_ids": 2048,
+      "node_tags": 1024,
+      "node_field_offsets": 2048,
+      "field_kinds": 512,
+      "field_values": 2560,
+      "field_lengths": 1536,
+      "item_kinds": 512,
+      "item_values": 1536,
+      "item_lengths": 1024,
+      "scalar_bytes": 1536
+    },
+    "all_columns_exercised": true,
+    "typed_snapshot_compatibility_error_every_case": true,
+    "direct_and_projector_failure_parity_every_case": true,
+    "provider_layout_failure_parity_every_case": true,
+    "terminal_failed_compiler_every_case": true,
+    "absent_batch_session_every_case": true,
+    "zero_remaining_edges_every_case": true,
+    "zero_boundary_calls_every_case": true,
+    "zero_edge_batches_every_case": true,
+    "zero_published_edges_every_case": true,
+    "zero_report_publication_every_case": true,
+    "closeable_native_views_closed_after_each_provider_case_set": true,
+    "cases_sha256": "c2ff74c6d1168198cf5cab7483d09b585b08c5611322bcc436c2e61e939c3fd4"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 46,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_iterator_ingestion": "scalar-native",
+    "ordinary_native_iterator_native_counters": 0
+  },
+  "verification": {
+    "exact_archive_complete_suite": "1184 passed",
+    "exact_archive_validation_contract": "7 passed",
+    "exact_archive_installed_validation_cases": "14848 passed",
+    "source_complete_suite": "1184 passed",
+    "source_maximum_validation_cases": "14848 passed",
+    "ruff": "passed",
+    "ruff_format_validation_files": "passed",
+    "mypy_source": "passed; 17 source files",
+    "mypy_campaign_and_contract": "passed; 3 source files",
+    "rust_unit_cases": 38,
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "A bounded deterministic invalid-fixture campaign now alters every repository-owned encoded structural column across both supported direct exporter layouts. Exact installed execution requires typed validation rejection before output, a terminal failed compiler with no batch session or output counters, no Projector report, equal direct and hidden-Projector failures, equal provider-layout failures, and explicit closeable-view cleanup.",
+  "known_blockers": [
+    "The 29 predefined structural alterations are finite validation cases, not coverage-guided or mutational fuzzing, sanitizer evidence, or an exhaustive invalid-input proof.",
+    "The campaign covers the stable validation category. Separate protocol-envelope, resource-limit, cancellation, and panic matrices retain their existing focused tests and are not generalized by this result.",
+    "Generated cases use isolated single-document direct views. Imported, mmap, overlay, composite, sliced, and other segmented provider matrices remain open.",
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "Independent Scala-oracle, corpus-scale throughput/RSS, platform-wheel, SBOM, Exact shared-stack, and public release acceptance remain open."
+  ],
+  "limitations": [
+    "This is private deterministic compatibility evidence; it carries no timing, throughput, RSS, fuzz-completeness, public-dispatch, or release claim.",
+    "The installed product wheel from e531a02 was reused because the complete package/native/build input tree is identical at validation revision bf24a90.",
+    "The contract test and validation tool came from the exact source archive while both product packages resolved from the isolated installed-wheel runtime.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

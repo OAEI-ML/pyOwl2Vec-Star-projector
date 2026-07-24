@@ -7,6 +7,12 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- A bounded P7 invalid encoded-column campaign now applies 29 deterministic validation cases to
+  every one of the eleven repository-owned structural columns for both independent- and
+  packed-bytes pyOWLCore providers. Each case requires typed rejection before output, a terminal
+  failed compiler with no batch session or output counters, equal direct/Projector and
+  provider-layout failures, no report publication, and explicit closeable-view cleanup. This
+  finite matrix is not fuzz, sanitizer, or public-acceptance evidence.
 - A bounded SplitMix64 P7 differential campaign now generates replayable mixed-rule ontologies,
   covers all 32 semantic-boolean/duplicate/order combinations, and compares exact ordered output,
   reports, and diagnostics for both independent- and packed-bytes pyOWLCore providers. Every case

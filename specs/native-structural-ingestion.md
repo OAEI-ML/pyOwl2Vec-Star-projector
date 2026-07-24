@@ -353,6 +353,14 @@ eleven zero-copy buffers, zero staging copy, and zero per-row FFI. This finite v
 does not replace malformed-buffer, coverage-guided, sanitizer, Scala-oracle, segmented-provider, or
 large-corpus acceptance.
 
+The matching kernel-v46 invalid-column checkpoint applies 29 deterministic validation cases to all
+eleven repository-owned structural columns. The exact installed run covers 256 generated direct
+views through both the independent- and packed-bytes exporters, for 14,848 executions. Every case
+must raise the same typed compatibility failure through the direct compiler and hidden Projector,
+leave the compiler failed with no batch session, output counters, edges, or report, agree across
+provider layouts, and close each closeable view after its provider case set. This bounded matrix is
+not mutational fuzzing, sanitizer evidence, or an exhaustive invalid-input proof.
+
 ## 5. Lifetime, safety, and failure
 
 Acceptance evidence MUST cover buffer borrowing, iterator lifetime, re-entrancy,

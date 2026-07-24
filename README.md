@@ -286,6 +286,17 @@ evidence in every execution. The hash-bound result is in
 [`reports/p7/evidence/installed-generated-differential-checkpoint.json`](reports/p7/evidence/installed-generated-differential-checkpoint.json).
 This is a finite deterministic interaction matrix, not coverage-guided fuzzing.
 
+The bounded invalid-column runner is
+[`tools/hostile_encoded_native.py`](tools/hostile_encoded_native.py). Its exact installed checkpoint
+uses the maximum 256 generated sources, both supported direct exporter layouts, and 29 predefined
+validation cases per source, for 14,848 total executions covering all eleven structural columns.
+Every case requires the same typed rejection through the direct compiler and hidden Projector,
+equal failures across provider layouts, terminal failed state without a batch session or output
+counters, zero edges, no report publication, and explicit native-view cleanup. The hash-bound
+result is in
+[`reports/p7/evidence/installed-encoded-column-validation-checkpoint.json`](reports/p7/evidence/installed-encoded-column-validation-checkpoint.json).
+This is finite deterministic compatibility evidence, not mutational or coverage-guided fuzzing.
+
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
 Three native calls cover initial role acquisition, later restriction/domain/range consumption, and

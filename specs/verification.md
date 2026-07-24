@@ -124,6 +124,16 @@ ordered edges, counts, diagnostics, and call-history provenance. It fails on sca
 staging copy, per-row FFI, or a missing released-GIL record. It supplements rather than replaces
 the malformed, mutational, sanitizer, Scala-oracle, segmented-provider, and corpus matrices.
 
+P7 also supplies `tools/hostile_encoded_native.py`, a bounded deterministic invalid-column
+campaign for the same private cursor. Twenty-nine predefined cases exercise tag, reference,
+canonicality, offset, shape, and scalar validation across all eleven structural columns and both
+supported direct exporter layouts. Every case requires a typed compatibility failure before
+output, equal direct/Projector and provider-layout failures, terminal failed state without a batch
+session or output counters, no report publication, and closeable-view cleanup. The exact checkpoint
+runs the maximum 256 generated sources, or 14,848 cases. It remains finite invalid-fixture
+verification, not coverage-guided or mutational fuzzing, sanitizer evidence, or an exhaustive
+invalid-input claim.
+
 ## 6. Real-ontology corpus
 
 Release candidates run on legally obtainable pinned versions of GO, NCIT, and a SNOMED-scale

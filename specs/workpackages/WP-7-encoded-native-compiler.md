@@ -107,6 +107,12 @@ providers, all 32 semantic-boolean/duplicate/order combinations, and batch bound
 seven. All 256 executions require exact scalar ordered-edge/report parity and encoded-native
 zero-copy/per-row-FFI-free counters. It is finite generated interaction evidence, not the remaining
 malformed-input, coverage-guided fuzz, sanitizer, or independent Scala-oracle matrix.
+Validation revision `bf24a90` adds a bounded invalid encoded-column campaign. Its exact installed
+run applies 29 predefined cases to all eleven structural columns for 256 generated sources and both
+supported direct exporter layouts: 14,848 executions. Every case requires typed rejection before
+output, equal direct/Projector and provider-layout failures, terminal failed state without a batch
+session or output counters, no report, and closeable-view cleanup. It is finite compatibility
+evidence, not mutational fuzzing, sanitizer evidence, or an exhaustive malformed-input claim.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
