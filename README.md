@@ -304,12 +304,27 @@ passes only the terminal source buffers to Rust without flattening or staging. T
 checkpoint retains every owner and reports 44 retained zero-copy buffers, 11 Rust-detached
 buffers, four retained segments, and three referenced views. Both direct exporter layouts have
 exact scalar edge/report parity; depth, cumulative-work, and transitive-cycle failures occur before
-output. Edited overlays, annotation-sensitive aliases, posting selections, and other segmented
-families remain on whole-operation fallback. The initial one-alias evidence remains in
+output. Edited overlays, annotation-sensitive aliases, multiple posting-selection layers,
+`INCLUDE`, and other segmented families remain on whole-operation fallback. The initial one-alias
+evidence remains in
 [`reports/p7/evidence/installed-empty-overlay-alias-checkpoint.json`](reports/p7/evidence/installed-empty-overlay-alias-checkpoint.json);
 the recursive exact installed-wheel evidence is in
 [`reports/p7/evidence/installed-recursive-empty-overlay-alias-checkpoint.json`](reports/p7/evidence/installed-recursive-empty-overlay-alias-checkpoint.json).
 The public feature ledger and ordinary dispatch remain unchanged.
+
+Kernel v47 additionally admits exactly one nonempty sorted `EXCLUDE` posting table anywhere in
+that bounded empty-local chain. The exact immutable posting exporter is retained across GIL
+release and binary-searched in place for root classification, role state, anonymous-ID
+reachability, counts, and cursor emission, without constructing a selection index or flattening
+the source. The installed removal matrix covers both direct exporter layouts, taxonomy and
+restriction roots, subrole/inverse state, domain/range products, silent annotations,
+nonadjacent projecting roots, anonymous-ID recomputation, zero-output removal, and inner/outer
+recursive placement. One-container provenance reports 22 retained structural buffers, 12 native
+inputs including the posting exporter, its exact posting bytes, and zero indexing, flattening,
+staging copy, scalar materialization, or per-row FFI. The exact checkpoint is in
+[`reports/p7/evidence/installed-excluding-overlay-alias-checkpoint.json`](reports/p7/evidence/installed-excluding-overlay-alias-checkpoint.json).
+It is focused private correctness evidence, not general posted-overlay, performance, public
+dispatch, or release acceptance.
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).

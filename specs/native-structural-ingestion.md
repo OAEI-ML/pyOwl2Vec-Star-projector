@@ -60,16 +60,22 @@ fixed-width column pairing, monotone offsets, and root/node/item/scalar/posting 
 over retained read-only byte views. This validation constructs no OWL value or dense-ID cache and
 does not advertise or promote the unfinished encoded-native compiler path.
 
-The hidden direct adapter may resolve a bounded chain of canonical zero-delta overlay aliases.
-Every manifest contains one `OVERLAY_BASE` segment in `ALL` mode; every container has empty
-postings and anonymous-scope map plus canonical empty local structural columns; and the terminal
-referenced closure is independently revalidated as exact-direct. The native compiler receives only
-the terminal source's eleven borrowed buffers, while the prepared compilation retains all
-container and source leases and reports every table in its zero-copy ledger. Iterative resolution
-enforces the top owner's public overlay-depth and cumulative-canonical-work limits and rejects
-transitive cycles before output. Any local edit, posting selection, root-scoped annotation-
-provenance requirement, or noncanonical metadata selects whole-operation fallback or a typed
-pre-output failure under the existing rules. This is not general Rust segment traversal.
+The hidden direct adapter may resolve a bounded chain of canonical empty-local overlay aliases.
+Every manifest contains one `OVERLAY_BASE` segment; every container has an empty anonymous-scope
+map plus canonical empty local structural columns; and every segment is `ALL`, except that at most
+one segment may carry a nonempty sorted `EXCLUDE` posting table. The terminal referenced closure is
+independently revalidated as exact-direct. The native compiler receives the terminal source's
+eleven borrowed buffers plus the optional exact immutable posting exporter, while the prepared
+compilation retains all container and source leases and reports every table in its copy ledger.
+Kernel v47 validates complete `u32` rows as sorted, unique, 1-based source-root positions and
+binary-searches that table in place across root classification, role-state construction,
+anonymous-ID reachability, semantic counting, and cursor emission. Excluded roots remain subject
+to complete terminal source validation; no selection index, flattened base, or staging copy is
+created. Iterative resolution enforces the top owner's public overlay-depth and
+cumulative-canonical-work limits and rejects transitive cycles before output. Any local edit,
+second `EXCLUDE` layer, `INCLUDE`/composite selection, root-scoped annotation-provenance
+requirement, or noncanonical metadata selects whole-operation fallback or a typed pre-output
+failure under the existing rules. This is not general Rust segment traversal.
 
 The current Python internal compiler slice additionally preflights canonical direct views containing only
 declarations; `SubClassOf`, `EquivalentClasses`, `ClassAssertion`, and object-property

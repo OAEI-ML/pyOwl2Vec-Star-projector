@@ -121,8 +121,19 @@ lease remains retained, with the three-alias checkpoint reporting 44 retained ve
 Rust-detached zero-copy buffers, four segments, and three referenced views. Exact installed tests
 cover both direct exporter layouts, owner lifetime, public depth and cumulative-work bounds,
 transitive-cycle rejection, whole-call fallback for edited and annotation-sensitive overlays, and
-typed rejection of malformed referenced columns before output. Posting selections, local deltas,
-composites, mmap, and public selection remain open.
+typed rejection of malformed referenced columns before output.
+Adapter revision `c8b6755` adds one canonical nonempty `EXCLUDE` posting table anywhere in that
+bounded empty-local chain. Kernel v47 retains the exact immutable posting exporter, validates
+complete sorted/unique in-range 1-based source-root positions, and binary-searches it in place
+across root classification, role-state construction, anonymous-ID reachability, semantic counts,
+and cursor emission. The terminal source, including excluded roots, is still fully validated.
+Exact installed cases cover both exporter layouts and the projecting/state/silent removal matrix,
+anonymous-ID recomputation, zero output, inner/outer recursive placement, malformed postings, and
+whole-call fallback for a second exclusion layer. The one-container ledger reports 22 retained
+structural buffers, 12 native inputs including the posting exporter, exact posting bytes, and zero
+selection indexing, flattening, staging, scalar materialization, or per-row FFI. Multiple
+`EXCLUDE` layers, `INCLUDE`/composite selection, local deltas, annotation-sensitive aliases, mmap,
+and public selection remain open.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
