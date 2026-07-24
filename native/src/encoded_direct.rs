@@ -6537,44 +6537,63 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     delta_columns.validate_generic(state)?;
     delta_columns.validate_supported_nodes(options.max_iri_bytes, state)?;
     let delta_counts = delta_columns.classify_roots(options.max_iri_bytes, state)?;
-    if delta_counts
-        != (RootCounts {
+    let delta_root = delta_columns.root_id(0)?;
+    if delta_columns.root_kind(0)? != ROOT_AXIOM {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay root must be one supported axiom",
+        ));
+    }
+    let delta_tag = delta_columns.node_tag(delta_root)?;
+    let taxonomy = if delta_counts
+        == (RootCounts {
             subclasses: 1,
             ..RootCounts::default()
         })
+        && delta_tag == TAG_SUB_CLASS_OF
     {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one named SubClassOf axiom",
-        ));
-    }
-
-    let delta_root = delta_columns.root_id(0)?;
-    if delta_columns.root_kind(0)? != ROOT_AXIOM
-        || delta_columns.node_tag(delta_root)? != TAG_SUB_CLASS_OF
-    {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one named SubClassOf axiom",
-        ));
-    }
-    let field_start = delta_columns.exact_fields(delta_root, 3)?;
-    let (_annotation_start, annotation_count) = delta_columns.node_set_range(field_start + 2, 0)?;
-    if annotation_count != 0 {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay SubClassOf root must be unannotated",
-        ));
-    }
-    let (source, destination) =
+        let field_start = delta_columns.exact_fields(delta_root, 3)?;
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(field_start + 2, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(
+                "bounded local-overlay SubClassOf root must be unannotated",
+            ));
+        }
         match delta_columns.subclass_projection(delta_root, options.max_iri_bytes)? {
             SubclassProjection::Taxonomy {
                 source,
                 destination,
-            } => (clone_text(source)?, clone_text(destination)?),
+            } => Some((clone_text(source)?, clone_text(destination)?)),
             SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
                 return Err(KernelError::unsupported(
                     "bounded local-overlay SubClassOf root must be named-to-named",
                 ));
             }
-        };
+        }
+    } else if delta_counts
+        == (RootCounts {
+            declarations: 1,
+            ..RootCounts::default()
+        })
+        && delta_tag == TAG_DECLARATION
+    {
+        let field_start = delta_columns.exact_fields(delta_root, 2)?;
+        let (_entity_kind, iri_id) =
+            delta_columns.entity(delta_columns.field_node(field_start)?)?;
+        delta_columns.iri(iri_id, options.max_iri_bytes)?;
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(field_start + 1, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(
+                "bounded local-overlay Declaration root must be unannotated",
+            ));
+        }
+        None
+    } else {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay root must be one unannotated Declaration or named SubClassOf axiom",
+        ));
+    };
 
     use canonical_merge::MergedCanonicalRoot;
     let mut merger = canonical_merge::CanonicalRootMerger::new(
@@ -6628,9 +6647,13 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         ));
     }
 
-    let additional_edges = 1_usize
-        .checked_add(usize::from(options.bidirectional))
-        .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+    let additional_edges = if taxonomy.is_some() {
+        1_usize
+            .checked_add(usize::from(options.bidirectional))
+            .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?
+    } else {
+        0
+    };
     let projected = prepared
         .preparation
         .statistics
@@ -6652,16 +6675,23 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         .nodes
         .checked_add(delta_columns.node_count())
         .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
-    statistics.subclasses = statistics
-        .subclasses
-        .checked_add(1)
-        .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+    if taxonomy.is_some() {
+        statistics.subclasses = statistics
+            .subclasses
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+    } else {
+        statistics.declarations = statistics
+            .declarations
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded declaration-count overflow"))?;
+    }
     statistics.edges = projected;
     statistics.buffer_bytes = statistics
         .buffer_bytes
         .checked_add(delta_columns.buffer_bytes()?)
         .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
-    prepared.preparation.overlay_delta = Some(OwnedOverlayDelta {
+    prepared.preparation.overlay_delta = taxonomy.map(|(source, destination)| OwnedOverlayDelta {
         source,
         destination,
         insertion_position,
@@ -7258,6 +7288,37 @@ mod tests {
         fixture.finish_node(TAG_SUB_CLASS_OF); // 5
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
+        fixture
+    }
+
+    fn named_declaration_delta_fixture(entity_iri: &[u8], annotated: bool) -> Fixture {
+        let mut fixture = Fixture::default();
+        fixture.push_scalar(COMPONENT_TEXT, entity_iri);
+        fixture.finish_node(TAG_IRI); // 1
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 2
+        let declaration_annotations = if annotated {
+            fixture.push_scalar(COMPONENT_TEXT, b"urn:label");
+            fixture.finish_node(TAG_IRI); // 3
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(3);
+            fixture.finish_node(TAG_ENTITY); // 4
+            fixture.push_node_ref(4);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION); // 5
+            &[5_u64][..]
+        } else {
+            &[]
+        };
+        fixture.push_node_ref(2);
+        fixture.push_node_set(declaration_annotations);
+        fixture.finish_node(TAG_DECLARATION); // 3 or 6
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
         fixture
     }
 
@@ -8376,6 +8437,96 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_one_silent_declaration() {
+        let base = named_subclass_fixture();
+        let delta = named_declaration_delta_fixture(b"urn:C", false);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 2,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(prepared.statistics().roots, 3);
+        assert_eq!(prepared.statistics().declarations, 2);
+        assert_eq!(prepared.statistics().subclasses, 1);
+        assert_eq!(prepared.statistics().edges, 1);
+        assert_eq!(prepared.emission_attempts(), 0);
+        let (edges, cursor) = prepared
+            .prepare_next_batch(base.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+
+        let excluded_subclass = 2_u32.to_le_bytes();
+        let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+        let silent = prepare_single_overlay_delta_batches_uncommitted(
+            selected_declaration,
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(silent.statistics().roots, 2);
+        assert_eq!(silent.statistics().declarations, 2);
+        assert_eq!(silent.statistics().subclasses, 0);
+        assert_eq!(silent.statistics().edges, 0);
+        assert_eq!(silent.emission_attempts(), 0);
+        assert!(silent.is_exhausted());
+
+        let duplicate = named_declaration_delta_fixture(b"urn:A", false);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                duplicate.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        let annotated = named_declaration_delta_fixture(b"urn:C", true);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+        ));
     }
 
     #[test]
