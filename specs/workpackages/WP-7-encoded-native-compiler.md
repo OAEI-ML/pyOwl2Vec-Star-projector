@@ -138,15 +138,18 @@ reports 22 retained structural buffers, 12 native inputs including the posting e
 posting bytes, and zero selection indexing, flattening, staging, scalar materialization, or
 per-row FFI. Multiple `EXCLUDE` layers, `INCLUDE`/composite selection,
 annotation-sensitive aliases, mmap, and public selection remain open.
-Kernels v48–v52 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
+Kernels v48–v53 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
 `ALL` or one exact `EXCLUDE` table, while the `ALL` delta may contain exactly one unannotated
 named-to-named `SubClassOf`, supported named-role Some/All/Min/Max restriction `SubClassOf`, named
-entity `Declaration`, or named-class/named-individual `ClassAssertion`. The canonical merger
-derives one insertion scalar without flattening or indexing either table; unsupported,
-annotated, anonymous, complex, multi-root, nested, or literal-sensitive local shapes retain
-whole-operation fallback or typed pre-output rejection. Kernel v52 inserts the local
-`ClassAssertion` in the scalar class-assertion phase, preserves its historical `only_taxonomy`
-edge, and suppresses it only in asserted-taxonomy mode while retaining exact counts.
+entity `Declaration`, named-class/named-individual `ClassAssertion`, or named-property/named-
+individual positive `ObjectPropertyAssertion`. The canonical merger derives one insertion scalar
+without flattening or indexing either table; unsupported, annotated, anonymous, complex,
+multi-root, nested, or literal-sensitive local shapes retain whole-operation fallback or typed
+pre-output rejection. Kernel v52 inserts the local `ClassAssertion` in the scalar class-assertion
+phase. Kernel v53 inserts the local positive object assertion in the scalar object-assertion phase
+and fails closed with a typed reference error for an inverse local property before output. Both
+preserve their historical `only_taxonomy` edges and suppress them only in asserted-taxonomy mode
+while retaining exact counts.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
