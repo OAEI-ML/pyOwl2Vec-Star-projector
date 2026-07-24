@@ -261,6 +261,11 @@ installed-wheel evidence covers scalar-equivalent batches and reports, equal dig
 byte-identical artifacts, and sink-failure cancellation in
 [`reports/p7/evidence/installed-stream-surfaces-checkpoint.json`](reports/p7/evidence/installed-stream-surfaces-checkpoint.json).
 These adapters do not change ordinary public dispatch.
+The load-excluded P7 harness can measure those hidden iterator, sink, digest, and artifact consumers
+as separate labelled surfaces, binding the surface and its consumer metrics into the evidence hash.
+Exact installed-payload smoke evidence is recorded in
+[`reports/p7/evidence/installed-stream-surface-benchmark-checkpoint.json`](reports/p7/evidence/installed-stream-surface-benchmark-checkpoint.json);
+it is not corpus-scale or public-acceptance evidence.
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).

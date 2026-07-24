@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-24. Projector implementation through `e531a02`. pyOWLCore candidate revision:
+Date: 2026-07-24. Projector implementation and harness through `5ac8ef3`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -65,7 +65,11 @@ hidden counter contract. The stronger `private_candidate_evidence_ready` additio
 installed distribution payloads and both revisions. Neither field can set public
 `acceptance_ready`; private mode is rejected if combined with the public
 `--require-encoded-native` gate. The harness also emits the direct-bytes-only,
-unwired-public-surfaces, and scalar-public-lifecycle blockers in every result. Kernel v32 removes
+unwired-public-surfaces, and scalar-public-lifecycle blockers in every result. Harness revision
+`5ac8ef3` independently labels iterator, sink, digest, and artifact consumers and binds the chosen
+surface plus consumer metrics into the evidence hash. Iterator and sink expose time to first
+output; aggregate digest and artifact calls explicitly record that metric as unobservable.
+Kernel v32 removes
 the former whole-output-vector blocker for the hidden iterator and binds that fact to compiled,
 vector-backed, and peak-buffered edge counters; v33 starts the cursor without a pre-publication
 emission replay. Kernel v34 removes the legacy coarse call's duplicate complete Rust output vector
@@ -982,6 +986,31 @@ proof: it makes no public-dispatch, packed-record, performance, RSS, or release 
 and blockers are recorded in
 [`installed-stream-surfaces-checkpoint.json`](evidence/installed-stream-surfaces-checkpoint.json).
 
+### Hidden stream-surface measurements
+
+Harness revision `5ac8ef3283bbc4ff1df8be3b3de5b0aaa03705e6` adds four independent private
+consumer modes: iterator, protocol sink, canonical digest, and portable artifact. Every sample
+records the selected consumer, surface-specific metrics and their SHA-256, the existing counter
+and post-view core-operation ledgers, output digest, runtime artifacts, and exact source revisions
+in one evidence binding. Invalid surface/public-gate combinations fail before ontology loading.
+
+An exact archived harness ran against the already validated `e531a02` installed product wheel;
+the complete `src`, `native`, and build-input trees are identical between those revisions. On the
+693-byte packaged consumer fixture, all four surfaces produced eight edges with canonical digest
+`ed09a9e55221a6ef533c2f61a05628741946b6fdf61a0c1b45ed051d7660ed76`,
+four two-edge native drains, a two-edge peak, and zero per-row FFI. Iterator and sink recorded
+observable first-output latency; digest and artifact recorded `null` rather than inventing it.
+The artifact contained 2,821 bytes with digest
+`c739dd7cee798588088f8425174872f410cb099c11db12e64c687b2cbb49e1bd`.
+All four surfaces satisfied the private installed-artifact/counter boundary and remained
+`acceptance_ready=false`.
+
+Eleven focused benchmark/configuration cases and all 1,166 exact-archive tests passed; Ruff, mypy,
+38 Rust tests, rustfmt, and Clippy with warnings denied also passed. These three-repetition local
+numbers are correctness smoke evidence only, not corpus, comparative-performance, RSS, threshold,
+or release evidence. Exact hashes, timings, bindings, and limitations are recorded in
+[`installed-stream-surface-benchmark-checkpoint.json`](evidence/installed-stream-surface-benchmark-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -1007,7 +1036,7 @@ release or performance claim. Exact artifact hashes are recorded in
 ## Verification at this checkpoint
 
 The following source-tree and exact-installed checks passed for the implementation sequence
-`39a5656` through `e531a02`:
+`39a5656` through `5ac8ef3`:
 
 | Gate | Result |
 |---|---|
@@ -1015,8 +1044,8 @@ The following source-tree and exact-installed checks passed for the implementati
 | Rust formatting and Clippy with warnings denied | passed |
 | Private PyO3 foundation tests | 259 passed |
 | Foundation plus private-integration tests | 315 passed |
-| Broad encoded-compiler tests | 712 passed |
-| Complete projector test suite | 1,160 passed |
+| Broad encoded-compiler tests | 718 passed |
+| Complete projector test suite | 1,166 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
@@ -1054,6 +1083,7 @@ The following source-tree and exact-installed checks passed for the implementati
 | Exact installed direct-statistics allocation cases | 7 passed |
 | Exact installed direct-iterator allocation cases | 5 passed |
 | Exact installed hidden stream-surface cases | 2 passed |
+| Exact installed stream-surface benchmark/configuration cases | 11 passed |
 | Focused Python Ruff and mypy checks | passed |
 | Runtime dependency-boundary audit | passed |
 | Exact native-wheel release audit | passed; 30 members |
@@ -1242,7 +1272,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
 | Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, exact retry after malformed/replaced factory identities, payload corruption, allocation-probe failure, or edge/statistics/iterator-layout mutation, complete coarse edge/statistics validation, canonical-constructor mutation across post-native wrapper checks, direct final-object allocation and result validation, hidden iterator close/cancel/fallback/resource tests, and Projector-level sink-failure cancellation pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
 | Zero forbidden-work ledger | Reported by the successful hidden exact named-edge candidate; no public production-path claim |
-| Corpus performance/RSS gates | Private load-excluded harness now binds execution surface, exact ledgers, runtime artifacts, and revisions; installed NCIT/DOID/GO/large-corpus measurements and thresholds remain open |
+| Corpus performance/RSS gates | Private load-excluded harness now independently measures iterator/sink/digest/artifact consumers and binds each surface, its consumer metrics, exact ledgers, runtime artifacts, and revisions. The packaged-fixture smoke passes; installed NCIT/DOID/GO/large-corpus measurements and thresholds remain open |
 | Exact shared-stack acceptance | Open for this kernel |
 | Wheels/SBOM/platform matrix | Open for this kernel |
 
@@ -1255,7 +1285,8 @@ Public `auto` and explicit native negotiation remain unchanged. Before advertisi
    counters, and one-way scalar transition into public encoded selection only after the remaining
    gates pass;
 2. promote the proven hidden iterator, protocol-sink, digest, artifact, and cancellation
-   integration into public feature-gated selection, and measure labelled time to first edge;
+   integration into public feature-gated selection, and collect corpus-scale labelled
+   time-to-first-output evidence;
 3. safe no-copy direct/mmap/overlay/composite ownership and segment traversal;
 4. production provenance wired only after it describes actual Rust work;
 5. full oracle/generated/hostile/fuzz/sanitizer/thread/fork/shutdown/platform verification;

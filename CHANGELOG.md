@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- The load-excluded P7 harness now measures explicitly labelled hidden iterator, protocol-sink,
+  canonical-digest, and portable-artifact consumers. Consumer metrics and the selected surface are
+  hash-bound; iterator/sink time to first output is recorded, while aggregate digest/artifact
+  latency is explicitly marked unobservable. These measurements cannot satisfy public acceptance.
 - Hidden Projector adapters now run the proven native cursor through the version-1 protocol sink,
   canonical digest, and portable artifact machinery. They retain the existing ordering,
   duplicate, spill, cancellation, report, and artifact contracts; exact installed evidence covers

@@ -179,6 +179,11 @@ report, sink validation, and artifact implementations rather than defining paral
 Sink failure closes the unpublished native session; exact installed evidence requires
 scalar-equivalent batches and reports, equal canonical digests, and byte-identical artifacts.
 Ordinary public entry points still cannot select this path.
+Harness checkpoint `5ac8ef3` measures the hidden iterator, sink, digest, and artifact consumers as
+separate labelled surfaces and binds the surface plus consumer metrics into the evidence digest.
+Iterator and sink record time to first observable output. Digest and artifact return aggregate
+results, so their first-edge value is explicitly absent rather than estimated. A small-fixture
+smoke does not satisfy corpus or performance thresholds.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

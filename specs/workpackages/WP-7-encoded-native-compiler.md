@@ -90,6 +90,10 @@ portable-artifact adapters through the existing policy and cleanup implementatio
 tests require scalar-equivalent batches and reports, equal digests, byte-identical artifacts, and
 cursor cancellation without report publication after sink failure. These adapters do not advertise
 the capability or alter ordinary public dispatch.
+Harness revision `5ac8ef3` adds independent hidden iterator, sink, digest, and artifact measurement
+surfaces. It hash-binds the surface and consumer metrics, records observable iterator/sink
+time-to-first output, and marks aggregate digest/artifact first-edge latency unavailable. The exact
+installed-payload smoke is not corpus-scale, threshold, or public-acceptance evidence.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is

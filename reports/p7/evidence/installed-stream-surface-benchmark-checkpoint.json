@@ -1,0 +1,155 @@
+{
+  "schema": "pyowl-projector.p7-installed-stream-surface-benchmark-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector_harness": "5ac8ef3283bbc4ff1df8be3b3de5b0aaa03705e6",
+    "projector_product_payload": "e531a02c5526a60b1d488dd835977394f3c50a9e"
+  },
+  "product_source_equivalence": {
+    "compared_paths": [
+      "_build_backend.py",
+      "MANIFEST.in",
+      "native",
+      "pyproject.toml",
+      "setup.py",
+      "src"
+    ],
+    "diff_empty": true,
+    "src_tree": "c2954da7e267f0d4ef68945c54d699ab8db7a8f2",
+    "native_tree": "25071886d819b0987d38a93f5dcd657084154403"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-5ac8ef3.tar",
+      "bytes": 3880960,
+      "sha256": "fb9e370e41941f3c221722384696a89e0186bb719a184c3ff1cf453216ec8cd5"
+    },
+    "benchmark_harness": {
+      "filename": "benchmarks/benchmark_encoded_compiler.py",
+      "bytes": 32242,
+      "sha256": "7bd1a40d5a26f18869492420facc4b336fc7bb900b5a572d53b349013c2ea8c7"
+    },
+    "benchmark_contract_test": {
+      "filename": "tests/test_encoded_benchmark.py",
+      "bytes": 16734,
+      "sha256": "acaf20ebf1b6c038f730bd78d4e0599b8e846e5816eb7ab26624d407a655c429"
+    },
+    "fixture": {
+      "filename": "src/pyowl2vec_star_projector/conformance_data/consumer.ofn",
+      "bytes": 693,
+      "sha256": "84e1b6cf5088cbb7ea4276f26b5b461a4cfe74aed257abbab20ba78c1136ef0d"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 470036,
+      "sha256": "291fd105ad25e75b81e518284a92cd9ec4635999543b2e333e42a6c3a6313fb0",
+      "record_sha256": "b6634fe445d23d4a18e9f47c95974d5451f654d87dd835d585b27c9881285d7f"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "b3d6672daf52dde6a60091f28ac4c982b9ce366112c41732af436cf48b3b0dbf"
+    }
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "installed_product_runtime_reused": true,
+    "runtime_install_no_deps": true
+  },
+  "configuration": {
+    "load_backend": "python",
+    "projector_backend": "native",
+    "order": "canonical",
+    "duplicates": "preserve",
+    "include_literals": true,
+    "buffer_edges": 2,
+    "warmups": 1,
+    "measured_repetitions": 3,
+    "execution_surface": "private-native-candidate"
+  },
+  "common_result": {
+    "edge_count": 8,
+    "edge_sha256": "ed09a9e55221a6ef533c2f61a05628741946b6fdf61a0c1b45ed051d7660ed76",
+    "ingestion_path": "encoded-native",
+    "native_batch_edges": 2,
+    "native_edge_batches": 4,
+    "native_peak_buffered_edges": 2,
+    "per_row_ffi_calls": 0,
+    "private_candidate_boundary_ready": true,
+    "private_candidate_evidence_ready": true,
+    "public_acceptance_ready": false
+  },
+  "surfaces": {
+    "iterator": {
+      "first_edge_observable": true,
+      "consumer_metrics_sha256": "15ffc6c9dd96b9832ee52f4ad7ef573882c00db20ccea32b303ddc9b550349d1",
+      "evidence_binding_sha256": "e8aa83254b4e7eb10acb89e126d7538d3f34d12e26b8fcc15c8c724aec00000b",
+      "median_wall_seconds": 0.008246599005360622,
+      "median_cpu_seconds": 0.008194999999999952,
+      "median_first_edge_seconds": 0.006640884996159002
+    },
+    "sink": {
+      "first_edge_observable": true,
+      "batch_count": 4,
+      "peak_batch_edges": 2,
+      "consumer_metrics_sha256": "8f21bf9cd7aba0a3c5c6c15f58b50ec77b0b078c77ec4cbff8e89efdbe67a51b",
+      "evidence_binding_sha256": "e047b4e884b8ad35754fdbfb1b087cf9be577639dd923d6d0a4c41ae6fadf01c",
+      "median_wall_seconds": 0.01231362499675015,
+      "median_cpu_seconds": 0.008830000000000005,
+      "median_first_edge_seconds": 0.010223479999694973
+    },
+    "digest": {
+      "first_edge_observable": false,
+      "canonical_edges_sha256": "ed09a9e55221a6ef533c2f61a05628741946b6fdf61a0c1b45ed051d7660ed76",
+      "duplicate_count": 0,
+      "consumer_metrics_sha256": "42028f3d01133a668c2740e9003e371d1c43e1538f37e0319db8d222ada25c9c",
+      "evidence_binding_sha256": "faa7d51a930690dc1e0d7bccbd1ef2ab917041b286a20e50d8062e3da9029",
+      "median_wall_seconds": 0.007928088001790456,
+      "median_cpu_seconds": 0.0070590000000000375,
+      "median_first_edge_seconds": null
+    },
+    "artifact": {
+      "first_edge_observable": false,
+      "artifact_sha256": "c739dd7cee798588088f8425174872f410cb099c11db12e64c687b2cbb49e1bd",
+      "canonical_edges_sha256": "ed09a9e55221a6ef533c2f61a05628741946b6fdf61a0c1b45ed051d7660ed76",
+      "bytes_written": 2821,
+      "duplicate_count": 0,
+      "consumer_metrics_sha256": "c788bdc5242fc51213d29c2a4daee6158558e56e59a4b5d3346b35d8d2704725",
+      "evidence_binding_sha256": "2a032603c96f674685143b49ff490b72af998a678758297c7380c9680d6c9dd8",
+      "median_wall_seconds": 0.009312936999776866,
+      "median_cpu_seconds": 0.008834000000000009,
+      "median_first_edge_seconds": null
+    }
+  },
+  "verification": {
+    "exact_archive_complete_suite": "1166 passed",
+    "focused_benchmark_and_configuration_cases": "11 passed",
+    "ruff": "passed",
+    "mypy_harness": "passed",
+    "rust_unit_cases": 38,
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "The load-excluded P7 harness can now select and label the hidden iterator, protocol-sink, canonical-digest, and portable-artifact consumers independently. It records consumer-specific metrics, hashes those metrics and the selected surface into the evidence binding, measures observable iterator/sink time to first output, and explicitly marks aggregate digest/artifact first-edge latency as unobservable.",
+  "known_blockers": [
+    "This fixture is a correctness smoke, not an NCIT, DOID, GO, million-axiom, licensed-corpus, RSS, or threshold result.",
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the feature remains unadvertised.",
+    "Digest and artifact APIs return aggregate results, so their first-edge latency is deliberately recorded as unobservable rather than inferred.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Full fuzz, sanitizer, thread/fork/shutdown, platform, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "The recorded timings are three-repetition local smoke measurements and carry no comparative performance or release claim.",
+    "The installed product wheel from e531a02 was reused because the complete package/native/build input tree is identical at harness revision 5ac8ef3.",
+    "The test runner loaded pytest and benchmark tooling from the source/tool environment while both product packages resolved from the isolated installed-wheel runtime.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}
