@@ -264,16 +264,24 @@ def _acquire_root_encoded_lease(
     return _validate_encoded_view(source_view, encoded, encoded_type, root_scope)
 
 
-def _resolve_private_empty_overlay_aliases(
+def _resolve_private_overlay_aliases(
     lease: EncodedStructuralLease,
-) -> tuple[EncodedStructuralLease, tuple[EncodedStructuralLease, ...]] | None:
-    """Resolve canonical empty overlays to one retained direct source.
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        tuple[EncodedStructuralLease, ...],
+        memoryview | None,
+    ]
+    | None
+):
+    """Resolve a narrow canonical overlay chain to one retained direct source.
 
     This is intentionally narrower than general segment traversal.  It admits
-    only iterative one-segment OVERLAY_BASE/ALL manifests whose local column
-    tables are canonically empty and whose anonymous-scope/posting tables are
-    empty.  Public overlay-depth and cumulative canonical-work budgets bound
-    resolution before the direct source is handed to Rust.
+    only iterative one-segment OVERLAY_BASE manifests whose local column tables
+    and anonymous-scope maps are canonically empty.  Every segment is ALL, except
+    that at most one segment may carry a sorted EXCLUDE posting table.  Public
+    overlay-depth and cumulative canonical-work budgets bound resolution before
+    the direct source and optional borrowed posting table are handed to Rust.
     """
 
     current = lease
@@ -281,8 +289,9 @@ def _resolve_private_empty_overlay_aliases(
     active: dict[int, object] = {id(lease.encoded_view): lease.encoded_view}
     top_owner = lease.owner
     canonical_work = 0
+    excluded_root_ids: memoryview | None = None
     while True:
-        source_metadata = _private_empty_overlay_alias_source(current)
+        source_metadata = _private_overlay_alias_source(current)
         if source_metadata is None:
             if not containers:
                 return None
@@ -298,9 +307,13 @@ def _resolve_private_empty_overlay_aliases(
                 ) from error
             if type(terminal_role) is not int or terminal_role != _SEGMENT_DIRECT:
                 return None
-            return current, tuple(containers)
+            return current, tuple(containers), excluded_root_ids
 
-        owner, source, source_scope = source_metadata
+        owner, source, source_scope, segment_excluded_root_ids = source_metadata
+        if segment_excluded_root_ids is not None:
+            if excluded_root_ids is not None:
+                return None
+            excluded_root_ids = segment_excluded_root_ids
         containers.append(current)
         _enforce_public_limit(top_owner, "max_overlay_depth", len(containers))
         canonical_work += _private_encoded_lease_validation_work(current)
@@ -318,9 +331,9 @@ def _resolve_private_empty_overlay_aliases(
         )
 
 
-def _private_empty_overlay_alias_source(
+def _private_overlay_alias_source(
     lease: EncodedStructuralLease,
-) -> tuple[object, object, object] | None:
+) -> tuple[object, object, object, memoryview | None] | None:
     if type(lease) is not EncodedStructuralLease or len(lease.segments) != 1:
         return None
     segment = cast(Any, lease.segments[0])
@@ -347,13 +360,21 @@ def _private_empty_overlay_alias_source(
         source is None
         or owner is not getattr(source, "owner", _MISSING)
         or type(posting_mode) is not int
-        or posting_mode != _POSTINGS_ALL
         or type(root_ids) is not memoryview
-        or root_ids.nbytes
         or type(anonymous_scope_map) is not memoryview
         or anonymous_scope_map.nbytes
         or member_token is not None
     ):
+        return None
+    if posting_mode == _POSTINGS_ALL:
+        if root_ids.nbytes:
+            return None
+        excluded_root_ids = None
+    elif posting_mode == _POSTINGS_EXCLUDE:
+        if not root_ids.nbytes:
+            return None
+        excluded_root_ids = root_ids
+    else:
         return None
     offsets = lease.buffers["node_field_offsets"]
     if offsets.nbytes != 8 or any(offsets):
@@ -363,7 +384,7 @@ def _private_empty_overlay_alias_source(
     source_scope = getattr(source, "scope", _MISSING)
     if source_scope is not lease.scope:
         return None
-    return owner, source, source_scope
+    return owner, source, source_scope, excluded_root_ids
 
 
 def _private_encoded_lease_validation_work(lease: EncodedStructuralLease) -> int:

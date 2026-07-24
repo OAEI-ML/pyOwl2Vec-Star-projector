@@ -816,6 +816,7 @@ pub(crate) struct PreparedDirectBatches {
 pub(crate) struct DirectColumns<'a> {
     root_kinds: &'a [u8],
     root_ids: &'a [u8],
+    excluded_root_ids: &'a [u8],
     node_tags: &'a [u8],
     node_field_offsets: &'a [u8],
     field_kinds: &'a [u8],
@@ -832,6 +833,7 @@ impl<'a> DirectColumns<'a> {
         Self {
             root_kinds: buffers[0],
             root_ids: buffers[1],
+            excluded_root_ids: &[],
             node_tags: buffers[2],
             node_field_offsets: buffers[3],
             field_kinds: buffers[4],
@@ -842,6 +844,11 @@ impl<'a> DirectColumns<'a> {
             item_lengths: buffers[9],
             scalar_bytes: buffers[10],
         }
+    }
+
+    pub(crate) fn with_excluded_root_ids(mut self, excluded_root_ids: &'a [u8]) -> Self {
+        self.excluded_root_ids = excluded_root_ids;
+        self
     }
 
     fn buffer_bytes(self) -> Result<usize, KernelError> {
@@ -872,6 +879,44 @@ impl<'a> DirectColumns<'a> {
 
     fn root_count(self) -> usize {
         self.root_kinds.len()
+    }
+
+    fn selected_root_count(self) -> Result<usize, KernelError> {
+        self.root_count()
+            .checked_sub(self.excluded_root_ids.len() / 4)
+            .ok_or_else(|| {
+                KernelError::malformed("encoded excluded-root postings exceed the root count")
+            })
+    }
+
+    fn excluded_root_position(self, index: usize) -> Result<usize, KernelError> {
+        usize::try_from(read_u32(
+            self.excluded_root_ids,
+            index,
+            "excluded_root_ids",
+        )?)
+        .map_err(|_| KernelError::malformed("excluded root position does not fit usize"))
+    }
+
+    fn root_is_selected(self, index: usize) -> Result<bool, KernelError> {
+        let target = index
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded root position overflow"))?;
+        let mut start = 0_usize;
+        let mut end = self.excluded_root_ids.len() / 4;
+        while start < end {
+            let middle = start + (end - start) / 2;
+            let candidate = self.excluded_root_position(middle)?;
+            if candidate < target {
+                start = middle + 1;
+            } else {
+                end = middle;
+            }
+        }
+        if start == self.excluded_root_ids.len() / 4 {
+            return Ok(true);
+        }
+        Ok(self.excluded_root_position(start)? != target)
     }
 
     fn node_count(self) -> usize {
@@ -1175,6 +1220,9 @@ impl<'a> DirectColumns<'a> {
         let mut stack = Vec::new();
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
+            if !self.root_is_selected(root_index)? {
+                continue;
+            }
             if self.root_kind(root_index)? != ROOT_AXIOM {
                 continue;
             }
@@ -2952,6 +3000,7 @@ impl<'a> DirectColumns<'a> {
     fn validate_generic(self, state: &AtomicU8) -> Result<(), KernelError> {
         for (name, width, buffer) in [
             ("root_ids", 4, self.root_ids),
+            ("excluded_root_ids", 4, self.excluded_root_ids),
             ("node_tags", 2, self.node_tags),
             ("node_field_offsets", 8, self.node_field_offsets),
             ("field_values", 8, self.field_values),
@@ -3022,6 +3071,17 @@ impl<'a> DirectColumns<'a> {
                 ));
             }
             previous_root = Some(key);
+        }
+        let mut previous_excluded_root = 0_usize;
+        for index in 0..self.excluded_root_ids.len() / 4 {
+            check_cancel(state, index)?;
+            let root_position = self.excluded_root_position(index)?;
+            if root_position <= previous_excluded_root || root_position > self.root_count() {
+                return Err(KernelError::malformed(
+                    "encoded excluded-root postings are not sorted unique in-range positions",
+                ));
+            }
+            previous_excluded_root = root_position;
         }
 
         let mut item_cursor = 0_usize;
@@ -3444,6 +3504,9 @@ impl<'a> DirectColumns<'a> {
         let mut counts = RootCounts::default();
         for index in 0..self.root_count() {
             check_cancel(state, index)?;
+            if !self.root_is_selected(index)? {
+                continue;
+            }
             let kind = self.root_kind(index)?;
             let node_id = self.root_id(index)?;
             let tag = self.node_tag(node_id)?;
@@ -3633,6 +3696,9 @@ impl<'a> DirectColumns<'a> {
             .map_err(|_| KernelError::resource("encoded role-row allocation failed"))?;
         for canonical_order in 0..self.root_count() {
             check_cancel(state, canonical_order)?;
+            if !self.root_is_selected(canonical_order)? {
+                continue;
+            }
             let node_id = self.root_id(canonical_order)?;
             let tag = self.node_tag(node_id)?;
             if ![TAG_SUB_OBJECT_PROPERTY_OF, TAG_INVERSE_OBJECT_PROPERTIES].contains(&tag) {
@@ -3727,6 +3793,9 @@ impl<'a> DirectColumns<'a> {
         let mut counts = EquivalentEdgeCounts::default();
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
+            if !self.root_is_selected(root_index)? {
+                continue;
+            }
             let node_id = self.root_id(root_index)?;
             if self.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
                 continue;
@@ -3824,6 +3893,9 @@ impl<'a> DirectColumns<'a> {
         let mut counts = AnnotationEdgeCounts::default();
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
+            if !self.root_is_selected(root_index)? {
+                continue;
+            }
             let node_id = self.root_id(root_index)?;
             if self.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
                 continue;
@@ -4053,6 +4125,9 @@ impl<'a> DirectColumns<'a> {
         let mut closure_index = 0_usize;
         for root_index in 0..root_columns.root_count() {
             check_cancel(state, root_index)?;
+            if !root_columns.root_is_selected(root_index)? {
+                continue;
+            }
             if root_columns.root_kind(root_index)? != ROOT_AXIOM {
                 continue;
             }
@@ -4065,6 +4140,9 @@ impl<'a> DirectColumns<'a> {
             while closure_index < self.root_count() {
                 let candidate_index = closure_index;
                 closure_index += 1;
+                if !self.root_is_selected(candidate_index)? {
+                    continue;
+                }
                 if self.root_kind(candidate_index)? != ROOT_AXIOM {
                     continue;
                 }
@@ -4126,6 +4204,9 @@ impl<'a> DirectColumns<'a> {
         let mut count = 0_usize;
         for index in 0..self.root_count() {
             check_cancel(state, index)?;
+            if !self.root_is_selected(index)? {
+                continue;
+            }
             let node_id = self.root_id(index)?;
             if self.node_tag(node_id)? != TAG_SUB_CLASS_OF {
                 continue;
@@ -4153,6 +4234,9 @@ impl<'a> DirectColumns<'a> {
         let mut edges = 0_usize;
         for domain_index in 0..self.root_count() {
             check_cancel(state, domain_index)?;
+            if !self.root_is_selected(domain_index)? {
+                continue;
+            }
             let domain_id = self.root_id(domain_index)?;
             if self.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
                 continue;
@@ -4167,6 +4251,9 @@ impl<'a> DirectColumns<'a> {
             };
             for range_index in 0..self.root_count() {
                 check_cancel(state, range_index)?;
+                if !self.root_is_selected(range_index)? {
+                    continue;
+                }
                 let range_id = self.root_id(range_index)?;
                 if self.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
                     continue;
@@ -4203,6 +4290,9 @@ impl<'a> DirectColumns<'a> {
         let mut next: Option<&str> = None;
         for domain_index in 0..self.root_count() {
             check_cancel(state, domain_index)?;
+            if !self.root_is_selected(domain_index)? {
+                continue;
+            }
             let domain_id = self.root_id(domain_index)?;
             if self.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
                 continue;
@@ -4234,6 +4324,9 @@ impl<'a> DirectColumns<'a> {
     ) -> Result<bool, KernelError> {
         for range_index in 0..self.root_count() {
             check_cancel(state, range_index)?;
+            if !self.root_is_selected(range_index)? {
+                continue;
+            }
             let range_id = self.root_id(range_index)?;
             if self.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
                 continue;
@@ -4480,6 +4573,9 @@ impl DirectEmissionCursor {
                     let index = self.scan_index;
                     self.scan_index += 1;
                     check_cancel(state, index)?;
+                    if !columns.root_is_selected(index)? {
+                        continue;
+                    }
                     let node_id = columns.root_id(index)?;
                     if columns.node_tag(node_id)? != TAG_SUB_CLASS_OF {
                         continue;
@@ -4599,6 +4695,9 @@ impl DirectEmissionCursor {
                     let index = self.scan_index;
                     self.scan_index += 1;
                     check_cancel(state, index)?;
+                    if !columns.root_is_selected(index)? {
+                        continue;
+                    }
                     let node_id = columns.root_id(index)?;
                     if columns.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
                         continue;
@@ -4650,6 +4749,9 @@ impl DirectEmissionCursor {
                                 let index = self.scan_index;
                                 self.scan_index += 1;
                                 check_cancel(state, index)?;
+                                if !columns.root_is_selected(index)? {
+                                    continue;
+                                }
                                 let candidate = columns.root_id(index)?;
                                 if columns.node_tag(candidate)? == TAG_ANNOTATION_ASSERTION {
                                     selected = Some(candidate);
@@ -4681,6 +4783,9 @@ impl DirectEmissionCursor {
                     let index = self.scan_index;
                     self.scan_index += 1;
                     check_cancel(state, index)?;
+                    if !columns.root_is_selected(index)? {
+                        continue;
+                    }
                     let node_id = columns.root_id(index)?;
                     if columns.node_tag(node_id)? != TAG_CLASS_ASSERTION {
                         continue;
@@ -4707,6 +4812,9 @@ impl DirectEmissionCursor {
                     let index = self.scan_index;
                     self.scan_index += 1;
                     check_cancel(state, index)?;
+                    if !columns.root_is_selected(index)? {
+                        continue;
+                    }
                     let node_id = columns.root_id(index)?;
                     if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_ASSERTION {
                         continue;
@@ -4754,6 +4862,9 @@ impl DirectEmissionCursor {
                             let index = self.domain_index;
                             self.domain_index += 1;
                             check_cancel(state, index)?;
+                            if !columns.root_is_selected(index)? {
+                                continue;
+                            }
                             let node_id = columns.root_id(index)?;
                             if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
                                 continue;
@@ -4784,6 +4895,9 @@ impl DirectEmissionCursor {
                         let index = self.range_index;
                         self.range_index += 1;
                         check_cancel(state, index)?;
+                        if !columns.root_is_selected(index)? {
+                            continue;
+                        }
                         let node_id = columns.root_id(index)?;
                         if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_RANGE {
                             continue;
@@ -5036,7 +5150,7 @@ fn prepare_direct(
     }
 
     let stats = DirectCompileStats {
-        roots: columns.root_count(),
+        roots: columns.selected_root_count()?,
         nodes: columns.node_count(),
         anonymous_individuals: anonymous_ids.node_ids.len(),
         ontology_annotations: counts.ontology_annotations,
@@ -6557,6 +6671,88 @@ mod tests {
         assert_eq!(stats.declarations, 1);
         assert_eq!(stats.subclasses, 1);
         assert_eq!(stats.edges, 1);
+    }
+
+    #[test]
+    fn excluded_root_postings_filter_counts_and_emission_without_flattening() {
+        let fixture = named_subclass_fixture();
+        let excluded_declaration = 1_u32.to_le_bytes();
+        let (edges, stats) = compile_direct(
+            fixture
+                .columns()
+                .with_excluded_root_ids(&excluded_declaration),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(stats.roots, 1);
+        assert_eq!(stats.declarations, 0);
+        assert_eq!(stats.subclasses, 1);
+
+        let excluded_subclass = 2_u32.to_le_bytes();
+        let (edges, stats) = compile_direct(
+            fixture.columns().with_excluded_root_ids(&excluded_subclass),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(edges.is_empty());
+        assert_eq!(stats.roots, 1);
+        assert_eq!(stats.declarations, 1);
+        assert_eq!(stats.subclasses, 0);
+    }
+
+    #[test]
+    fn excluded_root_postings_must_be_complete_sorted_unique_in_range_rows() {
+        let fixture = named_subclass_fixture();
+        for postings in [
+            vec![1_u8, 0],
+            0_u32.to_le_bytes().to_vec(),
+            3_u32.to_le_bytes().to_vec(),
+            [1_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+            [2_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+        ] {
+            assert!(matches!(
+                compile_direct(
+                    fixture.columns().with_excluded_root_ids(&postings),
+                    false,
+                    false,
+                    false,
+                    1,
+                    1024,
+                    &running_state(),
+                ),
+                Err(KernelError::Malformed(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn excluded_roots_still_receive_complete_source_validation() {
+        let mut fixture = named_subclass_fixture();
+        fixture.node_tags[10..12].copy_from_slice(&u16::MAX.to_le_bytes());
+        let excluded_subclass = 2_u32.to_le_bytes();
+        assert!(matches!(
+            compile_direct(
+                fixture.columns().with_excluded_root_ids(&excluded_subclass),
+                false,
+                false,
+                false,
+                1,
+                1024,
+                &running_state(),
+            ),
+            Err(KernelError::Malformed(_))
+        ));
     }
 
     #[test]

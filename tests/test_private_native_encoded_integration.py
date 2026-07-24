@@ -2270,6 +2270,62 @@ def _recursive_empty_overlay_lease(
     return top_view, top_lease, tuple(chain), direct_encoded
 
 
+def _recursive_overlay_lease_with_exclusions(
+    base: pyowl_core.OntologyView,
+    *,
+    depth: int,
+    exclusion_levels: frozenset[int],
+    removed: set[object],
+) -> tuple[
+    EncodedStructuralLease,
+    tuple[EncodedStructuralLease, ...],
+    object,
+]:
+    assert depth >= 1
+    assert exclusion_levels
+    assert all(0 <= level < depth for level in exclusion_levels)
+    source_encoded = base.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    direct_encoded = source_encoded
+    source_owner: object = base
+    chain: list[EncodedStructuralLease] = []
+    top_lease: EncodedStructuralLease | None = None
+    for level in range(depth):
+        delta = (
+            pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed))
+            if level in exclusion_levels
+            else pyowl_core.OntologyDelta()
+        )
+        template_view = pyowl_core.apply_delta(base, delta)
+        selection = select_private_direct_ingestion(
+            template_view,
+            selected_backend="native",
+        )
+        assert selection.lease is not None
+        segment = replace(
+            cast(Any, selection.lease.segments[0]),
+            owner=source_owner,
+            source=source_encoded,
+        )
+        encoded = replace(
+            cast(Any, selection.lease.encoded_view),
+            segments=(segment,),
+        )
+        top_lease = replace(
+            selection.lease,
+            encoded_view=encoded,
+            segments=(segment,),
+        )
+        chain.append(top_lease)
+        source_encoded = encoded
+        source_owner = template_view
+    assert top_lease is not None
+    return top_lease, tuple(chain), direct_encoded
+
+
 @pytest.mark.parametrize(
     "provider_backend",
     [
@@ -2580,7 +2636,362 @@ def test_hidden_iterator_rejects_recursive_empty_overlay_cycle_before_output() -
     assert projector.last_report is None
 
 
-def test_hidden_iterator_keeps_edited_overlay_on_whole_call_scalar_fallback() -> None:
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    "removed_constructors",
+    [
+        frozenset({"SubClassOf"}),
+        frozenset({"SubObjectPropertyOf"}),
+        frozenset({"InverseObjectProperties"}),
+        frozenset({"ObjectPropertyDomain"}),
+        frozenset({"ObjectPropertyRange"}),
+        frozenset({"AnnotationAssertion"}),
+        frozenset(
+            {
+                "EquivalentClasses",
+                "ClassAssertion",
+                "ObjectPropertyAssertion",
+            }
+        ),
+    ],
+    ids=[
+        "taxonomy-and-restriction",
+        "subrole-state",
+        "inverse-state",
+        "domain-product",
+        "range-product",
+        "silent-annotation",
+        "nonadjacent-projecting-roots",
+    ],
+)
+def test_hidden_iterator_compiles_one_excluding_overlay_without_flattening(
+    provider_backend: pyowl_core.BackendPreference,
+    removed_constructors: frozenset[str],
+) -> None:
+    padding = " ".join(f"Declaration(Class(:Padding{index}))" for index in range(24))
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            f"{padding} "
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "Declaration(ObjectProperty(:p)) Declaration(ObjectProperty(:q)) "
+            "Declaration(ObjectProperty(:r)) Declaration(NamedIndividual(:i)) "
+            "Declaration(NamedIndividual(:j)) SubClassOf(:A :B) "
+            "SubClassOf(:B ObjectSomeValuesFrom(:p :C)) EquivalentClasses(:B :C) "
+            "ClassAssertion(:C :i) ObjectPropertyAssertion(:p :i :j) "
+            "SubObjectPropertyOf(:p :q) InverseObjectProperties(:q :r) "
+            "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:p :B) "
+            'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "label")',
+            backend=provider_backend,
+        ),
+    )
+    removed = {
+        axiom
+        for axiom in base.iter_axioms()
+        if type(axiom).__name__ in removed_constructors
+    }
+    assert {type(axiom).__name__ for axiom in removed} == removed_constructors
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
+    )
+    encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert len(encoded.segments) == 1
+    segment = cast(Any, encoded.segments[0])
+    assert segment.posting_mode == 2
+    assert segment.root_ids.nbytes == 4 * len(removed)
+    source_encoded = segment.source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(value.nbytes for value in encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("excluding overlay reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=2,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.lease.encoded_view is source_encoded
+    assert len(compilation.container_leases) == 1
+    assert compilation.container_leases[0].owner is overlay
+    assert compilation.excluded_root_ids is not None
+    assert compilation.excluded_root_ids == segment.root_ids
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 12
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 2
+    assert ingestion.counters["encoded_posting_bytes"] == segment.root_ids.nbytes
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=2,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_excluding_overlay_recomputes_anonymous_ids_from_retained_roots(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "ObjectPropertyAssertion(:p _:removed :x) "
+            "ObjectPropertyAssertion(:p _:retained :y)",
+            backend=provider_backend,
+        ),
+    )
+    removed = next(iter(base.iter_axioms()))
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(remove_axioms=cast(Any, {removed})),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("anonymous excluding overlay reached scalar traversal"),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert len(actual) == 1
+    assert actual[0].source == "_:genid2147483648"
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["encoded_posting_bytes"] == 4
+    assert ingestion.counters["encoded_detached_buffer_count"] == 12
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+
+
+@pytest.mark.parametrize("exclusion_level", [0, 2], ids=["inner", "outer"])
+def test_hidden_iterator_compiles_one_exclusion_through_recursive_aliases(
+    exclusion_level: int,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "SubClassOf(:A :B) SubClassOf(:B :C)"
+        ),
+    )
+    removed = {
+        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
+    }
+    semantic_view = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
+    )
+    top_lease, chain, direct_encoded = _recursive_overlay_lease_with_exclusions(
+        base,
+        depth=3,
+        exclusion_levels=frozenset({exclusion_level}),
+        removed=cast(set[object], removed),
+    )
+    exclusion_segment = cast(Any, chain[exclusion_level].segments[0])
+    assert exclusion_segment.posting_mode == 2
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(semantic_view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("recursive excluding overlay reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                semantic_view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.lease.encoded_view is direct_encoded
+    assert tuple(item.encoded_view for item in compilation.container_leases) == tuple(
+        item.encoded_view for item in reversed(chain)
+    )
+    assert compilation.excluded_root_ids is exclusion_segment.root_ids
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["encoded_buffer_count"] == 44
+    assert ingestion.counters["encoded_detached_buffer_count"] == 12
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 44
+    assert ingestion.counters["encoded_referenced_view_count"] == 3
+    assert ingestion.counters["encoded_segment_count"] == 4
+    assert ingestion.counters["encoded_posting_bytes"] == 4
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+
+
+def test_hidden_iterator_keeps_multiple_exclusion_layers_on_whole_call_fallback() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "SubClassOf(:A :B) SubClassOf(:B :C)"
+        ),
+    )
+    removed = {
+        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
+    }
+    semantic_view = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
+    )
+    top_lease, _chain, _direct = _recursive_overlay_lease_with_exclusions(
+        base,
+        depth=2,
+        exclusion_levels=frozenset({0, 1}),
+        removed=cast(set[object], removed),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(semantic_view, options=python_options)
+
+    with patch.object(
+        api_module,
+        "select_private_direct_ingestion",
+        return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                semantic_view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.reason.startswith(
+        "private native direct compiler unavailable: "
+        "direct native slice requires the canonical direct segment role"
+    )
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+    assert all(
+        value is False if name == "encoded_compiler_gil_released" else value == 0
+        for name, value in ingestion.counters.items()
+    )
+
+
+def test_hidden_iterator_compiles_zero_output_excluding_overlay() -> None:
     base = cast(
         pyowl_core.OntologyView,
         _snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"),
@@ -2593,28 +3004,35 @@ def test_hidden_iterator_keeps_edited_overlay_on_whole_call_scalar_fallback() ->
     python_options = ProjectionOptions(backend="python", order="encounter")
     expected = Projector().project(overlay, options=python_options)
 
-    projector = Projector()
-    actual = list(
-        projector._iter_native_encoded_edges(
-            overlay,
-            options=replace(python_options, backend="native"),
-            buffer_edges=1,
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("zero-output excluding overlay reached scalar traversal"),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
         )
-    )
     report = _completed_report(projector)
 
     assert actual == expected == []
     ingestion = report.provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert ingestion.reason is not None
-    assert ingestion.reason.startswith(
-        "private native direct compiler unavailable: "
-        "direct native slice requires the canonical direct segment role"
-    )
-    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
-    assert all(
-        value is False if name == "encoded_compiler_gil_released" else value == 0
-        for name, value in ingestion.counters.items()
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_posting_bytes"] == 4
+    assert ingestion.counters["encoded_detached_buffer_count"] == 12
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=0,
+        batch_edges=1,
     )
 
 

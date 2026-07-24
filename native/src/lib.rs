@@ -39,7 +39,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 46;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 47;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -588,6 +588,7 @@ struct EncodedDirectCompiler {
     _encoded_view: Py<PyAny>,
     _owner: Py<PyAny>,
     buffers: Vec<RetainedDirectBuffer>,
+    excluded_root_ids: Option<RetainedDirectBuffer>,
     _root_annotation_view: Option<Py<PyAny>>,
     _root_annotation_owner: Option<Py<PyAny>>,
     root_annotation_buffers: Option<Vec<RetainedDirectBuffer>>,
@@ -668,7 +669,11 @@ impl EncodedDirectCompiler {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_slice());
-        let columns = DirectColumns::from_ordered(slices);
+        let excluded_root_ids = self
+            .excluded_root_ids
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
+        let columns = DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -732,6 +737,7 @@ impl EncodedDirectCompiler {
         root_annotation_view=None,
         root_annotation_owner=None,
         root_annotation_descriptor_sha256=None,
+        excluded_root_ids=None,
     ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
@@ -740,8 +746,12 @@ impl EncodedDirectCompiler {
         root_annotation_view: Option<&Bound<'_, PyAny>>,
         root_annotation_owner: Option<&Bound<'_, PyAny>>,
         root_annotation_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        excluded_root_ids: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
+        let excluded_root_ids = excluded_root_ids
+            .map(|value| retained_exact_bytes_buffer(value, "excluded_root_ids"))
+            .transpose()?;
         let root_annotation_buffers = match (
             root_annotation_view,
             root_annotation_owner,
@@ -761,6 +771,7 @@ impl EncodedDirectCompiler {
             _encoded_view: encoded_view.clone().unbind(),
             _owner: expected_owner.clone().unbind(),
             buffers,
+            excluded_root_ids,
             _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
             root_annotation_buffers,
@@ -823,7 +834,11 @@ impl EncodedDirectCompiler {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_slice());
-        let columns = DirectColumns::from_ordered(slices);
+        let excluded_root_ids = self
+            .excluded_root_ids
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
+        let columns = DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -1261,7 +1276,12 @@ impl EncodedDirectCompiler {
             };
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| self.buffers[index].as_slice());
-            let columns = DirectColumns::from_ordered(slices);
+            let excluded_root_ids = self
+                .excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let columns =
+                DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
             let prepared = py
                 .detach(|| stream.prepare_next_batch(columns, &self.state, batch_edges))
                 .map_err(kernel_error);
@@ -1482,7 +1502,9 @@ impl EncodedDirectCompiler {
 
     #[getter]
     fn retained_buffer_count(&self) -> usize {
-        self.buffers.len() + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
+        self.buffers.len()
+            + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
+            + usize::from(self.excluded_root_ids.is_some())
     }
 
     /// Deterministic test hook proving another Python thread can cancel while
@@ -2143,6 +2165,32 @@ fn retained_direct_buffers(
         borrowed.push((name, buffer, exporter, length));
     }
     retain_direct_bytes_exporters(borrowed)
+}
+
+fn retained_exact_bytes_buffer(
+    buffer: &Bound<'_, PyAny>,
+    name: &'static str,
+) -> PyResult<RetainedDirectBuffer> {
+    let length = checked_memoryview_length(buffer, name)?;
+    let exporter = required_attribute(buffer, "obj")?;
+    if !exporter.is_exact_instance_of::<PyBytes>() {
+        return Err(EncodedDirectUnsupportedError::new_err(format!(
+            "encoded buffer {name} is not backed by exact immutable bytes",
+        )));
+    }
+    let exporter = exporter.cast_into::<PyBytes>().map_err(|_| {
+        encoded_buffer_error(format!("encoded buffer {name} owner is inaccessible"))
+    })?;
+    if exporter.as_bytes().len() != length {
+        return Err(EncodedDirectUnsupportedError::new_err(format!(
+            "encoded buffer {name} does not cover its complete bytes exporter",
+        )));
+    }
+    Ok(RetainedDirectBuffer {
+        exporter: PyBackedBytes::from(exporter),
+        start: 0,
+        end: length,
+    })
 }
 
 fn validate_direct_segment(

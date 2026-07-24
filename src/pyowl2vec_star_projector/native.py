@@ -16,7 +16,7 @@ from .diagnostics import ProjectionDiagnostic
 from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
-    _resolve_private_empty_overlay_aliases,
+    _resolve_private_overlay_aliases,
 )
 from .errors import (
     NativeBackendUnavailableError,
@@ -30,7 +30,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 46
+ENCODED_DIRECT_KERNEL_VERSION = 47
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -377,6 +377,7 @@ class NativeEncodedDirectCompiler:
 
     lease: EncodedStructuralLease
     root_annotation_lease: EncodedStructuralLease | None
+    excluded_root_ids: memoryview | None
     _kernel: Any
     _module: Any
 
@@ -855,6 +856,7 @@ class NativeEncodedDirectCompilation:
     view: object
     lease: EncodedStructuralLease
     container_leases: tuple[EncodedStructuralLease, ...]
+    excluded_root_ids: memoryview | None
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
@@ -913,11 +915,18 @@ class NativeEncodedDirectCompilation:
             + (() if self.root_annotation_lease is None else (self.root_annotation_lease,))
         )
         retained_buffer_count = sum(len(lease.buffers) for lease in retained_leases)
-        detached_buffer_count = len(self.lease.buffers) + (
-            0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers)
+        detached_buffer_count = (
+            len(self.lease.buffers)
+            + (0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers))
+            + int(self.excluded_root_ids is not None)
         )
         retained_buffer_bytes = sum(
             buffer.nbytes for lease in retained_leases for buffer in lease.buffers.values()
+        )
+        posting_bytes = sum(
+            cast(Any, segment).root_ids.nbytes + cast(Any, segment).anonymous_scope_map.nbytes
+            for lease in self.container_leases
+            for segment in lease.segments
         )
         retained_subroles = 0 if self.role_state is None else self.role_state.subrole_property_count
         retained_inverses = 0 if self.role_state is None else self.role_state.inverse_property_count
@@ -929,7 +938,7 @@ class NativeEncodedDirectCompilation:
                 "encoded_compiler_gil_released": True,
                 "encoded_detached_buffer_count": detached_buffer_count,
                 "encoded_indexed_buffer_count": 0,
-                "encoded_posting_bytes": 0,
+                "encoded_posting_bytes": posting_bytes,
                 "encoded_referenced_view_count": len(self.container_leases)
                 + int(self.root_annotation_lease is not None),
                 "encoded_segment_count": sum(len(lease.segments) for lease in retained_leases),
@@ -987,9 +996,10 @@ def prepare_native_encoded_compilation(
     if cancellation_token is not None:
         cancellation_token.check()
     container_leases: tuple[EncodedStructuralLease, ...] = ()
-    resolved_aliases = _resolve_private_empty_overlay_aliases(lease)
+    excluded_root_ids: memoryview | None = None
+    resolved_aliases = _resolve_private_overlay_aliases(lease)
     if resolved_aliases is not None:
-        lease, container_leases = resolved_aliases
+        lease, container_leases, excluded_root_ids = resolved_aliases
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
         if container_leases:
@@ -1007,6 +1017,7 @@ def prepare_native_encoded_compilation(
     compiler = prepare_native_encoded_direct(
         lease,
         root_annotation_lease=root_annotation_lease,
+        excluded_root_ids=excluded_root_ids,
     )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
     batches = compiler.iter_batches(
@@ -1098,6 +1109,7 @@ def prepare_native_encoded_compilation(
                 view=view,
                 lease=lease,
                 container_leases=container_leases,
+                excluded_root_ids=excluded_root_ids,
                 root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,
@@ -1224,6 +1236,7 @@ def prepare_native_encoded_direct(
     lease: EncodedStructuralLease,
     *,
     root_annotation_lease: EncodedStructuralLease | None = None,
+    excluded_root_ids: memoryview | None = None,
 ) -> NativeEncodedDirectCompiler:
     """Bind validated public leases to the unadvertised Rust foundation.
 
@@ -1231,7 +1244,8 @@ def prepare_native_encoded_direct(
     exporters or the canonical eleven-column packed layout over one such exporter.  Arbitrary
     slices, mmap, and other valid exporters are deliberately reported as unsupported until the
     abi3-safe design expands.  An optional independent root table is retained for the native
-    annotation-provenance join.
+    annotation-provenance join.  One optional sorted EXCLUDE posting table is
+    retained and scanned in place by the native root cursor.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
@@ -1275,9 +1289,10 @@ def prepare_native_encoded_direct(
     unsupported_type = cast(type[Exception], unsupported)
     buffer_error_type = cast(type[Exception], buffer_error)
     try:
-        if root_annotation_lease is None:
+        if root_annotation_lease is None and excluded_root_ids is None:
             kernel = compiler(lease.encoded_view, lease.owner, descriptor_sha256)
-        else:
+        elif excluded_root_ids is None:
+            assert root_annotation_lease is not None
             kernel = compiler(
                 lease.encoded_view,
                 lease.owner,
@@ -1285,6 +1300,16 @@ def prepare_native_encoded_direct(
                 root_annotation_lease.encoded_view,
                 root_annotation_lease.owner,
                 root_descriptor_sha256,
+            )
+        else:
+            kernel = compiler(
+                lease.encoded_view,
+                lease.owner,
+                descriptor_sha256,
+                (None if root_annotation_lease is None else root_annotation_lease.encoded_view),
+                None if root_annotation_lease is None else root_annotation_lease.owner,
+                root_descriptor_sha256,
+                excluded_root_ids,
             )
     except unsupported_type as error:
         raise NativeEncodedDirectUnsupported(str(error)) from error
@@ -1294,7 +1319,13 @@ def prepare_native_encoded_direct(
         raise _resource_error(error) from error
     except Exception as error:
         raise _execution_error(error) from error
-    return NativeEncodedDirectCompiler(lease, root_annotation_lease, kernel, module)
+    return NativeEncodedDirectCompiler(
+        lease,
+        root_annotation_lease,
+        excluded_root_ids,
+        kernel,
+        module,
+    )
 
 
 def load_native_module() -> Any:

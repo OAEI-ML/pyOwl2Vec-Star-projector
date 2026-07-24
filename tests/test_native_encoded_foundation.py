@@ -509,6 +509,101 @@ def test_direct_named_subclass_batch_matches_python_and_reports_real_work() -> N
     assert compiler.state == "finished"
 
 
+def test_direct_excluded_root_posting_is_retained_and_filters_native_work() -> None:
+    lease = _lease(
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "SubClassOf(:A :B) SubClassOf(:B :C)"
+        )
+    )
+    posting_bytes = (4).to_bytes(4, "little")
+    excluded_root_ids = memoryview(posting_bytes)
+    compiler = prepare_native_encoded_direct(
+        lease,
+        excluded_root_ids=excluded_root_ids,
+    )
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024 * 1024,
+    )
+
+    assert posting_bytes == b"\x04\x00\x00\x00"
+    assert [edge.as_tuple() for edge in edges] == [
+        (
+            "urn:native-direct#B",
+            SUBCLASS_OF,
+            "urn:native-direct#C",
+        )
+    ]
+    assert statistics.roots == 4
+    assert statistics.declarations == 3
+    assert statistics.subclasses == 1
+    assert statistics.edges == 1
+    assert compiler.excluded_root_ids is excluded_root_ids
+    assert compiler.retained_buffer_count == len(ENCODED_DIRECT_BUFFER_ORDER) + 1 == 12
+    assert compiler.state == "finished"
+
+
+@pytest.mark.parametrize(
+    "postings",
+    [
+        b"\x01\x00",
+        (0).to_bytes(4, "little"),
+        (6).to_bytes(4, "little"),
+        (2).to_bytes(4, "little") * 2,
+        (2).to_bytes(4, "little") + (1).to_bytes(4, "little"),
+    ],
+    ids=["partial", "zero", "out-of-range", "duplicate", "descending"],
+)
+def test_direct_excluded_root_posting_rejects_malformed_rows_before_output(
+    postings: bytes,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "SubClassOf(:A :B) SubClassOf(:B :C)"
+        )
+    )
+    compiler = prepare_native_encoded_direct(
+        lease,
+        excluded_root_ids=memoryview(postings),
+    )
+
+    with pytest.raises(SnapshotCompatibilityError, match=r"excluded[_-]root"):
+        compiler.compile_batch(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024 * 1024,
+        )
+    assert compiler.state == "failed"
+
+
+@pytest.mark.parametrize(
+    "postings",
+    [
+        memoryview(b"x" + (1).to_bytes(4, "little"))[1:],
+        memoryview(bytearray((1).to_bytes(4, "little"))).toreadonly(),
+    ],
+    ids=["sliced-bytes", "mutable-exporter"],
+)
+def test_direct_excluded_root_posting_requires_one_complete_immutable_exporter(
+    postings: memoryview,
+) -> None:
+    lease = _lease(
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) "
+            "SubClassOf(:A :B)"
+        )
+    )
+
+    with pytest.raises(NativeEncodedDirectUnsupported):
+        prepare_native_encoded_direct(
+            lease,
+            excluded_root_ids=postings,
+        )
+
+
 def test_many_axioms_cross_one_bounded_call_and_limit_failure_publishes_nothing() -> None:
     axioms = " ".join(f"SubClassOf(:C{index} :Top)" for index in range(250))
     lease = _lease(_snapshot(axioms))
