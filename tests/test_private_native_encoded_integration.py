@@ -3248,6 +3248,175 @@ def test_hidden_iterator_compiles_one_named_local_object_property_assertion(
     )
 
 
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    "local_property",
+    [":p", "ObjectInverseOf(:p)"],
+    ids=["named-property", "inverse-property"],
+)
+@pytest.mark.parametrize(
+    ("removed_sources", "only_taxonomy", "expected_sources"),
+    [
+        (frozenset(), False, ("A", "C")),
+        (frozenset({"C"}), False, ("A",)),
+        (frozenset({"A", "C"}), False, ()),
+        (frozenset(), True, ("A", "C")),
+    ],
+    ids=["base-all", "base-exclude", "base-exclude-all", "only-taxonomy"],
+)
+def test_hidden_iterator_compiles_one_silent_local_negative_object_assertion(
+    provider_backend: pyowl_core.BackendPreference,
+    local_property: str,
+    removed_sources: frozenset[str],
+    only_taxonomy: bool,
+    expected_sources: tuple[str, ...],
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:C :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed = {
+        axiom
+        for axiom in base.iter_axioms()
+        if cast(Any, axiom).sub_class.iri.value.rsplit("#", 1)[-1] in removed_sources
+    }
+    assert len(removed) == len(removed_sources)
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            f"NegativeObjectPropertyAssertion({local_property} :i :j)",
+            backend=provider_backend,
+        ),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
+    base_segment = cast(Any, top_encoded.segments[0])
+    delta_segment = cast(Any, top_encoded.segments[1])
+    assert base_segment.posting_mode == (2 if removed else 0)
+    assert base_segment.root_ids.nbytes == 4 * len(removed)
+    assert delta_segment.posting_mode == 0
+    assert delta_segment.root_ids.nbytes == 0
+    source_encoded = base_segment.source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
+
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        only_taxonomy=only_taxonomy,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "silent local NegativeObjectPropertyAssertion reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    expected_edges = [
+        Edge(
+            f"urn:native-integration#{source}",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        for source in expected_sources
+    ]
+    assert actual == expected == expected_edges
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.view is overlay
+    assert compilation.lease.owner is base
+    assert compilation.local_delta_lease is compilation.container_leases[0]
+    assert compilation.local_delta_lease is not None
+    assert compilation.local_delta_lease.owner is overlay
+    assert compilation.excluded_root_ids is (
+        base_segment.root_ids if removed else None
+    )
+    assert compilation.native_statistics.roots == len(expected_sources) + 1
+    assert compilation.native_statistics.subclasses == len(expected_sources)
+    assert compilation.native_statistics.negative_object_property_assertions == 1
+    assert compilation.native_statistics.skipped_axioms == 1
+    assert compilation.native_statistics.edges == len(expected_edges)
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22 + int(bool(removed))
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 3
+    assert ingestion.counters["encoded_posting_bytes"] == 4 * len(removed)
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
 def test_one_root_local_overlay_requires_exact_base_posting_identity() -> None:
     base = cast(
         pyowl_core.OntologyView,
@@ -3378,9 +3547,7 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         (
             "SubClassOf(:B ObjectSomeValuesFrom("
             ":p ObjectIntersectionOf(:C :D)))",
-            "bounded local-overlay root must be one unannotated Declaration, "
-            "supported named SubClassOf, named ClassAssertion, or named "
-            "ObjectPropertyAssertion axiom",
+            "bounded local-overlay root must be one unannotated Declaration",
         ),
         (
             'ClassAssertion(Annotation(:label "x") :B :i)',
@@ -3388,15 +3555,11 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         ),
         (
             "ClassAssertion(:B _:anonymous)",
-            "bounded local-overlay root must be one unannotated Declaration, "
-            "supported named SubClassOf, named ClassAssertion, or named "
-            "ObjectPropertyAssertion axiom",
+            "bounded local-overlay root must be one unannotated Declaration",
         ),
         (
             "ClassAssertion(ObjectSomeValuesFrom(:p :B) :i)",
-            "bounded local-overlay root must be one unannotated Declaration, "
-            "supported named SubClassOf, named ClassAssertion, or named "
-            "ObjectPropertyAssertion axiom",
+            "bounded local-overlay root must be one unannotated Declaration",
         ),
         (
             'ObjectPropertyAssertion(Annotation(:label "x") :p :i :j)',
@@ -3406,6 +3569,16 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
             "ObjectPropertyAssertion(:p _:anonymous :j)",
             "bounded local-overlay ObjectPropertyAssertion root requires a named "
             "property and named individuals",
+        ),
+        (
+            'NegativeObjectPropertyAssertion(Annotation(:label "x") :p :i :j)',
+            "bounded local-overlay NegativeObjectPropertyAssertion root must be "
+            "unannotated",
+        ),
+        (
+            "NegativeObjectPropertyAssertion(:p _:anonymous :j)",
+            "bounded local-overlay NegativeObjectPropertyAssertion root requires "
+            "named individuals",
         ),
         (
             'Declaration(Annotation(:label "x") Class(:D))',
@@ -3421,6 +3594,8 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         "complex-local-class-assertion",
         "annotated-local-object-property-assertion",
         "anonymous-local-object-property-assertion",
+        "annotated-local-negative-object-property-assertion",
+        "anonymous-local-negative-object-property-assertion",
         "annotated-local-declaration",
     ],
 )
