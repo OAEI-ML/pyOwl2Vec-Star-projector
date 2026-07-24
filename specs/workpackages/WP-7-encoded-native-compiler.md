@@ -140,7 +140,7 @@ reports 22 retained structural buffers, 12 native inputs including the posting e
 posting bytes, and zero selection indexing, flattening, staging, scalar materialization, or
 per-row FFI. Multiple `EXCLUDE` layers, `INCLUDE`/composite selection,
 annotation-sensitive aliases, mmap, and public selection remain open.
-Kernels v48–v66 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
+Kernels v48–v67 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
 `ALL` or one exact `EXCLUDE` table, while the `ALL` delta may contain exactly one unannotated
 named-to-named `SubClassOf`, supported named-role Some/All/Min/Max restriction `SubClassOf`, named
 entity `Declaration`, named-class/named-individual `ClassAssertion`, or named-property/named-
@@ -152,11 +152,13 @@ a canonical binary or ternary named-property `EquivalentDataProperties` or
 class-expression envelope, a named-property `DataPropertyRange` over the existing recursive
 data-range envelope, a named `FunctionalDataProperty`, or a named-to-recursive-range
 `DatatypeDefinition`, a `HasKey` over the existing recursive class-expression envelope and
-canonical named/inverse-object and named-data-property sets, or a canonical binary or ternary
-named-individual `SameIndividual` or `DifferentIndividuals` set. The canonical merger derives one
-insertion scalar without flattening or indexing either table; unsupported, annotated, anonymous,
-multi-root, nested, or literal-emitting local shapes retain whole-operation fallback or typed
-pre-output rejection.
+canonical named/inverse-object and named-data-property sets, a canonical binary or ternary
+named-individual `SameIndividual` or `DifferentIndividuals` set, a canonical binary or ternary
+named/inverse-object-property `EquivalentObjectProperties` or `DisjointObjectProperties` set, or
+one of the seven unary object-property characteristic axioms over a named or inverse named
+object-property expression. The canonical merger derives one insertion scalar without flattening
+or indexing either table; unsupported, annotated, anonymous, multi-root, nested, or
+literal-emitting local shapes retain whole-operation fallback or typed pre-output rejection.
 Kernel v52 inserts the local `ClassAssertion` in the scalar class-assertion phase.
 Kernel v53 inserts the local positive object assertion in the scalar object-assertion phase and
 fails closed with a typed reference error for an inverse local property before output. Both
@@ -188,6 +190,12 @@ individual-set validation, transaction, and diagnostic rules.
 Kernel v66 admits a local `HasKey`, validates its recursive class expression and canonical
 object/data property sets with at least one property total, and applies the same silent-root
 transaction and diagnostic rules.
+Kernel v67 admits local `EquivalentObjectProperties`, `DisjointObjectProperties`,
+`FunctionalObjectProperty`, `InverseFunctionalObjectProperty`, `ReflexiveObjectProperty`,
+`IrreflexiveObjectProperty`, `SymmetricObjectProperty`, `AsymmetricObjectProperty`, and
+`TransitiveObjectProperty` through one exact classifier and silent-root transaction. It validates
+canonical binary or ternary property sets and named or inverse named property expressions, and
+preserves the exact constructor count under normal, taxonomy-only, and asserted-taxonomy modes.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
