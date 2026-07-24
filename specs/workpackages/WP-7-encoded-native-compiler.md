@@ -94,6 +94,13 @@ Harness revision `5ac8ef3` adds independent hidden iterator, sink, digest, and a
 surfaces. It hash-binds the surface and consumer metrics, records observable iterator/sink
 time-to-first output, and marks aggregate digest/artifact first-edge latency unavailable. The exact
 installed-payload smoke is not corpus-scale, threshold, or public-acceptance evidence.
+Lifecycle-test revision `de12687` moves an active hidden iterator between threads, proves
+concurrent isolated-mode reuse of one `Projector`, independently drains the copied quiescent cursor
+in parent and child after POSIX fork, and retains an unfinished cursor through normal interpreter
+shutdown. The exact installed-wheel checkpoint also reruns the existing owner-lifetime,
+released-GIL cancellation, close/fallback/sink-failure cleanup, panic conversion, and legacy
+shutdown cases. This is focused macOS evidence; multithreaded fork and the full
+platform/interpreter/sanitizer/fuzz matrix remain open.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is

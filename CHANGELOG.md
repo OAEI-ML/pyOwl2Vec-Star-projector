@@ -7,6 +7,12 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden-cursor lifecycle coverage now moves one active iterator from its creating thread to a
+  worker, reuses one isolated-mode `Projector` concurrently, drains independent parent/child
+  copies after a quiescent POSIX fork, and exits cleanly with an unfinished retained cursor during
+  normal interpreter shutdown. Exact installed-wheel evidence retains the existing owner, GIL,
+  cancellation, close, sink-failure, fallback, panic-conversion, and legacy shutdown matrix; the
+  public feature ledger and dispatch remain unchanged.
 - The load-excluded P7 harness now measures explicitly labelled hidden iterator, protocol-sink,
   canonical-digest, and portable-artifact consumers. Consumer metrics and the selected surface are
   hash-bound; iterator/sink time to first output is recorded, while aggregate digest/artifact

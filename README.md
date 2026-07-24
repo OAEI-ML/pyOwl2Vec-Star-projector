@@ -267,6 +267,15 @@ Exact installed-payload smoke evidence is recorded in
 [`reports/p7/evidence/installed-stream-surface-benchmark-checkpoint.json`](reports/p7/evidence/installed-stream-surface-benchmark-checkpoint.json);
 it is not corpus-scale or public-acceptance evidence.
 
+The hidden cursor's focused lifecycle matrix is recorded in
+[`reports/p7/evidence/installed-lifecycle-safety-checkpoint.json`](reports/p7/evidence/installed-lifecycle-safety-checkpoint.json).
+Against the isolated installed wheels it covers iterator handoff to another thread, concurrent
+isolated-mode calls on one `Projector`, independent parent/child draining after a quiescent POSIX
+fork, and normal interpreter shutdown with an unfinished retained cursor. Those cases complement
+the existing owner-lifetime, released-GIL cancellation, close, fallback, sink-failure, and panic
+conversion checks. They are private macOS checkpoint evidence, not a claim about multithreaded
+fork, every platform/interpreter configuration, or public dispatch.
+
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
 Three native calls cover initial role acquisition, later restriction/domain/range consumption, and

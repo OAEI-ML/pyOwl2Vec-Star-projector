@@ -1258,6 +1258,14 @@ compile-plus-drain counters; its complete counter/core-operation ledgers and loa
 are hash-bound; it remains unable to satisfy public acceptance; and invalid backend, gate, or
 revision combinations fail before ontology loading.
 
+The lifecycle-specific exact-archive cases move an active hidden iterator from its creating thread
+to a worker, submit twelve isolated calls on one `Projector` across four workers, drain eleven
+remaining edges independently in the parent and child after a quiescent POSIX fork, and leave an
+unfinished iterator plus owner retained through clean normal interpreter shutdown. The focused
+installed matrix also reruns owner/exporter lifetime, released-GIL concurrent cancellation,
+close/sink-failure/fallback cleanup, panic conversion, and legacy native shutdown. This proves the
+focused macOS cases, not multithreaded-fork or cross-platform/interpreter acceptance.
+
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
 
@@ -1270,7 +1278,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | Bounded batches without per-row FFI | The hidden iterator's Rust and Python outputs are caller-bounded, start with zero emission attempts, use one PyO3 entry per batch, preserve exact order, and report compiled/vector/peak counters. Each final bounded `Edge` tuple is allocated as the exact canonical slotted type through the stable ABI and its layout, canonical identity marker, three string fields, exact type, and distinct identity are validated before cursor commit. There is no intermediate Python tuple-edge list and no Python `Edge` factory or constructor callback; each edge still requires one Python object and three Python Unicode field objects. The 60-field statistics result and eight-slot batch iterator are likewise allocated directly without argument tuples or Python factory/constructor callbacks. The legacy private coarse call must still return one whole Python list, but builds and validates its final `Edge` objects through 256-edge native chunks with no complete Rust output vector or intermediate complete tuple-edge list. Hidden Projector sink/digest/artifact integration is exact-wheel proven through the existing policy machinery; ordinary public iterator/sink/digest/artifact selection remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. Explicitly hidden named-edge iterator, sink, digest, and artifact adapters select the private kernel and report its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
-| Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, exact retry after malformed/replaced factory identities, payload corruption, allocation-probe failure, or edge/statistics/iterator-layout mutation, complete coarse edge/statistics validation, canonical-constructor mutation across post-native wrapper checks, direct final-object allocation and result validation, hidden iterator close/cancel/fallback/resource tests, and Projector-level sink-failure cancellation pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
+| Lifetime/GIL/cancel/failure safety | Focused private bytes-path, owner lifetime, released-GIL concurrent cancellation, active-cursor thread handoff, isolated re-entrancy, Scala-instance exclusion, batch close/collection/sink-failure/fallback cleanup, state atomicity, panic conversion, a quiescent POSIX fork, and normal shutdown with an unfinished cursor pass against the installed wheels. Exact retry after malformed/replaced factory identities, payload corruption, allocation-probe failure, edge/statistics/iterator-layout mutation, and direct final-object validation also pass. Multithreaded-fork, cross-platform/free-threaded/subinterpreter, fuzz, and sanitizer acceptance remain open |
 | Zero forbidden-work ledger | Reported by the successful hidden exact named-edge candidate; no public production-path claim |
 | Corpus performance/RSS gates | Private load-excluded harness now independently measures iterator/sink/digest/artifact consumers and binds each surface, its consumer metrics, exact ledgers, runtime artifacts, and revisions. The packaged-fixture smoke passes; installed NCIT/DOID/GO/large-corpus measurements and thresholds remain open |
 | Exact shared-stack acceptance | Open for this kernel |
@@ -1289,7 +1297,9 @@ Public `auto` and explicit native negotiation remain unchanged. Before advertisi
    time-to-first-output evidence;
 3. safe no-copy direct/mmap/overlay/composite ownership and segment traversal;
 4. production provenance wired only after it describes actual Rust work;
-5. full oracle/generated/hostile/fuzz/sanitizer/thread/fork/shutdown/platform verification;
+5. extend the focused thread/quiescent-fork/shutdown results to full
+   oracle/generated/hostile/fuzz/sanitizer/platform/free-threaded/subinterpreter verification,
+   including the supported fork policy;
 6. labelled NCIT, DOID, GO, million-axiom, licensed-corpus, RSS, and copy evidence; and
 7. Exact-OM shared-stack and release packaging/SBOM/compatibility review.
 

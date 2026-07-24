@@ -352,6 +352,14 @@ shutdown, and panic conversion. Rust MUST release the GIL without Python callbac
 count-derived allocations before growth. Failure before or during streaming MUST publish no
 cache/artifact and MUST clean private spill resources under the existing P4 rules.
 
+The private kernel-v46 checkpoint covers these categories with focused installed-wheel cases:
+owner/exporter lifetime, released-GIL concurrent cancellation, isolated re-entrancy, active-cursor
+thread handoff, `scala-instance` exclusion and cleanup, close/fallback/sink-failure cancellation,
+panic conversion, a quiescent POSIX fork, and normal shutdown with an unfinished retained cursor.
+The fork result proves independent copy-on-write continuation only; it does not permit sharing a
+cursor between processes or claim safety for forking a multithreaded process. Cross-platform,
+free-threaded, subinterpreter, sanitizer, and fuzz acceptance remain open.
+
 A copied structural column is allowed only for a measured alignment/ownership need and MUST be
 reported by byte count. Accepted direct and mmap retained-native views MUST have zero
 ontology-sized staging copy. Every completed production encoded projection MUST publish the selected path, monotonic public-view

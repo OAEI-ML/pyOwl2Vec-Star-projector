@@ -1,0 +1,167 @@
+{
+  "schema": "pyowl-projector.p7-installed-lifecycle-safety-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector_lifecycle_tests": "de12687187bcac3c8b264ac99783174ebc7eaf52",
+    "projector_product_payload": "e531a02c5526a60b1d488dd835977394f3c50a9e"
+  },
+  "product_source_equivalence": {
+    "compared_paths": [
+      "_build_backend.py",
+      "MANIFEST.in",
+      "native",
+      "pyproject.toml",
+      "setup.py",
+      "src"
+    ],
+    "diff_empty": true,
+    "src_tree": "c2954da7e267f0d4ef68945c54d699ab8db7a8f2",
+    "native_tree": "25071886d819b0987d38a93f5dcd657084154403"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-de12687.tar",
+      "bytes": 3891200,
+      "sha256": "c0072a2f89b1a20fa21910f46dd446b8a7a571914b19c330aa45ee6f34acfbd2"
+    },
+    "lifecycle_contract_test": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 82389,
+      "sha256": "fdaae01b12766b8ead4a8845c96941fcbc6a30f64555ed5ba4792d16b494c0bd"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 470036,
+      "sha256": "291fd105ad25e75b81e518284a92cd9ec4635999543b2e333e42a6c3a6313fb0",
+      "record_sha256": "b6634fe445d23d4a18e9f47c95974d5451f654d87dd835d585b27c9881285d7f"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "b3d6672daf52dde6a60091f28ac4c982b9ce366112c41732af436cf48b3b0dbf"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 807628,
+      "sha256": "f44fa3de535019e8506fa8e90a3b89fa6fa834e588ae8f5fb9636e5198383660",
+      "encoded_direct_kernel_version": 46,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_projector_api": {
+      "filename": "pyowl2vec_star_projector/api.py",
+      "bytes": 49949,
+      "sha256": "ffcf641734b07cedae4a800b38d8e03d2b939614f21b4c7ba59f4e5d1b2dbdd9"
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 60531,
+      "sha256": "108b6be5ad79b6349b89cbf670b102ba91de039a40368bbfded4893ee26b9811"
+    },
+    "installed_projector_artifact": {
+      "filename": "pyowl2vec_star_projector/artifact.py",
+      "bytes": 18436,
+      "sha256": "e99a721a5dbbab153e04718919b20c65fb3031a7c0a64b651fce7f4fe79dc73f"
+    }
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "os_fork_available": true,
+    "installed_product_runtime_reused": true,
+    "runtime_install_no_deps": true,
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 46,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_iterator_ingestion": "scalar-native",
+    "ordinary_native_iterator_native_counters": 0
+  },
+  "installed_verification": {
+    "new_lifecycle_cases": "4 passed",
+    "focused_lifecycle_matrix": "15 passed",
+    "complete_suite_result": "1170 passed",
+    "cases": {
+      "iterator_thread_handoff": {
+        "scalar_parity": true,
+        "compiled_edges": 12,
+        "native_edge_batches": 4,
+        "native_batch_edges": 3,
+        "native_peak_buffered_edges": 3,
+        "first_consumer": "main-thread",
+        "remaining_consumer": "worker-thread",
+        "ingestion_path": "encoded-native"
+      },
+      "isolated_projector_reentrancy": {
+        "scalar_parity": true,
+        "projector_instances": 1,
+        "submitted_calls": 12,
+        "worker_threads": 4,
+        "compatibility_state": "isolated"
+      },
+      "quiescent_fork_independence": {
+        "scalar_parity": true,
+        "cursor_active_before_fork": true,
+        "edges_consumed_before_fork": 1,
+        "remaining_parent_edges": 11,
+        "remaining_child_edges": 11,
+        "child_exit_code": 0,
+        "parent_ingestion_path": "encoded-native"
+      },
+      "interpreter_shutdown": {
+        "cursor_active_at_normal_shutdown": true,
+        "iterator_retained": true,
+        "projector_retained": true,
+        "subprocess_exit_code": 0
+      },
+      "existing_safety_matrix": {
+        "owner_and_exact_bytes_lifetime": true,
+        "detached_work_releases_gil": true,
+        "concurrent_cancellation": true,
+        "scala_instance_overlap_rejected": true,
+        "iterator_close_and_sink_failure_cleanup": true,
+        "declined_session_cleanup": true,
+        "panic_and_allocation_error_conversion": true,
+        "legacy_native_shutdown": true
+      }
+    }
+  },
+  "source_verification": {
+    "complete_suite_cases": 1170,
+    "rust_unit_cases": 38,
+    "ruff": "passed",
+    "mypy_source_and_benchmark": "passed",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "An exact source archive running against the isolated installed core and projector wheels now proves hidden-cursor movement from the creating thread to a worker, concurrent isolated-mode reuse of one Projector, independent parent and child draining of a quiescent cursor copied across fork, and clean normal interpreter shutdown with an unfinished retained cursor. The complete installed suite also retains the existing owner-lifetime, released-GIL cancellation, close, sink-failure, fallback-cleanup, panic-conversion, and legacy shutdown cases.",
+  "known_blockers": [
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "Fork evidence is a quiescent POSIX/macOS copy-on-write case; it does not claim safety for forking a multithreaded process or sharing a live cursor between processes.",
+    "The focused lifecycle matrix is not yet a cross-platform, free-threaded CPython, subinterpreter, sanitizer, or fuzz campaign.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Corpus-scale throughput, RSS, platform-wheel, SBOM, Exact shared-stack, and public release acceptance remain open."
+  ],
+  "limitations": [
+    "This is a private lifecycle-correctness checkpoint; it carries no timing, throughput, RSS, public-dispatch, or release claim.",
+    "The installed product wheel from e531a02 was reused because the complete package/native/build input tree is identical at lifecycle-test revision de12687.",
+    "The test runner loaded pytest from the source/tool environment while both product packages resolved from the isolated installed-wheel runtime.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}
