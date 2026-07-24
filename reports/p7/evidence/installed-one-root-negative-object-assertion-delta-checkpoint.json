@@ -1,0 +1,338 @@
+{
+  "schema": "pyowl-projector.p7-installed-one-root-negative-object-assertion-delta-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "a9c3b033f7282984d1302a4fd7ff1d3b75f6ca81"
+  },
+  "source_archive": {
+    "filename": "projector-a9c3b03.tar",
+    "bytes": 4423680,
+    "sha256": "9d29e3601234c67b496b94a5ea878e037393341b6036f14a7342e382e0f5a16f",
+    "tree": "aecaa95812fd07d7b7b3b4b52ab9d551a9a489ea"
+  },
+  "source_trees": {
+    "src": "dc97a03a70c24824ee0ae9ca32e626f868e41107",
+    "native": "2a8e9828c7aa400e28f63594a32fd0451e1e8e30",
+    "integration_test": "decc17e4155caca08b90976765701611deaadfa1",
+    "benchmark_test": "31c2813b95944df7026f23abe25105ce7bf60e8a"
+  },
+  "artifacts": {
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 498591,
+      "sha256": "b86d80443b24eace5103f7c3c53b2f3fa20a3a05187147f8355370c2e51ebac3",
+      "record_bytes": 2990,
+      "record_sha256": "3958ae0938b871fd32539a099079db80380b1c83cb1381095c28b5b937060a58",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "1dfa1dbf331d9be8d7b3e9632df0324650f9f7bff096a9be27fccf1c6343159a"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "f2228e6e7c44cce8d4f8d2a332087567d504b41feb2b44bee1c963c95d5f102a"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 857004,
+      "sha256": "38d7d2587bc2246e0992179687b4db062ff80f10f044a85641fbfe81ccbd82c1",
+      "encoded_direct_kernel_version": 54,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_encoded_adapter": {
+      "filename": "pyowl2vec_star_projector/encoded.py",
+      "bytes": 45171,
+      "sha256": "6c4e0ec4e1d270b12caacbf793132970843657b7b3d9e449f74c57272b23aba5"
+    },
+    "installed_native_adapter": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 66670,
+      "sha256": "0654154ef784450c6d619a5b46a999d36883a37b158d87e057a2004fc6f0c277"
+    },
+    "integration_test": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 176636,
+      "sha256": "2132450b814e5ef03ed90ea25a0e7a5bec7467c41367fbefffc5a927427056d8"
+    },
+    "benchmark_test": {
+      "filename": "tests/test_encoded_benchmark.py",
+      "bytes": 16734,
+      "sha256": "f820e09ecdac371d7ca3f502cd3087f1b7f04a67d757781429e873047c3cf306"
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "source_date_epoch": 1784895095,
+    "native_binary_transplanted": false,
+    "runtime_install_no_index": true,
+    "runtime_install_no_deps": true,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "setuptools_rust": "1.13.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true
+  },
+  "supported_slice": {
+    "top_manifest_roles": [
+      "OVERLAY_BASE",
+      "OVERLAY_DELTA"
+    ],
+    "top_manifest_segment_count": 2,
+    "base_posting_modes": [
+      "ALL",
+      "one nonempty EXCLUDE"
+    ],
+    "delta_posting_mode": "ALL",
+    "top_local_root_count": 1,
+    "top_local_root_shape": "one unannotated NegativeObjectPropertyAssertion with named source/destination individuals and a named or inverse named property",
+    "projection_behavior": "validated silent skipped root with no edge",
+    "only_taxonomy_behavior": "retains the negative-object-property-assertion count and one skipped axiom",
+    "asserted_taxonomy_behavior": "retains the negative-object-property-assertion count and suppresses the skipped-axiom diagnostic",
+    "top_local_anonymous_scope_map": "empty",
+    "top_local_member_tokens": "absent",
+    "referenced_source": "same-scope fully-revalidated exact-direct view",
+    "referenced_source_segment_count": 1,
+    "manifest_identity": "base and local-delta owners, sources, roles, optional exact posting exporter, postings, and descriptors rebound at the Rust seam",
+    "native_input": "eleven referenced-source buffers, eleven top-local buffers, and the optional exact base EXCLUDE posting exporter",
+    "retained_owners": "referenced source and top overlay",
+    "canonical_merge_result": "one scalar canonical insertion position and one validated silent local root; no emitting delta record retained",
+    "canonical_root_index": "not constructed",
+    "limits": [
+      "top-owner-max-overlay-depth",
+      "top-owner-max-canonical-work",
+      "top-owner-max-index-bytes",
+      "caller-max-edges"
+    ],
+    "provider_layouts": [
+      "independent-bytes",
+      "packed-bytes"
+    ],
+    "property_layouts": [
+      "named",
+      "inverse-named"
+    ]
+  },
+  "result": {
+    "passed": true,
+    "successful_negative_object_property_assertion_matrix_cases": 16,
+    "adjacent_fallback_cases": 11,
+    "installed_probe_provider_mode_executions": 16,
+    "ordered_edge_and_report_parity_every_case": true,
+    "ingestion_path_every_supported_case": "encoded-native",
+    "representative_named_top_local_buffer_bytes": 423,
+    "representative_inverse_top_local_buffer_bytes": 450,
+    "representative_referenced_source_buffer_bytes": 442,
+    "representative_named_encoded_buffer_bytes": 865,
+    "representative_inverse_encoded_buffer_bytes": 892,
+    "encoded_buffer_count": 22,
+    "encoded_detached_buffer_count_with_exclusion": 23,
+    "encoded_zero_copy_buffers": 22,
+    "encoded_referenced_view_count": 1,
+    "encoded_segment_count": 3,
+    "encoded_indexed_buffer_count": 0,
+    "base_flattening_bytes": 0,
+    "encoded_staging_copy_bytes": 0,
+    "structural_copy_bytes": 0,
+    "scalar_axiom_materializations": 0,
+    "scalar_term_materializations": 0,
+    "per_row_ffi_calls": 0,
+    "native_output_vector_edges": 0,
+    "native_retained_buffer_count_with_exclusion": 23,
+    "all_base_named_property_probe": {
+      "base_root_count": 2,
+      "selected_base_root_count": 2,
+      "local_negative_object_property_assertion_root_count": 1,
+      "ordered_edges": [
+        [
+          "urn:native-integration#A",
+          "http://subclassof",
+          "urn:native-integration#Top"
+        ],
+        [
+          "urn:native-integration#C",
+          "http://subclassof",
+          "urn:native-integration#Top"
+        ]
+      ],
+      "statistics": {
+        "roots": 3,
+        "nodes": 15,
+        "subclasses": 2,
+        "negative_object_property_assertions": 1,
+        "skipped_axioms": 1,
+        "edges": 2,
+        "buffer_bytes": 865
+      },
+      "encoded_posting_bytes": 0,
+      "native_compiled_edges": 2,
+      "native_batch_edges": 1,
+      "native_edge_batches": 2,
+      "native_boundary_calls": 3,
+      "native_peak_buffered_edges": 1
+    },
+    "partial_exclusion_named_property_probe": {
+      "base_root_count": 2,
+      "excluded_base_root_count": 1,
+      "selected_base_root_count": 1,
+      "local_negative_object_property_assertion_root_count": 1,
+      "ordered_edges": [
+        [
+          "urn:native-integration#A",
+          "http://subclassof",
+          "urn:native-integration#Top"
+        ]
+      ],
+      "statistics": {
+        "roots": 2,
+        "nodes": 15,
+        "subclasses": 1,
+        "negative_object_property_assertions": 1,
+        "skipped_axioms": 1,
+        "edges": 1,
+        "buffer_bytes": 865
+      },
+      "encoded_posting_bytes": 4,
+      "native_compiled_edges": 1,
+      "native_batch_edges": 1,
+      "native_edge_batches": 1,
+      "native_boundary_calls": 2,
+      "native_peak_buffered_edges": 1
+    },
+    "exclude_all_base_named_property_probe": {
+      "base_root_count": 2,
+      "excluded_base_root_count": 2,
+      "selected_base_root_count": 0,
+      "local_negative_object_property_assertion_root_count": 1,
+      "ordered_edges": [],
+      "statistics": {
+        "roots": 1,
+        "nodes": 15,
+        "subclasses": 0,
+        "negative_object_property_assertions": 1,
+        "skipped_axioms": 1,
+        "edges": 0,
+        "buffer_bytes": 865
+      },
+      "encoded_posting_bytes": 8,
+      "native_compiled_edges": 0,
+      "native_batch_edges": 1,
+      "native_edge_batches": 0,
+      "native_boundary_calls": 1,
+      "native_peak_buffered_edges": 0
+    },
+    "only_taxonomy_named_property_probe": {
+      "statistics": {
+        "roots": 3,
+        "nodes": 15,
+        "subclasses": 2,
+        "negative_object_property_assertions": 1,
+        "skipped_axioms": 1,
+        "edges": 2,
+        "buffer_bytes": 865
+      },
+      "encoded_posting_bytes": 0,
+      "native_compiled_edges": 2,
+      "native_edge_batches": 2,
+      "native_boundary_calls": 3,
+      "native_peak_buffered_edges": 1
+    },
+    "inverse_property_probe": {
+      "accepted_as_silent_skip": true,
+      "top_local_buffer_bytes": 450,
+      "encoded_buffer_bytes": 892,
+      "nodes": 16,
+      "negative_object_property_assertions": 1,
+      "skipped_axioms": 1,
+      "edges_match_named_property_case": true
+    },
+    "asserted_taxonomy_probe": {
+      "negative_object_property_assertions": 1,
+      "skipped_axioms": 0,
+      "native_edge_emission_attempts_before_drain": 0
+    },
+    "whole_call_fallback_cases": [
+      "multiple local roots",
+      "annotated local restriction",
+      "complex local restriction filler",
+      "annotated local ClassAssertion",
+      "anonymous-individual local ClassAssertion",
+      "complex-class local ClassAssertion",
+      "annotated local ObjectPropertyAssertion",
+      "anonymous-individual local ObjectPropertyAssertion",
+      "annotated local NegativeObjectPropertyAssertion",
+      "anonymous-individual local NegativeObjectPropertyAssertion",
+      "annotated local declaration",
+      "literal-sensitive projection"
+    ],
+    "fallback_native_compiled_edges": 0,
+    "silent_root_retains_no_emitting_delta_record": true,
+    "cursor_publish_is_transactional": true,
+    "duplicate_local_base_identity_rejected_before_output": true,
+    "caller_edge_bound_checked_before_output": true
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 54,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_projection_ingestion": "scalar-native",
+    "ordinary_native_projection_native_counter_total": 0
+  },
+  "verification": {
+    "independent_implementation_review": "approved",
+    "installed_smoke": "passed",
+    "exact_archive_complete_suite": "1333 passed",
+    "exact_archive_private_native_integration": "201 passed",
+    "exact_archive_focused_negative_object_assertion_and_fallback_cases": "27 passed, 174 deselected",
+    "exact_archive_benchmark_cases": "15 passed",
+    "installed_both_layout_probe": "passed; identical named/inverse-property ALL, partial/complete exclusion, and taxonomy-only results per provider",
+    "source_complete_suite": "1333 passed",
+    "source_private_native_integration": "201 passed",
+    "source_benchmark_cases": "15 passed",
+    "ruff": "passed",
+    "mypy_source": "passed; 17 source files",
+    "rust_unit_cases": 60,
+    "rust_test_features": "no-default-features",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed",
+    "runtime_dependency_boundary": "passed",
+    "native_wheel_audit": "passed; 30 members"
+  },
+  "closed_gap": "The hidden Rust cursor now admits one unannotated local NegativeObjectPropertyAssertion over named individuals and a named or inverse named property, validates and canonical-merges it as a silent skipped root over an ALL or exact EXCLUDE base, preserves option-specific counts and diagnostics, and retains no emitting delta record.",
+  "known_blockers": [
+    "A second local root, another local logical axiom, an annotated or anonymous-individual local negative object assertion, duplicate local/base identity, literal-sensitive projection, retained Scala-instance state, and every nested local delta remain on whole-operation fallback or typed rejection.",
+    "Local data-property assertions and the remaining local axiom families are not yet admitted by this bounded delta slice.",
+    "Local deletion, anonymous-scope remapping, INCLUDE selection, multiple EXCLUDE layers, composites, mmap, arbitrary slices, and other segmented providers remain unsupported by this Rust slice.",
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "Independent Scala-oracle, corpus-scale throughput/RSS, sanitizer/fuzz, platform-wheel, SBOM, Exact shared-stack, and release acceptance remain open."
+  ],
+  "limitations": [
+    "This is focused private correctness evidence; it carries no timing, throughput, RSS, corpus, general segmented-provider, public-dispatch, or release claim.",
+    "The source-built wheel skipped build-dependency checking because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}
