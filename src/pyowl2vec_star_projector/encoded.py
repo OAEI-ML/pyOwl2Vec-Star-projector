@@ -13,7 +13,7 @@ import importlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
+from typing import Any, Literal, cast
 
 from .errors import SnapshotCompatibilityError
 from .provenance import IngestionPath
@@ -262,6 +262,61 @@ def _acquire_root_encoded_lease(
             details={"cause": type(error).__name__},
         ) from error
     return _validate_encoded_view(source_view, encoded, encoded_type, root_scope)
+
+
+def _resolve_private_empty_overlay_alias(
+    lease: EncodedStructuralLease,
+) -> EncodedStructuralLease | None:
+    """Resolve one canonical empty overlay to its retained direct source.
+
+    This is intentionally narrower than general segment traversal.  It admits
+    only a one-segment OVERLAY_BASE/ALL manifest whose local column table is
+    canonically empty and whose anonymous-scope/posting tables are empty.
+    """
+
+    if type(lease) is not EncodedStructuralLease or len(lease.segments) != 1:
+        return None
+    segment = cast(Any, lease.segments[0])
+    try:
+        role = segment.role
+        owner = segment.owner
+        source = segment.source
+        posting_mode = segment.posting_mode
+        root_ids = segment.root_ids
+        anonymous_scope_map = segment.anonymous_scope_map
+        member_token = segment.member_token
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "core encoded overlay alias metadata is not readable"
+        ) from error
+    if (
+        type(role) is not int
+        or role != _SEGMENT_OVERLAY_BASE
+        or source is None
+        or owner is not getattr(source, "owner", _MISSING)
+        or type(posting_mode) is not int
+        or posting_mode != _POSTINGS_ALL
+        or type(root_ids) is not memoryview
+        or root_ids.nbytes
+        or type(anonymous_scope_map) is not memoryview
+        or anonymous_scope_map.nbytes
+        or member_token is not None
+    ):
+        return None
+    offsets = lease.buffers["node_field_offsets"]
+    if offsets.nbytes != 8 or any(offsets):
+        return None
+    if any(value.nbytes for name, value in lease.buffers.items() if name != "node_field_offsets"):
+        return None
+    source_scope = getattr(source, "scope", _MISSING)
+    if source_scope is not lease.scope:
+        return None
+    return _validate_encoded_view(
+        owner,
+        source,
+        type(lease.encoded_view),
+        source_scope,
+    )
 
 
 def _advertised_schema_version(view: object) -> int | None:

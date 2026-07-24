@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pyowl_core
@@ -23,11 +23,16 @@ from pyowl2vec_star_projector import (
     ProjectionOptions,
     ProjectionResourceError,
     Projector,
+    SnapshotCompatibilityError,
     StreamingLimits,
     probe_native_backend,
 )
 from pyowl2vec_star_projector.compiler import RoleState
-from pyowl2vec_star_projector.encoded import ENCODED_NATIVE_FEATURE
+from pyowl2vec_star_projector.encoded import (
+    ENCODED_NATIVE_FEATURE,
+    EncodedNegotiation,
+    select_private_direct_ingestion,
+)
 from pyowl2vec_star_projector.native import (
     ENCODED_DIRECT_BUFFER_ORDER,
     NativeEncodedDirectBatchIterator,
@@ -2126,6 +2131,223 @@ def test_hidden_iterator_admits_silent_ontology_annotations_and_swrl() -> None:
     assert actual_report.diagnostics == ()
     assert actual_report.provenance.ingestion.path == "encoded-native"
     assert actual_report.provenance.ingestion.counters["native_edge_batches"] == 2
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_compiles_empty_overlay_alias_without_flattening(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)",
+            backend=provider_backend,
+        ),
+    )
+    overlay = pyowl_core.apply_delta(base, pyowl_core.OntologyDelta())
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert len(top_encoded.segments) == 1
+    source_encoded = top_encoded.segments[0].source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("empty overlay alias reached scalar traversal"),
+    ):
+        native_projector = Projector()
+        actual = list(
+            native_projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    actual_report = _completed_report(native_projector)
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#A",
+                "http://subclassof",
+                "urn:native-integration#B",
+            )
+        ]
+    )
+    _assert_semantic_report_parity(expected_report, actual_report)
+    assert native_projector.last_view is overlay
+    ingestion = actual_report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 11
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 2
+    assert ingestion.counters["encoded_posting_bytes"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+def test_hidden_iterator_keeps_edited_overlay_on_whole_call_scalar_fallback() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"),
+    )
+    removed = next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(remove_axioms=cast(Any, {removed})),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(overlay, options=python_options)
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            overlay,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected == []
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.reason.startswith(
+        "private native direct compiler unavailable: "
+        "direct native slice requires the canonical direct segment role"
+    )
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+    assert all(
+        value is False if name == "encoded_compiler_gil_released" else value == 0
+        for name, value in ingestion.counters.items()
+    )
+
+
+def test_hidden_iterator_defers_empty_overlay_root_annotation_provenance() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) "
+            'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "label")'
+        ),
+    )
+    overlay = pyowl_core.apply_delta(base, pyowl_core.OntologyDelta())
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected = Projector().project(overlay, options=python_options)
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            overlay,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.reason.startswith(
+        "private native empty-overlay alias does not support root-scoped annotation provenance"
+    )
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+
+
+def test_hidden_iterator_rejects_invalid_referenced_overlay_source_before_output() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("Declaration(Class(:A)) SubClassOf(:A :Top)"),
+    )
+    overlay = pyowl_core.apply_delta(base, pyowl_core.OntologyDelta())
+    selection = select_private_direct_ingestion(
+        overlay,
+        selected_backend="native",
+    )
+    assert selection.lease is not None
+    source_segment = cast(Any, selection.lease.segments[0])
+    source_encoded = source_segment.source
+    assert source_encoded is not None
+    replacements = dict(source_encoded.buffers)
+    replacements["node_tags"] = memoryview(bytes(replacements["node_tags"])[:-1])
+    invalid_source = replace(
+        source_encoded,
+        buffers=MappingProxyType(replacements),
+    )
+    invalid_segment = replace(source_segment, source=invalid_source)
+    invalid_encoded = replace(
+        cast(Any, selection.lease.encoded_view),
+        segments=(invalid_segment,),
+    )
+    invalid_lease = replace(
+        selection.lease,
+        encoded_view=invalid_encoded,
+        segments=(invalid_segment,),
+    )
+
+    projector = Projector()
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=invalid_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("invalid overlay source reached scalar traversal"),
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match="buffer length is not divisible",
+        ),
+    ):
+        list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=ProjectionOptions(backend="native", order="encounter"),
+                buffer_edges=1,
+            )
+        )
+    assert projector.last_report is None
 
 
 def test_public_iterator_keeps_private_capability_and_dispatch_off(

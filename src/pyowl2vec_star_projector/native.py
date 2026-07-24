@@ -13,7 +13,11 @@ from typing import Any, Protocol, cast
 from .backend import native_runtime_policy_reason
 from .compiler import Compilation, CompileStatistics, RoleState
 from .diagnostics import ProjectionDiagnostic
-from .encoded import EncodedStructuralLease, _acquire_root_encoded_lease
+from .encoded import (
+    EncodedStructuralLease,
+    _acquire_root_encoded_lease,
+    _resolve_private_empty_overlay_alias,
+)
 from .errors import (
     NativeBackendUnavailableError,
     ProjectionError,
@@ -850,6 +854,7 @@ class NativeEncodedDirectCompilation:
 
     view: object
     lease: EncodedStructuralLease
+    container_lease: EncodedStructuralLease | None
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
@@ -902,23 +907,31 @@ class NativeEncodedDirectCompilation:
 
     @property
     def ingestion_counters(self) -> Mapping[str, int | bool]:
-        retained_leases = (self.lease,) + (
-            () if self.root_annotation_lease is None else (self.root_annotation_lease,)
+        retained_leases = (
+            (() if self.container_lease is None else (self.container_lease,))
+            + (self.lease,)
+            + (() if self.root_annotation_lease is None else (self.root_annotation_lease,))
         )
         retained_buffer_count = sum(len(lease.buffers) for lease in retained_leases)
+        detached_buffer_count = len(self.lease.buffers) + (
+            0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers)
+        )
+        retained_buffer_bytes = sum(
+            buffer.nbytes for lease in retained_leases for buffer in lease.buffers.values()
+        )
         retained_subroles = 0 if self.role_state is None else self.role_state.subrole_property_count
         retained_inverses = 0 if self.role_state is None else self.role_state.inverse_property_count
         return MappingProxyType(
             {
                 "base_flattening_bytes": 0,
-                "encoded_buffer_bytes": self.native_statistics.buffer_bytes
-                + self.native_statistics.root_provenance_buffer_bytes,
+                "encoded_buffer_bytes": retained_buffer_bytes,
                 "encoded_buffer_count": retained_buffer_count,
                 "encoded_compiler_gil_released": True,
-                "encoded_detached_buffer_count": retained_buffer_count,
+                "encoded_detached_buffer_count": detached_buffer_count,
                 "encoded_indexed_buffer_count": 0,
                 "encoded_posting_bytes": 0,
-                "encoded_referenced_view_count": int(self.root_annotation_lease is not None),
+                "encoded_referenced_view_count": int(self.container_lease is not None)
+                + int(self.root_annotation_lease is not None),
                 "encoded_segment_count": sum(len(lease.segments) for lease in retained_leases),
                 "encoded_staging_copy_bytes": 0,
                 "encoded_zero_copy_buffers": retained_buffer_count,
@@ -973,8 +986,19 @@ def prepare_native_encoded_compilation(
         raise ProjectionError("isolated native compilation received retained Scala-instance state")
     if cancellation_token is not None:
         cancellation_token.check()
+    container_lease: EncodedStructuralLease | None = None
+    resolved_lease = _resolve_private_empty_overlay_alias(lease)
+    if resolved_lease is not None:
+        container_lease = lease
+        lease = resolved_lease
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
+        if container_lease is not None:
+            return (
+                None,
+                "private native empty-overlay alias does not support "
+                "root-scoped annotation provenance",
+            )
         root_annotation_lease, annotation_fallback_reason = _native_annotation_provenance_selection(
             view,
             lease,
@@ -1074,6 +1098,7 @@ def prepare_native_encoded_compilation(
             NativeEncodedDirectCompilation(
                 view=view,
                 lease=lease,
+                container_lease=container_lease,
                 root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,
