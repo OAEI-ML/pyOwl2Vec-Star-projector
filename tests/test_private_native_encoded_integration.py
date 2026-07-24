@@ -2401,6 +2401,222 @@ def test_hidden_iterator_compiles_one_silent_local_has_key(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize(
+    ("local_body", "statistics_field"),
+    [
+        (
+            "EquivalentObjectProperties(:op ObjectInverseOf(:oq) :or)",
+            "equivalent_object_properties",
+        ),
+        (
+            "DisjointObjectProperties(:op ObjectInverseOf(:oq))",
+            "disjoint_object_properties",
+        ),
+        ("FunctionalObjectProperty(:op)", "functional_object_properties"),
+        (
+            "InverseFunctionalObjectProperty(ObjectInverseOf(:op))",
+            "inverse_functional_object_properties",
+        ),
+        ("ReflexiveObjectProperty(:op)", "reflexive_object_properties"),
+        (
+            "IrreflexiveObjectProperty(ObjectInverseOf(:op))",
+            "irreflexive_object_properties",
+        ),
+        ("SymmetricObjectProperty(:op)", "symmetric_object_properties"),
+        (
+            "AsymmetricObjectProperty(ObjectInverseOf(:op))",
+            "asymmetric_object_properties",
+        ),
+        ("TransitiveObjectProperty(:op)", "transitive_object_properties"),
+    ],
+    ids=[
+        "equivalent-set",
+        "disjoint-set",
+        "functional",
+        "inverse-functional",
+        "reflexive",
+        "irreflexive",
+        "symmetric",
+        "asymmetric",
+        "transitive",
+    ],
+)
+@pytest.mark.parametrize(
+    ("removed_sources", "only_taxonomy", "expected_sources"),
+    [
+        (frozenset(), False, ("A", "C")),
+        (frozenset({"C"}), False, ("A",)),
+        (frozenset({"A", "C"}), False, ()),
+        (frozenset(), True, ("A", "C")),
+    ],
+    ids=["base-all", "base-exclude", "base-exclude-all", "only-taxonomy"],
+)
+def test_hidden_iterator_compiles_one_silent_local_object_property_axiom(
+    provider_backend: pyowl_core.BackendPreference,
+    local_body: str,
+    statistics_field: str,
+    removed_sources: frozenset[str],
+    only_taxonomy: bool,
+    expected_sources: tuple[str, ...],
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:C :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed = {
+        axiom
+        for axiom in base.iter_axioms()
+        if cast(Any, axiom).sub_class.iri.value.rsplit("#", 1)[-1] in removed_sources
+    }
+    assert len(removed) == len(removed_sources)
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(local_body, backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
+    base_segment = cast(Any, top_encoded.segments[0])
+    delta_segment = cast(Any, top_encoded.segments[1])
+    assert base_segment.posting_mode == (2 if removed else 0)
+    assert base_segment.root_ids.nbytes == 4 * len(removed)
+    assert delta_segment.posting_mode == 0
+    assert delta_segment.root_ids.nbytes == 0
+    assert delta_segment.anonymous_scope_map.nbytes == 0
+    source_encoded = base_segment.source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(
+        value.nbytes for value in top_encoded.buffers.values()
+    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        only_taxonomy=only_taxonomy,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "silent local object-property axiom reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    expected_edges = [
+        Edge(
+            f"urn:native-integration#{source}",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        for source in expected_sources
+    ]
+    assert actual == expected == expected_edges
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.view is overlay
+    assert compilation.lease.owner is base
+    assert compilation.local_delta_lease is compilation.container_leases[0]
+    assert compilation.local_delta_lease is not None
+    assert compilation.local_delta_lease.owner is overlay
+    assert compilation.excluded_root_ids is (
+        base_segment.root_ids if removed else None
+    )
+    statistics = compilation.native_statistics
+    assert statistics.roots == len(expected_sources) + 1
+    assert statistics.subclasses == len(expected_sources)
+    assert getattr(statistics, statistics_field) == 1
+    assert (
+        statistics.equivalent_object_properties
+        + statistics.disjoint_object_properties
+        + statistics.functional_object_properties
+        + statistics.inverse_functional_object_properties
+        + statistics.reflexive_object_properties
+        + statistics.irreflexive_object_properties
+        + statistics.symmetric_object_properties
+        + statistics.asymmetric_object_properties
+        + statistics.transitive_object_properties
+        == 1
+    )
+    assert statistics.skipped_axioms == 1
+    assert statistics.edges == len(expected_edges)
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22 + int(bool(removed))
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 3
+    assert ingestion.counters["encoded_posting_bytes"] == 4 * len(removed)
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
 def test_hidden_iterator_compiles_one_named_subclass_overlay_delta_without_flattening(
     provider_backend: pyowl_core.BackendPreference,
 ) -> None:
@@ -5510,6 +5726,52 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
             "bounded local-overlay HasKey root must be unannotated",
         ),
         (
+            'EquivalentObjectProperties(Annotation(:label "x") :p :q)',
+            "bounded local-overlay EquivalentObjectProperties root must be unannotated",
+        ),
+        (
+            'DisjointObjectProperties(Annotation(:label "x") :p :q)',
+            "bounded local-overlay DisjointObjectProperties root must be unannotated",
+        ),
+        (
+            'FunctionalObjectProperty(Annotation(:label "x") :p)',
+            "bounded local-overlay FunctionalObjectProperty root must be unannotated",
+        ),
+        (
+            'InverseFunctionalObjectProperty(Annotation(:label "x") :p)',
+            "bounded local-overlay InverseFunctionalObjectProperty root must be unannotated",
+        ),
+        (
+            'ReflexiveObjectProperty(Annotation(:label "x") :p)',
+            "bounded local-overlay ReflexiveObjectProperty root must be unannotated",
+        ),
+        (
+            'IrreflexiveObjectProperty(Annotation(:label "x") :p)',
+            "bounded local-overlay IrreflexiveObjectProperty root must be unannotated",
+        ),
+        (
+            'SymmetricObjectProperty(Annotation(:label "x") :p)',
+            "bounded local-overlay SymmetricObjectProperty root must be unannotated",
+        ),
+        (
+            'AsymmetricObjectProperty(Annotation(:label "x") :p)',
+            "bounded local-overlay AsymmetricObjectProperty root must be unannotated",
+        ),
+        (
+            'TransitiveObjectProperty(Annotation(:label "x") :p)',
+            "bounded local-overlay TransitiveObjectProperty root must be unannotated",
+        ),
+        (
+            "EquivalentObjectProperties(:p :q :r :s)",
+            "bounded local-overlay EquivalentObjectProperties root requires a canonical "
+            "binary or ternary object-property-expression set",
+        ),
+        (
+            "DisjointObjectProperties(:p :q :r :s)",
+            "bounded local-overlay DisjointObjectProperties root requires a canonical "
+            "binary or ternary object-property-expression set",
+        ),
+        (
             'SameIndividual(Annotation(:label "x") :i :j)',
             "bounded local-overlay SameIndividual root must be unannotated",
         ),
@@ -5563,6 +5825,17 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         "annotated-local-functional-data-property",
         "annotated-local-datatype-definition",
         "annotated-local-has-key",
+        "annotated-local-equivalent-object-properties",
+        "annotated-local-disjoint-object-properties",
+        "annotated-local-functional-object-property",
+        "annotated-local-inverse-functional-object-property",
+        "annotated-local-reflexive-object-property",
+        "annotated-local-irreflexive-object-property",
+        "annotated-local-symmetric-object-property",
+        "annotated-local-asymmetric-object-property",
+        "annotated-local-transitive-object-property",
+        "oversized-local-equivalent-object-properties",
+        "oversized-local-disjoint-object-properties",
         "annotated-local-same-individual",
         "anonymous-local-same-individual",
         "oversized-local-same-individual",

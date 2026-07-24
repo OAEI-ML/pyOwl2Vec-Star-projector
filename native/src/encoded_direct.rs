@@ -483,6 +483,154 @@ impl RootCounts {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SilentObjectPropertyRoot {
+    EquivalentSet,
+    DisjointSet,
+    Functional,
+    InverseFunctional,
+    Reflexive,
+    Irreflexive,
+    Symmetric,
+    Asymmetric,
+    Transitive,
+}
+
+impl SilentObjectPropertyRoot {
+    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
+        match tag {
+            TAG_EQUIVALENT_OBJECT_PROPERTIES
+                if counts
+                    == (RootCounts {
+                        equivalent_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::EquivalentSet)
+            }
+            TAG_DISJOINT_OBJECT_PROPERTIES
+                if counts
+                    == (RootCounts {
+                        disjoint_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::DisjointSet)
+            }
+            TAG_FUNCTIONAL_OBJECT_PROPERTY
+                if counts
+                    == (RootCounts {
+                        functional_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Functional)
+            }
+            TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY
+                if counts
+                    == (RootCounts {
+                        inverse_functional_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::InverseFunctional)
+            }
+            TAG_REFLEXIVE_OBJECT_PROPERTY
+                if counts
+                    == (RootCounts {
+                        reflexive_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Reflexive)
+            }
+            TAG_IRREFLEXIVE_OBJECT_PROPERTY
+                if counts
+                    == (RootCounts {
+                        irreflexive_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Irreflexive)
+            }
+            TAG_SYMMETRIC_OBJECT_PROPERTY
+                if counts
+                    == (RootCounts {
+                        symmetric_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Symmetric)
+            }
+            TAG_ASYMMETRIC_OBJECT_PROPERTY
+                if counts
+                    == (RootCounts {
+                        asymmetric_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Asymmetric)
+            }
+            TAG_TRANSITIVE_OBJECT_PROPERTY
+                if counts
+                    == (RootCounts {
+                        transitive_object_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Transitive)
+            }
+            _ => None,
+        }
+    }
+
+    fn constructor(self) -> &'static str {
+        match self {
+            Self::EquivalentSet => "EquivalentObjectProperties",
+            Self::DisjointSet => "DisjointObjectProperties",
+            Self::Functional => "FunctionalObjectProperty",
+            Self::InverseFunctional => "InverseFunctionalObjectProperty",
+            Self::Reflexive => "ReflexiveObjectProperty",
+            Self::Irreflexive => "IrreflexiveObjectProperty",
+            Self::Symmetric => "SymmetricObjectProperty",
+            Self::Asymmetric => "AsymmetricObjectProperty",
+            Self::Transitive => "TransitiveObjectProperty",
+        }
+    }
+
+    fn is_set(self) -> bool {
+        matches!(self, Self::EquivalentSet | Self::DisjointSet)
+    }
+
+    fn statistics_counter(self, statistics: &mut DirectCompileStats) -> &mut usize {
+        match self {
+            Self::EquivalentSet => &mut statistics.equivalent_object_properties,
+            Self::DisjointSet => &mut statistics.disjoint_object_properties,
+            Self::Functional => &mut statistics.functional_object_properties,
+            Self::InverseFunctional => &mut statistics.inverse_functional_object_properties,
+            Self::Reflexive => &mut statistics.reflexive_object_properties,
+            Self::Irreflexive => &mut statistics.irreflexive_object_properties,
+            Self::Symmetric => &mut statistics.symmetric_object_properties,
+            Self::Asymmetric => &mut statistics.asymmetric_object_properties,
+            Self::Transitive => &mut statistics.transitive_object_properties,
+        }
+    }
+
+    fn statistics_count(self, statistics: &DirectCompileStats) -> usize {
+        match self {
+            Self::EquivalentSet => statistics.equivalent_object_properties,
+            Self::DisjointSet => statistics.disjoint_object_properties,
+            Self::Functional => statistics.functional_object_properties,
+            Self::InverseFunctional => statistics.inverse_functional_object_properties,
+            Self::Reflexive => statistics.reflexive_object_properties,
+            Self::Irreflexive => statistics.irreflexive_object_properties,
+            Self::Symmetric => statistics.symmetric_object_properties,
+            Self::Asymmetric => statistics.asymmetric_object_properties,
+            Self::Transitive => statistics.transitive_object_properties,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ObjectPropertyExpression<'a> {
     iri: &'a str,
     owlapi_hash: i32,
@@ -6644,6 +6792,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         ));
     }
     let delta_tag = delta_columns.node_tag(delta_root)?;
+    let silent_object_property_root = SilentObjectPropertyRoot::classify(delta_counts, delta_tag);
     let projection = if delta_tag == TAG_SUB_CLASS_OF
         && (delta_counts
             == (RootCounts {
@@ -6797,6 +6946,36 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             return Err(KernelError::unsupported(
                 "bounded local-overlay NegativeObjectPropertyAssertion root requires named individuals",
             ));
+        }
+        None
+    } else if let Some(kind) = silent_object_property_root {
+        let constructor = kind.constructor();
+        let field_start = delta_columns.exact_fields(delta_root, 2)?;
+        if kind.is_set() {
+            let (item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
+            if item_count > 3 {
+                return Err(KernelError::unsupported(format!(
+                    "bounded local-overlay {constructor} root requires a canonical binary or ternary object-property-expression set",
+                )));
+            }
+            for item_index in item_start..item_start + item_count {
+                delta_columns.object_property_expression(
+                    delta_columns.item_node(item_index)?,
+                    options.max_iri_bytes,
+                )?;
+            }
+        } else {
+            delta_columns.object_property_expression(
+                delta_columns.field_node(field_start)?,
+                options.max_iri_bytes,
+            )?;
+        }
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(field_start + 1, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {constructor} root must be unannotated",
+            )));
         }
         None
     } else if (delta_counts
@@ -7095,7 +7274,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -7399,6 +7578,27 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 .has_keys
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded has-key count overflow"))?;
+            if !options.asserted_taxonomy_only {
+                statistics.skipped_axioms = statistics
+                    .skipped_axioms
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
+            }
+        }
+        None if silent_object_property_root.is_some() => {
+            let kind = silent_object_property_root.ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded local-overlay object-property root lost its constructor",
+                )
+            })?;
+            let constructor = kind.constructor();
+            let count = kind
+                .statistics_count(statistics)
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource(format!("encoded {constructor} count overflow"))
+                })?;
+            *kind.statistics_counter(statistics) = count;
             if !options.asserted_taxonomy_only {
                 statistics.skipped_axioms = statistics
                     .skipped_axioms
@@ -8330,6 +8530,66 @@ mod tests {
             fixture.field_values[assertion_start..assertion_start + 8]
                 .copy_from_slice(&inverse_id.to_le_bytes());
         }
+        fixture
+    }
+
+    fn silent_object_property_delta_fixture(
+        root_tag: u16,
+        property_iris: &[&[u8]],
+        inverse_mask: u8,
+        annotated: bool,
+    ) -> Fixture {
+        let is_set = [
+            TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            TAG_DISJOINT_OBJECT_PROPERTIES,
+        ]
+        .contains(&root_tag);
+        assert!(is_set || is_object_property_characteristic(root_tag));
+        assert!((is_set && property_iris.len() >= 2) || (!is_set && property_iris.len() == 1));
+        assert!(property_iris.len() <= u8::BITS as usize);
+        let mut fixture = Fixture::default();
+        let mut property_ids = Vec::with_capacity(property_iris.len());
+        for (index, iri) in property_iris.iter().enumerate() {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI);
+            let iri_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY);
+            let named_id = fixture.node_tags.len() as u64 / 2;
+            if inverse_mask & (1_u8 << index) != 0 {
+                fixture.push_node_ref(named_id);
+                fixture.finish_node(TAG_OBJECT_INVERSE_OF);
+            }
+            property_ids.push(fixture.node_tags.len() as u64 / 2);
+        }
+        let annotation_ids = if annotated {
+            fixture.push_scalar(COMPONENT_TEXT, b"urn:label");
+            fixture.finish_node(TAG_IRI);
+            let property_iri_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(property_iri_id);
+            fixture.finish_node(TAG_ENTITY);
+            let property_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_node_ref(property_id);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            vec![fixture.node_tags.len() as u64 / 2]
+        } else {
+            Vec::new()
+        };
+        if is_set {
+            fixture.push_node_set(&property_ids);
+        } else {
+            fixture.push_node_ref(property_ids[0]);
+        }
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(root_tag);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
         fixture
     }
 
@@ -11861,6 +12121,261 @@ mod tests {
             ),
             Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
         ));
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_silent_object_property_axioms() {
+        let base = named_subclass_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let characteristic_tags = [
+            TAG_FUNCTIONAL_OBJECT_PROPERTY,
+            TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
+            TAG_REFLEXIVE_OBJECT_PROPERTY,
+            TAG_IRREFLEXIVE_OBJECT_PROPERTY,
+            TAG_SYMMETRIC_OBJECT_PROPERTY,
+            TAG_ASYMMETRIC_OBJECT_PROPERTY,
+            TAG_TRANSITIVE_OBJECT_PROPERTY,
+        ];
+        let mut cases: Vec<(u16, Vec<&[u8]>, u8)> = Vec::new();
+        for tag in [
+            TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            TAG_DISJOINT_OBJECT_PROPERTIES,
+        ] {
+            cases.push((tag, vec![b"urn:op".as_slice(), b"urn:oq"], 0));
+            cases.push((tag, vec![b"urn:op".as_slice(), b"urn:oq", b"urn:or"], 0b100));
+        }
+        for tag in characteristic_tags {
+            for inverse_mask in [0, 1] {
+                cases.push((tag, vec![b"urn:op".as_slice()], inverse_mask));
+            }
+        }
+
+        for (tag, property_iris, inverse_mask) in cases {
+            let delta =
+                silent_object_property_delta_fixture(tag, &property_iris, inverse_mask, false);
+            let kind = SilentObjectPropertyRoot::classify(
+                delta
+                    .columns()
+                    .classify_roots(options.max_iri_bytes, &running_state())
+                    .unwrap(),
+                tag,
+            )
+            .unwrap();
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, 3);
+            assert_eq!(kind.statistics_count(&prepared.statistics()), 1);
+            assert_eq!(prepared.statistics().skipped_axioms, 1);
+            assert_eq!(prepared.statistics().edges, 1);
+            assert_eq!(prepared.emission_attempts(), 0);
+            let (edges, cursor) = prepared
+                .prepare_next_batch(base.columns(), &running_state(), 1)
+                .unwrap();
+            prepared.commit_cursor(cursor);
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:A".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                }]
+            );
+            assert!(prepared.is_exhausted());
+
+            let asserted = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(kind.statistics_count(&asserted.statistics()), 1);
+            assert_eq!(asserted.statistics().skipped_axioms, 0);
+            assert_eq!(asserted.statistics().edges, 1);
+            assert_eq!(asserted.emission_attempts(), 0);
+        }
+
+        let delta = silent_object_property_delta_fixture(
+            TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            &[b"urn:op", b"urn:oq"],
+            0,
+            false,
+        );
+        let excluded_subclass = 2_u32.to_le_bytes();
+        let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+        let silent = prepare_single_overlay_delta_batches_uncommitted(
+            selected_declaration,
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(silent.statistics().roots, 2);
+        assert_eq!(silent.statistics().equivalent_object_properties, 1);
+        assert_eq!(silent.statistics().skipped_axioms, 1);
+        assert_eq!(silent.statistics().edges, 0);
+        assert_eq!(silent.emission_attempts(), 0);
+        assert!(silent.is_exhausted());
+
+        let duplicate_base = silent_object_property_delta_fixture(
+            TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            &[b"urn:op", b"urn:oq"],
+            0,
+            false,
+        );
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                duplicate_base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        for tag in [
+            TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            TAG_DISJOINT_OBJECT_PROPERTIES,
+            TAG_FUNCTIONAL_OBJECT_PROPERTY,
+            TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
+            TAG_REFLEXIVE_OBJECT_PROPERTY,
+            TAG_IRREFLEXIVE_OBJECT_PROPERTY,
+            TAG_SYMMETRIC_OBJECT_PROPERTY,
+            TAG_ASYMMETRIC_OBJECT_PROPERTY,
+            TAG_TRANSITIVE_OBJECT_PROPERTY,
+        ] {
+            let property_iris: &[&[u8]] = if [
+                TAG_EQUIVALENT_OBJECT_PROPERTIES,
+                TAG_DISJOINT_OBJECT_PROPERTIES,
+            ]
+            .contains(&tag)
+            {
+                &[b"urn:op", b"urn:oq"]
+            } else {
+                &[b"urn:op"]
+            };
+            let annotated = silent_object_property_delta_fixture(tag, property_iris, 0, true);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    annotated.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            ));
+        }
+
+        for tag in [
+            TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            TAG_DISJOINT_OBJECT_PROPERTIES,
+        ] {
+            let oversized = silent_object_property_delta_fixture(
+                tag,
+                &[b"urn:op", b"urn:oq", b"urn:or", b"urn:os"],
+                0,
+                false,
+            );
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    oversized.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message))
+                    if message.contains("canonical binary or ternary")
+            ));
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_rejects_noncanonical_object_property_sets() {
+        let base = named_subclass_fixture();
+        for tag in [
+            TAG_EQUIVALENT_OBJECT_PROPERTIES,
+            TAG_DISJOINT_OBJECT_PROPERTIES,
+        ] {
+            for duplicate in [false, true] {
+                let mut delta =
+                    silent_object_property_delta_fixture(tag, &[b"urn:op", b"urn:oq"], 0, false);
+                let (first_item, second_item) = {
+                    let columns = delta.columns();
+                    let root = columns.root_id(0).unwrap();
+                    let fields = columns.exact_fields(root, 2).unwrap();
+                    let (items, length) = columns.node_set_range(fields, 0).unwrap();
+                    assert_eq!(length, 2);
+                    (items, items + 1)
+                };
+                if duplicate {
+                    let first = delta.item_values[first_item * 8..first_item * 8 + 8].to_vec();
+                    delta.item_values[second_item * 8..second_item * 8 + 8].copy_from_slice(&first);
+                } else {
+                    for byte_offset in 0..8 {
+                        delta
+                            .item_values
+                            .swap(first_item * 8 + byte_offset, second_item * 8 + byte_offset);
+                    }
+                }
+                let result = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    DirectCompileOptions {
+                        bidirectional: false,
+                        asserted_taxonomy_only: false,
+                        only_taxonomy: false,
+                        include_literals: false,
+                        max_edges: 1,
+                        max_iri_bytes: 1024,
+                    },
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                );
+                assert!(
+                    matches!(
+                        &result,
+                        Err(KernelError::Malformed(message))
+                        if message.contains("canonical-set items are not sorted and unique")
+                    ),
+                    "{result:?}",
+                );
+            }
+        }
     }
 
     #[test]
