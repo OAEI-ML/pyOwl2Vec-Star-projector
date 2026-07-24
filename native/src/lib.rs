@@ -39,7 +39,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 45;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 46;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -935,7 +935,7 @@ impl EncodedDirectCompiler {
                 "encoded direct edge factory is not canonical",
             )?;
             let final_statistics = allocate_exact_statistics(py, &statistics_type, statistics)?;
-            require_exact_statistics_factory_result(
+            require_exact_statistics_result(
                 final_statistics.bind(py),
                 statistics_type.as_any(),
                 statistics,
@@ -949,7 +949,7 @@ impl EncodedDirectCompiler {
                 statistics_type.as_any(),
                 "encoded direct statistics factory is not canonical",
             )?;
-            require_exact_statistics_factory_result(
+            require_exact_statistics_result(
                 final_statistics.bind(py),
                 statistics_type.as_any(),
                 statistics,
@@ -1023,6 +1023,7 @@ impl EncodedDirectCompiler {
         statistics_allocation_probe,
         iterator_factory,
         iterator_type,
+        iterator_allocation_probe,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
@@ -1042,6 +1043,7 @@ impl EncodedDirectCompiler {
         statistics_allocation_probe: Option<&Bound<'_, PyAny>>,
         iterator_factory: &Bound<'_, PyAny>,
         iterator_type: &Bound<'_, PyAny>,
+        iterator_allocation_probe: Option<&Bound<'_, PyAny>>,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
@@ -1078,8 +1080,18 @@ impl EncodedDirectCompiler {
                 statistics_type.as_any(),
                 "encoded direct statistics factory is not canonical",
             )?;
+            let iterator_type = require_direct_iterator_layout(
+                py,
+                iterator_type,
+                "encoded direct iterator type has an incompatible native allocation layout",
+            )?;
+            require_canonical_factory(
+                iterator_factory,
+                iterator_type.as_any(),
+                "encoded direct iterator factory is not canonical",
+            )?;
             let statistics = allocate_exact_statistics(py, &statistics_type, stats)?;
-            require_exact_statistics_factory_result(
+            require_exact_statistics_result(
                 statistics.bind(py),
                 statistics_type.as_any(),
                 stats,
@@ -1088,32 +1100,51 @@ impl EncodedDirectCompiler {
             if let Some(probe) = statistics_allocation_probe {
                 probe.call1((statistics.bind(py),))?;
             }
-            let iterator = iterator_factory
-                .call1((compiler_owner, statistics.bind(py), batch_edges))?
-                .unbind();
-            require_canonical_factory(
-                iterator_factory,
-                iterator_type,
-                "encoded direct iterator factory is not canonical",
-            )?;
-            require_exact_iterator_factory_result(
-                iterator.bind(py),
-                iterator_type,
+            let iterator = allocate_exact_iterator(
+                py,
+                &iterator_type,
                 compiler_owner,
                 statistics.bind(py),
                 batch_edges,
-                "encoded direct iterator factory returned an invalid final object",
             )?;
-            // The private allocation probe and the iterator constructor receive
-            // the statistics object and may execute arbitrary Python.
-            // Revalidate the earlier result and layout after those callbacks
-            // and before any session or role publication.
+            require_exact_iterator_result(
+                iterator.bind(py),
+                iterator_type.as_any(),
+                compiler_owner,
+                statistics.bind(py),
+                batch_edges,
+                "encoded direct iterator allocation returned an invalid final object",
+            )?;
+            if let Some(probe) = iterator_allocation_probe {
+                probe.call1((iterator.bind(py),))?;
+            }
+            require_canonical_factory(
+                iterator_factory,
+                iterator_type.as_any(),
+                "encoded direct iterator factory is not canonical",
+            )?;
+            require_exact_iterator_result(
+                iterator.bind(py),
+                iterator_type.as_any(),
+                compiler_owner,
+                statistics.bind(py),
+                batch_edges,
+                "encoded direct iterator allocation returned an invalid final object",
+            )?;
+            require_direct_iterator_layout(
+                py,
+                iterator_type.as_any(),
+                "encoded direct iterator type changed during native allocation",
+            )?;
+            // The private allocation probes receive final objects and may
+            // execute arbitrary Python. Revalidate the statistics after the
+            // last probe and before any session or role publication.
             require_canonical_factory(
                 statistics_factory,
                 statistics_type.as_any(),
                 "encoded direct statistics factory is not canonical",
             )?;
-            require_exact_statistics_factory_result(
+            require_exact_statistics_result(
                 statistics.bind(py),
                 statistics_type.as_any(),
                 stats,
@@ -1481,13 +1512,23 @@ impl EncodedDirectCompiler {
 }
 
 const DIRECT_EDGE_FIELDS: [&str; 3] = ["source", "relation", "destination"];
+const DIRECT_ITERATOR_FIELDS: [&str; 8] = [
+    "_compiler",
+    "statistics",
+    "batch_edges",
+    "_yielded_edges",
+    "_boundary_calls",
+    "_edge_batches",
+    "_peak_buffered_edges",
+    "_terminal_state",
+];
 
 fn require_direct_edge_layout<'py>(
     py: Python<'py>,
     expected_type: &Bound<'py, PyAny>,
     message: &'static str,
 ) -> PyResult<Bound<'py, PyType>> {
-    require_direct_slots_layout(py, expected_type, &DIRECT_EDGE_FIELDS, message)
+    require_object_slots_layout(py, expected_type, &DIRECT_EDGE_FIELDS, message)
 }
 
 fn require_direct_statistics_layout<'py>(
@@ -1495,12 +1536,44 @@ fn require_direct_statistics_layout<'py>(
     expected_type: &Bound<'py, PyAny>,
     message: &'static str,
 ) -> PyResult<Bound<'py, PyType>> {
-    require_direct_slots_layout(py, expected_type, &DIRECT_STATISTICS_FIELDS, message)
+    require_object_slots_layout(py, expected_type, &DIRECT_STATISTICS_FIELDS, message)
+}
+
+fn require_direct_iterator_layout<'py>(
+    py: Python<'py>,
+    expected_type: &Bound<'py, PyAny>,
+    message: &'static str,
+) -> PyResult<Bound<'py, PyType>> {
+    let iterator_base = py
+        .import("collections.abc")
+        .and_then(|module| module.getattr("Iterator"))
+        .map_err(|_| PyValueError::new_err(message))?;
+    require_direct_slots_layout(
+        py,
+        expected_type,
+        &iterator_base,
+        &DIRECT_ITERATOR_FIELDS,
+        message,
+    )
+}
+
+fn require_object_slots_layout<'py, const N: usize>(
+    py: Python<'py>,
+    expected_type: &Bound<'py, PyAny>,
+    expected_fields: &[&str; N],
+    message: &'static str,
+) -> PyResult<Bound<'py, PyType>> {
+    let object_type = py
+        .import("builtins")
+        .and_then(|module| module.getattr("object"))
+        .map_err(|_| PyValueError::new_err(message))?;
+    require_direct_slots_layout(py, expected_type, &object_type, expected_fields, message)
 }
 
 fn require_direct_slots_layout<'py, const N: usize>(
     py: Python<'py>,
     expected_type: &Bound<'py, PyAny>,
+    expected_base: &Bound<'py, PyAny>,
     expected_fields: &[&str; N],
     message: &'static str,
 ) -> PyResult<Bound<'py, PyType>> {
@@ -1521,8 +1594,29 @@ fn require_direct_slots_layout<'py, const N: usize>(
     let object_new = object_type
         .getattr("__new__")
         .map_err(|_| PyValueError::new_err(message))?;
-    if !base.is(&object_type) || !direct_new.is(&object_new) {
+    let base_new = expected_base
+        .getattr("__new__")
+        .map_err(|_| PyValueError::new_err(message))?;
+    if !base.is(expected_base) || !base_new.is(&object_new) || !direct_new.is(&object_new) {
         return Err(PyValueError::new_err(message));
+    }
+    for name in [
+        "__basicsize__",
+        "__itemsize__",
+        "__dictoffset__",
+        "__weakrefoffset__",
+    ] {
+        let expected = object_type
+            .getattr(name)
+            .and_then(|value| value.extract::<isize>())
+            .map_err(|_| PyValueError::new_err(message))?;
+        let observed = expected_base
+            .getattr(name)
+            .and_then(|value| value.extract::<isize>())
+            .map_err(|_| PyValueError::new_err(message))?;
+        if observed != expected {
+            return Err(PyValueError::new_err(message));
+        }
     }
 
     let slots = direct_type
@@ -1567,8 +1661,10 @@ fn allocate_exact_slotted_instance<'py>(
     direct_type: &Bound<'py, PyType>,
 ) -> PyResult<Bound<'py, PyAny>> {
     // SAFETY: `direct_type` was checked above to be a live Python type whose
-    // direct base is `object`. `PyType_GenericAlloc` is its stable-ABI generic
-    // allocator and returns one owned reference or sets a Python exception.
+    // exact supported base has object-sized, zero-offset instance layout and
+    // whose `__new__` is `object.__new__`. `PyType_GenericAlloc` is its
+    // stable-ABI generic allocator and returns one owned reference or sets a
+    // Python exception.
     unsafe {
         Bound::<PyAny>::from_owned_ptr_or_err(
             py,
@@ -1699,7 +1795,7 @@ fn require_exact_edge_batch_results(
     Ok(())
 }
 
-fn require_exact_statistics_factory_result<'py>(
+fn require_exact_statistics_result<'py>(
     value: &Bound<'py, PyAny>,
     expected_type: &Bound<'py, PyAny>,
     expected: DirectCompileStats,
@@ -1722,7 +1818,7 @@ fn require_exact_statistics_factory_result<'py>(
     Ok(())
 }
 
-fn require_exact_iterator_factory_result<'py>(
+fn require_exact_iterator_result<'py>(
     value: &Bound<'py, PyAny>,
     expected_type: &Bound<'py, PyAny>,
     compiler_owner: &Bound<'py, PyAny>,
@@ -1737,19 +1833,37 @@ fn require_exact_iterator_factory_result<'py>(
     let observed_statistics = value
         .getattr("statistics")
         .map_err(|_| PyValueError::new_err(message))?;
-    let observed_batch_edges = value
-        .getattr("batch_edges")
+    if !observed_owner.is(compiler_owner) || !observed_statistics.is(statistics) {
+        return Err(PyValueError::new_err(message));
+    }
+    for (name, expected) in [
+        ("batch_edges", batch_edges),
+        ("_yielded_edges", 0),
+        ("_boundary_calls", 1),
+        ("_edge_batches", 0),
+        ("_peak_buffered_edges", 0),
+    ] {
+        let observed = value
+            .getattr(name)
+            .map_err(|_| PyValueError::new_err(message))?;
+        if !observed.is_exact_instance_of::<PyInt>()
+            || observed.extract::<usize>().ok() != Some(expected)
+        {
+            return Err(PyValueError::new_err(message));
+        }
+    }
+    let terminal_state = value
+        .getattr("_terminal_state")
         .map_err(|_| PyValueError::new_err(message))?;
-    let observed_yielded_edges = value
-        .getattr("_yielded_edges")
+    if !terminal_state.is_exact_instance_of::<PyString>() {
+        return Err(PyValueError::new_err(message));
+    }
+    let terminal_state = terminal_state
+        .cast::<PyString>()
+        .map_err(|_| PyValueError::new_err(message))?
+        .to_str()
         .map_err(|_| PyValueError::new_err(message))?;
-    if !observed_owner.is(compiler_owner)
-        || !observed_statistics.is(statistics)
-        || !observed_batch_edges.is_exact_instance_of::<PyInt>()
-        || observed_batch_edges.extract::<usize>().ok() != Some(batch_edges)
-        || !observed_yielded_edges.is_exact_instance_of::<PyInt>()
-        || observed_yielded_edges.extract::<usize>().ok() != Some(0)
-    {
+    if terminal_state != "active" {
         return Err(PyValueError::new_err(message));
     }
     Ok(())
@@ -1832,6 +1946,35 @@ fn allocate_exact_statistics(
         let field = field.into_bound_py_any(py)?;
         set_exact_slot(&value, &name, &field)?;
     }
+    Ok(value.unbind())
+}
+
+fn allocate_exact_iterator(
+    py: Python<'_>,
+    iterator_type: &Bound<'_, PyType>,
+    compiler_owner: &Bound<'_, PyAny>,
+    statistics: &Bound<'_, PyAny>,
+    batch_edges: usize,
+) -> PyResult<Py<PyAny>> {
+    let value = allocate_exact_slotted_instance(py, iterator_type)?;
+    for (name, field) in [("_compiler", compiler_owner), ("statistics", statistics)] {
+        let name = PyString::intern(py, name);
+        set_exact_slot(&value, &name, field)?;
+    }
+    for (name, field) in [
+        ("batch_edges", batch_edges),
+        ("_yielded_edges", 0),
+        ("_boundary_calls", 1),
+        ("_edge_batches", 0),
+        ("_peak_buffered_edges", 0),
+    ] {
+        let name = PyString::intern(py, name);
+        let field = field.into_bound_py_any(py)?;
+        set_exact_slot(&value, &name, &field)?;
+    }
+    let name = PyString::intern(py, "_terminal_state");
+    let field = PyString::new(py, "active");
+    set_exact_slot(&value, &name, field.as_any())?;
     Ok(value.unbind())
 }
 

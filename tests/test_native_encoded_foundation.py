@@ -59,6 +59,9 @@ _EDGE_ALLOCATION_PROBE = (
 _STATISTICS_ALLOCATION_PROBE = (
     "pyowl2vec_star_projector.native._NATIVE_ENCODED_STATISTICS_ALLOCATION_PROBE"
 )
+_ITERATOR_ALLOCATION_PROBE = (
+    "pyowl2vec_star_projector.native._NATIVE_ENCODED_ITERATOR_ALLOCATION_PROBE"
+)
 
 pytestmark = pytest.mark.skipif(
     not NATIVE_AVAILABLE,
@@ -5317,7 +5320,7 @@ def test_private_native_batch_statistics_allocation_is_in_session_transaction(
     assert role_state.inverse_property_count == 0
 
 
-def test_private_native_batch_iterator_factory_is_in_session_transaction(
+def test_private_native_batch_iterator_allocation_is_in_session_transaction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     view = _snapshot(
@@ -5328,24 +5331,17 @@ def test_private_native_batch_iterator_factory_is_in_session_transaction(
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
 
-    def failing_iterator(
-        compiler_owner: NativeEncodedDirectCompiler,
-        statistics: NativeEncodedDirectStatistics,
-        batch_edges: int,
-    ) -> NativeEncodedDirectBatchIterator:
+    def failing_iterator_probe(iterator: NativeEncodedDirectBatchIterator) -> None:
         nonlocal iterator_calls
         iterator_calls += 1
-        assert compiler_owner is compiler
-        assert type(statistics) is NativeEncodedDirectStatistics
-        assert statistics.edges == 3
-        assert batch_edges == 2
+        assert type(iterator) is NativeEncodedDirectBatchIterator
+        assert iterator._compiler is compiler
+        assert iterator.statistics.edges == 3
+        assert iterator.batch_edges == 2
         raise MemoryError("injected final batch iterator construction failure")
 
     with monkeypatch.context() as patch:
-        patch.setattr(
-            "pyowl2vec_star_projector.native.NativeEncodedDirectBatchIterator",
-            failing_iterator,
-        )
+        patch.setattr(_ITERATOR_ALLOCATION_PROBE, failing_iterator_probe)
         with pytest.raises(ProjectionResourceError, match="configured edge resources"):
             compiler.iter_batches(
                 bidirectional=False,
@@ -5416,8 +5412,8 @@ def test_private_native_batch_factory_results_are_validated_before_session_commi
                 role_state=role_state,
             )
 
-    assert calls[factory_name] == (0 if factory_name == "statistics" else 1)
-    assert observed_final_statistics is (factory_name == "iterator")
+    assert calls[factory_name] == 0
+    assert observed_final_statistics is False
     assert compiler.state == "failed"
     assert compiler._kernel.batch_state == "absent"
     assert compiler._kernel.remaining_batch_edges == 0
@@ -5645,8 +5641,6 @@ def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
             mutated = True
             patch.setattr(native_bridge, target, object)
 
-    canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
-
     def mutating_edge_probe(edge: Edge) -> None:
         assert type(edge) is Edge
         mutate_factory_global()
@@ -5655,13 +5649,8 @@ def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
         assert type(statistics) is NativeEncodedDirectStatistics
         mutate_factory_global()
 
-    def mutating_iterator_init(
-        iterator: NativeEncodedDirectBatchIterator,
-        compiler_owner: NativeEncodedDirectCompiler,
-        statistics: NativeEncodedDirectStatistics,
-        batch_edges: int,
-    ) -> None:
-        canonical_iterator_init(iterator, compiler_owner, statistics, batch_edges)
+    def mutating_iterator_probe(iterator: NativeEncodedDirectBatchIterator) -> None:
+        assert type(iterator) is NativeEncodedDirectBatchIterator
         mutate_factory_global()
 
     coarse_result: tuple[list[Edge], NativeEncodedDirectStatistics] | None = None
@@ -5672,11 +5661,7 @@ def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
         elif factory_name == "statistics":
             patch.setattr(_STATISTICS_ALLOCATION_PROBE, mutating_statistics_probe)
         else:
-            patch.setattr(
-                NativeEncodedDirectBatchIterator,
-                "__init__",
-                mutating_iterator_init,
-            )
+            patch.setattr(_ITERATOR_ALLOCATION_PROBE, mutating_iterator_probe)
         if surface == "coarse":
             coarse_result = compiler.compile_batch(
                 bidirectional=False,
@@ -5738,8 +5723,6 @@ def test_private_native_final_payloads_validate_before_state_commit(
     )
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
-    canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
-
     def corrupting_edge_probe(edge: Edge) -> None:
         object.__setattr__(edge, "source", "urn:corrupted")
 
@@ -5748,13 +5731,8 @@ def test_private_native_final_payloads_validate_before_state_commit(
         field = "roots" if surface == "coarse" else "root_provenance_buffer_bytes"
         object.__setattr__(statistics, field, getattr(statistics, field) + 1)
 
-    def corrupting_iterator_init(
-        iterator: NativeEncodedDirectBatchIterator,
-        compiler_owner: NativeEncodedDirectCompiler,
-        statistics: NativeEncodedDirectStatistics,
-        batch_edges: int,
-    ) -> None:
-        canonical_iterator_init(iterator, compiler_owner, statistics, batch_edges)
+    def corrupting_iterator_probe(iterator: NativeEncodedDirectBatchIterator) -> None:
+        assert type(iterator) is NativeEncodedDirectBatchIterator
         iterator._compiler = None
 
     with monkeypatch.context() as patch:
@@ -5763,11 +5741,7 @@ def test_private_native_final_payloads_validate_before_state_commit(
         elif factory_name == "statistics":
             patch.setattr(_STATISTICS_ALLOCATION_PROBE, corrupting_statistics_probe)
         else:
-            patch.setattr(
-                NativeEncodedDirectBatchIterator,
-                "__init__",
-                corrupting_iterator_init,
-            )
+            patch.setattr(_ITERATOR_ALLOCATION_PROBE, corrupting_iterator_probe)
         with pytest.raises(ProjectionError, match="native projector execution failed"):
             if surface == "coarse":
                 compiler.compile_batch(
@@ -6153,7 +6127,61 @@ def test_private_native_statistics_layout_mutation_during_allocation_is_atomic(
         assert compiler._kernel.peak_buffered_batch_edges == 0
 
 
-def test_private_native_iterator_revalidates_statistics_after_constructor(
+def test_private_native_iterator_allocation_bypasses_python_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    constructor_calls = 0
+
+    def forbidden_init(
+        iterator: NativeEncodedDirectBatchIterator,
+        compiler_owner: NativeEncodedDirectCompiler,
+        statistics: NativeEncodedDirectStatistics,
+        batch_edges: int,
+    ) -> None:
+        nonlocal constructor_calls
+        constructor_calls += 1
+        assert type(iterator) is NativeEncodedDirectBatchIterator
+        assert compiler_owner is compiler
+        raise AssertionError(
+            "Python iterator constructor called "
+            f"for batch {batch_edges} with {statistics.edges} edges"
+        )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(NativeEncodedDirectBatchIterator, "__init__", forbidden_init)
+        batches = compiler.iter_batches(
+            bidirectional=False,
+            max_edges=len(expected),
+            max_iri_bytes=1024 * 1024,
+            batch_edges=2,
+        )
+
+    assert constructor_calls == 0
+    assert type(batches) is NativeEncodedDirectBatchIterator
+    assert batches._compiler is compiler
+    assert type(batches.statistics) is NativeEncodedDirectStatistics
+    assert batches.statistics.edges == len(expected)
+    assert batches.batch_edges == 2
+    assert batches._yielded_edges == 0
+    assert batches._boundary_calls == 1
+    assert batches._edge_batches == 0
+    assert batches._peak_buffered_edges == 0
+    assert batches._terminal_state == "active"
+    assert [edge for batch in batches for edge in batch] == expected
+    assert batches.state == "exhausted"
+
+
+def test_private_native_iterator_allocation_layout_fails_before_session_commit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     view = _snapshot(
@@ -6162,23 +6190,91 @@ def test_private_native_iterator_revalidates_statistics_after_constructor(
     )
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
-    canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
 
-    def statistics_mutating_iterator_init(
+    with monkeypatch.context() as patch:
+        patch.setattr(NativeEncodedDirectBatchIterator, "_compiler", object())
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            compiler.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+                role_state=role_state,
+            )
+
+    assert compiler.state == "failed"
+    assert compiler._kernel.batch_state == "absent"
+    assert compiler._kernel.remaining_batch_edges == 0
+    assert compiler._kernel.batch_boundary_calls == 0
+    assert compiler._kernel.emitted_edge_batches == 0
+    assert compiler._kernel.peak_buffered_batch_edges == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+
+def test_private_native_iterator_layout_mutation_during_allocation_is_atomic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    probe_calls = 0
+
+    def mutating_iterator_probe(iterator: NativeEncodedDirectBatchIterator) -> None:
+        nonlocal probe_calls
+        probe_calls += 1
+        assert type(iterator) is NativeEncodedDirectBatchIterator
+        patch.setattr(
+            NativeEncodedDirectBatchIterator,
+            "__slots__",
+            tuple(reversed(NativeEncodedDirectBatchIterator.__slots__)),
+        )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_ITERATOR_ALLOCATION_PROBE, mutating_iterator_probe)
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            compiler.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+                role_state=role_state,
+            )
+
+    assert probe_calls == 1
+    assert compiler.state == "failed"
+    assert compiler._kernel.batch_state == "absent"
+    assert compiler._kernel.remaining_batch_edges == 0
+    assert compiler._kernel.batch_boundary_calls == 0
+    assert compiler._kernel.emitted_edge_batches == 0
+    assert compiler._kernel.peak_buffered_batch_edges == 0
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+
+
+def test_private_native_iterator_revalidates_statistics_after_allocation_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    def statistics_mutating_iterator_probe(
         iterator: NativeEncodedDirectBatchIterator,
-        compiler_owner: NativeEncodedDirectCompiler,
-        statistics: NativeEncodedDirectStatistics,
-        batch_edges: int,
     ) -> None:
-        canonical_iterator_init(iterator, compiler_owner, statistics, batch_edges)
+        assert type(iterator) is NativeEncodedDirectBatchIterator
+        statistics = iterator.statistics
         object.__setattr__(statistics, "roots", statistics.roots + 1)
 
     with monkeypatch.context() as patch:
-        patch.setattr(
-            NativeEncodedDirectBatchIterator,
-            "__init__",
-            statistics_mutating_iterator_init,
-        )
+        patch.setattr(_ITERATOR_ALLOCATION_PROBE, statistics_mutating_iterator_probe)
         with pytest.raises(ProjectionError, match="native projector execution failed"):
             compiler.iter_batches(
                 bidirectional=False,

@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 45
+ENCODED_DIRECT_KERNEL_VERSION = 46
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -560,6 +560,7 @@ class NativeEncodedDirectCompiler:
                 _NATIVE_ENCODED_STATISTICS_ALLOCATION_PROBE,
                 NativeEncodedDirectBatchIterator,
                 _NATIVE_ENCODED_DIRECT_BATCH_ITERATOR_TYPE,
+                _NATIVE_ENCODED_ITERATOR_ALLOCATION_PROBE,
                 asserted_taxonomy_only,
                 only_taxonomy,
                 include_literals,
@@ -838,6 +839,9 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
 
 # Match a replaceable iterator factory against the import-time canonical type.
 _NATIVE_ENCODED_DIRECT_BATCH_ITERATOR_TYPE = NativeEncodedDirectBatchIterator
+_NATIVE_ENCODED_ITERATOR_ALLOCATION_PROBE: (
+    Callable[[NativeEncodedDirectBatchIterator], object] | None
+) = None
 
 
 @dataclass(slots=True)
