@@ -276,6 +276,16 @@ the existing owner-lifetime, released-GIL cancellation, close, fallback, sink-fa
 conversion checks. They are private macOS checkpoint evidence, not a claim about multithreaded
 fork, every platform/interpreter configuration, or public dispatch.
 
+The replayable generated differential runner lives at
+[`tools/differential_encoded_native.py`](tools/differential_encoded_native.py). Its exact installed
+checkpoint runs 128 SplitMix64-generated mixed-rule ontologies through both the independent-bytes
+and canonical packed-bytes core providers, covering all 32 combinations of the three historical
+booleans, duplicate policy, and output order. It requires ordered edge and semantic-report parity
+with scalar Python plus encoded-native, eleven-buffer zero-copy, zero-staging-copy, zero-per-row-FFI
+evidence in every execution. The hash-bound result is in
+[`reports/p7/evidence/installed-generated-differential-checkpoint.json`](reports/p7/evidence/installed-generated-differential-checkpoint.json).
+This is a finite deterministic interaction matrix, not coverage-guided fuzzing.
+
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
 Three native calls cover initial role acquisition, later restriction/domain/range consumption, and

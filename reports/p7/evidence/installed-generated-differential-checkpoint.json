@@ -1,0 +1,197 @@
+{
+  "schema": "pyowl-projector.p7-installed-generated-differential-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "fuzz_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector_campaign": "4e0f54d4f22b7365d2aaea2bb9458df3d1620a3c",
+    "projector_product_payload": "e531a02c5526a60b1d488dd835977394f3c50a9e"
+  },
+  "product_source_equivalence": {
+    "compared_paths": [
+      "_build_backend.py",
+      "MANIFEST.in",
+      "native",
+      "pyproject.toml",
+      "setup.py",
+      "src"
+    ],
+    "diff_empty": true,
+    "src_tree": "c2954da7e267f0d4ef68945c54d699ab8db7a8f2",
+    "native_tree": "25071886d819b0987d38a93f5dcd657084154403"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-4e0f54d.tar",
+      "bytes": 3921920,
+      "sha256": "66189c033dd5bc7dba709952476055b92a1b9ab08d53b0d456283559fb2c9339"
+    },
+    "campaign_tool": {
+      "filename": "tools/differential_encoded_native.py",
+      "bytes": 16937,
+      "sha256": "8b779db6f68eb31d0331647a1c8523e907921054de06c10df320b99b2d762e50"
+    },
+    "campaign_contract_test": {
+      "filename": "tests/test_encoded_native_differential.py",
+      "bytes": 2530,
+      "sha256": "6f41e326eef640292dcfec0358f4854bd1bc6edee4c0aa3c7b351523cd236a60"
+    },
+    "campaign_result": {
+      "filename": "generated-differential.json",
+      "bytes": 297319,
+      "sha256": "e9a1af3005adadde61d2fca57d96707205e84150456998af657462f2a6253cd2"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 470036,
+      "sha256": "291fd105ad25e75b81e518284a92cd9ec4635999543b2e333e42a6c3a6313fb0",
+      "record_sha256": "b6634fe445d23d4a18e9f47c95974d5451f654d87dd835d585b27c9881285d7f"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "b3d6672daf52dde6a60091f28ac4c982b9ce366112c41732af436cf48b3b0dbf"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 807628,
+      "sha256": "f44fa3de535019e8506fa8e90a3b89fa6fa834e588ae8f5fb9636e5198383660",
+      "encoded_direct_kernel_version": 46,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    }
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "installed_product_runtime_reused": true,
+    "runtime_install_no_deps": true,
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true
+  },
+  "configuration": {
+    "generator": "splitmix64-v1",
+    "first_seed": 0,
+    "generated_ontologies": 128,
+    "provider_backends": [
+      "python",
+      "native"
+    ],
+    "executed_cases": 256,
+    "buffer_edge_bounds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "compatibility_state": "isolated",
+    "semantic_option_combinations": 32,
+    "semantic_option_dimensions": {
+      "bidirectional_taxonomy": [
+        false,
+        true
+      ],
+      "only_taxonomy": [
+        false,
+        true
+      ],
+      "include_literals": [
+        false,
+        true
+      ],
+      "duplicates": [
+        "preserve",
+        "unique"
+      ],
+      "order": [
+        "canonical",
+        "encounter"
+      ]
+    },
+    "families_in_every_generated_ontology": [
+      "annotation-assertion",
+      "class-assertion",
+      "declaration",
+      "disjoint-classes",
+      "equivalent-classes",
+      "has-key",
+      "negative-object-property-assertion",
+      "object-property-assertion",
+      "object-property-domain-range",
+      "object-property-role-state",
+      "property-chain",
+      "same-individual",
+      "skipped-data-property",
+      "subclass"
+    ]
+  },
+  "result": {
+    "passed": true,
+    "unique_source_documents": 128,
+    "minimum_source_bytes": 2122,
+    "maximum_source_bytes": 2129,
+    "minimum_case_edges": 16,
+    "maximum_case_edges": 39,
+    "total_edges_across_provider_executions": 6264,
+    "native_compiled_edges_total": 6468,
+    "native_edge_batches_total": 2508,
+    "maximum_native_peak_buffered_edges": 7,
+    "distinct_ordered_edge_digests": 128,
+    "distinct_diagnostic_digests": 4,
+    "cases_sha256": "9ada45a1272f351de232876080e0fee0b7be3ccb7183f00e622afd0018070824",
+    "ordered_scalar_native_equality_every_case": true,
+    "semantic_report_equality_every_case": true,
+    "provider_pair_equality_every_seed": true,
+    "encoded_native_ingestion_every_case": true,
+    "zero_staging_copy_every_case": true,
+    "zero_per_row_ffi_every_case": true,
+    "eleven_zero_copy_buffers_every_case": true
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 46,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_iterator_ingestion": "scalar-native",
+    "ordinary_native_iterator_native_counters": 0
+  },
+  "verification": {
+    "exact_archive_complete_suite": "1177 passed",
+    "exact_archive_campaign_contract": "7 passed",
+    "exact_archive_generated_campaign": "256 passed",
+    "source_complete_suite": "1177 passed",
+    "ruff": "passed",
+    "mypy_source_benchmark_and_campaign": "passed; 19 source files",
+    "rust_unit_cases": 38,
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "A bounded, version-independent SplitMix64 generator now produces replayable mixed-rule direct-view ontologies and exercises all 32 combinations of the three semantic booleans, duplicate policy, and output order. Exact installed-wheel execution compares ordered edges, semantic reports, and diagnostics against the scalar compiler for both the independent-bytes and canonical packed-bytes pyOWLCore providers, while requiring encoded-native selection, eleven retained zero-copy buffers, zero staging copy, zero per-row FFI, and bounded native batches in every case.",
+  "known_blockers": [
+    "This finite deterministic generated matrix is not mutational, coverage-guided, malformed-buffer, or sanitizer fuzzing.",
+    "The scalar Python compiler is the executable comparator in this checkpoint; the campaign does not independently invoke the quarantined Scala oracle.",
+    "Generated cases use isolated single-document direct views. Imported, mmap, overlay, composite, sliced, and other segmented provider matrices remain open.",
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "Corpus-scale throughput, RSS, platform-wheel, SBOM, Exact shared-stack, and public release acceptance remain open."
+  ],
+  "limitations": [
+    "This is private deterministic correctness evidence; it carries no timing, throughput, RSS, fuzz-completeness, public-dispatch, or release claim.",
+    "The installed product wheel from e531a02 was reused because the complete package/native/build input tree is identical at campaign revision 4e0f54d.",
+    "The test runner and campaign tool came from the exact source archive while both product packages resolved from the isolated installed-wheel runtime.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

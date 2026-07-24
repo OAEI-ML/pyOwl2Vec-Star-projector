@@ -7,6 +7,11 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- A bounded SplitMix64 P7 differential campaign now generates replayable mixed-rule ontologies,
+  covers all 32 semantic-boolean/duplicate/order combinations, and compares exact ordered output,
+  reports, and diagnostics for both independent- and packed-bytes pyOWLCore providers. Every case
+  fails unless the hidden cursor remains encoded-native, zero-copy, per-row-FFI-free, and
+  caller-bounded. This finite generated matrix is explicitly not a fuzz or public-acceptance claim.
 - Hidden-cursor lifecycle coverage now moves one active iterator from its creating thread to a
   worker, reuses one isolated-mode `Projector` concurrently, drains independent parent/child
   copies after a quiescent POSIX fork, and exits cleanly with an unfinished retained cursor during

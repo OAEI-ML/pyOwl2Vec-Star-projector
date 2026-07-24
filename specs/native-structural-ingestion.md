@@ -344,6 +344,15 @@ Compiler caches include:
 Backend selection is excluded from portable artifact semantics. Schema-local IDs cannot be used
 outside the retained owner or as standalone cache identity.
 
+The private kernel-v46 generated checkpoint uses a version-independent SplitMix64 source generator
+to combine fourteen projecting, ignored, skipped, annotation, and role-state families. An exact
+installed run covers 128 sources, both supported direct exporter layouts, all 32 combinations of
+the three semantic booleans plus duplicate/order policy, and batch bounds one through seven. Every
+execution compares ordered edges and semantic reports to scalar Python and requires encoded-native,
+eleven zero-copy buffers, zero staging copy, and zero per-row FFI. This finite valid-input matrix
+does not replace malformed-buffer, coverage-guided, sanitizer, Scala-oracle, segmented-provider, or
+large-corpus acceptance.
+
 ## 5. Lifetime, safety, and failure
 
 Acceptance evidence MUST cover buffer borrowing, iterator lifetime, re-entrancy,

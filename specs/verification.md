@@ -115,6 +115,15 @@ Generated snapshots check that:
 
 Malformed options and corrupt/unsupported core wire inputs have typed, stable failure tests.
 
+P7 also supplies `tools/differential_encoded_native.py`, a bounded deterministic valid-input
+campaign for the unadvertised encoded cursor. SplitMix64 keeps source generation stable across
+supported Python versions; each failure identifies only the seed, provider, and violated invariant.
+The exact checkpoint covers both supported direct exporter layouts, all 32
+semantic-boolean/duplicate/order combinations, and batch bounds one through seven while comparing
+ordered edges, counts, diagnostics, and call-history provenance. It fails on scalar fallback,
+staging copy, per-row FFI, or a missing released-GIL record. It supplements rather than replaces
+the malformed, mutational, sanitizer, Scala-oracle, segmented-provider, and corpus matrices.
+
 ## 6. Real-ontology corpus
 
 Release candidates run on legally obtainable pinned versions of GO, NCIT, and a SNOMED-scale

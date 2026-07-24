@@ -1,6 +1,7 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-24. Projector implementation and harness through `5ac8ef3`. pyOWLCore candidate revision:
+Date: 2026-07-24. Projector product through `e531a02`, benchmark harness through `5ac8ef3`,
+and deterministic generated verification through `4e0f54d`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -111,6 +112,11 @@ Projector revision `e531a02` then exercises the cursor through hidden protocol-s
 canonical-digest, and portable-artifact adapters. They reuse the existing ordering, duplicate,
 spill, cancellation, report, sink-validation, and artifact implementations; they neither advertise
 the capability nor change ordinary public dispatch.
+Verification revision `4e0f54d` adds a bounded SplitMix64 generated differential campaign. It
+combines fourteen rule/diagnostic families, all 32 semantic-boolean/duplicate/order combinations,
+both supported direct exporter layouts, and batch bounds one through seven. Each exact installed
+execution compares ordered edges and semantic report fields to the scalar compiler and fails on
+fallback, staging copy, per-row FFI, or a missing released-GIL record.
 No installed-wheel or corpus result is inferred from the source-tree harness checks below.
 
 This checkpoint adds a real but deliberately private Rust foundation. It proves one useful
@@ -1266,6 +1272,15 @@ installed matrix also reruns owner/exporter lifetime, released-GIL concurrent ca
 close/sink-failure/fallback cleanup, panic conversion, and legacy native shutdown. This proves the
 focused macOS cases, not multithreaded-fork or cross-platform/interpreter acceptance.
 
+The generated differential exact-archive campaign executes 128 distinct mixed-rule sources through
+both the independent-bytes and canonical packed-bytes core providers. Its 256 executions produce
+6,264 post-policy edges, cover all 32 semantic option combinations and batch bounds one through
+seven, and retain scalar ordered-edge, counts, diagnostics, and call-history parity. Every provider
+pair has the same edge/count/diagnostic result; every execution selects encoded-native with eleven
+zero-copy buffers, zero staging copy, and zero per-row FFI. The case ledger is bound by
+`9ada45a1272f351de232876080e0fee0b7be3ccb7183f00e622afd0018070824`.
+This is finite valid-input generation, not malformed or coverage-guided fuzzing.
+
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
 
@@ -1278,6 +1293,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | Bounded batches without per-row FFI | The hidden iterator's Rust and Python outputs are caller-bounded, start with zero emission attempts, use one PyO3 entry per batch, preserve exact order, and report compiled/vector/peak counters. Each final bounded `Edge` tuple is allocated as the exact canonical slotted type through the stable ABI and its layout, canonical identity marker, three string fields, exact type, and distinct identity are validated before cursor commit. There is no intermediate Python tuple-edge list and no Python `Edge` factory or constructor callback; each edge still requires one Python object and three Python Unicode field objects. The 60-field statistics result and eight-slot batch iterator are likewise allocated directly without argument tuples or Python factory/constructor callbacks. The legacy private coarse call must still return one whole Python list, but builds and validates its final `Edge` objects through 256-edge native chunks with no complete Rust output vector or intermediate complete tuple-edge list. Hidden Projector sink/digest/artifact integration is exact-wheel proven through the existing policy machinery; ordinary public iterator/sink/digest/artifact selection remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. Explicitly hidden named-edge iterator, sink, digest, and artifact adapters select the private kernel and report its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
+| Generated differential parity | Exact installed campaign passes 128 deterministic mixed-rule sources through both supported direct exporter layouts: 256 executions, every one of the 32 semantic-boolean/duplicate/order combinations, batch bounds 1–7, 6,264 post-policy edges, exact ordered/report/diagnostic parity, and zero staging-copy/per-row-FFI counters. Malformed, mutational, coverage-guided, segmented-provider, independent Scala-oracle, and corpus matrices remain open |
 | Lifetime/GIL/cancel/failure safety | Focused private bytes-path, owner lifetime, released-GIL concurrent cancellation, active-cursor thread handoff, isolated re-entrancy, Scala-instance exclusion, batch close/collection/sink-failure/fallback cleanup, state atomicity, panic conversion, a quiescent POSIX fork, and normal shutdown with an unfinished cursor pass against the installed wheels. Exact retry after malformed/replaced factory identities, payload corruption, allocation-probe failure, edge/statistics/iterator-layout mutation, and direct final-object validation also pass. Multithreaded-fork, cross-platform/free-threaded/subinterpreter, fuzz, and sanitizer acceptance remain open |
 | Zero forbidden-work ledger | Reported by the successful hidden exact named-edge candidate; no public production-path claim |
 | Corpus performance/RSS gates | Private load-excluded harness now independently measures iterator/sink/digest/artifact consumers and binds each surface, its consumer metrics, exact ledgers, runtime artifacts, and revisions. The packaged-fixture smoke passes; installed NCIT/DOID/GO/large-corpus measurements and thresholds remain open |
@@ -1297,9 +1313,9 @@ Public `auto` and explicit native negotiation remain unchanged. Before advertisi
    time-to-first-output evidence;
 3. safe no-copy direct/mmap/overlay/composite ownership and segment traversal;
 4. production provenance wired only after it describes actual Rust work;
-5. extend the focused thread/quiescent-fork/shutdown results to full
-   oracle/generated/hostile/fuzz/sanitizer/platform/free-threaded/subinterpreter verification,
-   including the supported fork policy;
+5. extend the focused lifecycle and finite generated results to full
+   independent-oracle/hostile/malformed/mutational-fuzz/sanitizer/platform/free-threaded/
+   subinterpreter verification, including the supported fork policy;
 6. labelled NCIT, DOID, GO, million-axiom, licensed-corpus, RSS, and copy evidence; and
 7. Exact-OM shared-stack and release packaging/SBOM/compatibility review.
 

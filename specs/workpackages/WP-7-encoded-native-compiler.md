@@ -101,6 +101,12 @@ shutdown. The exact installed-wheel checkpoint also reruns the existing owner-li
 released-GIL cancellation, close/fallback/sink-failure cleanup, panic conversion, and legacy
 shutdown cases. This is focused macOS evidence; multithreaded fork and the full
 platform/interpreter/sanitizer/fuzz matrix remain open.
+Verification revision `4e0f54d` adds a bounded, version-independent SplitMix64 campaign. Its exact
+installed run uses 128 generated mixed-rule ontologies, both independent- and packed-bytes core
+providers, all 32 semantic-boolean/duplicate/order combinations, and batch bounds one through
+seven. All 256 executions require exact scalar ordered-edge/report parity and encoded-native
+zero-copy/per-row-FFI-free counters. It is finite generated interaction evidence, not the remaining
+malformed-input, coverage-guided fuzz, sanitizer, or independent Scala-oracle matrix.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
