@@ -4944,10 +4944,18 @@ def test_hidden_iterator_compiles_one_silent_local_datatype_definition(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    "local_body",
+    ("constructor", "statistics_field"),
     [
-        "SameIndividual(:i :j)",
-        "SameIndividual(:k :i :j)",
+        ("SameIndividual", "same_individuals"),
+        ("DifferentIndividuals", "different_individuals"),
+    ],
+    ids=["same-individual", "different-individuals"],
+)
+@pytest.mark.parametrize(
+    "individual_members",
+    [
+        ":i :j",
+        ":k :i :j",
     ],
     ids=["binary-set", "ternary-set"],
 )
@@ -4961,9 +4969,11 @@ def test_hidden_iterator_compiles_one_silent_local_datatype_definition(
     ],
     ids=["base-all", "base-exclude", "base-exclude-all", "only-taxonomy"],
 )
-def test_hidden_iterator_compiles_one_silent_local_same_individual(
+def test_hidden_iterator_compiles_one_silent_local_individual_set(
     provider_backend: pyowl_core.BackendPreference,
-    local_body: str,
+    constructor: str,
+    statistics_field: str,
+    individual_members: str,
     removed_sources: frozenset[str],
     only_taxonomy: bool,
     expected_sources: tuple[str, ...],
@@ -4983,7 +4993,10 @@ def test_hidden_iterator_compiles_one_silent_local_same_individual(
     assert len(removed) == len(removed_sources)
     addition_source = cast(
         pyowl_core.OntologyView,
-        _snapshot(local_body, backend=provider_backend),
+        _snapshot(
+            f"{constructor}({individual_members})",
+            backend=provider_backend,
+        ),
     )
     overlay = pyowl_core.apply_delta(
         base,
@@ -5041,7 +5054,7 @@ def test_hidden_iterator_compiles_one_silent_local_same_individual(
             api_module,
             "prepare_streaming_compilation",
             side_effect=AssertionError(
-                "silent local SameIndividual reached scalar traversal"
+                f"silent local {constructor} reached scalar traversal"
             ),
         ),
     ):
@@ -5077,7 +5090,12 @@ def test_hidden_iterator_compiles_one_silent_local_same_individual(
     )
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
-    assert compilation.native_statistics.same_individuals == 1
+    assert getattr(compilation.native_statistics, statistics_field) == 1
+    assert (
+        compilation.native_statistics.same_individuals
+        + compilation.native_statistics.different_individuals
+        == 1
+    )
     assert compilation.native_statistics.skipped_axioms == 1
     assert compilation.native_statistics.edges == len(expected_edges)
     assert compilation.batches._compiler is None
@@ -5331,6 +5349,19 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
             "ternary named-individual set",
         ),
         (
+            'DifferentIndividuals(Annotation(:label "x") :i :j)',
+            "bounded local-overlay DifferentIndividuals root must be unannotated",
+        ),
+        (
+            "DifferentIndividuals(:i _:anonymous)",
+            "bounded local-overlay DifferentIndividuals root requires named individuals",
+        ),
+        (
+            "DifferentIndividuals(:i :j :k :l)",
+            "bounded local-overlay DifferentIndividuals root requires a canonical binary "
+            "or ternary named-individual set",
+        ),
+        (
             'Declaration(Annotation(:label "x") Class(:D))',
             "bounded local-overlay Declaration root must be unannotated",
         ),
@@ -5360,6 +5391,9 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         "annotated-local-same-individual",
         "anonymous-local-same-individual",
         "oversized-local-same-individual",
+        "annotated-local-different-individuals",
+        "anonymous-local-different-individuals",
+        "oversized-local-different-individuals",
         "annotated-local-declaration",
     ],
 )

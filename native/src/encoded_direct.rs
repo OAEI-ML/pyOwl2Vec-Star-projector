@@ -7008,26 +7008,37 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             ));
         }
         None
-    } else if delta_counts
+    } else if (delta_counts
         == (RootCounts {
             same_individuals: 1,
             ..RootCounts::default()
         })
-        && delta_tag == TAG_SAME_INDIVIDUAL
+        && delta_tag == TAG_SAME_INDIVIDUAL)
+        || (delta_counts
+            == (RootCounts {
+                different_individuals: 1,
+                ..RootCounts::default()
+            })
+            && delta_tag == TAG_DIFFERENT_INDIVIDUALS)
     {
+        let constructor = if delta_tag == TAG_SAME_INDIVIDUAL {
+            "SameIndividual"
+        } else {
+            "DifferentIndividuals"
+        };
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
         let (item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
         if item_count > 3 {
-            return Err(KernelError::unsupported(
-                "bounded local-overlay SameIndividual root requires a canonical binary or ternary named-individual set",
-            ));
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {constructor} root requires a canonical binary or ternary named-individual set",
+            )));
         }
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 1, 0)?;
         if annotation_count != 0 {
-            return Err(KernelError::unsupported(
-                "bounded local-overlay SameIndividual root must be unannotated",
-            ));
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {constructor} root must be unannotated",
+            )));
         }
         for item_index in item_start..item_start + item_count {
             if !matches!(
@@ -7037,15 +7048,15 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 )?,
                 IndividualValue::Named(_)
             ) {
-                return Err(KernelError::unsupported(
-                    "bounded local-overlay SameIndividual root requires named individuals",
-                ));
+                return Err(KernelError::unsupported(format!(
+                    "bounded local-overlay {constructor} root requires named individuals",
+                )));
             }
         }
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, or named SameIndividual axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -7349,6 +7360,20 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 .same_individuals
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded same-individual count overflow"))?;
+            if !options.asserted_taxonomy_only {
+                statistics.skipped_axioms = statistics
+                    .skipped_axioms
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
+            }
+        }
+        None if delta_tag == TAG_DIFFERENT_INDIVIDUALS => {
+            statistics.different_individuals = statistics
+                .different_individuals
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded different-individuals count overflow")
+                })?;
             if !options.asserted_taxonomy_only {
                 statistics.skipped_axioms = statistics
                     .skipped_axioms
@@ -8569,11 +8594,13 @@ mod tests {
         fixture
     }
 
-    fn same_individual_delta_fixture(
+    fn individual_set_delta_fixture(
+        tag: u16,
         individual_iris: &[&[u8]],
         anonymous_member: bool,
         annotated: bool,
     ) -> Fixture {
+        assert!([TAG_SAME_INDIVIDUAL, TAG_DIFFERENT_INDIVIDUALS].contains(&tag));
         assert!(individual_iris.len() >= 2);
         let mut fixture = Fixture::default();
         let mut individual_ids =
@@ -8611,7 +8638,7 @@ mod tests {
         };
         fixture.push_node_set(&individual_ids);
         fixture.push_node_set(&annotation_ids);
-        fixture.finish_node(TAG_SAME_INDIVIDUAL);
+        fixture.finish_node(tag);
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture
             .root_ids
@@ -11685,7 +11712,7 @@ mod tests {
     }
 
     #[test]
-    fn one_root_overlay_delta_accepts_silent_same_individual_sets() {
+    fn one_root_overlay_delta_accepts_silent_individual_sets() {
         let base = named_subclass_fixture();
         let options = DirectCompileOptions {
             bidirectional: false,
@@ -11695,181 +11722,169 @@ mod tests {
             max_edges: 1,
             max_iri_bytes: 1024,
         };
-        for individual_iris in [
-            &[b"urn:i".as_slice(), b"urn:j".as_slice()][..],
-            &[
-                b"urn:i".as_slice(),
-                b"urn:j".as_slice(),
-                b"urn:k".as_slice(),
-            ][..],
-        ] {
-            let delta = same_individual_delta_fixture(individual_iris, false, false);
-            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                delta.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            )
-            .unwrap();
-            assert_eq!(prepared.statistics().roots, 3);
-            assert_eq!(prepared.statistics().same_individuals, 1);
-            assert_eq!(prepared.statistics().skipped_axioms, 1);
-            assert_eq!(prepared.statistics().edges, 1);
-            assert_eq!(prepared.emission_attempts(), 0);
-            let (edges, cursor) = prepared
-                .prepare_next_batch(base.columns(), &running_state(), 1)
+        for tag in [TAG_SAME_INDIVIDUAL, TAG_DIFFERENT_INDIVIDUALS] {
+            for individual_iris in [
+                &[b"urn:i".as_slice(), b"urn:j".as_slice()][..],
+                &[
+                    b"urn:i".as_slice(),
+                    b"urn:j".as_slice(),
+                    b"urn:k".as_slice(),
+                ][..],
+            ] {
+                let delta = individual_set_delta_fixture(tag, individual_iris, false, false);
+                let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                )
                 .unwrap();
-            prepared.commit_cursor(cursor);
-            assert_eq!(
-                edges,
-                vec![DirectEdge {
-                    source: "urn:A".into(),
-                    relation: SUBCLASS_OF.into(),
-                    destination: "urn:B".into(),
-                }]
-            );
-            assert!(prepared.is_exhausted());
+                assert_eq!(prepared.statistics().roots, 3);
+                assert_eq!(
+                    (
+                        prepared.statistics().same_individuals,
+                        prepared.statistics().different_individuals,
+                    ),
+                    if tag == TAG_SAME_INDIVIDUAL {
+                        (1, 0)
+                    } else {
+                        (0, 1)
+                    },
+                );
+                assert_eq!(prepared.statistics().skipped_axioms, 1);
+                assert_eq!(prepared.statistics().edges, 1);
+                assert_eq!(prepared.emission_attempts(), 0);
+                let (edges, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &running_state(), 1)
+                    .unwrap();
+                prepared.commit_cursor(cursor);
+                assert_eq!(
+                    edges,
+                    vec![DirectEdge {
+                        source: "urn:A".into(),
+                        relation: SUBCLASS_OF.into(),
+                        destination: "urn:B".into(),
+                    }]
+                );
+                assert!(prepared.is_exhausted());
 
-            let asserted = prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                delta.columns(),
-                DirectCompileOptions {
-                    asserted_taxonomy_only: true,
-                    ..options
-                },
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            )
-            .unwrap();
-            assert_eq!(asserted.statistics().same_individuals, 1);
-            assert_eq!(asserted.statistics().skipped_axioms, 0);
-            assert_eq!(asserted.statistics().edges, 1);
-            assert_eq!(asserted.emission_attempts(), 0);
+                let asserted = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    DirectCompileOptions {
+                        asserted_taxonomy_only: true,
+                        ..options
+                    },
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                )
+                .unwrap();
+                assert_eq!(
+                    (
+                        asserted.statistics().same_individuals,
+                        asserted.statistics().different_individuals,
+                    ),
+                    if tag == TAG_SAME_INDIVIDUAL {
+                        (1, 0)
+                    } else {
+                        (0, 1)
+                    },
+                );
+                assert_eq!(asserted.statistics().skipped_axioms, 0);
+                assert_eq!(asserted.statistics().edges, 1);
+                assert_eq!(asserted.emission_attempts(), 0);
+            }
         }
 
-        let delta = same_individual_delta_fixture(&[b"urn:i", b"urn:j"], false, false);
-        let excluded_subclass = 2_u32.to_le_bytes();
-        let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
-        let silent = prepare_single_overlay_delta_batches_uncommitted(
-            selected_declaration,
-            delta.columns(),
-            options,
-            &running_state(),
-            None,
-            canonical_limits().max_work,
-            canonical_limits().max_workspace_bytes,
-        )
-        .unwrap();
-        assert_eq!(silent.statistics().roots, 2);
-        assert_eq!(silent.statistics().same_individuals, 1);
-        assert_eq!(silent.statistics().skipped_axioms, 1);
-        assert_eq!(silent.statistics().edges, 0);
-        assert_eq!(silent.emission_attempts(), 0);
-        assert!(silent.is_exhausted());
-
-        let duplicate_base = same_individual_delta_fixture(&[b"urn:i", b"urn:j"], false, false);
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                duplicate_base.columns(),
+        for tag in [TAG_SAME_INDIVIDUAL, TAG_DIFFERENT_INDIVIDUALS] {
+            let delta = individual_set_delta_fixture(tag, &[b"urn:i", b"urn:j"], false, false);
+            let excluded_subclass = 2_u32.to_le_bytes();
+            let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+            let silent = prepare_single_overlay_delta_batches_uncommitted(
+                selected_declaration,
                 delta.columns(),
                 options,
                 &running_state(),
                 None,
                 canonical_limits().max_work,
                 canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
-        ));
-
-        let annotated = same_individual_delta_fixture(&[b"urn:i", b"urn:j"], false, true);
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                annotated.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
-        ));
-
-        let anonymous = same_individual_delta_fixture(&[b"urn:i", b"urn:j"], true, false);
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                anonymous.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("requires named individuals")
-        ));
-
-        let oversized =
-            same_individual_delta_fixture(&[b"urn:i", b"urn:j", b"urn:k", b"urn:l"], false, false);
-        let oversized_result = prepare_single_overlay_delta_batches_uncommitted(
-            base.columns(),
-            oversized.columns(),
-            options,
-            &running_state(),
-            None,
-            canonical_limits().max_work,
-            canonical_limits().max_workspace_bytes,
-        );
-        assert!(
-            matches!(
-                &oversized_result,
-                Err(KernelError::Unsupported(message))
-                    if message.contains("canonical binary or ternary")
-            ),
-            "{oversized_result:?}",
-        );
-    }
-
-    #[test]
-    fn one_root_overlay_delta_rejects_noncanonical_same_individual_sets() {
-        let base = named_subclass_fixture();
-        for duplicate in [false, true] {
-            let mut delta =
-                same_individual_delta_fixture(&[b"urn:i", b"urn:j", b"urn:k"], false, false);
-            let (first_item, second_item) = {
-                let columns = delta.columns();
-                let root = columns.root_id(0).unwrap();
-                let fields = columns.exact_fields(root, 2).unwrap();
-                let (items, length) = columns.node_set_range(fields, 2).unwrap();
-                assert_eq!(length, 3);
-                (items, items + 1)
-            };
-            if duplicate {
-                let first = delta.item_values[first_item * 8..first_item * 8 + 8].to_vec();
-                delta.item_values[second_item * 8..second_item * 8 + 8].copy_from_slice(&first);
-            } else {
-                for byte_offset in 0..8 {
-                    delta
-                        .item_values
-                        .swap(first_item * 8 + byte_offset, second_item * 8 + byte_offset);
-                }
-            }
-            let result = prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                delta.columns(),
-                DirectCompileOptions {
-                    bidirectional: false,
-                    asserted_taxonomy_only: false,
-                    only_taxonomy: false,
-                    include_literals: false,
-                    max_edges: 1,
-                    max_iri_bytes: 1024,
+            )
+            .unwrap();
+            assert_eq!(silent.statistics().roots, 2);
+            assert_eq!(
+                (
+                    silent.statistics().same_individuals,
+                    silent.statistics().different_individuals,
+                ),
+                if tag == TAG_SAME_INDIVIDUAL {
+                    (1, 0)
+                } else {
+                    (0, 1)
                 },
+            );
+            assert_eq!(silent.statistics().skipped_axioms, 1);
+            assert_eq!(silent.statistics().edges, 0);
+            assert_eq!(silent.emission_attempts(), 0);
+            assert!(silent.is_exhausted());
+
+            let duplicate_base =
+                individual_set_delta_fixture(tag, &[b"urn:i", b"urn:j"], false, false);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    duplicate_base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+            ));
+
+            let annotated = individual_set_delta_fixture(tag, &[b"urn:i", b"urn:j"], false, true);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    annotated.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            ));
+
+            let anonymous = individual_set_delta_fixture(tag, &[b"urn:i", b"urn:j"], true, false);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    anonymous.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("requires named individuals")
+            ));
+
+            let oversized = individual_set_delta_fixture(
+                tag,
+                &[b"urn:i", b"urn:j", b"urn:k", b"urn:l"],
+                false,
+                false,
+            );
+            let oversized_result = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                oversized.columns(),
+                options,
                 &running_state(),
                 None,
                 canonical_limits().max_work,
@@ -11877,12 +11892,69 @@ mod tests {
             );
             assert!(
                 matches!(
-                    &result,
-                    Err(KernelError::Malformed(message))
-                    if message.contains("canonical-set items are not sorted and unique")
+                    &oversized_result,
+                    Err(KernelError::Unsupported(message))
+                        if message.contains("canonical binary or ternary")
                 ),
-                "{result:?}",
+                "{oversized_result:?}",
             );
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_rejects_noncanonical_individual_sets() {
+        let base = named_subclass_fixture();
+        for tag in [TAG_SAME_INDIVIDUAL, TAG_DIFFERENT_INDIVIDUALS] {
+            for duplicate in [false, true] {
+                let mut delta = individual_set_delta_fixture(
+                    tag,
+                    &[b"urn:i", b"urn:j", b"urn:k"],
+                    false,
+                    false,
+                );
+                let (first_item, second_item) = {
+                    let columns = delta.columns();
+                    let root = columns.root_id(0).unwrap();
+                    let fields = columns.exact_fields(root, 2).unwrap();
+                    let (items, length) = columns.node_set_range(fields, 2).unwrap();
+                    assert_eq!(length, 3);
+                    (items, items + 1)
+                };
+                if duplicate {
+                    let first = delta.item_values[first_item * 8..first_item * 8 + 8].to_vec();
+                    delta.item_values[second_item * 8..second_item * 8 + 8].copy_from_slice(&first);
+                } else {
+                    for byte_offset in 0..8 {
+                        delta
+                            .item_values
+                            .swap(first_item * 8 + byte_offset, second_item * 8 + byte_offset);
+                    }
+                }
+                let result = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    DirectCompileOptions {
+                        bidirectional: false,
+                        asserted_taxonomy_only: false,
+                        only_taxonomy: false,
+                        include_literals: false,
+                        max_edges: 1,
+                        max_iri_bytes: 1024,
+                    },
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                );
+                assert!(
+                    matches!(
+                        &result,
+                        Err(KernelError::Malformed(message))
+                        if message.contains("canonical-set items are not sorted and unique")
+                    ),
+                    "{result:?}",
+                );
+            }
         }
     }
 
