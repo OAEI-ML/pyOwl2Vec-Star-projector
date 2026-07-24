@@ -631,6 +631,72 @@ impl SilentObjectPropertyRoot {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SilentAnnotationPropertyRoot {
+    SubProperty,
+    Domain,
+    Range,
+}
+
+impl SilentAnnotationPropertyRoot {
+    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
+        match tag {
+            TAG_SUB_ANNOTATION_PROPERTY_OF
+                if counts
+                    == (RootCounts {
+                        sub_annotation_properties: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::SubProperty)
+            }
+            TAG_ANNOTATION_PROPERTY_DOMAIN
+                if counts
+                    == (RootCounts {
+                        annotation_property_domains: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Domain)
+            }
+            TAG_ANNOTATION_PROPERTY_RANGE
+                if counts
+                    == (RootCounts {
+                        annotation_property_ranges: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Range)
+            }
+            _ => None,
+        }
+    }
+
+    fn constructor(self) -> &'static str {
+        match self {
+            Self::SubProperty => "SubAnnotationPropertyOf",
+            Self::Domain => "AnnotationPropertyDomain",
+            Self::Range => "AnnotationPropertyRange",
+        }
+    }
+
+    fn statistics_counter(self, statistics: &mut DirectCompileStats) -> &mut usize {
+        match self {
+            Self::SubProperty => &mut statistics.sub_annotation_properties,
+            Self::Domain => &mut statistics.annotation_property_domains,
+            Self::Range => &mut statistics.annotation_property_ranges,
+        }
+    }
+
+    fn statistics_count(self, statistics: &DirectCompileStats) -> usize {
+        match self {
+            Self::SubProperty => statistics.sub_annotation_properties,
+            Self::Domain => statistics.annotation_property_domains,
+            Self::Range => statistics.annotation_property_ranges,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ObjectPropertyExpression<'a> {
     iri: &'a str,
     owlapi_hash: i32,
@@ -6793,6 +6859,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     }
     let delta_tag = delta_columns.node_tag(delta_root)?;
     let silent_object_property_root = SilentObjectPropertyRoot::classify(delta_counts, delta_tag);
+    let silent_annotation_property_root =
+        SilentAnnotationPropertyRoot::classify(delta_counts, delta_tag);
     let projection = if delta_tag == TAG_SUB_CLASS_OF
         && (delta_counts
             == (RootCounts {
@@ -6972,6 +7040,37 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         }
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 1, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {constructor} root must be unannotated",
+            )));
+        }
+        None
+    } else if let Some(kind) = silent_annotation_property_root {
+        let constructor = kind.constructor();
+        match kind {
+            SilentAnnotationPropertyRoot::SubProperty => {
+                delta_columns
+                    .validate_sub_annotation_property_of(delta_root, options.max_iri_bytes)?;
+            }
+            SilentAnnotationPropertyRoot::Domain => {
+                delta_columns.validate_annotation_property_iri_axiom(
+                    delta_root,
+                    TAG_ANNOTATION_PROPERTY_DOMAIN,
+                    options.max_iri_bytes,
+                )?;
+            }
+            SilentAnnotationPropertyRoot::Range => {
+                delta_columns.validate_annotation_property_iri_axiom(
+                    delta_root,
+                    TAG_ANNOTATION_PROPERTY_RANGE,
+                    options.max_iri_bytes,
+                )?;
+            }
+        }
+        let field_start = delta_columns.exact_fields(delta_root, 3)?;
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(field_start + 2, 0)?;
         if annotation_count != 0 {
             return Err(KernelError::unsupported(format!(
                 "bounded local-overlay {constructor} root must be unannotated",
@@ -7274,7 +7373,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -7589,6 +7688,27 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             let kind = silent_object_property_root.ok_or_else(|| {
                 KernelError::malformed(
                     "encoded local-overlay object-property root lost its constructor",
+                )
+            })?;
+            let constructor = kind.constructor();
+            let count = kind
+                .statistics_count(statistics)
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource(format!("encoded {constructor} count overflow"))
+                })?;
+            *kind.statistics_counter(statistics) = count;
+            if !options.asserted_taxonomy_only {
+                statistics.skipped_axioms = statistics
+                    .skipped_axioms
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
+            }
+        }
+        None if silent_annotation_property_root.is_some() => {
+            let kind = silent_annotation_property_root.ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded local-overlay annotation-property root lost its constructor",
                 )
             })?;
             let constructor = kind.constructor();
@@ -8584,6 +8704,49 @@ mod tests {
         } else {
             fixture.push_node_ref(property_ids[0]);
         }
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(root_tag);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn silent_annotation_property_delta_fixture(root_tag: u16, annotated: bool) -> Fixture {
+        assert!([
+            TAG_SUB_ANNOTATION_PROPERTY_OF,
+            TAG_ANNOTATION_PROPERTY_DOMAIN,
+            TAG_ANNOTATION_PROPERTY_RANGE,
+        ]
+        .contains(&root_tag));
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:annotation-property".as_slice(), b"urn:target"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=2
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 3
+        let target_id = if root_tag == TAG_SUB_ANNOTATION_PROPERTY_OF {
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(2);
+            fixture.finish_node(TAG_ENTITY); // 4
+            4
+        } else {
+            2
+        };
+        let annotation_ids = if annotated {
+            fixture.push_node_ref(3);
+            fixture.push_node_ref(2);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            vec![fixture.node_tags.len() as u64 / 2]
+        } else {
+            Vec::new()
+        };
+        fixture.push_node_ref(3);
+        fixture.push_node_ref(target_id);
         fixture.push_node_set(&annotation_ids);
         fixture.finish_node(root_tag);
         fixture.root_kinds.push(ROOT_AXIOM);
@@ -12318,6 +12481,135 @@ mod tests {
                 ),
                 Err(KernelError::Unsupported(message))
                     if message.contains("canonical binary or ternary")
+            ));
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_silent_annotation_property_axioms() {
+        let base = named_subclass_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        for tag in [
+            TAG_SUB_ANNOTATION_PROPERTY_OF,
+            TAG_ANNOTATION_PROPERTY_DOMAIN,
+            TAG_ANNOTATION_PROPERTY_RANGE,
+        ] {
+            let delta = silent_annotation_property_delta_fixture(tag, false);
+            let kind = SilentAnnotationPropertyRoot::classify(
+                delta
+                    .columns()
+                    .classify_roots(options.max_iri_bytes, &running_state())
+                    .unwrap(),
+                tag,
+            )
+            .unwrap();
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, 3);
+            assert_eq!(kind.statistics_count(&prepared.statistics()), 1);
+            assert_eq!(prepared.statistics().skipped_axioms, 1);
+            assert_eq!(prepared.statistics().edges, 1);
+            assert_eq!(prepared.emission_attempts(), 0);
+            let (edges, cursor) = prepared
+                .prepare_next_batch(base.columns(), &running_state(), 1)
+                .unwrap();
+            prepared.commit_cursor(cursor);
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:A".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                }]
+            );
+            assert!(prepared.is_exhausted());
+
+            let asserted = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(kind.statistics_count(&asserted.statistics()), 1);
+            assert_eq!(asserted.statistics().skipped_axioms, 0);
+            assert_eq!(asserted.statistics().edges, 1);
+            assert_eq!(asserted.emission_attempts(), 0);
+        }
+
+        let delta = silent_annotation_property_delta_fixture(TAG_SUB_ANNOTATION_PROPERTY_OF, false);
+        let excluded_subclass = 2_u32.to_le_bytes();
+        let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+        let silent = prepare_single_overlay_delta_batches_uncommitted(
+            selected_declaration,
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(silent.statistics().roots, 2);
+        assert_eq!(silent.statistics().sub_annotation_properties, 1);
+        assert_eq!(silent.statistics().skipped_axioms, 1);
+        assert_eq!(silent.statistics().edges, 0);
+        assert_eq!(silent.emission_attempts(), 0);
+        assert!(silent.is_exhausted());
+
+        let duplicate_base =
+            silent_annotation_property_delta_fixture(TAG_SUB_ANNOTATION_PROPERTY_OF, false);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                duplicate_base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        for tag in [
+            TAG_SUB_ANNOTATION_PROPERTY_OF,
+            TAG_ANNOTATION_PROPERTY_DOMAIN,
+            TAG_ANNOTATION_PROPERTY_RANGE,
+        ] {
+            let annotated = silent_annotation_property_delta_fixture(tag, true);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    annotated.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
             ));
         }
     }
