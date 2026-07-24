@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from types import MappingProxyType
 from typing import Any
@@ -484,6 +488,157 @@ def test_hidden_projector_sink_failure_closes_unpublished_cursor(
     assert captured[0].batches.state == "cancelled"
     assert captured[0].batches.remaining_edges == 0
     assert projector.last_report is None
+
+
+def test_hidden_projector_iterator_moves_between_threads() -> None:
+    view = _snapshot(" ".join(f"SubClassOf(:C{index} :Top)" for index in range(12)))
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(view, options=python_options)
+    projector = Projector()
+    iterator = projector._iter_native_encoded_edges(
+        view,
+        options=replace(python_options, backend="native"),
+        buffer_edges=3,
+    )
+
+    first = next(iterator)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        remaining = executor.submit(list, iterator).result(timeout=10)
+
+    assert [first, *remaining] == expected
+    report = _completed_report(projector)
+    assert report.provenance.ingestion.path == "encoded-native"
+    _assert_bounded_native_output(
+        report.provenance.ingestion.counters,
+        compiled_edges=12,
+        batch_edges=3,
+    )
+
+
+def test_hidden_isolated_projector_is_reentrant_across_threads() -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) SubClassOf(:C :A) "
+        "SubClassOf(:D ObjectSomeValuesFrom(:p :E)) "
+        "ObjectPropertyDomain(:p :Domain) ObjectPropertyRange(:p :Range)"
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="canonical",
+        duplicates="unique",
+        compatibility_state="isolated",
+    )
+    expected = Projector().project(view, options=python_options)
+    native_options = replace(python_options, backend="native")
+    projector = Projector()
+
+    def project(_index: int) -> list[Edge]:
+        return list(
+            projector._iter_native_encoded_edges(
+                view,
+                options=native_options,
+                buffer_edges=2,
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(project, range(12)))
+
+    assert all(result == expected for result in results)
+
+
+def test_quiescent_hidden_cursor_is_independent_after_fork() -> None:
+    if not hasattr(os, "fork"):
+        pytest.skip("os.fork is unavailable")
+    source = (
+        "Prefix(:=<urn:native-fork#>) Ontology(<urn:native-fork> "
+        + " ".join(f"SubClassOf(:C{index} :Top)" for index in range(12))
+        + ")"
+    ).encode()
+    script = f"""
+import os
+import pyowl_core
+from pyowl2vec_star_projector import ProjectionOptions, Projector
+
+view = pyowl_core.load_snapshot(
+    bytes.fromhex({source.hex()!r}),
+    options=pyowl_core.LoadOptions(
+        imports=pyowl_core.ImportPolicy.IGNORE,
+        backend=pyowl_core.BackendPreference.PYTHON,
+    ),
+)
+projector = Projector()
+iterator = projector._iter_native_encoded_edges(
+    view,
+    options=ProjectionOptions(backend="native", order="encounter"),
+    buffer_edges=3,
+)
+first = next(iterator)
+pid = os.fork()
+if pid == 0:
+    try:
+        remaining = list(iterator)
+        os._exit(0 if len(remaining) == 11 else 2)
+    except BaseException:
+        os._exit(3)
+remaining = list(iterator)
+_, status = os.waitpid(pid, 0)
+if len(remaining) != 11 or os.waitstatus_to_exitcode(status) != 0:
+    raise SystemExit(4)
+report = projector.last_report
+if report is None or report.provenance.ingestion.path != "encoded-native":
+    raise SystemExit(5)
+"""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(sys.path)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_unfinished_hidden_cursor_is_safe_during_interpreter_shutdown() -> None:
+    source = (
+        b"Prefix(:=<urn:native-shutdown#>) Ontology(<urn:native-shutdown> "
+        b"SubClassOf(:A :B) SubClassOf(:C :A) SubClassOf(:D :C))"
+    )
+    script = f"""
+import pyowl_core
+from pyowl2vec_star_projector import ProjectionOptions, Projector
+
+view = pyowl_core.load_snapshot(
+    bytes.fromhex({source.hex()!r}),
+    options=pyowl_core.LoadOptions(
+        imports=pyowl_core.ImportPolicy.IGNORE,
+        backend=pyowl_core.BackendPreference.PYTHON,
+    ),
+)
+projector = Projector()
+iterator = projector._iter_native_encoded_edges(
+    view,
+    options=ProjectionOptions(backend="native", order="encounter"),
+    buffer_edges=1,
+)
+next(iterator)
+retained = (projector, iterator)
+"""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(sys.path)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.parametrize(
