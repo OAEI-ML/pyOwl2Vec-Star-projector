@@ -557,6 +557,13 @@ impl OwnedRoleState {
             .iter()
             .find_map(|(key, inverse)| (key == property).then_some(inverse.as_str()))
     }
+
+    fn edge_count(&self, property: &str) -> Result<usize, KernelError> {
+        1_usize
+            .checked_add(self.subroles_for(property).len())
+            .and_then(|count| count.checked_add(usize::from(self.inverse_for(property).is_some())))
+            .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))
+    }
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -797,9 +804,21 @@ pub(crate) struct DirectEmissionCursor {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+enum OwnedOverlayDeltaProjection {
+    Taxonomy {
+        source: String,
+        destination: String,
+    },
+    Restriction {
+        source: String,
+        relation: String,
+        destination: String,
+    },
+}
+
+#[derive(Debug, Eq, PartialEq)]
 struct OwnedOverlayDelta {
-    source: String,
-    destination: String,
+    projection: OwnedOverlayDeltaProjection,
     insertion_position: usize,
 }
 
@@ -5818,11 +5837,26 @@ impl DirectEmissionCursor {
                         if let Some(delta) = preparation.overlay_delta.as_ref() {
                             if delta.insertion_position == self.scan_index {
                                 self.overlay_delta_emitted = true;
-                                self.set_taxonomy(
-                                    &delta.source,
-                                    &delta.destination,
-                                    preparation.options.bidirectional,
-                                )?;
+                                match &delta.projection {
+                                    OwnedOverlayDeltaProjection::Taxonomy {
+                                        source,
+                                        destination,
+                                    } => self.set_taxonomy(
+                                        source,
+                                        destination,
+                                        preparation.options.bidirectional,
+                                    )?,
+                                    OwnedOverlayDeltaProjection::Restriction {
+                                        source,
+                                        relation,
+                                        destination,
+                                    } if !preparation.options.asserted_taxonomy_only
+                                        && !preparation.options.only_taxonomy =>
+                                    {
+                                        self.set_role(source, relation, destination)?;
+                                    }
+                                    OwnedOverlayDeltaProjection::Restriction { .. } => {}
+                                }
                                 continue;
                             }
                         }
@@ -6544,13 +6578,18 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         ));
     }
     let delta_tag = delta_columns.node_tag(delta_root)?;
-    let taxonomy = if delta_counts
-        == (RootCounts {
-            subclasses: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_SUB_CLASS_OF
-    {
+    let projection = if delta_tag == TAG_SUB_CLASS_OF
+        && (delta_counts
+            == (RootCounts {
+                subclasses: 1,
+                ..RootCounts::default()
+            })
+            || delta_counts
+                == (RootCounts {
+                    subclasses: 1,
+                    restriction_subclasses: 1,
+                    ..RootCounts::default()
+                })) {
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 2, 0)?;
@@ -6563,12 +6602,22 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             SubclassProjection::Taxonomy {
                 source,
                 destination,
-            } => Some((clone_text(source)?, clone_text(destination)?)),
-            SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
-                return Err(KernelError::unsupported(
-                    "bounded local-overlay SubClassOf root must be named-to-named",
-                ));
-            }
+            } => Some(OwnedOverlayDeltaProjection::Taxonomy {
+                source: clone_text(source)?,
+                destination: clone_text(destination)?,
+            }),
+            SubclassProjection::Restriction {
+                source,
+                relation,
+                destination,
+            } => Some(OwnedOverlayDeltaProjection::Restriction {
+                source: clone_text(source)?,
+                relation: clone_text(relation)?,
+                destination: clone_text(destination)?,
+            }),
+            SubclassProjection::Ignored => return Err(KernelError::unsupported(
+                "bounded local-overlay SubClassOf root requires named taxonomy or a named role restriction",
+            )),
         }
     } else if delta_counts
         == (RootCounts {
@@ -6591,7 +6640,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration or named SubClassOf axiom",
+            "bounded local-overlay root must be one unannotated Declaration or supported named SubClassOf axiom",
         ));
     };
 
@@ -6647,12 +6696,27 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         ));
     }
 
-    let additional_edges = if taxonomy.is_some() {
-        1_usize
-            .checked_add(usize::from(options.bidirectional))
-            .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?
-    } else {
-        0
+    let (additional_edges, additional_role_expansion_edges) = match &projection {
+        Some(OwnedOverlayDeltaProjection::Taxonomy { .. }) => (
+            1_usize
+                .checked_add(usize::from(options.bidirectional))
+                .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?,
+            0,
+        ),
+        Some(OwnedOverlayDeltaProjection::Restriction { relation, .. })
+            if !options.asserted_taxonomy_only && !options.only_taxonomy =>
+        {
+            let edges = prepared.preparation.role_state.edge_count(relation)?;
+            (
+                edges,
+                edges.checked_sub(1).ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded local-overlay restriction edge count is inconsistent",
+                    )
+                })?,
+            )
+        }
+        Some(OwnedOverlayDeltaProjection::Restriction { .. }) | None => (0, 0),
     };
     let projected = prepared
         .preparation
@@ -6675,25 +6739,45 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         .nodes
         .checked_add(delta_columns.node_count())
         .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
-    if taxonomy.is_some() {
-        statistics.subclasses = statistics
-            .subclasses
-            .checked_add(1)
-            .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
-    } else {
-        statistics.declarations = statistics
-            .declarations
-            .checked_add(1)
-            .ok_or_else(|| KernelError::resource("encoded declaration-count overflow"))?;
+    match &projection {
+        Some(OwnedOverlayDeltaProjection::Taxonomy { .. }) => {
+            statistics.subclasses = statistics
+                .subclasses
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+        }
+        Some(OwnedOverlayDeltaProjection::Restriction { .. }) => {
+            statistics.subclasses = statistics
+                .subclasses
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+            statistics.restriction_subclasses = statistics
+                .restriction_subclasses
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded restriction-subclass count overflow")
+                })?;
+            statistics.role_expansion_edges = statistics
+                .role_expansion_edges
+                .checked_add(additional_role_expansion_edges)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded role-expansion edge-count overflow")
+                })?;
+        }
+        None => {
+            statistics.declarations = statistics
+                .declarations
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded declaration-count overflow"))?;
+        }
     }
     statistics.edges = projected;
     statistics.buffer_bytes = statistics
         .buffer_bytes
         .checked_add(delta_columns.buffer_bytes()?)
         .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
-    prepared.preparation.overlay_delta = taxonomy.map(|(source, destination)| OwnedOverlayDelta {
-        source,
-        destination,
+    prepared.preparation.overlay_delta = projection.map(|projection| OwnedOverlayDelta {
+        projection,
         insertion_position,
     });
     Ok(prepared)
@@ -7288,6 +7372,104 @@ mod tests {
         fixture.finish_node(TAG_SUB_CLASS_OF); // 5
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
+        fixture
+    }
+
+    fn named_restriction_delta_fixture(
+        restriction_tag: u16,
+        inverse_property: bool,
+        restriction_first: bool,
+        annotated: bool,
+    ) -> Fixture {
+        assert!([
+            TAG_OBJECT_SOME_VALUES_FROM,
+            TAG_OBJECT_ALL_VALUES_FROM,
+            TAG_OBJECT_MIN_CARDINALITY,
+            TAG_OBJECT_MAX_CARDINALITY,
+        ]
+        .contains(&restriction_tag));
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:A".as_slice(), b"urn:B", b"urn:p", b"urn:label"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=4
+        }
+        for iri_id in [1_u64, 2] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 5..=6
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(3);
+        fixture.finish_node(TAG_ENTITY); // 7
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(4);
+        fixture.finish_node(TAG_ENTITY); // 8
+
+        let property_id = if inverse_property {
+            fixture.push_node_ref(7);
+            fixture.finish_node(TAG_OBJECT_INVERSE_OF); // 9
+            9
+        } else {
+            7
+        };
+        if [TAG_OBJECT_MIN_CARDINALITY, TAG_OBJECT_MAX_CARDINALITY].contains(&restriction_tag) {
+            fixture.push_scalar(COMPONENT_INTEGER, &[1]);
+        }
+        fixture.push_node_ref(property_id);
+        fixture.push_node_ref(6);
+        fixture.finish_node(restriction_tag);
+        let restriction_id = (fixture.node_tags.len() / 2) as u64;
+
+        let annotation_ids = if annotated {
+            fixture.push_node_ref(8);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            vec![(fixture.node_tags.len() / 2) as u64]
+        } else {
+            Vec::new()
+        };
+        if restriction_first {
+            fixture.push_node_ref(restriction_id);
+            fixture.push_node_ref(5);
+        } else {
+            fixture.push_node_ref(5);
+            fixture.push_node_ref(restriction_id);
+        }
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(TAG_SUB_CLASS_OF);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn overlay_role_base_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:p".as_slice(), b"urn:child", b"urn:pinv"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        for iri_id in 1_u64..=3 {
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 4..=6
+        }
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(4);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_OBJECT_PROPERTY_OF); // 7
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_INVERSE_OBJECT_PROPERTIES); // 8
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [7_u32, 8] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
         fixture
     }
 
@@ -8515,6 +8697,183 @@ mod tests {
         ));
 
         let annotated = named_declaration_delta_fixture(b"urn:C", true);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+        ));
+    }
+
+    #[test]
+    fn one_root_overlay_delta_compiles_named_restrictions_with_selected_role_state() {
+        let base = overlay_role_base_fixture();
+        for (restriction_tag, inverse_property, restriction_first) in [
+            (TAG_OBJECT_SOME_VALUES_FROM, false, false),
+            (TAG_OBJECT_ALL_VALUES_FROM, true, false),
+            (TAG_OBJECT_MIN_CARDINALITY, false, true),
+            (TAG_OBJECT_MAX_CARDINALITY, true, true),
+        ] {
+            let delta = named_restriction_delta_fixture(
+                restriction_tag,
+                inverse_property,
+                restriction_first,
+                false,
+            );
+            let state = running_state();
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    bidirectional: true,
+                    asserted_taxonomy_only: false,
+                    only_taxonomy: false,
+                    include_literals: false,
+                    max_edges: 3,
+                    max_iri_bytes: 1024,
+                },
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let stats = prepared.statistics();
+            assert_eq!(stats.roots, 3);
+            assert_eq!(stats.subclasses, 1);
+            assert_eq!(stats.restriction_subclasses, 1);
+            assert_eq!(stats.sub_object_properties, 1);
+            assert_eq!(stats.inverse_object_properties, 1);
+            assert_eq!(stats.role_expansion_edges, 2);
+            assert_eq!(stats.edges, 3);
+            assert_eq!(
+                stats.buffer_bytes,
+                base.columns().buffer_bytes().unwrap() + delta.columns().buffer_bytes().unwrap()
+            );
+            assert_eq!(prepared.emission_attempts(), 0);
+
+            let mut edges = Vec::new();
+            while prepared.remaining_edges() != 0 {
+                let (batch, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &state, 1)
+                    .unwrap();
+                assert_eq!(batch.len(), 1);
+                edges.extend(batch);
+                prepared.commit_cursor(cursor);
+            }
+            assert_eq!(
+                edges,
+                vec![
+                    DirectEdge {
+                        source: "urn:A".into(),
+                        relation: "urn:p".into(),
+                        destination: "urn:B".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:A".into(),
+                        relation: "urn:child".into(),
+                        destination: "urn:B".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:B".into(),
+                        relation: "urn:pinv".into(),
+                        destination: "urn:A".into(),
+                    },
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_restriction_honours_taxonomy_modes_and_base_exclusions() {
+        let base = overlay_role_base_fixture();
+        let delta =
+            named_restriction_delta_fixture(TAG_OBJECT_SOME_VALUES_FROM, false, false, false);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+
+        for (excluded, expected_relations, expected_expansions) in [
+            (Vec::new(), vec!["urn:p", "urn:child", "urn:pinv"], 2),
+            (1_u32.to_le_bytes().to_vec(), vec!["urn:p", "urn:pinv"], 1),
+            (2_u32.to_le_bytes().to_vec(), vec!["urn:p", "urn:child"], 1),
+            (
+                [1_u32.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
+                vec!["urn:p"],
+                0,
+            ),
+        ] {
+            let base_columns = base.columns().with_excluded_root_ids(&excluded);
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base_columns,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().edges, expected_relations.len());
+            assert_eq!(
+                prepared.statistics().role_expansion_edges,
+                expected_expansions
+            );
+            let (edges, cursor) = prepared
+                .prepare_next_batch(base_columns, &running_state(), expected_relations.len())
+                .unwrap();
+            prepared.commit_cursor(cursor);
+            assert_eq!(
+                edges
+                    .iter()
+                    .map(|edge| edge.relation.as_str())
+                    .collect::<Vec<_>>(),
+                expected_relations
+            );
+            assert!(prepared.is_exhausted());
+        }
+
+        for silent_options in [
+            DirectCompileOptions {
+                only_taxonomy: true,
+                ..options
+            },
+            DirectCompileOptions {
+                asserted_taxonomy_only: true,
+                ..options
+            },
+        ] {
+            let silent = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                silent_options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(silent.statistics().subclasses, 1);
+            assert_eq!(silent.statistics().restriction_subclasses, 1);
+            assert_eq!(silent.statistics().role_expansion_edges, 0);
+            assert_eq!(silent.statistics().edges, 0);
+            assert_eq!(silent.emission_attempts(), 0);
+            assert!(silent.is_exhausted());
+        }
+
+        let annotated =
+            named_restriction_delta_fixture(TAG_OBJECT_SOME_VALUES_FROM, false, false, true);
         assert!(matches!(
             prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
