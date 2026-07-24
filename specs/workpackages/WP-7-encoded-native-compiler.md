@@ -140,14 +140,16 @@ reports 22 retained structural buffers, 12 native inputs including the posting e
 posting bytes, and zero selection indexing, flattening, staging, scalar materialization, or
 per-row FFI. Multiple `EXCLUDE` layers, `INCLUDE`/composite selection,
 annotation-sensitive aliases, mmap, and public selection remain open.
-Kernels v48–v69 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
+Kernels v48–v70 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
 `ALL` or one exact `EXCLUDE` table, while the `ALL` delta may contain exactly one unannotated
 named-to-named `SubClassOf`, supported named-role Some/All/Min/Max restriction `SubClassOf`, named
-entity `Declaration`, named-class/named-individual `ClassAssertion`, or named-property/named-
-individual positive `ObjectPropertyAssertion`, or named-individual negative object assertion with
-a named or inverse named property, or named-property/named-individual `DataPropertyAssertion` with
-a fully validated literal, its negative-data-assertion counterpart, named `SubDataPropertyOf`, or
-a canonical binary or ternary named-property `EquivalentDataProperties` or
+entity `Declaration`, named-class/named-individual `ClassAssertion`, an ignored-shape `SubClassOf`
+or `ClassAssertion` whose complete direct classifier returns ignored and whose graph reaches no
+anonymous individual, or named-property/named-individual positive `ObjectPropertyAssertion`, or
+named-individual negative object assertion with a named or inverse named property, or named-
+property/named-individual `DataPropertyAssertion` with a fully validated literal, its negative-
+data-assertion counterpart, named `SubDataPropertyOf`, or a canonical binary or ternary named-
+property `EquivalentDataProperties` or
 `DisjointDataProperties` set, a named-property `DataPropertyDomain` over the existing recursive
 class-expression envelope, a named-property `DataPropertyRange` over the existing recursive
 data-range envelope, a named `FunctionalDataProperty`, or a named-to-recursive-range
@@ -210,6 +212,13 @@ silent-root transaction. It reuses the complete recursive class-expression valid
 canonical binary or ternary member set and empty axiom annotations, rechecks the named
 `DisjointUnion` head, and preserves the exact constructor count under normal, taxonomy-only, and
 asserted-taxonomy modes.
+Kernel v70 admits local ignored-shape `SubClassOf` and `ClassAssertion` roots through one exact
+classifier and the silent-root transaction. It reuses the complete direct projection classifiers,
+requires the result to remain ignored after structural validation, requires an empty axiom
+annotation set, and rejects every reachable anonymous individual until local scope remapping is
+defined. Normal, taxonomy-only, and asserted-taxonomy modes preserve the exact constructor and
+ignored-shape counters, leave the skipped-axiom counter at zero, and retain no emitting delta
+record.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
