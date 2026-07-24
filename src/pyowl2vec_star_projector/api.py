@@ -196,16 +196,78 @@ class Projector:
         cancellation_token: CancellationTokenLike | None = None,
     ) -> ProjectionReport:
         """Push bounded immutable batches and return the completed report."""
-        write_batch, finish = _sink_operations(sink)
-        _positive_int("batch_size", batch_size)
-        batch: list[Edge] = []
-        iterator = self.iter_edges(
+        return self._project_to_sink(
             view,
+            sink,
             options=options,
+            batch_size=batch_size,
             buffer_edges=buffer_edges,
             temp_directory=temp_directory,
             streaming_limits=streaming_limits,
             cancellation_token=cancellation_token,
+            private_encoded_direct=False,
+        )
+
+    def _project_native_encoded_to_sink(
+        self,
+        view: object,
+        sink: EdgeBatchSink,
+        *,
+        options: ProjectionOptions | None = None,
+        batch_size: int = 65_536,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> ProjectionReport:
+        """Exercise the hidden P7 cursor through the protocol-sink surface."""
+
+        return self._project_to_sink(
+            view,
+            sink,
+            options=options,
+            batch_size=batch_size,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=streaming_limits,
+            cancellation_token=cancellation_token,
+            private_encoded_direct=True,
+        )
+
+    def _project_to_sink(
+        self,
+        view: object,
+        sink: EdgeBatchSink,
+        *,
+        options: ProjectionOptions | None,
+        batch_size: int,
+        buffer_edges: int,
+        temp_directory: PathLike[str] | None,
+        streaming_limits: StreamingLimits | None,
+        cancellation_token: CancellationTokenLike | None,
+        private_encoded_direct: bool,
+    ) -> ProjectionReport:
+        write_batch, finish = _sink_operations(sink)
+        _positive_int("batch_size", batch_size)
+        batch: list[Edge] = []
+        iterator = (
+            self._iter_native_encoded_edges(
+                view,
+                options=options,
+                buffer_edges=buffer_edges,
+                temp_directory=temp_directory,
+                streaming_limits=streaming_limits,
+                cancellation_token=cancellation_token,
+            )
+            if private_encoded_direct
+            else self.iter_edges(
+                view,
+                options=options,
+                buffer_edges=buffer_edges,
+                temp_directory=temp_directory,
+                streaming_limits=streaming_limits,
+                cancellation_token=cancellation_token,
+            )
         )
         try:
             for edge in iterator:
@@ -247,6 +309,30 @@ class Projector:
             cancellation_token=cancellation_token,
         )
 
+    def _write_native_encoded_artifact(
+        self,
+        view: object,
+        destination: PathLike[str] | BinaryIO,
+        *,
+        options: ProjectionOptions | None = None,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> EdgeArtifactResult:
+        """Exercise the hidden P7 cursor through the portable artifact writer."""
+
+        return _write_edge_artifact(
+            _PrivateNativeEncodedArtifactSource(self),
+            view,
+            destination,
+            options=options,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=streaming_limits,
+            cancellation_token=cancellation_token,
+        )
+
     def canonical_digest(
         self,
         view: object,
@@ -260,6 +346,28 @@ class Projector:
         """Hash canonical JSON edge records in one ontology traversal."""
         return _canonical_edge_digest(
             self,
+            view,
+            options=options,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=streaming_limits,
+            cancellation_token=cancellation_token,
+        )
+
+    def _canonical_native_encoded_digest(
+        self,
+        view: object,
+        *,
+        options: ProjectionOptions | None = None,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> CanonicalEdgeDigest:
+        """Exercise the hidden P7 cursor through canonical edge hashing."""
+
+        return _canonical_edge_digest(
+            _PrivateNativeEncodedArtifactSource(self),
             view,
             options=options,
             buffer_edges=buffer_edges,
@@ -668,6 +776,38 @@ class Projector:
             ),
         )
         return ProjectionReport(provenance, diagnostics)
+
+
+class _PrivateNativeEncodedArtifactSource:
+    """Route artifact helpers through the unadvertised P7 iterator."""
+
+    __slots__ = ("_projector",)
+
+    def __init__(self, projector: Projector) -> None:
+        self._projector = projector
+
+    @property
+    def last_report(self) -> ProjectionReport | None:
+        return self._projector.last_report
+
+    def iter_edges(
+        self,
+        view: object,
+        *,
+        options: ProjectionOptions | None = None,
+        buffer_edges: int = 250_000,
+        temp_directory: PathLike[str] | None = None,
+        streaming_limits: StreamingLimits | None = None,
+        cancellation_token: CancellationTokenLike | None = None,
+    ) -> Iterator[Edge]:
+        return self._projector._iter_native_encoded_edges(
+            view,
+            options=options,
+            buffer_edges=buffer_edges,
+            temp_directory=temp_directory,
+            streaming_limits=streaming_limits,
+            cancellation_token=cancellation_token,
+        )
 
 
 def project_source(

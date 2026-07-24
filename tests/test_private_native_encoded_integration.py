@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from collections.abc import Mapping
 from dataclasses import replace
 from types import MappingProxyType
@@ -13,6 +14,8 @@ from pyowl_core.backends.python import PythonParser
 import pyowl2vec_star_projector.api as api_module
 import pyowl2vec_star_projector.native as native_module
 from pyowl2vec_star_projector import (
+    BATCH_SINK_PROTOCOL_VERSION,
+    Edge,
     ProjectionOptions,
     ProjectionResourceError,
     Projector,
@@ -325,6 +328,162 @@ def test_hidden_iterator_matches_scalar_and_reports_exact_native_batches(
         "wire_encoder_calls",
     ):
         assert counters[name] == 0
+
+
+def test_hidden_cursor_feeds_sink_digest_and_artifact_surfaces(tmp_path: Any) -> None:
+    view = _snapshot(
+        "SubClassOf(:A :B) "
+        'SubClassOf(Annotation(<urn:meta> "duplicate") :A :B) '
+        "SubClassOf(:C :A) "
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "café")'
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="canonical",
+        duplicates="unique",
+        include_literals=True,
+    )
+    native_options = replace(python_options, backend="native")
+
+    class Sink:
+        protocol_version = BATCH_SINK_PROTOCOL_VERSION
+
+        def __init__(self) -> None:
+            self.batches: list[tuple[Edge, ...]] = []
+            self.report: ProjectionReport | None = None
+
+        def write_batch(self, batch: tuple[Edge, ...]) -> None:
+            self.batches.append(batch)
+
+        def finish(self, report: ProjectionReport) -> None:
+            self.report = report
+
+    expected_sink = Sink()
+    expected_sink_projector = Projector()
+    expected_sink_report = expected_sink_projector.project_to_sink(
+        view,
+        expected_sink,
+        options=python_options,
+        batch_size=2,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    native_sink = Sink()
+    native_sink_projector = Projector()
+    native_sink_report = native_sink_projector._project_native_encoded_to_sink(
+        view,
+        native_sink,
+        options=native_options,
+        batch_size=2,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+
+    assert native_sink.batches == expected_sink.batches
+    assert native_sink.report is native_sink_report
+    assert all(0 < len(batch) <= 2 for batch in native_sink.batches)
+    _assert_semantic_report_parity(expected_sink_report, native_sink_report)
+    assert native_sink_report.provenance.ingestion.path == "encoded-native"
+    _assert_bounded_native_output(
+        native_sink_report.provenance.ingestion.counters,
+        compiled_edges=4,
+        batch_edges=2,
+    )
+
+    expected_digest = Projector().canonical_digest(
+        view,
+        options=python_options,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    native_digest = Projector()._canonical_native_encoded_digest(
+        view,
+        options=native_options,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    assert (
+        native_digest.sha256,
+        native_digest.edge_count,
+        native_digest.duplicate_count,
+    ) == (
+        expected_digest.sha256,
+        expected_digest.edge_count,
+        expected_digest.duplicate_count,
+    )
+    _assert_semantic_report_parity(expected_digest.report, native_digest.report)
+    assert native_digest.report.provenance.ingestion.path == "encoded-native"
+
+    expected_destination = io.BytesIO()
+    expected_artifact = Projector().write_artifact(
+        view,
+        expected_destination,
+        options=python_options,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    native_destination = io.BytesIO()
+    native_artifact = Projector()._write_native_encoded_artifact(
+        view,
+        native_destination,
+        options=native_options,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    assert native_destination.getvalue() == expected_destination.getvalue()
+    assert (
+        native_artifact.artifact_sha256,
+        native_artifact.canonical_edges_sha256,
+        native_artifact.edge_count,
+        native_artifact.duplicate_count,
+        native_artifact.bytes_written,
+        native_artifact.metadata,
+    ) == (
+        expected_artifact.artifact_sha256,
+        expected_artifact.canonical_edges_sha256,
+        expected_artifact.edge_count,
+        expected_artifact.duplicate_count,
+        expected_artifact.bytes_written,
+        expected_artifact.metadata,
+    )
+    _assert_semantic_report_parity(expected_artifact.report, native_artifact.report)
+    assert native_artifact.report.provenance.ingestion.path == "encoded-native"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_hidden_projector_sink_failure_closes_unpublished_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = api_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    def fail(_batch: tuple[Edge, ...]) -> None:
+        raise RuntimeError("injected Projector sink failure")
+
+    monkeypatch.setattr(api_module, "prepare_native_encoded_compilation", capture_compilation)
+    projector = Projector()
+    with pytest.raises(RuntimeError, match="injected Projector sink failure"):
+        projector._project_native_encoded_to_sink(
+            _snapshot("SubClassOf(:A :B) SubClassOf(:C :A)"),
+            fail,
+            options=ProjectionOptions(backend="native", order="encounter"),
+            batch_size=1,
+            buffer_edges=1,
+        )
+
+    assert len(captured) == 1
+    assert captured[0].batches.state == "cancelled"
+    assert captured[0].batches.remaining_edges == 0
+    assert projector.last_report is None
 
 
 @pytest.mark.parametrize(
