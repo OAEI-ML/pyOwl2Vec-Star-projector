@@ -4347,6 +4347,1251 @@ impl<'a> DirectColumns<'a> {
     }
 }
 
+/// Exact cross-table canonical comparison and two-way root merging.
+///
+/// The adapter does not admit local delta segments yet.  This foundation is
+/// intentionally kept behind the existing direct compiler seam until the
+/// bounded delta contract is reviewed.  Every traversal step and allocation is
+/// nevertheless explicit here so later admission does not need an unbounded
+/// comparator.
+#[cfg_attr(not(test), allow(dead_code))]
+mod canonical_merge {
+    use super::*;
+    use std::cmp::Ordering as CanonicalOrdering;
+    use std::mem::size_of;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) struct CanonicalMergeLimits {
+        pub(crate) max_work: usize,
+        pub(crate) max_workspace_bytes: usize,
+    }
+
+    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+    pub(crate) struct CanonicalMergeReport {
+        pub(crate) work: usize,
+        pub(crate) workspace_bytes: usize,
+        pub(crate) peak_workspace_bytes: usize,
+        pub(crate) canonical_bytes_compared: usize,
+        pub(crate) roots_emitted: usize,
+        pub(crate) deduplicated_roots: usize,
+    }
+
+    #[derive(Debug)]
+    struct CanonicalBudget {
+        limits: CanonicalMergeLimits,
+        report: CanonicalMergeReport,
+    }
+
+    impl CanonicalBudget {
+        fn new(limits: CanonicalMergeLimits) -> Result<Self, KernelError> {
+            if limits.max_work == 0 {
+                return Err(KernelError::resource(
+                    "encoded canonical comparison work limit must be positive",
+                ));
+            }
+            if limits.max_workspace_bytes == 0 {
+                return Err(KernelError::resource(
+                    "encoded canonical comparison workspace limit must be positive",
+                ));
+            }
+            Ok(Self {
+                limits,
+                report: CanonicalMergeReport::default(),
+            })
+        }
+
+        fn consume(&mut self, amount: usize, state: &AtomicU8) -> Result<(), KernelError> {
+            if state.load(Ordering::Acquire) == STATE_CANCELLED {
+                return Err(KernelError::Cancelled);
+            }
+            let next =
+                self.report.work.checked_add(amount).ok_or_else(|| {
+                    KernelError::resource("encoded canonical work counter overflow")
+                })?;
+            if next > self.limits.max_work {
+                return Err(KernelError::resource(format!(
+                    "encoded canonical comparison requires more than {} work units",
+                    self.limits.max_work
+                )));
+            }
+            self.report.work = next;
+            Ok(())
+        }
+
+        fn claim_workspace(&mut self, amount: usize) -> Result<(), KernelError> {
+            let next = self
+                .report
+                .workspace_bytes
+                .checked_add(amount)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded canonical workspace counter overflow")
+                })?;
+            if next > self.limits.max_workspace_bytes {
+                return Err(KernelError::resource(format!(
+                    "encoded canonical comparison requires more than {} workspace bytes",
+                    self.limits.max_workspace_bytes
+                )));
+            }
+            self.report.workspace_bytes = next;
+            self.report.peak_workspace_bytes = self.report.peak_workspace_bytes.max(next);
+            Ok(())
+        }
+
+        fn release_workspace(&mut self, amount: usize) -> Result<(), KernelError> {
+            self.report.workspace_bytes = self
+                .report
+                .workspace_bytes
+                .checked_sub(amount)
+                .ok_or_else(|| {
+                    KernelError::malformed("encoded canonical workspace accounting underflow")
+                })?;
+            Ok(())
+        }
+
+        fn record_comparison_byte(&mut self) -> Result<(), KernelError> {
+            self.report.canonical_bytes_compared = self
+                .report
+                .canonical_bytes_compared
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded canonical byte counter overflow"))?;
+            Ok(())
+        }
+
+        fn record_root(&mut self, deduplicated: bool) -> Result<(), KernelError> {
+            let roots_emitted = self
+                .report
+                .roots_emitted
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded merged-root counter overflow"))?;
+            let deduplicated_roots = if deduplicated {
+                self.report
+                    .deduplicated_roots
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded deduplicated-root counter overflow")
+                    })?
+            } else {
+                self.report.deduplicated_roots
+            };
+            self.report.roots_emitted = roots_emitted;
+            self.report.deduplicated_roots = deduplicated_roots;
+            Ok(())
+        }
+    }
+
+    fn allocation_bytes<T>(capacity: usize) -> Result<usize, KernelError> {
+        capacity.checked_mul(size_of::<T>()).ok_or_else(|| {
+            KernelError::resource("encoded canonical allocation-byte counter overflow")
+        })
+    }
+
+    fn allocate_vector<T>(
+        capacity: usize,
+        budget: &mut CanonicalBudget,
+        message: &'static str,
+    ) -> Result<(Vec<T>, usize), KernelError> {
+        let requested_bytes = allocation_bytes::<T>(capacity)?;
+        budget.claim_workspace(requested_bytes)?;
+        let mut result = Vec::new();
+        if result.try_reserve_exact(capacity).is_err() {
+            budget.release_workspace(requested_bytes)?;
+            return Err(KernelError::resource(message));
+        }
+        let actual_bytes = allocation_bytes::<T>(result.capacity())?;
+        if actual_bytes > requested_bytes {
+            if let Err(error) = budget.claim_workspace(actual_bytes - requested_bytes) {
+                budget.release_workspace(requested_bytes)?;
+                return Err(error);
+            }
+        } else if requested_bytes > actual_bytes {
+            budget.release_workspace(requested_bytes - actual_bytes)?;
+        }
+        Ok((result, actual_bytes))
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum CanonicalComponent<'a> {
+        None,
+        Node(usize),
+        Scalar {
+            kind: u8,
+            value: &'a [u8],
+        },
+        Integer(&'a [u8]),
+        Collection {
+            kind: u8,
+            start: usize,
+            length: usize,
+        },
+    }
+
+    fn canonical_component<'a>(
+        columns: DirectColumns<'a>,
+        index: usize,
+        item: bool,
+        budget: &mut CanonicalBudget,
+        state: &AtomicU8,
+    ) -> Result<CanonicalComponent<'a>, KernelError> {
+        let (kind, value, length) = if item {
+            let kind = columns.item_kinds.get(index).copied().ok_or_else(|| {
+                KernelError::malformed("encoded canonical item index is out of range")
+            })?;
+            (
+                kind,
+                read_usize(columns.item_values, index, "item_values")?,
+                read_usize(columns.item_lengths, index, "item_lengths")?,
+            )
+        } else {
+            (
+                columns.field_kind(index)?,
+                columns.field_value(index)?,
+                columns.field_length(index)?,
+            )
+        };
+        match kind {
+            COMPONENT_NONE => {
+                if value != 0 || length != 0 {
+                    return Err(KernelError::malformed(
+                        "encoded canonical none component is not canonical",
+                    ));
+                }
+                Ok(CanonicalComponent::None)
+            }
+            COMPONENT_NODE => {
+                if length != 0 {
+                    return Err(KernelError::malformed(
+                        "encoded canonical node component has a nonzero length",
+                    ));
+                }
+                Ok(CanonicalComponent::Node(columns.checked_node_id(value)?))
+            }
+            COMPONENT_TEXT | COMPONENT_BYTES | COMPONENT_ENUM => {
+                let payload = columns.scalar_range(value, length)?;
+                match kind {
+                    COMPONENT_TEXT => {
+                        budget.consume(payload.len(), state)?;
+                        std::str::from_utf8(payload).map_err(|_| {
+                            KernelError::malformed("encoded canonical text component is not UTF-8")
+                        })?;
+                    }
+                    COMPONENT_ENUM => {
+                        budget.consume(payload.len(), state)?;
+                        if payload.is_empty() || !payload.is_ascii() {
+                            return Err(KernelError::malformed(
+                                "encoded canonical enum component is not nonempty ASCII",
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+                Ok(CanonicalComponent::Scalar {
+                    kind,
+                    value: payload,
+                })
+            }
+            COMPONENT_INTEGER => {
+                let payload = columns.scalar_range(value, length)?;
+                if payload.is_empty() || (payload.len() > 1 && payload.last() == Some(&0)) {
+                    return Err(KernelError::malformed(
+                        "encoded canonical integer is not minimally encoded",
+                    ));
+                }
+                Ok(CanonicalComponent::Integer(payload))
+            }
+            COMPONENT_SET | COMPONENT_SEQUENCE if !item => {
+                if value > columns.item_count()
+                    || length > columns.item_count().saturating_sub(value)
+                {
+                    return Err(KernelError::malformed(
+                        "encoded canonical collection is out of bounds",
+                    ));
+                }
+                Ok(CanonicalComponent::Collection {
+                    kind,
+                    start: value,
+                    length,
+                })
+            }
+            COMPONENT_SET | COMPONENT_SEQUENCE => Err(KernelError::malformed(
+                "encoded canonical sequence contains a nested collection",
+            )),
+            _ => Err(KernelError::malformed(
+                "encoded canonical component kind is invalid",
+            )),
+        }
+    }
+
+    fn varint_width(mut value: usize) -> usize {
+        let mut width = 1_usize;
+        while value >= 0x80 {
+            value >>= 7;
+            width += 1;
+        }
+        width
+    }
+
+    fn integer_varint_chunks(value: &[u8]) -> Result<usize, KernelError> {
+        let final_byte = value
+            .last()
+            .copied()
+            .ok_or_else(|| KernelError::malformed("encoded canonical integer payload is empty"))?;
+        if value.len() > 1 && final_byte == 0 {
+            return Err(KernelError::malformed(
+                "encoded canonical integer is not minimally encoded",
+            ));
+        }
+        if final_byte == 0 {
+            return Ok(1);
+        }
+        let prefix_bits = value
+            .len()
+            .checked_sub(1)
+            .and_then(|length| length.checked_mul(8))
+            .ok_or_else(|| KernelError::resource("encoded canonical integer width overflow"))?;
+        let high_bits = 8_usize
+            .checked_sub(final_byte.leading_zeros() as usize)
+            .ok_or_else(|| KernelError::resource("encoded canonical integer width overflow"))?;
+        prefix_bits
+            .checked_add(high_bits)
+            .and_then(|bits| bits.checked_add(6))
+            .map(|bits| bits / 7)
+            .ok_or_else(|| KernelError::resource("encoded canonical integer width overflow"))
+    }
+
+    fn component_length(
+        columns: DirectColumns<'_>,
+        lengths: &[usize],
+        component: CanonicalComponent<'_>,
+        budget: &mut CanonicalBudget,
+        state: &AtomicU8,
+    ) -> Result<usize, KernelError> {
+        budget.consume(1, state)?;
+        match component {
+            CanonicalComponent::None => Ok(1),
+            CanonicalComponent::Node(node_id) => {
+                let child = lengths
+                    .get(node_id)
+                    .copied()
+                    .filter(|length| *length != 0)
+                    .ok_or_else(|| {
+                        KernelError::malformed("encoded canonical child length is unavailable")
+                    })?;
+                1_usize
+                    .checked_add(varint_width(child))
+                    .and_then(|length| length.checked_add(child))
+                    .ok_or_else(|| KernelError::resource("encoded canonical child length overflow"))
+            }
+            CanonicalComponent::Scalar { value, .. } => 1_usize
+                .checked_add(varint_width(value.len()))
+                .and_then(|length| length.checked_add(value.len()))
+                .ok_or_else(|| KernelError::resource("encoded canonical scalar length overflow")),
+            CanonicalComponent::Integer(value) => 1_usize
+                .checked_add(integer_varint_chunks(value)?)
+                .ok_or_else(|| KernelError::resource("encoded canonical integer length overflow")),
+            CanonicalComponent::Collection {
+                kind,
+                start,
+                length,
+            } => {
+                let mut total = 1_usize.checked_add(varint_width(length)).ok_or_else(|| {
+                    KernelError::resource("encoded canonical collection length overflow")
+                })?;
+                for item_index in start..start + length {
+                    budget.consume(1, state)?;
+                    let item = canonical_component(columns, item_index, true, budget, state)?;
+                    if kind == COMPONENT_SET {
+                        let CanonicalComponent::Node(node_id) = item else {
+                            return Err(KernelError::malformed(
+                                "encoded canonical set contains a scalar",
+                            ));
+                        };
+                        let child = lengths
+                            .get(node_id)
+                            .copied()
+                            .filter(|child| *child != 0)
+                            .ok_or_else(|| {
+                                KernelError::malformed(
+                                    "encoded canonical set child length is unavailable",
+                                )
+                            })?;
+                        total = total
+                            .checked_add(varint_width(child))
+                            .and_then(|value| value.checked_add(child))
+                            .ok_or_else(|| {
+                                KernelError::resource("encoded canonical set length overflow")
+                            })?;
+                    } else {
+                        total = total
+                            .checked_add(component_length(columns, lengths, item, budget, state)?)
+                            .ok_or_else(|| {
+                                KernelError::resource("encoded canonical sequence length overflow")
+                            })?;
+                    }
+                }
+                Ok(total)
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum LengthEvent {
+        Enter(usize),
+        Exit(usize),
+    }
+
+    fn push_length_event(
+        events: &mut Vec<LengthEvent>,
+        event: LengthEvent,
+    ) -> Result<(), KernelError> {
+        if events.len() == events.capacity() {
+            return Err(KernelError::resource(
+                "encoded canonical traversal exceeded its accounted stack",
+            ));
+        }
+        events.push(event);
+        Ok(())
+    }
+
+    struct CanonicalTable<'a> {
+        columns: DirectColumns<'a>,
+        lengths: Vec<usize>,
+    }
+
+    impl<'a> CanonicalTable<'a> {
+        fn build(
+            columns: DirectColumns<'a>,
+            budget: &mut CanonicalBudget,
+            state: &AtomicU8,
+        ) -> Result<Self, KernelError> {
+            let validation_work = columns
+                .root_count()
+                .checked_add(columns.excluded_root_ids.len() / 4)
+                .and_then(|value| value.checked_add(columns.node_count()))
+                .and_then(|value| value.checked_add(columns.field_count()))
+                .and_then(|value| value.checked_add(columns.item_count()))
+                .and_then(|value| value.checked_add(columns.scalar_bytes.len()))
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(|| {
+                    KernelError::resource("encoded canonical validation-work overflow")
+                })?;
+            budget.consume(validation_work, state)?;
+            columns.validate_generic(state)?;
+
+            let map_capacity = columns.node_count().checked_add(1).ok_or_else(|| {
+                KernelError::resource("encoded canonical length-map size overflow")
+            })?;
+            let event_capacity = columns
+                .node_count()
+                .checked_mul(2)
+                .and_then(|value| value.checked_add(columns.field_count()))
+                .and_then(|value| value.checked_add(columns.item_count()))
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(|| {
+                    KernelError::resource("encoded canonical traversal-stack size overflow")
+                })?;
+
+            let (mut lengths, length_bytes) = allocate_vector::<usize>(
+                map_capacity,
+                budget,
+                "encoded canonical length-map allocation failed",
+            )?;
+            let (mut colors, color_bytes) = match allocate_vector::<u8>(
+                map_capacity,
+                budget,
+                "encoded canonical color-map allocation failed",
+            ) {
+                Ok(result) => result,
+                Err(error) => {
+                    budget.release_workspace(length_bytes)?;
+                    return Err(error);
+                }
+            };
+            let (mut events, event_bytes) = match allocate_vector::<LengthEvent>(
+                event_capacity,
+                budget,
+                "encoded canonical traversal-stack allocation failed",
+            ) {
+                Ok(result) => result,
+                Err(error) => {
+                    budget.release_workspace(color_bytes)?;
+                    budget.release_workspace(length_bytes)?;
+                    return Err(error);
+                }
+            };
+            lengths.resize(map_capacity, 0);
+            colors.resize(map_capacity, 0);
+
+            let build_result = (|| {
+                for initial in 1..=columns.node_count() {
+                    budget.consume(1, state)?;
+                    if colors[initial] == 2 {
+                        continue;
+                    }
+                    push_length_event(&mut events, LengthEvent::Enter(initial))?;
+                    while let Some(event) = events.pop() {
+                        budget.consume(1, state)?;
+                        match event {
+                            LengthEvent::Enter(node_id) => match colors[node_id] {
+                                2 => continue,
+                                1 => {
+                                    return Err(KernelError::malformed(
+                                        "encoded canonical comparator found a cyclic node graph",
+                                    ));
+                                }
+                                _ => {
+                                    colors[node_id] = 1;
+                                    push_length_event(&mut events, LengthEvent::Exit(node_id))?;
+                                    let (start, end) = columns.field_range(node_id)?;
+                                    for field_index in (start..end).rev() {
+                                        budget.consume(1, state)?;
+                                        let component = canonical_component(
+                                            columns,
+                                            field_index,
+                                            false,
+                                            budget,
+                                            state,
+                                        )?;
+                                        match component {
+                                            CanonicalComponent::Node(child) => {
+                                                match colors[child] {
+                                                    1 => {
+                                                        return Err(KernelError::malformed(
+                                                            "encoded canonical comparator found a cyclic node graph",
+                                                        ));
+                                                    }
+                                                    0 => push_length_event(
+                                                        &mut events,
+                                                        LengthEvent::Enter(child),
+                                                    )?,
+                                                    _ => {}
+                                                }
+                                            }
+                                            CanonicalComponent::Collection {
+                                                kind,
+                                                start,
+                                                length,
+                                            } => {
+                                                for item_index in (start..start + length).rev() {
+                                                    budget.consume(1, state)?;
+                                                    let item = canonical_component(
+                                                        columns, item_index, true, budget, state,
+                                                    )?;
+                                                    if kind == COMPONENT_SET
+                                                        && !matches!(
+                                                            item,
+                                                            CanonicalComponent::Node(_)
+                                                        )
+                                                    {
+                                                        return Err(KernelError::malformed(
+                                                            "encoded canonical set contains a scalar",
+                                                        ));
+                                                    }
+                                                    if let CanonicalComponent::Node(child) = item {
+                                                        match colors[child] {
+                                                            1 => {
+                                                                return Err(
+                                                                    KernelError::malformed(
+                                                                        "encoded canonical comparator found a cyclic node graph",
+                                                                    ),
+                                                                );
+                                                            }
+                                                            0 => push_length_event(
+                                                                &mut events,
+                                                                LengthEvent::Enter(child),
+                                                            )?,
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            },
+                            LengthEvent::Exit(node_id) => {
+                                let mut length =
+                                    varint_width(usize::from(columns.node_tag(node_id)?));
+                                let (start, end) = columns.field_range(node_id)?;
+                                for field_index in start..end {
+                                    length = length
+                                        .checked_add(component_length(
+                                            columns,
+                                            &lengths,
+                                            canonical_component(
+                                                columns,
+                                                field_index,
+                                                false,
+                                                budget,
+                                                state,
+                                            )?,
+                                            budget,
+                                            state,
+                                        )?)
+                                        .ok_or_else(|| {
+                                            KernelError::resource(
+                                                "encoded canonical node length overflow",
+                                            )
+                                        })?;
+                                }
+                                lengths[node_id] = length;
+                                colors[node_id] = 2;
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            })();
+
+            budget.release_workspace(event_bytes)?;
+            budget.release_workspace(color_bytes)?;
+            if let Err(error) = build_result {
+                budget.release_workspace(length_bytes)?;
+                return Err(error);
+            }
+            Ok(Self { columns, lengths })
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum EmitTask<'a> {
+        Byte(u8),
+        Varint(usize),
+        Slice(&'a [u8], usize),
+        Integer {
+            value: &'a [u8],
+            chunk: usize,
+            chunks: usize,
+        },
+        Node(usize),
+        Component {
+            index: usize,
+            item: bool,
+        },
+        Collection {
+            start: usize,
+            index: usize,
+            length: usize,
+            canonical_set: bool,
+        },
+    }
+
+    struct CanonicalByteCursor<'a> {
+        stack: Vec<EmitTask<'a>>,
+    }
+
+    impl<'a> CanonicalByteCursor<'a> {
+        fn new() -> Self {
+            Self { stack: Vec::new() }
+        }
+
+        fn reset(
+            &mut self,
+            node_id: usize,
+            budget: &mut CanonicalBudget,
+        ) -> Result<(), KernelError> {
+            self.stack.clear();
+            self.push(EmitTask::Node(node_id), budget)
+        }
+
+        fn push(
+            &mut self,
+            task: EmitTask<'a>,
+            budget: &mut CanonicalBudget,
+        ) -> Result<(), KernelError> {
+            if self.stack.len() == self.stack.capacity() {
+                let previous = self.stack.capacity();
+                let target = if previous == 0 {
+                    8
+                } else {
+                    previous.checked_mul(2).ok_or_else(|| {
+                        KernelError::resource("encoded canonical cursor capacity overflow")
+                    })?
+                };
+                let requested = allocation_bytes::<EmitTask<'a>>(target - previous)?;
+                budget.claim_workspace(requested)?;
+                if self.stack.try_reserve_exact(target - previous).is_err() {
+                    budget.release_workspace(requested)?;
+                    return Err(KernelError::resource(
+                        "encoded canonical cursor allocation failed",
+                    ));
+                }
+                let actual_growth =
+                    self.stack.capacity().checked_sub(previous).ok_or_else(|| {
+                        KernelError::malformed("encoded canonical cursor capacity regressed")
+                    })?;
+                let actual = allocation_bytes::<EmitTask<'a>>(actual_growth)?;
+                if actual > requested {
+                    if let Err(error) = budget.claim_workspace(actual - requested) {
+                        let previous_bytes = allocation_bytes::<EmitTask<'a>>(previous)?;
+                        self.stack = Vec::new();
+                        budget.release_workspace(requested)?;
+                        budget.release_workspace(previous_bytes)?;
+                        return Err(error);
+                    }
+                } else if requested > actual {
+                    budget.release_workspace(requested - actual)?;
+                }
+            }
+            self.stack.push(task);
+            Ok(())
+        }
+
+        fn schedule_node(
+            &mut self,
+            node_id: usize,
+            include_marker: bool,
+            lengths: &[usize],
+            budget: &mut CanonicalBudget,
+        ) -> Result<(), KernelError> {
+            let length = lengths
+                .get(node_id)
+                .copied()
+                .filter(|value| *value != 0)
+                .ok_or_else(|| {
+                    KernelError::malformed("encoded canonical cursor node length is unavailable")
+                })?;
+            self.push(EmitTask::Node(node_id), budget)?;
+            self.push(EmitTask::Varint(length), budget)?;
+            if include_marker {
+                self.push(EmitTask::Byte(COMPONENT_NODE), budget)?;
+            }
+            Ok(())
+        }
+
+        fn schedule_component(
+            &mut self,
+            lengths: &[usize],
+            component: CanonicalComponent<'a>,
+            budget: &mut CanonicalBudget,
+        ) -> Result<(), KernelError> {
+            match component {
+                CanonicalComponent::None => self.push(EmitTask::Byte(COMPONENT_NONE), budget),
+                CanonicalComponent::Node(node_id) => {
+                    self.schedule_node(node_id, true, lengths, budget)
+                }
+                CanonicalComponent::Scalar { kind, value } => {
+                    if !value.is_empty() {
+                        self.push(EmitTask::Slice(value, 0), budget)?;
+                    }
+                    self.push(EmitTask::Varint(value.len()), budget)?;
+                    self.push(EmitTask::Byte(kind), budget)
+                }
+                CanonicalComponent::Integer(value) => {
+                    self.push(
+                        EmitTask::Integer {
+                            value,
+                            chunk: 0,
+                            chunks: integer_varint_chunks(value)?,
+                        },
+                        budget,
+                    )?;
+                    self.push(EmitTask::Byte(COMPONENT_INTEGER), budget)
+                }
+                CanonicalComponent::Collection {
+                    kind,
+                    start,
+                    length,
+                } => {
+                    self.push(
+                        EmitTask::Collection {
+                            start,
+                            index: 0,
+                            length,
+                            canonical_set: kind == COMPONENT_SET,
+                        },
+                        budget,
+                    )?;
+                    self.push(EmitTask::Varint(length), budget)?;
+                    self.push(EmitTask::Byte(kind), budget)
+                }
+            }
+        }
+
+        fn next_byte(
+            &mut self,
+            columns: DirectColumns<'a>,
+            lengths: &[usize],
+            budget: &mut CanonicalBudget,
+            state: &AtomicU8,
+        ) -> Result<Option<u8>, KernelError> {
+            loop {
+                let Some(task) = self.stack.pop() else {
+                    return Ok(None);
+                };
+                budget.consume(1, state)?;
+                match task {
+                    EmitTask::Byte(byte) => return Ok(Some(byte)),
+                    EmitTask::Varint(value) => {
+                        let following = value >> 7;
+                        if following != 0 {
+                            self.push(EmitTask::Varint(following), budget)?;
+                        }
+                        return Ok(Some(
+                            (value as u8 & 0x7f) | if following == 0 { 0 } else { 0x80 },
+                        ));
+                    }
+                    EmitTask::Slice(value, index) => {
+                        let byte = value.get(index).copied().ok_or_else(|| {
+                            KernelError::malformed(
+                                "encoded canonical cursor scalar is out of bounds",
+                            )
+                        })?;
+                        if index + 1 < value.len() {
+                            self.push(EmitTask::Slice(value, index + 1), budget)?;
+                        }
+                        return Ok(Some(byte));
+                    }
+                    EmitTask::Integer {
+                        value,
+                        chunk,
+                        chunks,
+                    } => {
+                        if chunk >= chunks {
+                            return Err(KernelError::malformed(
+                                "encoded canonical integer cursor is out of bounds",
+                            ));
+                        }
+                        let bit_offset = chunk.checked_mul(7).ok_or_else(|| {
+                            KernelError::resource("encoded canonical integer cursor overflow")
+                        })?;
+                        let byte_index = bit_offset / 8;
+                        let shift = bit_offset % 8;
+                        let low = u16::from(*value.get(byte_index).unwrap_or(&0));
+                        let high = u16::from(*value.get(byte_index + 1).unwrap_or(&0));
+                        let byte = (((low | (high << 8)) >> shift) & 0x7f) as u8;
+                        if chunk + 1 < chunks {
+                            self.push(
+                                EmitTask::Integer {
+                                    value,
+                                    chunk: chunk + 1,
+                                    chunks,
+                                },
+                                budget,
+                            )?;
+                        }
+                        return Ok(Some(byte | if chunk + 1 == chunks { 0 } else { 0x80 }));
+                    }
+                    EmitTask::Node(node_id) => {
+                        let (start, end) = columns.field_range(node_id)?;
+                        for field_index in (start..end).rev() {
+                            self.push(
+                                EmitTask::Component {
+                                    index: field_index,
+                                    item: false,
+                                },
+                                budget,
+                            )?;
+                        }
+                        self.push(
+                            EmitTask::Varint(usize::from(columns.node_tag(node_id)?)),
+                            budget,
+                        )?;
+                    }
+                    EmitTask::Component { index, item } => {
+                        self.schedule_component(
+                            lengths,
+                            canonical_component(columns, index, item, budget, state)?,
+                            budget,
+                        )?;
+                    }
+                    EmitTask::Collection {
+                        start,
+                        index,
+                        length,
+                        canonical_set,
+                    } => {
+                        if index >= length {
+                            continue;
+                        }
+                        self.push(
+                            EmitTask::Collection {
+                                start,
+                                index: index + 1,
+                                length,
+                                canonical_set,
+                            },
+                            budget,
+                        )?;
+                        let item =
+                            canonical_component(columns, start + index, true, budget, state)?;
+                        if canonical_set {
+                            let CanonicalComponent::Node(node_id) = item else {
+                                return Err(KernelError::malformed(
+                                    "encoded canonical set contains a scalar",
+                                ));
+                            };
+                            self.schedule_node(node_id, false, lengths, budget)?;
+                        } else {
+                            self.schedule_component(lengths, item, budget)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum TableSide {
+        Left,
+        Right,
+    }
+
+    pub(crate) struct CanonicalNodeComparator<'a> {
+        left: CanonicalTable<'a>,
+        right: CanonicalTable<'a>,
+        left_cursor: CanonicalByteCursor<'a>,
+        right_cursor: CanonicalByteCursor<'a>,
+        budget: CanonicalBudget,
+    }
+
+    impl<'a> CanonicalNodeComparator<'a> {
+        pub(crate) fn new(
+            left: DirectColumns<'a>,
+            right: DirectColumns<'a>,
+            limits: CanonicalMergeLimits,
+            state: &AtomicU8,
+        ) -> Result<Self, KernelError> {
+            let mut budget = CanonicalBudget::new(limits)?;
+            let left = CanonicalTable::build(left, &mut budget, state)?;
+            let right = CanonicalTable::build(right, &mut budget, state)?;
+            let mut result = Self {
+                left,
+                right,
+                left_cursor: CanonicalByteCursor::new(),
+                right_cursor: CanonicalByteCursor::new(),
+                budget,
+            };
+            result.validate_canonical_sets(TableSide::Left, state)?;
+            result.validate_canonical_sets(TableSide::Right, state)?;
+            Ok(result)
+        }
+
+        fn validate_canonical_sets(
+            &mut self,
+            side: TableSide,
+            state: &AtomicU8,
+        ) -> Result<(), KernelError> {
+            let columns = match side {
+                TableSide::Left => self.left.columns,
+                TableSide::Right => self.right.columns,
+            };
+            for field_index in 0..columns.field_count() {
+                self.budget.consume(1, state)?;
+                if columns.field_kind(field_index)? != COMPONENT_SET {
+                    continue;
+                }
+                let CanonicalComponent::Collection {
+                    kind,
+                    start,
+                    length,
+                } = canonical_component(columns, field_index, false, &mut self.budget, state)?
+                else {
+                    return Err(KernelError::malformed(
+                        "encoded canonical set field changed after length preflight",
+                    ));
+                };
+                if kind != COMPONENT_SET {
+                    return Err(KernelError::malformed(
+                        "encoded canonical set field changed after length preflight",
+                    ));
+                }
+                for offset in 1..length {
+                    self.budget.consume(1, state)?;
+                    let CanonicalComponent::Node(previous) = canonical_component(
+                        columns,
+                        start + offset - 1,
+                        true,
+                        &mut self.budget,
+                        state,
+                    )?
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set contains a scalar",
+                        ));
+                    };
+                    let CanonicalComponent::Node(current) = canonical_component(
+                        columns,
+                        start + offset,
+                        true,
+                        &mut self.budget,
+                        state,
+                    )?
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set contains a scalar",
+                        ));
+                    };
+                    if self.compare_sides(side, previous, side, current, state)?
+                        != CanonicalOrdering::Less
+                    {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set items are not strictly sorted and unique",
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        pub(crate) fn compare(
+            &mut self,
+            left_node: usize,
+            right_node: usize,
+            state: &AtomicU8,
+        ) -> Result<CanonicalOrdering, KernelError> {
+            self.compare_sides(
+                TableSide::Left,
+                left_node,
+                TableSide::Right,
+                right_node,
+                state,
+            )
+        }
+
+        fn compare_sides(
+            &mut self,
+            left_side: TableSide,
+            left_node: usize,
+            right_side: TableSide,
+            right_node: usize,
+            state: &AtomicU8,
+        ) -> Result<CanonicalOrdering, KernelError> {
+            let (left_columns, left_lengths) = match left_side {
+                TableSide::Left => (self.left.columns, self.left.lengths.as_slice()),
+                TableSide::Right => (self.right.columns, self.right.lengths.as_slice()),
+            };
+            let (right_columns, right_lengths) = match right_side {
+                TableSide::Left => (self.left.columns, self.left.lengths.as_slice()),
+                TableSide::Right => (self.right.columns, self.right.lengths.as_slice()),
+            };
+            left_columns.checked_node_id(left_node)?;
+            right_columns.checked_node_id(right_node)?;
+            if left_side == right_side && left_node == right_node {
+                return Ok(CanonicalOrdering::Equal);
+            }
+            self.left_cursor.reset(left_node, &mut self.budget)?;
+            self.right_cursor.reset(right_node, &mut self.budget)?;
+            loop {
+                let left = self.left_cursor.next_byte(
+                    left_columns,
+                    left_lengths,
+                    &mut self.budget,
+                    state,
+                )?;
+                let right = self.right_cursor.next_byte(
+                    right_columns,
+                    right_lengths,
+                    &mut self.budget,
+                    state,
+                )?;
+                match (left, right) {
+                    (Some(left), Some(right)) => {
+                        self.budget.record_comparison_byte()?;
+                        let ordering = left.cmp(&right);
+                        if ordering != CanonicalOrdering::Equal {
+                            return Ok(ordering);
+                        }
+                    }
+                    (None, None) => return Ok(CanonicalOrdering::Equal),
+                    (None, Some(_)) => return Ok(CanonicalOrdering::Less),
+                    (Some(_), None) => return Ok(CanonicalOrdering::Greater),
+                }
+            }
+        }
+
+        pub(crate) fn report(&self) -> CanonicalMergeReport {
+            self.budget.report
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) struct CanonicalRootRef {
+        pub(crate) index: usize,
+        pub(crate) kind: u8,
+        pub(crate) node_id: usize,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) enum MergedCanonicalRoot {
+        Left(CanonicalRootRef),
+        Right(CanonicalRootRef),
+        Both {
+            left: CanonicalRootRef,
+            right: CanonicalRootRef,
+        },
+    }
+
+    pub(crate) struct CanonicalRootMerger<'a> {
+        comparator: CanonicalNodeComparator<'a>,
+        left_position: usize,
+        right_position: usize,
+        left_exclusion_position: usize,
+        right_exclusion_position: usize,
+    }
+
+    impl<'a> CanonicalRootMerger<'a> {
+        pub(crate) fn new(
+            left: DirectColumns<'a>,
+            right: DirectColumns<'a>,
+            limits: CanonicalMergeLimits,
+            state: &AtomicU8,
+        ) -> Result<Self, KernelError> {
+            let comparator = CanonicalNodeComparator::new(left, right, limits, state)?;
+            let mut result = Self {
+                comparator,
+                left_position: 0,
+                right_position: 0,
+                left_exclusion_position: 0,
+                right_exclusion_position: 0,
+            };
+            result.validate_group(TableSide::Left, state)?;
+            result.validate_group(TableSide::Right, state)?;
+            Ok(result)
+        }
+
+        fn validate_group(&mut self, side: TableSide, state: &AtomicU8) -> Result<(), KernelError> {
+            let columns = match side {
+                TableSide::Left => self.comparator.left.columns,
+                TableSide::Right => self.comparator.right.columns,
+            };
+            let mut previous = None;
+            for index in 0..columns.root_count() {
+                self.comparator.budget.consume(1, state)?;
+                let current = CanonicalRootRef {
+                    index,
+                    kind: columns.root_kind(index)?,
+                    node_id: columns.root_id(index)?,
+                };
+                if let Some(previous) = previous {
+                    let ordering = self.compare_roots(side, previous, side, current, state)?;
+                    if ordering != CanonicalOrdering::Less {
+                        return Err(KernelError::malformed(
+                            "encoded canonical root group is not strictly sorted and unique",
+                        ));
+                    }
+                }
+                previous = Some(current);
+            }
+            Ok(())
+        }
+
+        fn compare_roots(
+            &mut self,
+            left_side: TableSide,
+            left: CanonicalRootRef,
+            right_side: TableSide,
+            right: CanonicalRootRef,
+            state: &AtomicU8,
+        ) -> Result<CanonicalOrdering, KernelError> {
+            self.comparator.budget.consume(1, state)?;
+            let kind_order = left.kind.cmp(&right.kind);
+            if kind_order != CanonicalOrdering::Equal {
+                return Ok(kind_order);
+            }
+            self.comparator
+                .compare_sides(left_side, left.node_id, right_side, right.node_id, state)
+        }
+
+        fn selected_root(
+            &mut self,
+            side: TableSide,
+            state: &AtomicU8,
+        ) -> Result<Option<CanonicalRootRef>, KernelError> {
+            let (columns, position, exclusion_position) = match side {
+                TableSide::Left => (
+                    self.comparator.left.columns,
+                    &mut self.left_position,
+                    &mut self.left_exclusion_position,
+                ),
+                TableSide::Right => (
+                    self.comparator.right.columns,
+                    &mut self.right_position,
+                    &mut self.right_exclusion_position,
+                ),
+            };
+            let exclusion_count = columns.excluded_root_ids.len() / 4;
+            while *position < columns.root_count() {
+                self.comparator.budget.consume(1, state)?;
+                let root_position = position.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded canonical root position overflow")
+                })?;
+                let mut excluded = false;
+                while *exclusion_position < exclusion_count {
+                    self.comparator.budget.consume(1, state)?;
+                    let candidate = columns.excluded_root_position(*exclusion_position)?;
+                    if candidate < root_position {
+                        *exclusion_position += 1;
+                        continue;
+                    }
+                    if candidate == root_position {
+                        *exclusion_position += 1;
+                        excluded = true;
+                    }
+                    break;
+                }
+                if excluded {
+                    *position += 1;
+                    continue;
+                }
+                return Ok(Some(CanonicalRootRef {
+                    index: *position,
+                    kind: columns.root_kind(*position)?,
+                    node_id: columns.root_id(*position)?,
+                }));
+            }
+            Ok(None)
+        }
+
+        pub(crate) fn next(
+            &mut self,
+            state: &AtomicU8,
+        ) -> Result<Option<MergedCanonicalRoot>, KernelError> {
+            let left = self.selected_root(TableSide::Left, state)?;
+            let right = self.selected_root(TableSide::Right, state)?;
+            let result = match (left, right) {
+                (None, None) => return Ok(None),
+                (Some(left), None) => {
+                    self.left_position += 1;
+                    MergedCanonicalRoot::Left(left)
+                }
+                (None, Some(right)) => {
+                    self.right_position += 1;
+                    MergedCanonicalRoot::Right(right)
+                }
+                (Some(left), Some(right)) => match self.compare_roots(
+                    TableSide::Left,
+                    left,
+                    TableSide::Right,
+                    right,
+                    state,
+                )? {
+                    CanonicalOrdering::Less => {
+                        self.left_position += 1;
+                        MergedCanonicalRoot::Left(left)
+                    }
+                    CanonicalOrdering::Greater => {
+                        self.right_position += 1;
+                        MergedCanonicalRoot::Right(right)
+                    }
+                    CanonicalOrdering::Equal => {
+                        self.left_position += 1;
+                        self.right_position += 1;
+                        self.comparator.budget.record_root(true)?;
+                        return Ok(Some(MergedCanonicalRoot::Both { left, right }));
+                    }
+                },
+            };
+            self.comparator.budget.record_root(false)?;
+            Ok(Some(result))
+        }
+
+        pub(crate) fn report(&self) -> CanonicalMergeReport {
+            self.comparator.report()
+        }
+    }
+}
+
 impl PendingExpansion {
     fn try_clone(&self) -> Result<Self, KernelError> {
         match self {
@@ -5721,6 +6966,36 @@ mod tests {
             }
         }
 
+        fn push_mixed_sequence(&mut self, items: &[FixtureItem<'_>]) {
+            self.field_kinds.push(COMPONENT_SEQUENCE);
+            self.field_values
+                .extend_from_slice(&(self.item_kinds.len() as u64).to_le_bytes());
+            self.field_lengths
+                .extend_from_slice(&(items.len() as u64).to_le_bytes());
+            for item in items {
+                match item {
+                    FixtureItem::None => {
+                        self.item_kinds.push(COMPONENT_NONE);
+                        self.item_values.extend_from_slice(&0_u64.to_le_bytes());
+                        self.item_lengths.extend_from_slice(&0_u64.to_le_bytes());
+                    }
+                    FixtureItem::Node(node_id) => {
+                        self.item_kinds.push(COMPONENT_NODE);
+                        self.item_values.extend_from_slice(&node_id.to_le_bytes());
+                        self.item_lengths.extend_from_slice(&0_u64.to_le_bytes());
+                    }
+                    FixtureItem::Scalar(kind, value) => {
+                        self.item_kinds.push(*kind);
+                        self.item_values
+                            .extend_from_slice(&(self.scalar_bytes.len() as u64).to_le_bytes());
+                        self.item_lengths
+                            .extend_from_slice(&(value.len() as u64).to_le_bytes());
+                        self.scalar_bytes.extend_from_slice(value);
+                    }
+                }
+            }
+        }
+
         fn finish_node(&mut self, tag: u16) {
             if self.node_field_offsets.is_empty() {
                 self.node_field_offsets
@@ -5746,6 +7021,12 @@ mod tests {
                 &self.scalar_bytes,
             ])
         }
+    }
+
+    enum FixtureItem<'a> {
+        None,
+        Node(u64),
+        Scalar(u8, &'a [u8]),
     }
 
     fn named_subclass_fixture() -> Fixture {
@@ -6640,6 +7921,112 @@ mod tests {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
+    }
+
+    fn canonical_component_fixture(
+        prefix: Option<&[u8]>,
+        integer: &[u8],
+        tail: &[u8],
+    ) -> (Fixture, usize) {
+        let mut fixture = Fixture::default();
+        if let Some(prefix) = prefix {
+            fixture.push_scalar(COMPONENT_TEXT, prefix);
+            fixture.finish_node(TAG_IRI);
+        }
+        let first_child = fixture.node_tags.len() / 2 + 1;
+        fixture.push_scalar(COMPONENT_TEXT, b"child-a");
+        fixture.finish_node(TAG_IRI);
+        let second_child = fixture.node_tags.len() / 2 + 1;
+        fixture.push_scalar(COMPONENT_TEXT, b"child-b");
+        fixture.finish_node(TAG_IRI);
+        let root = fixture.node_tags.len() / 2 + 1;
+        fixture.push_none();
+        fixture.push_node_ref(first_child as u64);
+        fixture.push_scalar(COMPONENT_TEXT, tail);
+        fixture.push_scalar(COMPONENT_BYTES, b"\x00\xff");
+        fixture.push_scalar(COMPONENT_INTEGER, integer);
+        fixture.push_scalar(COMPONENT_ENUM, b"fixture-enum");
+        fixture.push_node_set(&[first_child as u64, second_child as u64]);
+        fixture.push_mixed_sequence(&[
+            FixtureItem::None,
+            FixtureItem::Node(second_child as u64),
+            FixtureItem::Scalar(COMPONENT_TEXT, b"sequence-text"),
+            FixtureItem::Scalar(COMPONENT_INTEGER, b"\x80\x01\xff\x01"),
+            FixtureItem::Scalar(COMPONENT_BYTES, b"sequence-bytes"),
+            FixtureItem::Scalar(COMPONENT_ENUM, b"sequence-enum"),
+        ]);
+        fixture.finish_node(200);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(root as u32).to_le_bytes());
+        (fixture, root)
+    }
+
+    fn canonical_text_roots(values: &[&[u8]]) -> Fixture {
+        let mut fixture = Fixture::default();
+        for value in values {
+            fixture.push_scalar(COMPONENT_TEXT, value);
+            fixture.finish_node(TAG_IRI);
+        }
+        fixture
+            .root_kinds
+            .extend(std::iter::repeat_n(ROOT_AXIOM, values.len()));
+        for node_id in 1..=values.len() {
+            fixture
+                .root_ids
+                .extend_from_slice(&(node_id as u32).to_le_bytes());
+        }
+        fixture
+    }
+
+    fn canonical_scalar_root(kind: u8, value: &[u8]) -> Fixture {
+        let mut fixture = Fixture::default();
+        fixture.push_scalar(kind, value);
+        fixture.finish_node(200);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&1_u32.to_le_bytes());
+        fixture
+    }
+
+    fn reversed_canonical_set_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for value in [b"z".as_slice(), b"a"] {
+            fixture.push_scalar(COMPONENT_TEXT, value);
+            fixture.finish_node(TAG_IRI);
+        }
+        fixture.push_node_set(&[1, 2]);
+        fixture.finish_node(200);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&3_u32.to_le_bytes());
+        fixture
+    }
+
+    fn deep_canonical_fixture(depth: usize, cyclic: bool) -> (Fixture, usize) {
+        assert!(depth > 0);
+        let mut fixture = Fixture::default();
+        fixture.push_none();
+        fixture.finish_node(TAG_OBJECT_COMPLEMENT_OF);
+        for node_id in 2..=depth {
+            fixture.push_node_ref((node_id - 1) as u64);
+            fixture.finish_node(TAG_OBJECT_COMPLEMENT_OF);
+        }
+        if cyclic {
+            fixture.field_kinds[0] = COMPONENT_NODE;
+            fixture.field_values[0..8].copy_from_slice(&(depth as u64).to_le_bytes());
+        }
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(depth as u32).to_le_bytes());
+        (fixture, depth)
+    }
+
+    fn canonical_limits() -> canonical_merge::CanonicalMergeLimits {
+        canonical_merge::CanonicalMergeLimits {
+            max_work: 5_000_000,
+            max_workspace_bytes: 16 * 1024 * 1024,
+        }
     }
 
     fn running_state() -> AtomicU8 {
@@ -8134,6 +9521,264 @@ mod tests {
                 &running_state()
             ),
             Err(KernelError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn canonical_comparator_streams_every_component_across_independent_tables() {
+        let (left, left_root) = canonical_component_fixture(None, b"\x80\x01\xff\x01", b"tail");
+        let (right, right_root) =
+            canonical_component_fixture(Some(b"unrelated-prefix"), b"\x80\x01\xff\x01", b"tail");
+        let mut comparator = canonical_merge::CanonicalNodeComparator::new(
+            left.columns(),
+            right.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            comparator
+                .compare(left_root, right_root, &running_state())
+                .unwrap(),
+            std::cmp::Ordering::Equal
+        );
+        let report = comparator.report();
+        assert!(report.work > 0);
+        assert!(report.workspace_bytes > 0);
+        assert!(report.peak_workspace_bytes >= report.workspace_bytes);
+        assert!(report.canonical_bytes_compared > 0);
+
+        let (lower, lower_root) = canonical_component_fixture(None, b"\x7f", b"tail");
+        let (higher, higher_root) = canonical_component_fixture(None, b"\x80", b"tail");
+        let mut comparator = canonical_merge::CanonicalNodeComparator::new(
+            lower.columns(),
+            higher.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            comparator
+                .compare(lower_root, higher_root, &running_state())
+                .unwrap(),
+            std::cmp::Ordering::Less
+        );
+    }
+
+    #[test]
+    fn canonical_root_cursor_merges_orders_exclusions_and_structural_duplicates() {
+        use canonical_merge::MergedCanonicalRoot::{Both, Left, Right};
+
+        let left = canonical_text_roots(&[b"a", b"c"]);
+        let right = canonical_text_roots(&[b"b", b"c"]);
+        let mut merger = canonical_merge::CanonicalRootMerger::new(
+            left.columns(),
+            right.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+        let unselected_preflight_work = merger.report().work;
+        assert!(matches!(
+            merger.next(&running_state()).unwrap(),
+            Some(Left(root)) if root.index == 0
+        ));
+        assert!(matches!(
+            merger.next(&running_state()).unwrap(),
+            Some(Right(root)) if root.index == 0
+        ));
+        assert!(matches!(
+            merger.next(&running_state()).unwrap(),
+            Some(Both { left, right }) if left.index == 1 && right.index == 1
+        ));
+        assert_eq!(merger.next(&running_state()).unwrap(), None);
+        let report = merger.report();
+        assert_eq!(report.roots_emitted, 3);
+        assert_eq!(report.deduplicated_roots, 1);
+        assert!(report.canonical_bytes_compared > 0);
+
+        let excluded = 1_u32.to_le_bytes();
+        let mut selected = canonical_merge::CanonicalRootMerger::new(
+            left.columns().with_excluded_root_ids(&excluded),
+            right.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            selected.report().work,
+            unselected_preflight_work + excluded.len() / 4
+        );
+        assert!(matches!(
+            selected.next(&running_state()).unwrap(),
+            Some(Right(root)) if root.index == 0
+        ));
+        assert!(matches!(
+            selected.next(&running_state()).unwrap(),
+            Some(Both { left, right }) if left.index == 1 && right.index == 1
+        ));
+        assert_eq!(selected.next(&running_state()).unwrap(), None);
+        assert_eq!(selected.report().roots_emitted, 2);
+        assert_eq!(selected.report().deduplicated_roots, 1);
+    }
+
+    #[test]
+    fn canonical_root_cursor_rejects_noncanonical_order_and_local_duplicates() {
+        let valid = canonical_text_roots(&[b"x"]);
+        for hostile in [
+            canonical_text_roots(&[b"z", b"a"]),
+            canonical_text_roots(&[b"a", b"a"]),
+        ] {
+            assert!(matches!(
+                canonical_merge::CanonicalRootMerger::new(
+                    hostile.columns(),
+                    valid.columns(),
+                    canonical_limits(),
+                    &running_state(),
+                ),
+                Err(KernelError::Malformed(message))
+                    if message.contains("root group is not strictly sorted and unique")
+            ));
+        }
+    }
+
+    #[test]
+    fn canonical_comparator_rejects_invalid_scalars_and_actual_set_order() {
+        let valid = canonical_scalar_root(COMPONENT_TEXT, b"valid");
+        for (hostile, expected) in [
+            (
+                canonical_scalar_root(COMPONENT_TEXT, b"\xff"),
+                "text component is not UTF-8",
+            ),
+            (
+                canonical_scalar_root(COMPONENT_ENUM, b""),
+                "enum component is not nonempty ASCII",
+            ),
+            (
+                canonical_scalar_root(COMPONENT_ENUM, b"\xff"),
+                "enum component is not nonempty ASCII",
+            ),
+        ] {
+            assert!(matches!(
+                canonical_merge::CanonicalNodeComparator::new(
+                    hostile.columns(),
+                    valid.columns(),
+                    canonical_limits(),
+                    &running_state(),
+                ),
+                Err(KernelError::Malformed(message)) if message.contains(expected)
+            ));
+        }
+
+        let hostile = reversed_canonical_set_fixture();
+        assert!(matches!(
+            canonical_merge::CanonicalNodeComparator::new(
+                hostile.columns(),
+                valid.columns(),
+                canonical_limits(),
+                &running_state(),
+            ),
+            Err(KernelError::Malformed(message))
+                if message.contains("set items are not strictly sorted and unique")
+        ));
+    }
+
+    #[test]
+    fn canonical_comparator_handles_deep_graphs_iteratively_and_rejects_cycles() {
+        let (left, left_root) = deep_canonical_fixture(4096, false);
+        let (right, right_root) = deep_canonical_fixture(4096, false);
+        let mut comparator = canonical_merge::CanonicalNodeComparator::new(
+            left.columns(),
+            right.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            comparator
+                .compare(left_root, right_root, &running_state())
+                .unwrap(),
+            std::cmp::Ordering::Equal
+        );
+        assert!(comparator.report().canonical_bytes_compared > 4096);
+
+        let (cyclic, _cyclic_root) = deep_canonical_fixture(3, true);
+        assert!(matches!(
+            canonical_merge::CanonicalNodeComparator::new(
+                cyclic.columns(),
+                right.columns(),
+                canonical_limits(),
+                &running_state(),
+            ),
+            Err(KernelError::Malformed(message))
+                if message.contains("cyclic node graph")
+        ));
+    }
+
+    #[test]
+    fn canonical_comparator_fails_closed_on_work_workspace_and_cancellation_bounds() {
+        let (left, left_root) = canonical_component_fixture(None, b"\x01", b"tail");
+        let (right, right_root) = canonical_component_fixture(None, b"\x01", b"tail");
+        assert!(matches!(
+            canonical_merge::CanonicalNodeComparator::new(
+                left.columns(),
+                right.columns(),
+                canonical_merge::CanonicalMergeLimits {
+                    max_work: 1,
+                    max_workspace_bytes: 1024 * 1024,
+                },
+                &running_state(),
+            ),
+            Err(KernelError::Resource(message)) if message.contains("work units")
+        ));
+
+        let construction_work = canonical_merge::CanonicalNodeComparator::new(
+            left.columns(),
+            right.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap()
+        .report()
+        .work;
+        let mut work_bounded = canonical_merge::CanonicalNodeComparator::new(
+            left.columns(),
+            right.columns(),
+            canonical_merge::CanonicalMergeLimits {
+                max_work: construction_work,
+                max_workspace_bytes: 1024 * 1024,
+            },
+            &running_state(),
+        )
+        .unwrap();
+        assert!(matches!(
+            work_bounded.compare(left_root, right_root, &running_state()),
+            Err(KernelError::Resource(message)) if message.contains("work units")
+        ));
+
+        assert!(matches!(
+            canonical_merge::CanonicalNodeComparator::new(
+                left.columns(),
+                right.columns(),
+                canonical_merge::CanonicalMergeLimits {
+                    max_work: 1024 * 1024,
+                    max_workspace_bytes: 1,
+                },
+                &running_state(),
+            ),
+            Err(KernelError::Resource(message)) if message.contains("workspace bytes")
+        ));
+
+        let mut cancelled = canonical_merge::CanonicalNodeComparator::new(
+            left.columns(),
+            right.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+        assert!(matches!(
+            cancelled.compare(left_root, right_root, &AtomicU8::new(STATE_CANCELLED)),
+            Err(KernelError::Cancelled)
         ));
     }
 
