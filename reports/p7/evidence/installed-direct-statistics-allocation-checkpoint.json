@@ -1,0 +1,184 @@
+{
+  "schema": "pyowl-projector.p7-installed-direct-statistics-allocation-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "bb2845fbeb53ad49e80168d8e763affc5b578480"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-bb2845f.tar",
+      "bytes": 3809280,
+      "sha256": "fcc6b93cc32c02bc6409721410a75b0fe59aecfd05b91dae5c1640a96b47e6f6"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 460576,
+      "sha256": "0c057f8340e1a1ad84b1d68be26207d183c34fd15898dafbb6a39a779ed5a2e3"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 774876,
+      "sha256": "b6a928611eb0a164b900e183b1230d6a32f35c890f174e07267fe82af0154d0e",
+      "encoded_direct_kernel_version": 45,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 60354,
+      "sha256": "4163636e851c7a0f811165970ff69fad50f8846bcea9e9fc20a8699c19e890e7",
+      "matches_projector_revision": true
+    },
+    "case_sources": {
+      "foundation": {
+        "filename": "tests/test_native_encoded_foundation.py",
+        "bytes": 231930,
+        "sha256": "b4d9fa9c757f2dbe74524273534b677571c64fd24605f417b22152eca6ecee64"
+      },
+      "benchmark": {
+        "filename": "tests/test_encoded_benchmark.py",
+        "bytes": 13088,
+        "sha256": "f3323ca4a33ef62ec138537a9dc065e9071fe92956b59622b1de66a53c302582"
+      }
+    },
+    "rust_source": {
+      "filename": "native/src/lib.rs",
+      "bytes": 83627,
+      "sha256": "0ff2a7a253cb9803d32aa7341570abe8fab15539bbbd255d2c56250255521139",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_worktree": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 45,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false
+  },
+  "installed_verification": {
+    "direct_statistics_allocation_result": "7 passed",
+    "complete_suite_result": "1155 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "coarse_constructor_bypass": {
+        "python_statistics_factory_calls": 0,
+        "python_statistics_constructor_callbacks": 0,
+        "sixty_field_argument_tuple_created": false,
+        "final_type": "exact NativeEncodedDirectStatistics",
+        "payload": "all 60 exact native integers"
+      },
+      "bounded_constructor_bypass": {
+        "python_statistics_factory_calls": 0,
+        "python_statistics_constructor_callbacks": 0,
+        "sixty_field_argument_tuple_created": false,
+        "final_type": "exact NativeEncodedDirectStatistics",
+        "payload": "all 60 exact native integers"
+      },
+      "incompatible_layout": {
+        "surfaces": [
+          "coarse",
+          "bounded"
+        ],
+        "fails_before_final_statistics_allocation": true,
+        "batch_session_published": false,
+        "coarse_retained_roles_committed": false
+      },
+      "layout_mutation_during_allocation": {
+        "surfaces": [
+          "coarse",
+          "bounded"
+        ],
+        "failure": "ProjectionError",
+        "batch_session_published": false,
+        "coarse_output_counters_published": false,
+        "retained_roles_committed": false
+      },
+      "allocation_probe_failure": {
+        "failure": "ProjectionResourceError",
+        "batch_session_published": false,
+        "coarse_output_counters_published": false,
+        "role_use_released": true,
+        "retained_roles_committed": false
+      }
+    }
+  },
+  "source_verification": {
+    "direct_statistics_allocation_invariant": {
+      "stable_abi_generic_allocation": true,
+      "python_statistics_factory_invocations": 0,
+      "python_statistics_constructor_callbacks": 0,
+      "sixty_field_argument_tuple_created": false,
+      "exact_object_base_required": true,
+      "exact_sixty_slot_order_required": true,
+      "member_descriptors_required": true,
+      "dict_offset_required": 0,
+      "weakref_offset_required": 0,
+      "layout_revalidated_after_external_callbacks": true,
+      "exact_type_and_sixty_integer_payloads_revalidated": true,
+      "batch_failure_publishes_session": false,
+      "coarse_failure_publishes_counters": false,
+      "failure_commits_retained_roles": false
+    },
+    "private_foundation_cases": 256,
+    "complete_suite_cases": 1155,
+    "rust_unit_cases": 38,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "runtime_dependency_boundary": "passed",
+    "release_artifact_audit": "passed; 30 members",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "Both hidden output surfaces now allocate the exact canonical 60-slot statistics object directly through the CPython stable ABI. The native transaction creates no 60-field argument tuple and invokes no Python statistics factory or constructor callback, then revalidates the canonical factory identity, type layout, and all 60 exact integer payloads before commit.",
+  "known_blockers": [
+    "The compatibility coarse call still returns one O(E) Python list; only the hidden iterator exposes caller-bounded Python results.",
+    "Each final Edge still requires one Python object and three Python Unicode field objects, although it invokes no Python factory or constructor callback.",
+    "The final batch iterator wrapper still executes one Python factory/constructor callback during session preparation.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public iterator, sink, digest, artifact, dispatch, and Scala-instance lifecycle integration remain open.",
+    "Labelled corpus, performance, RSS, fuzz, sanitizer, thread/fork/shutdown, platform, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness and direct-allocation checkpoint; it carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The narrowly documented unsafe blocks call only PyType_GenericAlloc and PyObject_GenericSetAttr after the exact slotted layout has been validated.",
+    "The statistics allocation probe is private, disabled by default, and exists only to exercise transactional failure and mutation paths.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

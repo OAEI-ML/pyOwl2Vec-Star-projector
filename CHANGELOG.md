@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden coarse and batch-session preparation now allocates the exact 60-slot statistics object
+  directly through the CPython stable ABI. It creates no 60-field argument tuple and invokes no
+  Python statistics factory or constructor callback; canonical layout, factory identity, exact
+  type, and every integer payload remain transactionally validated. The capability stays hidden.
 - Hidden bounded and coarse native output now allocates exact slotted `Edge` objects directly
   through the CPython stable ABI, after validating their canonical object-base/member layout.
   Production drains execute no Python `Edge` factory or constructor callback; exact type, payload,

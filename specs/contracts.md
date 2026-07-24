@@ -273,6 +273,13 @@ offsets before allocation; it must recheck the complete layout, canonical factor
 type, payload, and distinct identities before commit. Production drains invoke no Python `Edge`
 factory or constructor callback. Layout failure or mutation retains the same bounded-retry and
 coarse state-atomic outcomes.
+Kernel-v45 evidence applies that allocation contract to the exact 60-slot statistics type on both
+coarse and batch-session paths. Native code creates no 60-field argument tuple and invokes no
+Python statistics factory or constructor callback. It must validate the object base, `__new__`,
+ordered member descriptors, dictionary/weak-reference offsets, canonical factory identity, exact
+type, and all 60 integer payloads before commit and revalidate them after the private probe or
+iterator callback. Layout failure or mutation publishes no coarse counters, batch session, or
+retained role-state transition.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These

@@ -160,6 +160,12 @@ stable ABI and assigns its three strings through the validated member descriptor
 layout and the complete exact, payload-equal, identity-distinct chunk before commit. A malformed or
 concurrently changed layout fails at the same atomic boundary; the disabled-by-default private
 allocation probe exists only for adversarial transaction tests.
+Kernel v45 applies the validated exact-slot allocator to `NativeEncodedDirectStatistics`. All 60
+native integers are assigned directly through member descriptors, eliminating both the 60-field
+argument tuple and Python statistics factory/constructor callback. Coarse preparation rechecks the
+layout and payload before output-counter or retained-role commit; batch preparation rechecks them
+after its iterator callback and before session publication. A malformed or changed statistics
+layout retains the same zero-publication outcome. Its disabled private probe is test-only.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

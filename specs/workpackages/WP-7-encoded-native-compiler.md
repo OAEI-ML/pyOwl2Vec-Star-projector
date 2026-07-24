@@ -78,8 +78,11 @@ later callback cannot mutate or alias an earlier final object across the commit 
 v44 then removes production `Edge` constructor callbacks: Rust validates the canonical exact
 slotted layout, allocates each object through the CPython stable ABI, assigns the three validated
 member fields, and rechecks the complete layout/type/payload/identity transaction before commit.
-Malformed or changed layouts preserve the same atomic failure outcomes. The private counter ledger
-separates compiled edges
+Malformed or changed layouts preserve the same atomic failure outcomes. Kernel v45 uses the same
+validated allocator for the exact 60-slot statistics type, removing the 60-field argument tuple
+and Python statistics factory/constructor callback from coarse and session preparation. All 60
+integer payloads and the layout are rechecked before counters, session, or retained roles publish.
+The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete

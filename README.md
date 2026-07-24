@@ -246,6 +246,10 @@ through the CPython stable ABI, with no Python `Edge` factory or constructor cal
 canonical object-base/member layout is checked before allocation and again after each complete
 chunk; exact installed evidence is recorded in
 [`reports/p7/evidence/installed-direct-edge-allocation-checkpoint.json`](reports/p7/evidence/installed-direct-edge-allocation-checkpoint.json).
+The exact 60-slot statistics object is now allocated through that same validated stable-ABI
+boundary on both coarse and batch-session paths. No 60-field argument tuple, Python statistics
+factory call, or constructor callback remains; exact evidence is recorded in
+[`reports/p7/evidence/installed-direct-statistics-allocation-checkpoint.json`](reports/p7/evidence/installed-direct-statistics-allocation-checkpoint.json).
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
@@ -254,9 +258,10 @@ conflicting overwrite behavior; a separate injected-decline sequence proves a on
 to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
 kernel v31; the bounded, lazy, coarse-cursor, final-result, final-batch, batch-session,
 iterator-publication, factory-validation, edge-factory-validation, canonical-wrapper,
-final-payload-validation, complete-batch-validation, and direct-edge-allocation checkpoints advance
-the private kernel through v32, v33, v34, v35, v36, v37, v38, v39, v40, v41, v42, v43, and v44
-while the public feature ledger remains exactly
+final-payload-validation, complete-batch-validation, direct-edge-allocation, and
+direct-statistics-allocation checkpoints advance the private kernel through v32, v33, v34, v35,
+v36, v37, v38, v39, v40, v41, v42, v43, v44, and v45 while the public feature ledger remains
+exactly
 `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
