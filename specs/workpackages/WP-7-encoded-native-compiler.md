@@ -85,6 +85,11 @@ integer payloads and the layout are rechecked before counters, session, or retai
 Kernel v46 then directly allocates the exact eight-slot iterator, removing its three-field argument
 tuple and Python factory/constructor callback while validating the compatible base, ordered slots,
 owner/statistics identities, and every initial state field before the same publication boundary.
+Projector revision `e531a02` connects this cursor to hidden protocol-sink, canonical-digest, and
+portable-artifact adapters through the existing policy and cleanup implementations. Exact installed
+tests require scalar-equivalent batches and reports, equal digests, byte-identical artifacts, and
+cursor cancellation without report publication after sink failure. These adapters do not advertise
+the capability or alter ordinary public dispatch.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is

@@ -255,6 +255,12 @@ three-field argument tuple or Python factory/constructor callback. Its compatibl
 layout, owner/statistics identities, and initial state are transactionally validated; exact
 evidence is recorded in
 [`reports/p7/evidence/installed-direct-iterator-allocation-checkpoint.json`](reports/p7/evidence/installed-direct-iterator-allocation-checkpoint.json).
+The cursor is also exercised through hidden Projector-level protocol-sink, canonical-digest, and
+portable-artifact adapters while reusing the existing policy and cleanup machinery. Exact
+installed-wheel evidence covers scalar-equivalent batches and reports, equal digests,
+byte-identical artifacts, and sink-failure cancellation in
+[`reports/p7/evidence/installed-stream-surfaces-checkpoint.json`](reports/p7/evidence/installed-stream-surfaces-checkpoint.json).
+These adapters do not change ordinary public dispatch.
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).

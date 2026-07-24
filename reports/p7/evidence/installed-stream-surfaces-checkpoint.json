@@ -1,0 +1,176 @@
+{
+  "schema": "pyowl-projector.p7-installed-stream-surfaces-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "e531a02c5526a60b1d488dd835977394f3c50a9e"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-e531a02.tar",
+      "bytes": 3860480,
+      "sha256": "b0d6a0497929df3ed4fa29d44bf35f1ccf679abf8333f8c30fc0097442a5583f"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 470036,
+      "sha256": "291fd105ad25e75b81e518284a92cd9ec4635999543b2e333e42a6c3a6313fb0"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 807628,
+      "sha256": "f44fa3de535019e8506fa8e90a3b89fa6fa834e588ae8f5fb9636e5198383660",
+      "encoded_direct_kernel_version": 46,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_projector_api": {
+      "filename": "pyowl2vec_star_projector/api.py",
+      "bytes": 49949,
+      "sha256": "ffcf641734b07cedae4a800b38d8e03d2b939614f21b4c7ba59f4e5d1b2dbdd9",
+      "matches_projector_revision": true
+    },
+    "installed_projector_artifact": {
+      "filename": "pyowl2vec_star_projector/artifact.py",
+      "bytes": 18436,
+      "sha256": "e99a721a5dbbab153e04718919b20c65fb3031a7c0a64b651fce7f4fe79dc73f",
+      "matches_projector_revision": true
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 60531,
+      "sha256": "108b6be5ad79b6349b89cbf670b102ba91de039a40368bbfded4893ee26b9811",
+      "matches_projector_revision": true
+    },
+    "private_integration_test": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 77585,
+      "sha256": "1fadbeb280452d18708a4fd28f04da8a5e04fc42fa6077339b439dc8c926f952"
+    },
+    "rust_source": {
+      "filename": "native/src/lib.rs",
+      "bytes": 88312,
+      "sha256": "0895a5d223486aabde22b0fa44a3a0d9fc1739a95816a59e0c82f18458a5296d",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_source_archive": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 46,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_iterator_ingestion": "scalar-native",
+    "ordinary_native_iterator_native_counters": 0
+  },
+  "installed_verification": {
+    "stream_surface_result": "2 passed",
+    "complete_suite_result": "1160 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "protocol_sink": {
+        "scalar_parity": true,
+        "batch_lengths": [
+          2,
+          1
+        ],
+        "published_edges": 3,
+        "duplicate_edges": 1,
+        "native_compiled_edges": 4,
+        "native_edge_batches": 2,
+        "native_peak_buffered_edges": 2,
+        "ingestion_path": "encoded-native"
+      },
+      "canonical_digest": {
+        "scalar_parity": true,
+        "sha256": "5f9a126f177f43ca759779294851cfb82661cc0b8bcbec73a03765c4cbe1ede5",
+        "edge_count": 3,
+        "duplicate_edges": 1
+      },
+      "portable_artifact": {
+        "byte_identical_to_scalar": true,
+        "artifact_sha256": "b974d6821c48a41aa6beef0dba6f08158311f31c8fbecc30dd9d4f356fa1e3b1",
+        "canonical_edges_sha256": "5f9a126f177f43ca759779294851cfb82661cc0b8bcbec73a03765c4cbe1ede5",
+        "bytes_written": 2049,
+        "edge_count": 3
+      },
+      "sink_failure": {
+        "failure": "RuntimeError",
+        "batch_session_state": "cancelled",
+        "remaining_native_edges": 0,
+        "report_published": false
+      }
+    }
+  },
+  "source_verification": {
+    "private_stream_surface_invariant": {
+      "uses_existing_edge_policy": true,
+      "uses_existing_sink_protocol_validation": true,
+      "uses_existing_artifact_writer": true,
+      "uses_existing_canonical_digest_writer": true,
+      "per_row_ffi_calls": 0,
+      "whole_call_scalar_fallback_retained": true,
+      "sink_failure_closes_native_cursor": true,
+      "public_methods_select_private_dispatch": false
+    },
+    "private_foundation_cases": 259,
+    "foundation_plus_private_integration_cases": 315,
+    "complete_suite_cases": 1160,
+    "rust_unit_cases": 38,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "runtime_dependency_boundary": "passed",
+    "release_artifact_audit": "passed; 30 members",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "The proven hidden native cursor now runs through Projector-level protocol-sink, canonical-digest, and portable-artifact adapters while reusing the existing ordering, duplicate, spill, cancellation, report, and artifact contracts. Exact installed-wheel cases prove scalar-equivalent sink batches and reports, identical canonical digests, byte-identical artifacts, and cancellation of unpublished native output after sink failure.",
+  "known_blockers": [
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "The hidden stream adapters still create one final Python Edge object and three Python Unicode fields per projected edge before sink, digest, or artifact encoding.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Complete projecting rules/options and public Scala-instance lifecycle integration remain open.",
+    "Labelled corpus, performance, RSS, fuzz, sanitizer, thread/fork/shutdown, platform, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a private structural-correctness integration checkpoint; it carries no timing, throughput, RSS, public-dispatch, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The test runner loaded pytest from the tooling environment while both product packages resolved from the isolated installed-wheel runtime.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

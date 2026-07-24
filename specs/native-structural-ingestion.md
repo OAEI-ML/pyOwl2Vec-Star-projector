@@ -173,6 +173,12 @@ initial scalar state fields without a constructor argument tuple or Python facto
 callback, then revalidates them and the layout before session publication. Factory replacement,
 payload corruption, layout mutation, or the disabled private probe retains the same absent-session
 and unchanged-role outcome.
+Projector checkpoint `e531a02` routes that cursor through hidden protocol-sink, canonical-digest,
+and portable-artifact adapters. Those adapters reuse the public policy, spill, cancellation,
+report, sink validation, and artifact implementations rather than defining parallel semantics.
+Sink failure closes the unpublished native session; exact installed evidence requires
+scalar-equivalent batches and reports, equal canonical digests, and byte-identical artifacts.
+Ordinary public entry points still cannot select this path.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

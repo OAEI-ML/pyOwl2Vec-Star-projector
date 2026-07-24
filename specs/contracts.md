@@ -287,6 +287,11 @@ no Python iterator factory or constructor callback. It must validate ordered mem
 canonical factory identity, exact owner/statistics identities, batch bound, zero yielded/batch/peak
 counters, initial boundary count one, and terminal state `active` before session or retained roles
 publish. Layout, payload, probe, or factory failure publishes neither.
+The hidden P7 integration checkpoint also exercises this cursor through the existing version-1
+batch-sink, canonical-digest, and portable-artifact implementations. It must preserve the same
+policy, report, cancellation, cleanup, and byte contracts, including no report after sink failure.
+This is private evidence only: normal public entry points still follow the advertised feature
+ledger and cannot select the unadvertised compiler.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These

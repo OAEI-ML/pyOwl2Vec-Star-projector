@@ -7,6 +7,11 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden Projector adapters now run the proven native cursor through the version-1 protocol sink,
+  canonical digest, and portable artifact machinery. They retain the existing ordering,
+  duplicate, spill, cancellation, report, and artifact contracts; exact installed evidence covers
+  byte-identical scalar artifacts and cursor cleanup after sink failure. Public dispatch and the
+  feature ledger remain unchanged.
 - Hidden batch-session preparation now directly allocates its exact eight-slot iterator through the
   CPython stable ABI. No argument tuple or Python iterator factory/constructor callback remains;
   canonical base/layout, owner/statistics identities, and every initial state field are validated
