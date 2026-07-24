@@ -149,6 +149,10 @@ Kernel v42 validates the final payloads before that commit: every exact `Edge` s
 exact statistics integers must match their native inputs, while the iterator must retain the exact
 compiler/statistics identities, batch bound, and zero initial yielded count. Constructor-injected
 payload corruption therefore retains the v40 failure-atomic outcomes.
+Kernel v43 closes the later-callback seam by revalidating every final `Edge` after the complete
+bounded or coarse chunk has been constructed, requiring distinct identities, and revalidating the
+statistics object after iterator construction. Aliasing or mutation of an earlier result cannot
+cross the same commit boundaries.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

@@ -1,6 +1,6 @@
 # P7 encoded-native compiler checkpoint
 
-Date: 2026-07-21. Projector implementation through `5b960d1`. pyOWLCore candidate revision:
+Date: 2026-07-23. Projector implementation through `0554965`. pyOWLCore candidate revision:
 `6750aa0`. Exact-OM integration revision: `fe46141`.
 
 ## Outcome
@@ -86,6 +86,9 @@ canonical identities, rather than mutable module-level factory names.
 Kernel v42 validates the contents of every final edge and statistics object, plus the final
 iterator's owner, statistics, batch bound, and initial yielded count, before the enclosing native
 transaction can commit.
+Kernel v43 revalidates every bounded or coarse edge object after the last constructor callback,
+requires all final edge identities to be distinct, and revalidates statistics after iterator
+construction before the same native transaction can commit.
 No installed-wheel or corpus result is inferred from the source-tree harness checks below.
 
 This checkpoint adds a real but deliberately private Rust foundation. It proves one useful
@@ -844,6 +847,25 @@ static, runtime-boundary, and wheel audits passed from the exact archive. This r
 correctness evidence only. Exact hashes and blockers are recorded in
 [`installed-final-payload-validation-checkpoint.json`](evidence/installed-final-payload-validation-checkpoint.json).
 
+### Complete final-batch validation
+
+Revision `05549655b5b75f6deefc56f3cfb3cbf7c0d1efd9` closes the remaining later-callback
+mutation seam. Kernel v43 retains every final bounded or coarse edge until the whole native chunk
+has been constructed, then validates exact type, all three strings, and distinct object identity
+for the complete chunk before tuple/list construction or cursor and retained-state commit. It also
+revalidates the final statistics object after the iterator constructor returns, preventing that
+last callback from changing the already-validated 60-field ledger before session publication.
+
+Three exact installed-wheel cases make a later edge constructor corrupt the first edge on both
+bounded and coarse surfaces and make the iterator constructor corrupt its statistics. The bounded
+failure keeps all three edges retryable with zero cursor/counter movement and its retry drains the
+exact result. The coarse failure publishes zero output counters. The iterator failure publishes no
+session or counters, releases role use, and leaves both retained maps empty. All 1,144 tests passed
+from the exact release-profile wheel plus core `6750aa0`; all 38 Rust tests, rustfmt, Clippy with
+warnings denied, Ruff, mypy, the runtime dependency audit, and the 30-member wheel audit passed.
+This remains private correctness evidence only. Exact hashes and blockers are recorded in
+[`installed-complete-batch-validation-checkpoint.json`](evidence/installed-complete-batch-validation-checkpoint.json).
+
 ## Diamond and cyclic import provenance
 
 Revision `18ed10e4a9bd48ae6c8b23e6a6d85f1a60ebcee7` extends the installed root-join
@@ -869,16 +891,16 @@ release or performance claim. Exact artifact hashes are recorded in
 ## Verification at this checkpoint
 
 The following source-tree and exact-installed checks passed for the implementation sequence
-`39a5656` through `5b960d1`:
+`39a5656` through `0554965`:
 
 | Gate | Result |
 |---|---|
 | Rust unit tests (`cargo test --no-default-features`) | 38 passed |
 | Rust formatting and Clippy with warnings denied | passed |
-| Private PyO3 foundation tests | 242 passed |
-| Foundation plus private-integration tests | 296 passed |
-| Broad encoded-compiler tests | 693 passed |
-| Complete projector test suite | 1,141 passed |
+| Private PyO3 foundation tests | 245 passed |
+| Foundation plus private-integration tests | 299 passed |
+| Broad encoded-compiler tests | 696 passed |
+| Complete projector test suite | 1,144 passed |
 | Exact installed native-wheel annotation-provenance cases | 8 passed |
 | Exact installed native-wheel annotation-cycle cases | 2 passed |
 | Exact installed native-wheel import-topology cases | 2 passed |
@@ -911,6 +933,7 @@ The following source-tree and exact-installed checks passed for the implementati
 | Exact installed canonical-wrapper audit/benchmark cases | 11 passed |
 | Exact installed final-payload validation cases | 28 passed |
 | Exact installed final-payload audit/benchmark cases | 11 passed |
+| Exact installed complete-batch validation cases | 3 passed |
 | Focused Python Ruff and mypy checks | passed |
 | Runtime dependency-boundary audit | passed |
 | Exact native-wheel release audit | passed; 30 members |
@@ -1074,6 +1097,10 @@ Final-payload cases instead return exact canonical objects whose fields were cha
 construction. They require exact bounded retry after edge corruption and zero coarse/session
 publication, released role use, and unchanged retained maps after edge, statistics, or iterator
 payload corruption.
+Complete-batch cases make a later edge constructor mutate an earlier exact result or make the
+iterator constructor mutate its previously validated statistics object. They require distinct
+edge identities, one final whole-chunk validation, exact bounded retry, and zero coarse/session
+publication with unchanged retained state.
 
 The benchmark-specific cases additionally prove that public scalar runs retain their existing
 surface and rejection behavior; the private candidate selects encoded-native with exact
@@ -1089,11 +1116,11 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables; v32 emits the hidden iterator through a resumable bounded cursor; v33 starts that cursor without replay; v34 removes the coarse call's duplicate Rust emitter/vector; v35 removes its duplicate complete Python edge list and extends the role transaction through final object construction; v36 returns each final iterator `Edge` tuple directly and commits the cursor afterwards; v37 publishes the session and retained role transition only after final statistics construction; v38 constructs the final owner-holding iterator before that publication; v39 validates canonical final factories and exact result types before commit; v40 extends that validation to bounded-drain and coarse edge results plus coarse statistics before their respective commits; v41 pins post-native wrapper validation to those retained canonical identities; v42 validates final object payloads before commit. The hidden Projector binds retained Scala-instance maps with an exact one-way scalar transition, but public binding and remaining projecting rules/options/surfaces are unsupported |
+| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables; v32 emits the hidden iterator through a resumable bounded cursor; v33 starts that cursor without replay; v34 removes the coarse call's duplicate Rust emitter/vector; v35 removes its duplicate complete Python edge list and extends the role transaction through final object construction; v36 returns each final iterator `Edge` tuple directly and commits the cursor afterwards; v37 publishes the session and retained role transition only after final statistics construction; v38 constructs the final owner-holding iterator before that publication; v39 validates canonical final factories and exact result types before commit; v40 extends that validation to bounded-drain and coarse edge results plus coarse statistics before their respective commits; v41 pins post-native wrapper validation to those retained canonical identities; v42 validates final object payloads before commit; v43 revalidates complete edge chunks and statistics after their last callback. The hidden Projector binds retained Scala-instance maps with an exact one-way scalar transition, but public binding and remaining projecting rules/options/surfaces are unsupported |
 | Bounded batches without per-row FFI | The hidden iterator's Rust and Python outputs are caller-bounded, start with zero emission attempts, use one PyO3 entry per batch, preserve exact order, and report compiled/vector/peak counters. Each final bounded `Edge` tuple is constructed and its exact type, factory, and three string fields are validated before cursor commit without an intermediate Python tuple-edge list; the final objects still require per-edge Python factory calls inside that entry. The legacy private coarse call must still return one whole Python list, but builds and validates its final `Edge` objects through 256-edge native chunks with no complete Rust output vector or intermediate complete tuple-edge list. Public iterator/sink/digest/artifact integration remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. An explicitly hidden named-edge iterator selects the private kernel and reports its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported; arbitrary slices, mmap, overlay/composite, and segmented families are unsupported |
-| Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, exact retry after malformed, replaced, or payload-corrupting bounded edge factories, coarse edge/statistics payload validation, canonical-constructor mutation across post-native wrapper checks, final-statistics/final-iterator publication and result validation, and hidden iterator close/cancel/fallback/resource tests pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
+| Lifetime/GIL/cancel/failure safety | Focused private bytes-path, batch close/collection/sink-failure/state-atomicity, exact retry after malformed, replaced, payload-corrupting, or later-callback-corrupting bounded edge factories, complete coarse edge/statistics validation, canonical-constructor mutation across post-native wrapper checks, final-statistics/final-iterator publication and result validation, and hidden iterator close/cancel/fallback/resource tests pass; full production iterator/fork/shutdown/fuzz/sanitizer matrix remains open |
 | Zero forbidden-work ledger | Reported by the successful hidden exact named-edge candidate; no public production-path claim |
 | Corpus performance/RSS gates | Private load-excluded harness now binds execution surface, exact ledgers, runtime artifacts, and revisions; installed NCIT/DOID/GO/large-corpus measurements and thresholds remain open |
 | Exact shared-stack acceptance | Open for this kernel |

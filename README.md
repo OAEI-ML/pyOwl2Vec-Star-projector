@@ -237,6 +237,10 @@ module globals after native commit; exact constructor-mutation evidence is recor
 Native validation now also matches every final-object payload field to its transaction input before
 commit; exact corruption and retry evidence is recorded in
 [`reports/p7/evidence/installed-final-payload-validation-checkpoint.json`](reports/p7/evidence/installed-final-payload-validation-checkpoint.json).
+The complete final batch is then revalidated after its last constructor callback, including
+distinct object identity, and statistics are revalidated after the iterator callback; exact
+installed evidence is recorded in
+[`reports/p7/evidence/installed-complete-batch-validation-checkpoint.json`](reports/p7/evidence/installed-complete-batch-validation-checkpoint.json).
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
@@ -244,9 +248,10 @@ Three native calls cover initial role acquisition, later restriction/domain/rang
 conflicting overwrite behavior; a separate injected-decline sequence proves a one-way transition
 to scalar compilation without re-entering stale native state. That lifecycle checkpoint used
 kernel v31; the bounded, lazy, coarse-cursor, final-result, final-batch, batch-session,
-iterator-publication, factory-validation, edge-factory-validation, canonical-wrapper, and
-final-payload-validation checkpoints advance the private kernel through v32, v33, v34, v35, v36,
-v37, v38, v39, v40, v41, and v42 while the public feature ledger remains exactly
+iterator-publication, factory-validation, edge-factory-validation, canonical-wrapper,
+final-payload-validation, and complete-batch-validation checkpoints advance the private kernel
+through v32, v33, v34, v35, v36, v37, v38, v39, v40, v41, v42, and v43 while the public feature
+ledger remains exactly
 `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible

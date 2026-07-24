@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Native final-batch validation now rechecks every exact `Edge` after the last constructor callback,
+  rejects aliased final objects, and rechecks statistics after the iterator callback. A later
+  callback cannot corrupt an earlier result before cursor, counters, session, or retained Scala
+  role state commits; bounded failures remain exactly retryable and the capability stays hidden.
 - Native final-object validation now checks payload identity as well as exact type: every `Edge`
   string, all 60 statistics integers, and the iterator owner/statistics/batch/initial-count fields
   must match their native inputs before cursor, session, counters, or retained Scala role state can

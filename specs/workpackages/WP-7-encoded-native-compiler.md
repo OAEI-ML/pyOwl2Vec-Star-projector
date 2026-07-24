@@ -72,7 +72,10 @@ checks to the same retained canonical identities, preventing a constructor-time 
 mutation from rejecting state that native code already committed. Kernel v42 validates every
 final edge/statistics payload field plus the iterator's owner, statistics, bound, and initial count
 before native commit, preserving the same atomic outcomes for constructor-injected payload
-corruption. The private counter ledger separates compiled edges
+corruption. Kernel v43 revalidates the complete edge chunk after its last constructor callback,
+requires distinct edge identities, and revalidates statistics after the iterator callback, so a
+later callback cannot mutate or alias an earlier final object across the commit boundary. The
+private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete

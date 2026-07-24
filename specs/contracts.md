@@ -262,6 +262,10 @@ Kernel-v42 evidence requires payload equality before native commit: exact edge s
 exact statistics integers must match their construction inputs; iterator owner/statistics
 identities, batch bound, and zero initial yielded count must also match. Corruption must retain
 bounded retry or the absent-session/zero-counter/unchanged-role outcome as applicable.
+Kernel-v43 evidence additionally requires one final validation pass after the last callback:
+bounded and coarse edge objects remain exact, payload-equal, and identity-distinct after the whole
+batch is constructed, and statistics remain exact after iterator construction. Later-callback
+corruption or aliasing retains the same failure-atomic outcomes.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These
