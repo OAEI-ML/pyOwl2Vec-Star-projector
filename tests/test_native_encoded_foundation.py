@@ -53,6 +53,9 @@ from pyowl2vec_star_projector.native import (
 )
 
 NATIVE_AVAILABLE = probe_native_backend().available
+_EDGE_ALLOCATION_PROBE = (
+    "pyowl2vec_star_projector.native._NATIVE_ENCODED_EDGE_ALLOCATION_PROBE"
+)
 
 pytestmark = pytest.mark.skipif(
     not NATIVE_AVAILABLE,
@@ -5107,15 +5110,15 @@ def test_private_native_batch_final_edges_commit_with_cursor(
     boundary_calls = batches.boundary_calls
     edge_calls = 0
 
-    def failing_edge(source: str, relation: str, destination: str) -> Edge:
+    def failing_edge_probe(edge: Edge) -> None:
         nonlocal edge_calls
         edge_calls += 1
         if edge_calls == 2:
             raise MemoryError("injected final batch edge construction failure")
-        return Edge(source, relation, destination)
+        assert type(edge) is Edge
 
     with monkeypatch.context() as patch:
-        patch.setattr("pyowl2vec_star_projector.native.Edge", failing_edge)
+        patch.setattr(_EDGE_ALLOCATION_PROBE, failing_edge_probe)
         with pytest.raises(ProjectionResourceError, match="configured edge resources"):
             next(batches)
 
@@ -5136,7 +5139,7 @@ def test_private_native_batch_final_edges_commit_with_cursor(
     (False, True),
     ids=("malformed-result", "canonical-result-from-replaced-factory"),
 )
-def test_private_native_batch_edge_factory_validates_before_cursor_commit(
+def test_private_native_batch_rejects_replaced_edge_factory_before_invocation(
     monkeypatch: pytest.MonkeyPatch,
     exact_result: bool,
 ) -> None:
@@ -5172,7 +5175,7 @@ def test_private_native_batch_edge_factory_validates_before_cursor_commit(
         with pytest.raises(ProjectionError, match="native projector execution failed"):
             next(batches)
 
-    assert edge_calls == (2 if exact_result else 1)
+    assert edge_calls == 0
     assert batches.state == "active"
     assert batches.yielded_edges == 0
     assert batches.remaining_edges == remaining_edges
@@ -5204,18 +5207,17 @@ def test_private_native_batch_uses_canonical_edge_type_after_factory_mutation(
         batch_edges=2,
     )
     native_bridge = cast(Any, sys.modules["pyowl2vec_star_projector.native"])
-    canonical_post_init = Edge.__post_init__
     mutated = False
 
-    def mutating_post_init(edge: Edge) -> None:
+    def mutating_allocation_probe(edge: Edge) -> None:
         nonlocal mutated
-        canonical_post_init(edge)
+        assert type(edge) is Edge
         if not mutated:
             mutated = True
             patch.setattr(native_bridge, "Edge", object)
 
     with monkeypatch.context() as patch:
-        patch.setattr(Edge, "__post_init__", mutating_post_init)
+        patch.setattr(_EDGE_ALLOCATION_PROBE, mutating_allocation_probe)
         first = next(batches)
         patch.setattr(native_bridge, "Edge", Edge)
 
@@ -5252,14 +5254,11 @@ def test_private_native_batch_validates_edge_payload_before_cursor_commit(
     )
     remaining_edges = batches.remaining_edges
     boundary_calls = batches.boundary_calls
-    canonical_post_init = Edge.__post_init__
-
-    def corrupting_post_init(edge: Edge) -> None:
-        canonical_post_init(edge)
+    def corrupting_allocation_probe(edge: Edge) -> None:
         object.__setattr__(edge, "source", "urn:corrupted")
 
     with monkeypatch.context() as patch:
-        patch.setattr(Edge, "__post_init__", corrupting_post_init)
+        patch.setattr(_EDGE_ALLOCATION_PROBE, corrupting_allocation_probe)
         with pytest.raises(ProjectionError, match="native projector execution failed"):
             next(batches)
 
@@ -5473,17 +5472,17 @@ def test_private_native_coarse_result_factories_are_in_role_transaction(
     )
     edge_calls = 0
 
-    def failing_edge(source: str, relation: str, destination: str) -> Edge:
+    def failing_edge_probe(edge: Edge) -> None:
         nonlocal edge_calls
         edge_calls += 1
         if edge_calls == 2:
             raise MemoryError("injected final edge construction failure")
-        return Edge(source, relation, destination)
+        assert type(edge) is Edge
 
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
     with monkeypatch.context() as patch:
-        patch.setattr("pyowl2vec_star_projector.native.Edge", failing_edge)
+        patch.setattr(_EDGE_ALLOCATION_PROBE, failing_edge_probe)
         with pytest.raises(ProjectionResourceError, match="configured edge resources"):
             compiler.compile_batch(
                 bidirectional=False,
@@ -5583,7 +5582,7 @@ def test_private_native_coarse_factory_results_validate_before_role_commit(
                 role_state=role_state,
             )
 
-    expected_calls = 3 if factory_name == "edge" and exact_result else 1
+    expected_calls = 0 if factory_name == "edge" else 1
     assert calls == expected_calls
     assert compiler.state == "failed"
     assert compiler.coarse_output_chunks == 0
@@ -5648,12 +5647,11 @@ def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
             mutated = True
             patch.setattr(native_bridge, target, object)
 
-    canonical_edge_post_init = Edge.__post_init__
     canonical_statistics_post_init = NativeEncodedDirectStatistics.__post_init__
     canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
 
-    def mutating_edge_post_init(edge: Edge) -> None:
-        canonical_edge_post_init(edge)
+    def mutating_edge_probe(edge: Edge) -> None:
+        assert type(edge) is Edge
         mutate_factory_global()
 
     def mutating_statistics_post_init(statistics: NativeEncodedDirectStatistics) -> None:
@@ -5673,7 +5671,7 @@ def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
     batches: NativeEncodedDirectBatchIterator | None = None
     with monkeypatch.context() as patch:
         if factory_name == "edge":
-            patch.setattr(Edge, "__post_init__", mutating_edge_post_init)
+            patch.setattr(_EDGE_ALLOCATION_PROBE, mutating_edge_probe)
         elif factory_name == "statistics":
             patch.setattr(
                 NativeEncodedDirectStatistics,
@@ -5747,12 +5745,10 @@ def test_private_native_final_payloads_validate_before_state_commit(
     )
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
-    canonical_edge_post_init = Edge.__post_init__
     canonical_statistics_post_init = NativeEncodedDirectStatistics.__post_init__
     canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
 
-    def corrupting_edge_post_init(edge: Edge) -> None:
-        canonical_edge_post_init(edge)
+    def corrupting_edge_probe(edge: Edge) -> None:
         object.__setattr__(edge, "source", "urn:corrupted")
 
     def corrupting_statistics_post_init(statistics: NativeEncodedDirectStatistics) -> None:
@@ -5771,7 +5767,7 @@ def test_private_native_final_payloads_validate_before_state_commit(
 
     with monkeypatch.context() as patch:
         if factory_name == "edge":
-            patch.setattr(Edge, "__post_init__", corrupting_edge_post_init)
+            patch.setattr(_EDGE_ALLOCATION_PROBE, corrupting_edge_probe)
         elif factory_name == "statistics":
             patch.setattr(
                 NativeEncodedDirectStatistics,
@@ -5843,17 +5839,15 @@ def test_private_native_edge_batches_revalidate_after_all_constructors(
         if surface == "batches"
         else None
     )
-    canonical_post_init = Edge.__post_init__
     constructed: list[Edge] = []
 
-    def mutating_later_post_init(edge: Edge) -> None:
-        canonical_post_init(edge)
+    def mutating_later_probe(edge: Edge) -> None:
         if constructed:
             object.__setattr__(constructed[0], "source", "urn:corrupted-by-later-edge")
         constructed.append(edge)
 
     with monkeypatch.context() as patch:
-        patch.setattr(Edge, "__post_init__", mutating_later_post_init)
+        patch.setattr(_EDGE_ALLOCATION_PROBE, mutating_later_probe)
         with pytest.raises(ProjectionError, match="native projector execution failed"):
             if batches is None:
                 compiler.compile_batch(
@@ -5879,6 +5873,147 @@ def test_private_native_edge_batches_revalidate_after_all_constructors(
         assert batches.peak_buffered_edges == 0
         assert [edge for batch in batches for edge in batch] == expected
         assert batches.state == "exhausted"
+
+
+@pytest.mark.parametrize("surface", ("coarse", "batches"))
+def test_private_native_edge_allocation_bypasses_python_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    constructor_calls = 0
+
+    def forbidden_post_init(edge: Edge) -> None:
+        nonlocal constructor_calls
+        constructor_calls += 1
+        raise AssertionError(f"Python Edge constructor called for {edge!r}")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Edge, "__post_init__", forbidden_post_init)
+        if surface == "coarse":
+            actual, _ = compiler.compile_batch(
+                bidirectional=False,
+                max_edges=len(expected),
+                max_iri_bytes=1024 * 1024,
+            )
+        else:
+            batches = compiler.iter_batches(
+                bidirectional=False,
+                max_edges=len(expected),
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+            )
+            actual = [edge for batch in batches for edge in batch]
+
+    assert constructor_calls == 0
+    assert actual == expected
+    assert all(type(edge) is Edge for edge in actual)
+
+
+@pytest.mark.parametrize("surface", ("coarse", "batches"))
+def test_private_native_edge_allocation_layout_fails_before_commit(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = (
+        compiler.iter_batches(
+            bidirectional=False,
+            max_edges=len(expected),
+            max_iri_bytes=1024 * 1024,
+            batch_edges=2,
+        )
+        if surface == "batches"
+        else None
+    )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Edge, "source", object())
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            if batches is None:
+                compiler.compile_batch(
+                    bidirectional=False,
+                    max_edges=len(expected),
+                    max_iri_bytes=1024 * 1024,
+                )
+            else:
+                next(batches)
+
+    if batches is None:
+        assert compiler.state == "failed"
+        assert compiler.coarse_output_chunks == 0
+        assert compiler.coarse_output_vector_edges == 0
+        assert compiler.coarse_intermediate_list_edges == 0
+        assert compiler.peak_buffered_coarse_edges == 0
+    else:
+        assert batches.state == "active"
+        assert batches.yielded_edges == 0
+        assert batches.remaining_edges == len(expected)
+        assert batches.edge_batches == 0
+        assert batches.peak_buffered_edges == 0
+        assert [edge for batch in batches for edge in batch] == expected
+        assert batches.state == "exhausted"
+
+
+def test_private_native_edge_layout_mutation_during_allocation_is_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    expected = Projector().project(
+        view,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            duplicates="preserve",
+        ),
+    )
+    compiler = prepare_native_encoded_direct(_lease(view))
+    batches = compiler.iter_batches(
+        bidirectional=False,
+        max_edges=len(expected),
+        max_iri_bytes=1024 * 1024,
+        batch_edges=2,
+    )
+    mutated = False
+
+    def mutating_probe(edge: Edge) -> None:
+        nonlocal mutated
+        assert type(edge) is Edge
+        if not mutated:
+            mutated = True
+            patch.setattr(Edge, "__slots__", ("destination", "relation", "source"))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_EDGE_ALLOCATION_PROBE, mutating_probe)
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            next(batches)
+
+    assert mutated is True
+    assert batches.state == "active"
+    assert batches.yielded_edges == 0
+    assert batches.remaining_edges == len(expected)
+    assert batches.edge_batches == 0
+    assert batches.peak_buffered_edges == 0
+    assert [edge for batch in batches for edge in batch] == expected
+    assert batches.state == "exhausted"
 
 
 def test_private_native_iterator_revalidates_statistics_after_constructor(

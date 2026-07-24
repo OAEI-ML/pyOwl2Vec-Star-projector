@@ -26,8 +26,9 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 43
+ENCODED_DIRECT_KERNEL_VERSION = 44
 _PROJECTOR_EDGE_TYPE = Edge
+_NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
     "root_kinds",
     "root_ids",
@@ -475,6 +476,7 @@ class NativeEncodedDirectCompiler:
                 max_iri_bytes,
                 Edge,
                 _PROJECTOR_EDGE_TYPE,
+                _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE,
                 NativeEncodedDirectStatistics,
                 _NATIVE_ENCODED_DIRECT_STATISTICS_TYPE,
                 asserted_taxonomy_only,
@@ -656,7 +658,11 @@ class NativeEncodedDirectBatchIterator(Iterator[tuple[Edge, ...]]):
             raise StopIteration
         raw_batch = _call_encoded_direct(
             compiler._module,
-            lambda: compiler._kernel.next_batch(Edge, _PROJECTOR_EDGE_TYPE),
+            lambda: compiler._kernel.next_batch(
+                Edge,
+                _PROJECTOR_EDGE_TYPE,
+                _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE,
+            ),
         )
         try:
             if (

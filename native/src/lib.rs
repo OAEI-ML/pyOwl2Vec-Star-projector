@@ -9,7 +9,8 @@
 //! feature ledger remains unchanged until the complete compiler and acceptance
 //! matrix exist.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 mod encoded_direct;
 
@@ -28,12 +29,16 @@ use encoded_direct::{
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
+use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use pyo3::types::{PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyString, PyTuple};
+use pyo3::types::{
+    PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyString, PyTuple, PyType,
+    PyTypeMethods,
+};
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 43;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 44;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -772,6 +777,7 @@ impl EncodedDirectCompiler {
         max_iri_bytes,
         edge_factory,
         edge_type,
+        edge_allocation_probe,
         statistics_factory,
         statistics_type,
         asserted_taxonomy_only=false,
@@ -788,6 +794,7 @@ impl EncodedDirectCompiler {
         max_iri_bytes: usize,
         edge_factory: &Bound<'_, PyAny>,
         edge_type: &Bound<'_, PyAny>,
+        edge_allocation_probe: Option<&Bound<'_, PyAny>>,
         statistics_factory: &Bound<'_, PyAny>,
         statistics_type: &Bound<'_, PyAny>,
         asserted_taxonomy_only: bool,
@@ -827,6 +834,16 @@ impl EncodedDirectCompiler {
             None => None,
         };
         let result = guarded(|| {
+            let edge_type = require_direct_edge_layout(
+                py,
+                edge_type,
+                "encoded direct edge type has an incompatible native allocation layout",
+            )?;
+            require_canonical_factory(
+                edge_factory,
+                edge_type.as_any(),
+                "encoded direct edge factory is not canonical",
+            )?;
             let mut stream = py.detach(|| {
                 if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
@@ -862,27 +879,31 @@ impl EncodedDirectCompiler {
                     PyMemoryError::new_err("encoded coarse chunk allocation failed")
                 })?;
                 for edge in &edges {
-                    let value = edge_factory.call1((
+                    let value = allocate_exact_edge(py, &edge_type, edge)?;
+                    require_exact_edge_result(
+                        value.bind(py),
+                        edge_type.as_any(),
                         edge.source.as_str(),
                         edge.relation.as_str(),
                         edge.destination.as_str(),
-                    ))?;
-                    require_exact_edge_factory_result(
-                        &value,
-                        edge_type,
-                        edge.source.as_str(),
-                        edge.relation.as_str(),
-                        edge.destination.as_str(),
-                        "encoded direct edge factory returned an invalid final object",
+                        "encoded direct edge allocation returned an invalid final object",
                     )?;
-                    values.push(value.unbind());
+                    if let Some(probe) = edge_allocation_probe {
+                        probe.call1((value.bind(py),))?;
+                    }
+                    values.push(value);
                 }
                 require_exact_edge_batch_results(
                     py,
                     &values,
-                    edge_type,
+                    edge_type.as_any(),
                     &edges,
-                    "encoded direct edge factory returned an invalid final object",
+                    "encoded direct edge allocation returned an invalid final object",
+                )?;
+                require_direct_edge_layout(
+                    py,
+                    edge_type.as_any(),
+                    "encoded direct edge type changed during native allocation",
                 )?;
                 for value in values {
                     output.append(value)?;
@@ -897,7 +918,7 @@ impl EncodedDirectCompiler {
             }
             require_canonical_factory(
                 edge_factory,
-                edge_type,
+                edge_type.as_any(),
                 "encoded direct edge factory is not canonical",
             )?;
             let final_statistics =
@@ -1109,8 +1130,19 @@ impl EncodedDirectCompiler {
         py: Python<'_>,
         edge_factory: &Bound<'_, PyAny>,
         edge_type: &Bound<'_, PyAny>,
+        edge_allocation_probe: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyTuple>> {
         guarded(|| {
+            let edge_type = require_direct_edge_layout(
+                py,
+                edge_type,
+                "encoded direct edge type has an incompatible native allocation layout",
+            )?;
+            require_canonical_factory(
+                edge_factory,
+                edge_type.as_any(),
+                "encoded direct edge factory is not canonical",
+            )?;
             let (mut stream, batch_edges, next_boundary_calls, next_edge_batches) = {
                 let mut output = self.batch_output.lock().map_err(|_| {
                     PyRuntimeError::new_err("encoded direct batch output is permanently failed")
@@ -1180,35 +1212,40 @@ impl EncodedDirectCompiler {
                     PyMemoryError::new_err("encoded direct drain allocation failed")
                 })?;
                 for edge in &edges {
-                    let value = edge_factory.call1((
+                    let value = allocate_exact_edge(py, &edge_type, edge)?;
+                    require_exact_edge_result(
+                        value.bind(py),
+                        edge_type.as_any(),
                         edge.source.as_str(),
                         edge.relation.as_str(),
                         edge.destination.as_str(),
-                    ))?;
-                    require_exact_edge_factory_result(
-                        &value,
-                        edge_type,
-                        edge.source.as_str(),
-                        edge.relation.as_str(),
-                        edge.destination.as_str(),
-                        "encoded direct edge factory returned an invalid final object",
+                        "encoded direct edge allocation returned an invalid final object",
                     )?;
-                    values.push(value.unbind());
+                    if let Some(probe) = edge_allocation_probe {
+                        probe.call1((value.bind(py),))?;
+                    }
+                    values.push(value);
                 }
                 require_canonical_factory(
                     edge_factory,
-                    edge_type,
+                    edge_type.as_any(),
                     "encoded direct edge factory is not canonical",
                 )?;
-                // A later constructor in the same native batch may retain and
-                // mutate an earlier exact Edge. Validate the complete batch as
-                // one transaction and require one final object per edge.
+                // A private test probe or allocation-triggered Python finalizer
+                // may retain and mutate an earlier exact Edge. Validate the
+                // complete batch as one transaction and require one final
+                // object per edge.
                 require_exact_edge_batch_results(
                     py,
                     &values,
-                    edge_type,
+                    edge_type.as_any(),
                     &edges,
-                    "encoded direct edge factory returned an invalid final object",
+                    "encoded direct edge allocation returned an invalid final object",
+                )?;
+                require_direct_edge_layout(
+                    py,
+                    edge_type.as_any(),
+                    "encoded direct edge type changed during native allocation",
                 )?;
                 PyTuple::new(py, values).map(|values| values.unbind())
             })();
@@ -1398,6 +1435,105 @@ impl EncodedDirectCompiler {
     }
 }
 
+const DIRECT_EDGE_FIELDS: [&str; 3] = ["source", "relation", "destination"];
+
+fn require_direct_edge_layout<'py>(
+    py: Python<'py>,
+    expected_type: &Bound<'py, PyAny>,
+    message: &'static str,
+) -> PyResult<Bound<'py, PyType>> {
+    let edge_type = expected_type
+        .cast::<PyType>()
+        .map_err(|_| PyValueError::new_err(message))?
+        .to_owned();
+    let object_type = py
+        .import("builtins")
+        .and_then(|module| module.getattr("object"))
+        .map_err(|_| PyValueError::new_err(message))?;
+    let base = edge_type
+        .getattr("__base__")
+        .map_err(|_| PyValueError::new_err(message))?;
+    let edge_new = edge_type
+        .getattr("__new__")
+        .map_err(|_| PyValueError::new_err(message))?;
+    let object_new = object_type
+        .getattr("__new__")
+        .map_err(|_| PyValueError::new_err(message))?;
+    if !base.is(&object_type) || !edge_new.is(&object_new) {
+        return Err(PyValueError::new_err(message));
+    }
+
+    let slots = edge_type
+        .getattr("__slots__")
+        .map_err(|_| PyValueError::new_err(message))?;
+    let slots = slots
+        .cast_into::<PyTuple>()
+        .map_err(|_| PyValueError::new_err(message))?;
+    if slots.len() != DIRECT_EDGE_FIELDS.len() {
+        return Err(PyValueError::new_err(message));
+    }
+    let member_descriptor_type = py
+        .import("types")
+        .and_then(|module| module.getattr("MemberDescriptorType"))
+        .map_err(|_| PyValueError::new_err(message))?;
+    for (index, expected) in DIRECT_EDGE_FIELDS.into_iter().enumerate() {
+        let observed = slots
+            .get_item(index)
+            .and_then(|value| value.extract::<String>())
+            .map_err(|_| PyValueError::new_err(message))?;
+        let descriptor = edge_type
+            .getattr(expected)
+            .map_err(|_| PyValueError::new_err(message))?;
+        if observed != expected || !descriptor.is_exact_instance(&member_descriptor_type) {
+            return Err(PyValueError::new_err(message));
+        }
+    }
+    for name in ["__dictoffset__", "__weakrefoffset__"] {
+        let offset = edge_type
+            .getattr(name)
+            .and_then(|value| value.extract::<isize>())
+            .map_err(|_| PyValueError::new_err(message))?;
+        if offset != 0 {
+            return Err(PyValueError::new_err(message));
+        }
+    }
+    Ok(edge_type)
+}
+
+fn allocate_exact_edge(
+    py: Python<'_>,
+    edge_type: &Bound<'_, PyType>,
+    edge: &DirectEdge,
+) -> PyResult<Py<PyAny>> {
+    // SAFETY: `edge_type` was checked above to be a live Python type whose direct
+    // base is `object`. `PyType_GenericAlloc` is its stable-ABI generic allocator
+    // and returns one owned reference or sets a Python exception.
+    let value = unsafe {
+        Bound::<PyAny>::from_owned_ptr_or_err(
+            py,
+            ffi::PyType_GenericAlloc(edge_type.as_type_ptr(), 0),
+        )?
+    };
+    for (name, field) in [
+        (pyo3::intern!(py, "source"), edge.source.as_str()),
+        (pyo3::intern!(py, "relation"), edge.relation.as_str()),
+        (pyo3::intern!(py, "destination"), edge.destination.as_str()),
+    ] {
+        let field = PyString::new(py, field);
+        // SAFETY: all three pointers are live Python objects owned or borrowed
+        // under this GIL token. The preflight proved each name resolves to the
+        // canonical member descriptor; GenericSetAttr performs the descriptor
+        // assignment and reference-count updates without invoking frozen
+        // `Edge.__setattr__`.
+        let result =
+            unsafe { ffi::PyObject_GenericSetAttr(value.as_ptr(), name.as_ptr(), field.as_ptr()) };
+        if result != 0 {
+            return Err(PyErr::fetch(py));
+        }
+    }
+    Ok(value.unbind())
+}
+
 fn require_canonical_factory<'py>(
     factory: &Bound<'py, PyAny>,
     expected_type: &Bound<'py, PyAny>,
@@ -1422,7 +1558,7 @@ fn require_exact_factory_result<'py>(
     }
 }
 
-fn require_exact_edge_factory_result<'py>(
+fn require_exact_edge_result<'py>(
     value: &Bound<'py, PyAny>,
     expected_type: &Bound<'py, PyAny>,
     source: &str,
@@ -1473,7 +1609,7 @@ fn require_exact_edge_batch_results(
         if !identities.insert(value.as_ptr()) {
             return Err(PyValueError::new_err(message));
         }
-        require_exact_edge_factory_result(
+        require_exact_edge_result(
             value,
             expected_type,
             edge.source.as_str(),
