@@ -1,0 +1,134 @@
+{
+  "schema": "pyowl-projector.p7-source-canonical-root-merger-foundation/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "release_artifact": false,
+  "installed_verification": false,
+  "source_revision": {
+    "projector": "aa10c619befcf199980e0b45f1eaa680be62072f",
+    "parent": "f7b65ba16d6c1ee5b0d58f233f7504e84a7280c2",
+    "tree": "bcf5dbbf6c4b5bdcd93755fc27fe75dd4347ecaf",
+    "commit_epoch": 1784883276,
+    "commit_time": "2026-07-24T09:54:36+01:00",
+    "subject": "feat(p7): add canonical root merger foundation"
+  },
+  "source_artifact": {
+    "filename": "native/src/encoded_direct.rs",
+    "git_blob": "907cd2d6a6b83c923b283944824235d93f288611",
+    "bytes": 378961,
+    "sha256": "e1d9f94273c97455dcda78f576935c251e554092c32093411d8792d303bbbca4",
+    "commit_insertions": 1645,
+    "commit_deletions": 0
+  },
+  "scope": {
+    "canonical_node_comparator": true,
+    "two_way_selected_root_cursor": true,
+    "cross_table_structural_deduplication": true,
+    "adapter_negotiation_changed": false,
+    "overlay_delta_admitted": false,
+    "kernel_execution_changed": false,
+    "public_dispatch_changed": false,
+    "public_feature_ledger_changed": false
+  },
+  "canonical_contract": {
+    "node_tag": "unsigned base-128 varint",
+    "none": "component marker",
+    "node": "component marker, canonical byte length, canonical node bytes",
+    "text_bytes_enum": "component marker, byte length, payload",
+    "text_validation": "UTF-8",
+    "enum_validation": "nonempty ASCII",
+    "integer": "minimal little-endian magnitude streamed as unsigned base-128 varint",
+    "canonical_set": "component marker, arity, then canonical-length-framed node bytes",
+    "ordered_sequence": "component marker, arity, then fully framed leaves in encounter order",
+    "root_order": "root kind, then canonical node bytes",
+    "group_invariant": "strictly sorted and structurally unique by streamed canonical bytes",
+    "set_invariant": "every adjacent set child is strictly increasing by streamed same-table canonical bytes",
+    "merge_identity": "left identity retained when equal roots advance both cursors",
+    "selection": "sorted EXCLUDE rows are consumed by a monotone per-side cursor"
+  },
+  "resource_contract": {
+    "positive_work_limit_required": true,
+    "positive_workspace_limit_required": true,
+    "checked_counters_and_sizes": true,
+    "fallible_allocations": true,
+    "dense_node_length_maps_accounted": true,
+    "temporary_color_maps_accounted": true,
+    "pre_sized_dfs_frames_accounted": true,
+    "incremental_byte_cursor_capacity_accounted": true,
+    "excluded_posting_rows_precharged": true,
+    "root_and_posting_selection_work_charged": true,
+    "scalar_validation_work_charged": true,
+    "canonical_comparison_bytes_counted": true,
+    "recursive_rust_calls": false,
+    "model_value_materialization": false,
+    "canonical_arena_materialization": false
+  },
+  "hostile_matrix": {
+    "independent_table_offsets_and_node_ids": "passed",
+    "all_component_kinds": "passed",
+    "arbitrary_width_integer_equality_and_order": "passed",
+    "text_invalid_utf8": "rejected",
+    "enum_empty": "rejected",
+    "enum_non_ascii": "rejected",
+    "root_reversed_actual_byte_order": "rejected",
+    "root_local_structural_duplicate": "rejected",
+    "set_numeric_order_but_reversed_actual_byte_order": "rejected",
+    "cross_table_root_duplicate": "deduplicated once",
+    "selected_excluded_root": "skipped without an index",
+    "deep_node_graph_depth": 4096,
+    "deep_node_graph_result": "iterative equality passed",
+    "transitive_node_cycle": "rejected before merge output",
+    "work_limit": "failed closed at construction and during comparison",
+    "workspace_limit": "failed closed before unaccounted growth",
+    "cancellation": "failed closed"
+  },
+  "verification": {
+    "rust_unit_command": "cargo test --manifest-path native/Cargo.toml --no-default-features --lib",
+    "rust_unit_result": "47 passed",
+    "canonical_focused_command": "cargo test --manifest-path native/Cargo.toml --no-default-features --lib canonical_",
+    "canonical_focused_result": "7 passed, 40 filtered out",
+    "clippy_command": "cargo clippy --manifest-path native/Cargo.toml --no-default-features --all-targets -- -D warnings",
+    "clippy": "passed",
+    "rustfmt_command": "cargo fmt --manifest-path native/Cargo.toml -- --check",
+    "rustfmt": "passed",
+    "python_command": ".venv/bin/python -m pytest -q",
+    "python_result": "1223 passed",
+    "ruff": "passed",
+    "mypy_strict_source": "passed, 17 source files",
+    "git_diff_check": "passed",
+    "independent_review": "approved after UTF-8/ASCII, actual SET-order, exclusion-work, and fallible-accounting corrections"
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "ruff": "0.14.10",
+    "mypy": "1.18.2"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 47,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "ordinary_public_dispatch": "unchanged"
+  },
+  "closed_gap": "Rust now has a bounded, fallible, stack-safe canonical node comparator and selected two-way root cursor that prove actual cross-table ordering and structural deduplication without reconstructing model values.",
+  "known_open_work": [
+    "The foundation is dormant outside its Rust tests and does not yet feed direct-kernel classification, state, counting, or emission.",
+    "The reproduced one-root local OVERLAY_DELTA contract remains on whole-operation scalar-native fallback until the separately reviewed integration phase.",
+    "Anonymous scope remapping, INCLUDE, multiple local roots, nested deltas, composites, mmap, and general segmented execution remain unsupported.",
+    "No installed wheel, corpus, performance, RSS, fuzz, sanitizer, platform, or Exact shared-stack claim is made by this source checkpoint."
+  ],
+  "limitations": [
+    "This evidence binds source correctness gates at one exact revision; it is not installed-artifact evidence.",
+    "The public encoded-native capability remains deliberately unadvertised.",
+    "No timing, throughput, memory-threshold, or release-readiness claim is inferred."
+  ]
+}

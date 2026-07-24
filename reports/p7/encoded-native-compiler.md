@@ -1396,6 +1396,46 @@ This remains focused private correctness evidence, not multiple-selection compos
 local-delta, annotation-sensitive alias, composite, mmap, corpus, performance, public-dispatch, or
 release-acceptance evidence.
 
+### Bounded canonical root-merger foundation
+
+Revision `aa10c619befcf199980e0b45f1eaa680be62072f` adds the dormant Rust foundation
+required to compare and merge independently encoded root tables. It memoizes canonical node
+lengths through an iterative graph walk, streams canonical-model bytes through two reusable
+cursors, validates each root group as strictly ordered and structurally unique, and merges selected
+roots in exact kind-then-node order. Equal roots advance both inputs, retain the left identity, and
+increment one structural-deduplication counter. A monotone per-side cursor consumes sorted
+`EXCLUDE` rows without constructing a selection index.
+
+The streamed representation covers every structural component: unsigned-varint node tags; none;
+length-framed node references; UTF-8 text, bytes, and nonempty ASCII enums; arbitrary-width
+minimal little-endian integers rendered as unsigned varints; canonical sets of length-framed
+nodes; and ordered sequences of fully framed leaves. Node IDs and scalar offsets remain
+table-local. Consequently, every canonical set is independently checked by streamed same-table
+comparison of adjacent children; numeric item order alone is not accepted as proof of canonical
+order. Generic columns, scalar kinds, actual root order, and arbitrary direct or transitive node
+cycles all fail closed before a merged root can be returned.
+
+Construction requires explicit positive work and workspace limits. Table validation, scalar
+validation, iterative graph frames, component-length passes, every emitted cursor task, root
+comparison, and root/posting selection are charged with checked arithmetic. Dense length maps,
+temporary color maps and pre-sized graph frames, and incrementally grown byte-cursor stacks use
+fallible, capacity-accounted allocation. Temporary workspace is released from the live ledger
+after preflight while its peak remains recorded. The foundation neither reconstructs OWL values
+nor allocates a canonical byte arena.
+
+The source-bound matrix passes independent offsets and node IDs, all component kinds,
+arbitrary-width integer equality and ordering, selected-root merge order, cross-table
+deduplication, invalid text and enum payloads, reversed or equal root groups, a forged set whose
+numeric IDs increase while its actual bytes decrease, a 4,096-node chain, transitive-cycle
+rejection, work exhaustion before and during comparison, workspace exhaustion, and cancellation.
+All 47 Rust tests, rustfmt, and Clippy with warnings denied pass. The unchanged Python surface
+passes all 1,223 tests, Ruff, and strict mypy over 17 source files.
+
+This is source-only foundation evidence. It does not enter adapter negotiation or kernel
+execution, increment kernel v47, admit `OVERLAY_DELTA`, or alter the feature ledger. Exact source
+hashes, gate commands, resource semantics, and open limits are recorded in
+[`source-canonical-root-merger-foundation.json`](evidence/source-canonical-root-merger-foundation.json).
+
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
 
@@ -1404,10 +1444,10 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | WP-P7 requirement | Current truthful state |
 |---|---|
 | Public descriptor/owner validation | Python adapter is broad; private Rust seam rechecks its narrow direct envelope and descriptor binding |
-| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables; v32 emits the hidden iterator through a resumable bounded cursor; v33 starts that cursor without replay; v34 removes the coarse call's duplicate Rust emitter/vector; v35 removes its duplicate complete Python edge list and extends the role transaction through final object construction; v36 returns each final iterator `Edge` tuple directly and commits the cursor afterwards; v37 publishes the session and retained role transition only after final statistics construction; v38 constructs the final owner-holding iterator before that publication; v39 validates canonical final factories and exact result types before commit; v40 extends that validation to bounded-drain and coarse edge results plus coarse statistics before their respective commits; v41 pins post-native wrapper validation to those retained canonical identities; v42 validates final object payloads before commit; v43 revalidates complete edge chunks and statistics after their last callback; v44 allocates exact slotted final edges directly without Python factory or constructor callbacks; v45 does the same for the exact 60-slot statistics result without a 60-field argument tuple; v46 directly allocates the exact eight-slot iterator without its argument tuple or Python factory/constructor callback; v47 retains, validates, and binary-searches one exact terminal-adjacent `EXCLUDE` posting table without a selection index. The hidden Projector binds retained Scala-instance maps with an exact one-way scalar transition and now exercises sink/digest/artifact consumers, but public binding and remaining projecting rules/options/surfaces are unsupported |
+| Complete Rust projection rules/options | Open; the report above enumerates the bounded direct ABox/taxonomy/restriction, recursive validation, role-state, skipped/silent, annotation, diagnostic, and compatibility slices. Kernel v30 joins unequal exact-direct root annotation identities to closure nodes before counting/output, including closure-wide anonymous IDs; v31 rejects cyclic nested annotation metadata in both tables; v32 emits the hidden iterator through a resumable bounded cursor; v33 starts that cursor without replay; v34 removes the coarse call's duplicate Rust emitter/vector; v35 removes its duplicate complete Python edge list and extends the role transaction through final object construction; v36 returns each final iterator `Edge` tuple directly and commits the cursor afterwards; v37 publishes the session and retained role transition only after final statistics construction; v38 constructs the final owner-holding iterator before that publication; v39 validates canonical final factories and exact result types before commit; v40 extends that validation to bounded-drain and coarse edge results plus coarse statistics before their respective commits; v41 pins post-native wrapper validation to those retained canonical identities; v42 validates final object payloads before commit; v43 revalidates complete edge chunks and statistics after their last callback; v44 allocates exact slotted final edges directly without Python factory or constructor callbacks; v45 does the same for the exact 60-slot statistics result without a 60-field argument tuple; v46 directly allocates the exact eight-slot iterator without its argument tuple or Python factory/constructor callback; v47 retains, validates, and binary-searches one exact terminal-adjacent `EXCLUDE` posting table without a selection index. A separately bounded canonical comparator/root merger is source-proven but remains dormant until the local-delta execution slice is integrated. The hidden Projector binds retained Scala-instance maps with an exact one-way scalar transition and now exercises sink/digest/artifact consumers, but public binding and remaining projecting rules/options/surfaces are unsupported |
 | Bounded batches without per-row FFI | The hidden iterator's Rust and Python outputs are caller-bounded, start with zero emission attempts, use one PyO3 entry per batch, preserve exact order, and report compiled/vector/peak counters. Each final bounded `Edge` tuple is allocated as the exact canonical slotted type through the stable ABI and its layout, canonical identity marker, three string fields, exact type, and distinct identity are validated before cursor commit. There is no intermediate Python tuple-edge list and no Python `Edge` factory or constructor callback; each edge still requires one Python object and three Python Unicode field objects. The 60-field statistics result and eight-slot batch iterator are likewise allocated directly without argument tuples or Python factory/constructor callbacks. The legacy private coarse call must still return one whole Python list, but builds and validates its final `Edge` objects through 256-edge native chunks with no complete Rust output vector or intermediate complete tuple-edge list. Hidden Projector sink/digest/artifact integration is exact-wheel proven through the existing policy machinery; ordinary public iterator/sink/digest/artifact selection remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. Explicitly hidden named-edge iterator, sink, digest, and artifact adapters select the private kernel and report its exact ingestion counters after complete consumption |
-| Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported. A bounded chain of canonical empty-local `OVERLAY_BASE` aliases to an exact-direct source is installed-wheel proven without flattening, with every owner retained and public depth/work bounds enforced. Only the terminal-adjacent segment may use one nonempty sorted `EXCLUDE` table, retained and binary-searched without indexing; public validation and an internal identity guard reject or fall back from nonterminal postings. Local edits, multiple `EXCLUDE` layers, `INCLUDE`, annotation-sensitive aliases, mmap, composite, and other segmented families remain unsupported by the Rust path |
+| Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported. A bounded chain of canonical empty-local `OVERLAY_BASE` aliases to an exact-direct source is installed-wheel proven without flattening, with every owner retained and public depth/work bounds enforced. Only the terminal-adjacent segment may use one nonempty sorted `EXCLUDE` table, retained and binary-searched without indexing; public validation and an internal identity guard reject or fall back from nonterminal postings. The source tree now contains a reviewed canonical two-table merger foundation, but local edits still select whole-operation fallback. Multiple `EXCLUDE` layers, `INCLUDE`, annotation-sensitive aliases, mmap, composite, and other segmented families remain unsupported by the Rust path |
 | Generated differential parity | Exact installed campaign passes 128 deterministic mixed-rule sources through both supported direct exporter layouts: 256 executions, every one of the 32 semantic-boolean/duplicate/order combinations, batch bounds 1–7, 6,264 post-policy edges, exact ordered/report/diagnostic parity, and zero staging-copy/per-row-FFI counters. Broader generated, segmented-provider, independent Scala-oracle, and corpus matrices remain open |
 | Invalid encoded-column rejection | Exact installed campaign passes 29 predefined cases over all eleven columns, 256 generated sources, and both direct provider layouts: 14,848 typed pre-output failures with equal direct/Projector and provider results, terminal failed state, no batch session/output counters/edges/report, and explicit native-view cleanup. Coverage-guided and mutational fuzzing, sanitizers, broader protocol/resource failures, and exhaustive invalid-input proof remain open |
 | Lifetime/GIL/cancel/failure safety | Focused private bytes-path, owner lifetime, released-GIL concurrent cancellation, active-cursor thread handoff, isolated re-entrancy, Scala-instance exclusion, batch close/collection/sink-failure/fallback cleanup, state atomicity, panic conversion, a quiescent POSIX fork, and normal shutdown with an unfinished cursor pass against the installed wheels. Exact retry after malformed/replaced factory identities, payload corruption, allocation-probe failure, edge/statistics/iterator-layout mutation, and direct final-object validation also pass. Multithreaded-fork, cross-platform/free-threaded/subinterpreter, fuzz, and sanitizer acceptance remain open |
@@ -1427,8 +1467,9 @@ Public `auto` and explicit native negotiation remain unchanged. Before advertisi
 2. promote the proven hidden iterator, protocol-sink, digest, artifact, and cancellation
    integration into public feature-gated selection, and collect corpus-scale labelled
    time-to-first-output evidence;
-3. expand the proven no-copy recursive empty-local owner retention and terminal-adjacent
-   `EXCLUDE` scan to local deltas, composite-member selection, mmap, and general segment traversal;
+3. connect the reviewed canonical two-table merger to the bounded single-root local-delta slice,
+   then expand no-copy segment execution to composite-member selection, mmap, and general
+   traversal;
 4. production provenance wired only after it describes actual Rust work;
 5. extend the focused lifecycle, finite generated, and invalid-column results to full
    independent-oracle/broader-malformed/mutational-fuzz/sanitizer/platform/free-threaded/
