@@ -47,6 +47,7 @@ def test_scalar_smoke_preserves_identity_and_reports_path_rejection(
     assert len({sample["edge_sha256"] for sample in samples}) == 1
     for sample, evidence in zip(samples, result["acceptance_evidence"], strict=True):
         assert sample["execution_surface"] == "public"
+        assert sample["consumer_surface"] == "iterator"
         assert sample["ingestion"]["path"] == "scalar-python"
         assert not any(sample["core_operation_delta"].values())
         assert evidence["acceptance_ready"] is False
@@ -95,6 +96,7 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
     )
 
     assert result["configuration"]["execution_surface"] == "private-native-candidate"
+    assert result["configuration"]["private_native_surface"] == "iterator"
     assert result["source_revisions"] == {"projector": "1" * 40, "core": "2" * 40}
     assert result["production_acceptance"]["private_candidate_is_public"] is False
     blockers = result["production_acceptance"]["known_private_candidate_blockers"]
@@ -110,6 +112,12 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
     samples = result["samples"]
     for sample, evidence in zip(samples, result["acceptance_evidence"], strict=True):
         assert sample["execution_surface"] == "private-native-candidate"
+        assert sample["consumer_surface"] == "iterator"
+        assert sample["consumer_metrics"] == {
+            "first_edge_observable": True,
+            "surface": "iterator",
+        }
+        assert len(sample["consumer_metrics_sha256"]) == 64
         assert sample["ingestion"]["path"] == "encoded-native"
         assert sample["counters"]["native_batch_edges"] == 1
         assert sample["counters"]["native_compiled_edges"] == sample["edge_count"] == 1
@@ -123,6 +131,70 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
         assert evidence["private_candidate_counter_violations"] == {}
         assert evidence["source_revisions_bound"] is True
     assert len(samples) == 2
+
+
+@pytest.mark.skipif(not NATIVE_AVAILABLE, reason="native extension is unavailable")
+@pytest.mark.parametrize(
+    ("surface", "order", "first_edge_observable"),
+    [
+        ("sink", "encounter", True),
+        ("digest", "canonical", False),
+        ("artifact", "canonical", False),
+    ],
+)
+def test_private_stream_surfaces_are_measured_and_bound_without_public_acceptance(
+    tmp_path: Path,
+    surface: str,
+    order: str,
+    first_edge_observable: bool,
+) -> None:
+    result = benchmark_encoded_compiler.run(
+        _ontology(tmp_path),
+        document_format="functional",
+        load_backend="python",
+        projector_backend="native",
+        order=order,
+        duplicates="preserve",
+        include_literals=False,
+        repetitions=1,
+        warmups=0,
+        buffer_edges=1,
+        require_encoded_native=False,
+        private_native_candidate=True,
+        private_native_surface=surface,
+        projector_revision="1" * 40,
+        core_revision="2" * 40,
+    )
+
+    assert result["configuration"]["execution_surface"] == "private-native-candidate"
+    assert result["configuration"]["private_native_surface"] == surface
+    sample = result["samples"][0]
+    evidence = result["acceptance_evidence"][0]
+    assert sample["execution_surface"] == "private-native-candidate"
+    assert sample["consumer_surface"] == surface
+    assert sample["consumer_metrics"]["surface"] == surface
+    assert sample["consumer_metrics"]["first_edge_observable"] is first_edge_observable
+    assert len(sample["consumer_metrics_sha256"]) == 64
+    assert sample["ingestion"]["path"] == "encoded-native"
+    assert sample["edge_count"] == sample["counters"]["native_compiled_edges"] == 1
+    assert len(sample["edge_sha256"]) == 64
+    assert evidence["acceptance_ready"] is False
+    assert evidence["private_candidate_boundary_ready"] is True
+    assert evidence["private_candidate_evidence_ready"] is evidence["installed_artifacts_bound"]
+    assert evidence["missing_private_candidate_counters"] == []
+    assert evidence["private_candidate_counter_violations"] == {}
+    if surface == "sink":
+        assert sample["first_edge_seconds"] is not None
+        assert sample["consumer_metrics"]["batch_count"] == 1
+        assert sample["consumer_metrics"]["peak_batch_edges"] == 1
+    elif surface == "digest":
+        assert sample["first_edge_seconds"] is None
+        assert sample["consumer_metrics"]["canonical_edges_sha256"] == sample["edge_sha256"]
+    else:
+        assert sample["first_edge_seconds"] is None
+        assert sample["consumer_metrics"]["canonical_edges_sha256"] == sample["edge_sha256"]
+        assert len(sample["consumer_metrics"]["artifact_sha256"]) == 64
+        assert sample["consumer_metrics"]["bytes_written"] > 0
 
 
 def test_private_candidate_cannot_use_public_acceptance_gate(tmp_path: Path) -> None:
@@ -153,6 +225,24 @@ def test_private_candidate_cannot_use_public_acceptance_gate(tmp_path: Path) -> 
         (
             {"require_private_native_candidate": True},
             "requires private_native_candidate=True",
+        ),
+        (
+            {
+                "private_native_candidate": True,
+                "private_native_surface": "digest",
+            },
+            "require order='canonical'",
+        ),
+        (
+            {"private_native_surface": "sink"},
+            "requires private_native_candidate=True",
+        ),
+        (
+            {
+                "private_native_candidate": True,
+                "private_native_surface": "unknown",
+            },
+            "must be one of",
         ),
         ({"projector_revision": "abc"}, "full lowercase 40-character Git SHA"),
     ],

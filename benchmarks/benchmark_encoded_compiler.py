@@ -20,6 +20,7 @@ import re
 import resource
 import statistics
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -30,7 +31,7 @@ from typing import Any, TypeVar, cast
 import pyowl_core
 from pyowl_core import BackendPreference, DocumentFormat, LoadOptions
 
-from pyowl2vec_star_projector import ProjectionOptions, Projector
+from pyowl2vec_star_projector import Edge, ProjectionOptions, Projector
 from pyowl2vec_star_projector.artifact import edge_json_record
 
 T = TypeVar("T")
@@ -53,6 +54,7 @@ _PRIVATE_CANDIDATE_BLOCKERS = (
     "public-iterator-sink-digest-artifact-dispatch-does-not-select-the-candidate",
     "public-scala-instance-lifecycle-remains-on-the-scalar-compiler",
 )
+_PRIVATE_NATIVE_SURFACES = frozenset({"iterator", "sink", "digest", "artifact"})
 
 _REQUIRED_ZERO_COUNTERS = (
     "base_flattening_bytes",
@@ -325,6 +327,7 @@ def _sample(
     buffer_edges: int,
     probe: _CoreOperationProbe,
     private_native_candidate: bool,
+    private_native_surface: str,
 ) -> dict[str, object]:
     projector = Projector()
     operations_before = probe.snapshot()
@@ -335,20 +338,92 @@ def _sample(
     edge_count = 0
     digest = hashlib.sha256()
     execution_surface = "private-native-candidate" if private_native_candidate else "public"
-    iterator = (
-        projector._iter_native_encoded_edges(
+    consumer_surface = private_native_surface if private_native_candidate else "iterator"
+    consumer_metrics: dict[str, object] = {
+        "first_edge_observable": consumer_surface in {"iterator", "sink"},
+        "surface": consumer_surface,
+    }
+    if consumer_surface == "sink":
+        sink_batches = 0
+        peak_sink_batch_edges = 0
+
+        def consume_batch(batch: tuple[Edge, ...]) -> None:
+            nonlocal edge_count, first_edge_seconds, peak_sink_batch_edges, sink_batches
+            if batch and first_edge_seconds is None:
+                first_edge_seconds = time.perf_counter() - wall_started
+            sink_batches += 1
+            peak_sink_batch_edges = max(peak_sink_batch_edges, len(batch))
+            for edge in batch:
+                digest.update(edge_json_record(edge))
+                edge_count += 1
+
+        projector._project_native_encoded_to_sink(
+            view,
+            consume_batch,
+            options=options,
+            batch_size=buffer_edges,
+            buffer_edges=buffer_edges,
+        )
+        consumer_metrics.update(
+            {
+                "batch_count": sink_batches,
+                "peak_batch_edges": peak_sink_batch_edges,
+            }
+        )
+        edge_sha256 = digest.hexdigest()
+    elif consumer_surface == "digest":
+        digest_result = projector._canonical_native_encoded_digest(
             view,
             options=options,
             buffer_edges=buffer_edges,
         )
-        if private_native_candidate
-        else projector.iter_edges(view, options=options, buffer_edges=buffer_edges)
-    )
-    for edge in iterator:
-        if first_edge_seconds is None:
-            first_edge_seconds = time.perf_counter() - wall_started
-        digest.update(edge_json_record(edge))
-        edge_count += 1
+        edge_count = digest_result.edge_count
+        edge_sha256 = digest_result.sha256
+        consumer_metrics.update(
+            {
+                "canonical_edges_sha256": digest_result.sha256,
+                "duplicate_count": digest_result.duplicate_count,
+            }
+        )
+    elif consumer_surface == "artifact":
+        with tempfile.TemporaryFile(mode="w+b") as destination:
+            artifact_result = projector._write_native_encoded_artifact(
+                view,
+                destination,
+                options=options,
+                buffer_edges=buffer_edges,
+            )
+        edge_count = artifact_result.edge_count
+        edge_sha256 = artifact_result.canonical_edges_sha256
+        consumer_metrics.update(
+            {
+                "artifact_sha256": artifact_result.artifact_sha256,
+                "bytes_written": artifact_result.bytes_written,
+                "canonical_edges_sha256": artifact_result.canonical_edges_sha256,
+                "duplicate_count": artifact_result.duplicate_count,
+            }
+        )
+    else:
+        iterator = (
+            projector._iter_native_encoded_edges(
+                view,
+                options=options,
+                buffer_edges=buffer_edges,
+            )
+            if private_native_candidate
+            else projector.iter_edges(view, options=options, buffer_edges=buffer_edges)
+        )
+        try:
+            for edge in iterator:
+                if first_edge_seconds is None:
+                    first_edge_seconds = time.perf_counter() - wall_started
+                digest.update(edge_json_record(edge))
+                edge_count += 1
+        finally:
+            close = getattr(iterator, "close", None)
+            if callable(close):
+                close()
+        edge_sha256 = digest.hexdigest()
     wall_seconds = time.perf_counter() - wall_started
     cpu_seconds = time.process_time() - cpu_started
     if projector.last_view is not view:
@@ -361,12 +436,15 @@ def _sample(
     core_operations = _counter_delta(probe.snapshot(), operations_before)
     return {
         "execution_surface": execution_surface,
+        "consumer_surface": consumer_surface,
+        "consumer_metrics": consumer_metrics,
+        "consumer_metrics_sha256": _json_sha256(consumer_metrics),
         "wall_seconds": wall_seconds,
         "cpu_seconds": cpu_seconds,
         "first_edge_seconds": first_edge_seconds,
         "incremental_peak_rss_bytes": max(0, _max_rss_bytes() - rss_before),
         "edge_count": edge_count,
-        "edge_sha256": digest.hexdigest(),
+        "edge_sha256": edge_sha256,
         "selected_backend": report.provenance.selected_backend,
         "ingestion": ingestion,
         "counters": counters,
@@ -482,9 +560,13 @@ def _acceptance_evidence(
     revisions_bound = projector_revision is not None and core_revision is not None
     evidence_binding_sha256 = _json_sha256(
         {
+            "consumer_surface": sample["consumer_surface"],
+            "consumer_metrics_sha256": sample["consumer_metrics_sha256"],
             "core_operation_ledger_sha256": sample["core_operation_ledger_sha256"],
             "core_revision": core_revision,
             "counter_ledger_sha256": sample["counter_ledger_sha256"],
+            "edge_sha256": sample["edge_sha256"],
+            "execution_surface": sample["execution_surface"],
             "projector_revision": projector_revision,
             "runtime_binding": runtime_binding,
         }
@@ -525,6 +607,7 @@ def run(
     buffer_edges: int,
     require_encoded_native: bool,
     private_native_candidate: bool = False,
+    private_native_surface: str = "iterator",
     require_private_native_candidate: bool = False,
     projector_revision: str | None = None,
     core_revision: str | None = None,
@@ -535,6 +618,17 @@ def run(
     core_revision = _validated_revision(core_revision, "core_revision")
     if private_native_candidate and projector_backend != "native":
         raise ValueError("private native candidate requires projector_backend='native'")
+    if private_native_surface not in _PRIVATE_NATIVE_SURFACES:
+        raise ValueError(
+            "private_native_surface must be one of "
+            + ", ".join(sorted(_PRIVATE_NATIVE_SURFACES))
+        )
+    if not private_native_candidate and private_native_surface != "iterator":
+        raise ValueError(
+            "non-iterator private_native_surface requires private_native_candidate=True"
+        )
+    if private_native_candidate and private_native_surface == "digest" and order != "canonical":
+        raise ValueError("private native digest measurements require order='canonical'")
     if require_private_native_candidate and not private_native_candidate:
         raise ValueError("require_private_native_candidate requires private_native_candidate=True")
     if private_native_candidate and require_encoded_native:
@@ -566,6 +660,7 @@ def run(
                 buffer_edges=buffer_edges,
                 probe=probe,
                 private_native_candidate=private_native_candidate,
+                private_native_surface=private_native_surface,
             )
         samples = [
             _sample(
@@ -574,6 +669,7 @@ def run(
                 buffer_edges=buffer_edges,
                 probe=probe,
                 private_native_candidate=private_native_candidate,
+                private_native_surface=private_native_surface,
             )
             for _index in range(repetitions)
         ]
@@ -584,6 +680,7 @@ def run(
             sample["edge_sha256"],
             cast(Mapping[str, object], sample["ingestion"])["path"],
             sample["execution_surface"],
+            sample["consumer_surface"],
         )
         for sample in samples
     }
@@ -653,6 +750,9 @@ def run(
             "execution_surface": (
                 "private-native-candidate" if private_native_candidate else "public"
             ),
+            "private_native_surface": (
+                private_native_surface if private_native_candidate else None
+            ),
         },
         "identity": {"projector_retained_input": True},
         "production_acceptance": {
@@ -700,6 +800,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--buffer-edges", type=int, default=250_000)
     parser.add_argument("--require-encoded-native", action="store_true")
     parser.add_argument("--private-native-candidate", action="store_true")
+    parser.add_argument(
+        "--private-native-surface",
+        default="iterator",
+        choices=sorted(_PRIVATE_NATIVE_SURFACES),
+    )
     parser.add_argument("--require-private-native-candidate", action="store_true")
     parser.add_argument("--projector-revision")
     parser.add_argument("--core-revision")
@@ -718,6 +823,7 @@ def main(argv: list[str] | None = None) -> int:
             buffer_edges=args.buffer_edges,
             require_encoded_native=args.require_encoded_native,
             private_native_candidate=args.private_native_candidate,
+            private_native_surface=args.private_native_surface,
             require_private_native_candidate=args.require_private_native_candidate,
             projector_revision=args.projector_revision,
             core_revision=args.core_revision,
