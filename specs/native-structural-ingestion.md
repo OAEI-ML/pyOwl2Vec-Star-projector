@@ -4,7 +4,7 @@ Status: normative successor optimization for the implemented projector. It prese
 `mowl-d993536-v1`, all public edge/artifact contracts, deterministic streaming, and the complete
 pure-Python fallback.
 
-Implementation note (2026-07-20): this document is the acceptance design, not a statement that
+Implementation note (2026-07-24): this document is the acceptance design, not a statement that
 the production Rust compiler exists. The broad internal structural-columns slice described in
 section 2 is currently implemented in Python. Rust has only the private, unadvertised direct
 exact-`bytes` unannotated named-class foundation recorded in the P7 report: declarations,
@@ -17,8 +17,10 @@ and domain/range products; equivalent/disjoint object-property sets and the seve
 characteristics are validated and skipped. Positive inverse assertions reproduce the pinned typed
 reference failure. Normal projection still uses Python semantic compilation followed by the older
 Rust edge-policy bridge. All annotations and property chains, anonymous assertion operands, complex
-class expressions, mmap and segmented exporters, and every other constructor remain outside that
-private Rust slice.
+class expressions, mmap and general segmented exporters, and every other constructor remain
+outside that private Rust slice. One hidden adapter exception admits a canonical empty
+`OVERLAY_BASE`/`ALL` alias whose fully revalidated source is exact-direct; it retains the container
+and source while passing only the source buffers to the unchanged Rust direct kernel.
 
 ## 1. Objective
 
@@ -56,6 +58,15 @@ Before any compiler dispatch, the public adapter checks closure scope, the bound
 fixed-width column pairing, monotone offsets, and root/node/item/scalar/posting references directly
 over retained read-only byte views. This validation constructs no OWL value or dense-ID cache and
 does not advertise or promote the unfinished encoded-native compiler path.
+
+The hidden direct adapter may resolve exactly one canonical zero-delta overlay alias: the manifest
+contains one `OVERLAY_BASE` segment in `ALL` mode, its postings and anonymous-scope map are empty,
+its top-local structural columns are canonically empty, and its referenced closure is independently
+revalidated as exact-direct. The native compiler receives only the source's eleven borrowed
+buffers, while the prepared compilation retains both leases and reports both tables in its
+zero-copy ledger. Any local edit, posting selection, recursive segmented source, root-scoped
+annotation-provenance requirement, or noncanonical metadata selects whole-operation fallback or a
+typed pre-output failure under the existing rules. This is not general Rust segment traversal.
 
 The current Python internal compiler slice additionally preflights canonical direct views containing only
 declarations; `SubClassOf`, `EquivalentClasses`, `ClassAssertion`, and object-property

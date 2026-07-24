@@ -134,6 +134,15 @@ runs the maximum 256 generated sources, or 14,848 cases. It remains finite inval
 verification, not coverage-guided or mutational fuzzing, sanitizer evidence, or an exhaustive
 invalid-input claim.
 
+The exact empty-overlay-alias checkpoint exercises the hidden cursor through both supported
+direct exporter layouts behind one canonical `OVERLAY_BASE`/`ALL` container. It requires exact
+scalar edge/report parity, the top and referenced owners to remain retained, 22 retained and 11
+Rust-detached zero-copy buffers, two segments, one referenced view, and zero posting, staging,
+flattening, scalar-materialization, or per-row-FFI work. Edited and annotation-sensitive overlays
+must select one whole-operation scalar compiler, while malformed referenced columns must fail
+before output or report publication. This focused slice does not establish recursive overlay,
+posting, composite, mmap, public-dispatch, or corpus acceptance.
+
 ## 6. Real-ontology corpus
 
 Release candidates run on legally obtainable pinned versions of GO, NCIT, and a SNOMED-scale

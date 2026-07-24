@@ -1,0 +1,180 @@
+{
+  "schema": "pyowl-projector.p7-installed-empty-overlay-alias-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "fc15ea747ac63135c3476e85c721e549ebb7f833"
+  },
+  "source_archive": {
+    "filename": "projector-fc15ea7.tar",
+    "bytes": 3993600,
+    "sha256": "df630fdbc1911b90ac5e26e6996d6dcb5eb3fed3cb0db8dad7cceec9382e680b",
+    "tree": "8af4540338024c52b1eea6b9dd3396eff145615a"
+  },
+  "source_trees": {
+    "src": "b42488945d6cb44ade073dc91a3ec89e52b3ed9e",
+    "native": "25071886d819b0987d38a93f5dcd657084154403",
+    "integration_test": "871f574ab826dad48d032b16c8443b35476abeb6"
+  },
+  "artifacts": {
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 466218,
+      "sha256": "ea9163ec294625038974978a6324648ff875f235620730758a29a93763d57059",
+      "record_sha256": "2f915c8fb12128ccb16141f65a40f79fa0bb95c28b0a88da91befa638cafd29b",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "bdc695ad1b514ec90fabfe1c6a91c316747e745d52ee60080e75cdc9492523c2"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "f2228e6e7c44cce8d4f8d2a332087567d504b41feb2b44bee1c963c95d5f102a"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 791268,
+      "sha256": "57249a93f910bc99a16c89dc7b9cf4b79d6249af2f40049f982bdc6e9ab97be8",
+      "encoded_direct_kernel_version": 46,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_encoded_adapter": {
+      "filename": "pyowl2vec_star_projector/encoded.py",
+      "bytes": 37763,
+      "sha256": "586c514de11897c2c61a9365dc9debb0156292241f228aae6806543186a1210b"
+    },
+    "installed_native_adapter": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 61500,
+      "sha256": "4e0a1f9cac4ef392e79a78c9d372dd71ae5585ffad1ac7b853792b6e88a3557b"
+    },
+    "integration_test": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 90251,
+      "sha256": "c42ace3df4e9197d6a74a3de74f0ed5c023bc4fd66c3ac4ce5a0af1599931429"
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "native_binary_transplanted": false,
+    "runtime_install_no_index": true,
+    "runtime_install_no_deps": true,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "setuptools_rust": "1.13.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true
+  },
+  "supported_slice": {
+    "manifest_roles": [
+      "OVERLAY_BASE"
+    ],
+    "posting_mode": "ALL",
+    "top_local_columns": "canonical-empty",
+    "top_postings": "empty",
+    "top_anonymous_scope_map": "empty",
+    "referenced_source": "fully-revalidated-exact-direct",
+    "native_input": "referenced-source-buffers-only",
+    "retained_owners": [
+      "overlay-container",
+      "referenced-source"
+    ],
+    "provider_layouts": [
+      "independent-bytes",
+      "packed-bytes"
+    ]
+  },
+  "result": {
+    "passed": true,
+    "provider_executions": 2,
+    "edge_count_per_provider": 1,
+    "ordered_edge_and_report_parity_every_provider": true,
+    "ingestion_path_every_provider": "encoded-native",
+    "top_buffer_bytes": 8,
+    "source_buffer_bytes": 362,
+    "encoded_buffer_bytes": 370,
+    "encoded_buffer_count": 22,
+    "encoded_detached_buffer_count": 11,
+    "encoded_zero_copy_buffers": 22,
+    "encoded_referenced_view_count": 1,
+    "encoded_segment_count": 2,
+    "encoded_posting_bytes": 0,
+    "base_flattening_bytes": 0,
+    "encoded_staging_copy_bytes": 0,
+    "structural_copy_bytes": 0,
+    "scalar_axiom_materializations": 0,
+    "scalar_term_materializations": 0,
+    "per_row_ffi_calls": 0,
+    "native_compiled_edges": 1,
+    "native_batch_edges": 1,
+    "native_edge_batches": 1,
+    "native_boundary_calls": 2,
+    "native_peak_buffered_edges": 1,
+    "native_output_vector_edges": 0,
+    "source_and_container_fingerprints_distinct": true,
+    "source_owner_retained": true,
+    "container_owner_retained": true,
+    "edited_overlay_whole_call_fallback": true,
+    "annotation_sensitive_alias_whole_call_fallback": true,
+    "malformed_referenced_column_typed_failure_before_output": true,
+    "malformed_referenced_column_report_absent": true
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 46,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_projection_ingestion": "scalar-native",
+    "ordinary_native_projection_native_counter_total": 0
+  },
+  "verification": {
+    "installed_smoke": "passed",
+    "exact_archive_complete_suite": "1189 passed",
+    "exact_archive_focused_alias_cases": "5 passed, 60 deselected",
+    "source_complete_suite": "1189 passed",
+    "source_private_native_integration": "65 passed",
+    "ruff": "passed",
+    "ruff_format_source_files": "passed",
+    "mypy_source": "passed; 17 source files",
+    "rust_unit_cases": 38,
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed",
+    "runtime_dependency_boundary": "passed",
+    "native_wheel_audit": "passed; 30 members"
+  },
+  "closed_gap": "One canonical zero-delta overlay now reuses its fully revalidated exact-direct source in the hidden Rust cursor without base flattening, staging copy, scalar materialization, or per-row FFI while retaining and accounting for both owners.",
+  "known_blockers": [
+    "Recursive empty-overlay aliases, INCLUDE/EXCLUDE postings, local overlay deltas, composites, mmap, arbitrary slices, and other segmented providers remain unsupported by the Rust path.",
+    "Aliases requiring independent root-scoped annotation provenance retain whole-operation scalar fallback.",
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "Independent Scala-oracle, corpus-scale throughput/RSS, sanitizer/fuzz, platform-wheel, SBOM, Exact shared-stack, and release acceptance remain open."
+  ],
+  "limitations": [
+    "This is focused private correctness evidence; it carries no timing, throughput, RSS, corpus, general segmented-provider, public-dispatch, or release claim.",
+    "The source-built wheel skipped build-dependency checking because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

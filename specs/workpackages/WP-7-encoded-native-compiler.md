@@ -113,6 +113,14 @@ supported direct exporter layouts: 14,848 executions. Every case requires typed 
 output, equal direct/Projector and provider-layout failures, terminal failed state without a batch
 session or output counters, no report, and closeable-view cleanup. It is finite compatibility
 evidence, not mutational fuzzing, sanitizer evidence, or an exhaustive malformed-input claim.
+Adapter revision `fc15ea7` admits one canonical zero-delta overlay alias to the hidden Rust cursor.
+The top `OVERLAY_BASE`/`ALL` container has empty local columns, postings, and scope mappings; its
+referenced exact-direct source is fully revalidated and passed to Rust without copying or
+flattening. Both leases remain retained, with 22 retained versus 11 Rust-detached zero-copy buffers,
+two segments, and one referenced view reported. Exact installed tests cover both provider layouts,
+whole-call fallback for edited and annotation-sensitive overlays, and typed rejection of malformed
+referenced columns before output. Recursive aliases, posting selections, composites, mmap, and
+public selection remain open.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
