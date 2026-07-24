@@ -6984,9 +6984,33 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             ));
         }
         None
+    } else if delta_counts
+        == (RootCounts {
+            datatype_definitions: 1,
+            ..RootCounts::default()
+        })
+        && delta_tag == TAG_DATATYPE_DEFINITION
+    {
+        let field_start = delta_columns.exact_fields(delta_root, 3)?;
+        delta_columns.named_datatype_iri(
+            delta_columns.field_node(field_start)?,
+            options.max_iri_bytes,
+        )?;
+        delta_columns.validate_data_range_node(
+            delta_columns.field_node(field_start + 1)?,
+            options.max_iri_bytes,
+        )?;
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(field_start + 2, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(
+                "bounded local-overlay DatatypeDefinition root must be unannotated",
+            ));
+        }
+        None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, or named FunctionalDataProperty axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, or named DatatypeDefinition axiom",
         ));
     };
 
@@ -7263,6 +7287,20 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 .checked_add(1)
                 .ok_or_else(|| {
                     KernelError::resource("encoded functional-data-property count overflow")
+                })?;
+            if !options.asserted_taxonomy_only {
+                statistics.skipped_axioms = statistics
+                    .skipped_axioms
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
+            }
+        }
+        None if delta_tag == TAG_DATATYPE_DEFINITION => {
+            statistics.datatype_definitions = statistics
+                .datatype_definitions
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded datatype-definition count overflow")
                 })?;
             if !options.asserted_taxonomy_only {
                 statistics.skipped_axioms = statistics
@@ -8431,6 +8469,52 @@ mod tests {
         fixture.push_node_ref(2);
         fixture.push_node_set(&annotation_ids);
         fixture.finish_node(TAG_FUNCTIONAL_DATA_PROPERTY);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn datatype_definition_delta_fixture(complex_range: bool, annotated: bool) -> Fixture {
+        let mut fixture = Fixture::default();
+        fixture.push_scalar(COMPONENT_TEXT, b"urn:custom");
+        fixture.finish_node(TAG_IRI);
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY);
+        fixture.push_scalar(COMPONENT_TEXT, b"http://www.w3.org/2001/XMLSchema#string");
+        fixture.finish_node(TAG_IRI);
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(3);
+        fixture.finish_node(TAG_ENTITY);
+        let range_id = if complex_range {
+            fixture.push_node_ref(4);
+            fixture.finish_node(TAG_DATA_COMPLEMENT_OF);
+            5
+        } else {
+            4
+        };
+        let annotation_ids = if annotated {
+            fixture.push_scalar(COMPONENT_TEXT, b"urn:label");
+            fixture.finish_node(TAG_IRI);
+            let property_iri_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(property_iri_id);
+            fixture.finish_node(TAG_ENTITY);
+            let property_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_node_ref(property_id);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            vec![fixture.node_tags.len() as u64 / 2]
+        } else {
+            Vec::new()
+        };
+        fixture.push_node_ref(2);
+        fixture.push_node_ref(range_id);
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(TAG_DATATYPE_DEFINITION);
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture
             .root_ids
@@ -11379,6 +11463,116 @@ mod tests {
         ));
 
         let annotated = functional_data_property_delta_fixture(true);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+        ));
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_silent_datatype_definitions() {
+        let base = named_subclass_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        for complex_range in [false, true] {
+            let delta = datatype_definition_delta_fixture(complex_range, false);
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, 3);
+            assert_eq!(prepared.statistics().datatype_definitions, 1);
+            assert_eq!(prepared.statistics().skipped_axioms, 1);
+            assert_eq!(prepared.statistics().edges, 1);
+            assert_eq!(prepared.emission_attempts(), 0);
+            let (edges, cursor) = prepared
+                .prepare_next_batch(base.columns(), &running_state(), 1)
+                .unwrap();
+            prepared.commit_cursor(cursor);
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:A".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                }]
+            );
+            assert!(prepared.is_exhausted());
+
+            let asserted = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(asserted.statistics().datatype_definitions, 1);
+            assert_eq!(asserted.statistics().skipped_axioms, 0);
+            assert_eq!(asserted.statistics().edges, 1);
+            assert_eq!(asserted.emission_attempts(), 0);
+        }
+
+        let delta = datatype_definition_delta_fixture(false, false);
+        let excluded_subclass = 2_u32.to_le_bytes();
+        let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+        let silent = prepare_single_overlay_delta_batches_uncommitted(
+            selected_declaration,
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(silent.statistics().roots, 2);
+        assert_eq!(silent.statistics().datatype_definitions, 1);
+        assert_eq!(silent.statistics().skipped_axioms, 1);
+        assert_eq!(silent.statistics().edges, 0);
+        assert_eq!(silent.emission_attempts(), 0);
+        assert!(silent.is_exhausted());
+
+        let duplicate_base = datatype_definition_delta_fixture(false, false);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                duplicate_base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        let annotated = datatype_definition_delta_fixture(false, true);
         assert!(matches!(
             prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
