@@ -140,12 +140,14 @@ reports 22 retained structural buffers, 12 native inputs including the posting e
 posting bytes, and zero selection indexing, flattening, staging, scalar materialization, or
 per-row FFI. Multiple `EXCLUDE` layers, `INCLUDE`/composite selection,
 annotation-sensitive aliases, mmap, and public selection remain open.
-Kernels v48–v70 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
+Kernels v48–v71 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
 `ALL` or one exact `EXCLUDE` table, while the `ALL` delta may contain exactly one unannotated
 named-to-named `SubClassOf`, supported named-role Some/All/Min/Max restriction `SubClassOf`, named
 entity `Declaration`, named-class/named-individual `ClassAssertion`, an ignored-shape `SubClassOf`
 or `ClassAssertion` whose complete direct classifier returns ignored and whose graph reaches no
-anonymous individual, or named-property/named-individual positive `ObjectPropertyAssertion`, or
+anonymous individual, a canonical binary or ternary ignored-shape `EquivalentClasses` set whose
+complete direct classifier returns ignored and whose graph reaches no anonymous individual, or
+named-property/named-individual positive `ObjectPropertyAssertion`, or
 named-individual negative object assertion with a named or inverse named property, or named-
 property/named-individual `DataPropertyAssertion` with a fully validated literal, its negative-
 data-assertion counterpart, named `SubDataPropertyOf`, or a canonical binary or ternary named-
@@ -219,6 +221,14 @@ annotation set, and rejects every reachable anonymous individual until local sco
 defined. Normal, taxonomy-only, and asserted-taxonomy modes preserve the exact constructor and
 ignored-shape counters, leave the skipped-axiom counter at zero, and retain no emitting delta
 record.
+Kernel v71 admits one canonical binary or ternary local `EquivalentClasses` root through the
+silent-root transaction only when the complete direct equivalence classifier returns ignored. It
+reuses the complete recursive class-expression and canonical-set validators, requires empty axiom
+annotations, and rejects every reachable anonymous individual until local scope remapping is
+defined. Normal and taxonomy-only modes preserve the exact constructor and ignored-equivalence
+counts; asserted-taxonomy preserves the constructor count and suppresses the ignored-equivalence
+count, matching the complete direct path. The aggregate-equivalence and skipped-axiom counters
+remain zero, and no emitting delta record is retained.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
