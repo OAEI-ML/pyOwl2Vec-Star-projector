@@ -814,6 +814,10 @@ enum OwnedOverlayDeltaProjection {
         relation: String,
         destination: String,
     },
+    ClassAssertion {
+        individual: String,
+        class: String,
+    },
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -5836,16 +5840,19 @@ impl DirectEmissionCursor {
                     if !self.overlay_delta_emitted {
                         if let Some(delta) = preparation.overlay_delta.as_ref() {
                             if delta.insertion_position == self.scan_index {
-                                self.overlay_delta_emitted = true;
-                                match &delta.projection {
+                                let handled = match &delta.projection {
                                     OwnedOverlayDeltaProjection::Taxonomy {
                                         source,
                                         destination,
-                                    } => self.set_taxonomy(
-                                        source,
-                                        destination,
-                                        preparation.options.bidirectional,
-                                    )?,
+                                    } => {
+                                        self.overlay_delta_emitted = true;
+                                        self.set_taxonomy(
+                                            source,
+                                            destination,
+                                            preparation.options.bidirectional,
+                                        )?;
+                                        true
+                                    }
                                     OwnedOverlayDeltaProjection::Restriction {
                                         source,
                                         relation,
@@ -5853,11 +5860,19 @@ impl DirectEmissionCursor {
                                     } if !preparation.options.asserted_taxonomy_only
                                         && !preparation.options.only_taxonomy =>
                                     {
+                                        self.overlay_delta_emitted = true;
                                         self.set_role(source, relation, destination)?;
+                                        true
                                     }
-                                    OwnedOverlayDeltaProjection::Restriction { .. } => {}
+                                    OwnedOverlayDeltaProjection::Restriction { .. } => {
+                                        self.overlay_delta_emitted = true;
+                                        true
+                                    }
+                                    OwnedOverlayDeltaProjection::ClassAssertion { .. } => false,
+                                };
+                                if handled {
+                                    continue;
                                 }
-                                continue;
                             }
                         }
                     }
@@ -6075,6 +6090,27 @@ impl DirectEmissionCursor {
                     }
                 }
                 EmissionPhase::ClassAssertions => {
+                    if !self.overlay_delta_emitted {
+                        if let Some(delta) = preparation.overlay_delta.as_ref() {
+                            if delta.insertion_position == self.scan_index {
+                                if let OwnedOverlayDeltaProjection::ClassAssertion {
+                                    individual,
+                                    class,
+                                } = &delta.projection
+                                {
+                                    self.overlay_delta_emitted = true;
+                                    return self.publish(
+                                        DirectEdge {
+                                            source: clone_text(individual)?,
+                                            relation: clone_text(RDF_TYPE)?,
+                                            destination: clone_text(class)?,
+                                        },
+                                        preparation,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     if self.scan_index == columns.root_count() {
                         self.scan_index = 0;
                         self.phase = EmissionPhase::ObjectAssertions;
@@ -6638,9 +6674,37 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             ));
         }
         None
+    } else if delta_counts
+        == (RootCounts {
+            class_assertions: 1,
+            ..RootCounts::default()
+        })
+        && delta_tag == TAG_CLASS_ASSERTION
+    {
+        let field_start = delta_columns.exact_fields(delta_root, 3)?;
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(field_start + 2, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(
+                "bounded local-overlay ClassAssertion root must be unannotated",
+            ));
+        }
+        match delta_columns.class_assertion_projection(delta_root, options.max_iri_bytes)? {
+            ClassAssertionProjection::Edge { individual, class } => {
+                Some(OwnedOverlayDeltaProjection::ClassAssertion {
+                    individual: clone_text(individual)?,
+                    class: clone_text(class)?,
+                })
+            }
+            ClassAssertionProjection::Ignored => {
+                return Err(KernelError::unsupported(
+                    "bounded local-overlay ClassAssertion root requires a named class and named individual",
+                ));
+            }
+        }
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration or supported named SubClassOf axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, or named ClassAssertion axiom",
         ));
     };
 
@@ -6716,7 +6780,16 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 })?,
             )
         }
-        Some(OwnedOverlayDeltaProjection::Restriction { .. }) | None => (0, 0),
+        Some(OwnedOverlayDeltaProjection::ClassAssertion { .. })
+            if !options.asserted_taxonomy_only =>
+        {
+            (1, 0)
+        }
+        Some(
+            OwnedOverlayDeltaProjection::Restriction { .. }
+            | OwnedOverlayDeltaProjection::ClassAssertion { .. },
+        )
+        | None => (0, 0),
     };
     let projected = prepared
         .preparation
@@ -6763,6 +6836,12 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 .ok_or_else(|| {
                     KernelError::resource("encoded role-expansion edge-count overflow")
                 })?;
+        }
+        Some(OwnedOverlayDeltaProjection::ClassAssertion { .. }) => {
+            statistics.class_assertions = statistics
+                .class_assertions
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded class-assertion count overflow"))?;
         }
         None => {
             statistics.declarations = statistics
@@ -7468,6 +7547,79 @@ mod tests {
             .root_kinds
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         for root_id in [7_u32, 8] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
+    fn named_class_assertion_delta_fixture(
+        class_iri: &[u8],
+        individual_iri: &[u8],
+        annotated: bool,
+    ) -> Fixture {
+        let mut fixture = Fixture::default();
+        fixture.push_scalar(COMPONENT_TEXT, class_iri);
+        fixture.finish_node(TAG_IRI); // 1
+        fixture.push_scalar(COMPONENT_TEXT, individual_iri);
+        fixture.finish_node(TAG_IRI); // 2
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 3
+        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+        fixture.push_node_ref(2);
+        fixture.finish_node(TAG_ENTITY); // 4
+
+        let annotation_ids = if annotated {
+            fixture.push_scalar(COMPONENT_TEXT, b"urn:label");
+            fixture.finish_node(TAG_IRI); // 5
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(5);
+            fixture.finish_node(TAG_ENTITY); // 6
+            fixture.push_node_ref(6);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION); // 7
+            vec![7]
+        } else {
+            Vec::new()
+        };
+        fixture.push_node_ref(3);
+        fixture.push_node_ref(4);
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(TAG_CLASS_ASSERTION);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn named_class_assertion_base_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:A".as_slice(), b"urn:C", b"urn:i", b"urn:k"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=4
+        }
+        for iri_id in [1_u64, 2] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 5..=6
+        }
+        for iri_id in [3_u64, 4] {
+            fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 7..=8
+        }
+        for (class, individual) in [(5_u64, 7_u64), (6, 8)] {
+            fixture.push_node_ref(class);
+            fixture.push_node_ref(individual);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_CLASS_ASSERTION); // 9..=10
+        }
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [9_u32, 10] {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
@@ -8874,6 +9026,217 @@ mod tests {
 
         let annotated =
             named_restriction_delta_fixture(TAG_OBJECT_SOME_VALUES_FROM, false, false, true);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+        ));
+    }
+
+    #[test]
+    fn one_root_overlay_delta_inserts_named_class_assertion_in_canonical_phase() {
+        let base = named_class_assertion_base_fixture();
+        let delta = named_class_assertion_delta_fixture(b"urn:B", b"urn:j", false);
+        let options = DirectCompileOptions {
+            bidirectional: true,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let stats = prepared.statistics();
+        assert_eq!(stats.roots, 3);
+        assert_eq!(stats.nodes, 15);
+        assert_eq!(stats.class_assertions, 3);
+        assert_eq!(stats.ignored_class_assertions, 0);
+        assert_eq!(stats.edges, 3);
+        assert_eq!(
+            stats.buffer_bytes,
+            base.columns().buffer_bytes().unwrap() + delta.columns().buffer_bytes().unwrap()
+        );
+        assert_eq!(prepared.emission_attempts(), 0);
+
+        let (first, first_cursor) = prepared
+            .prepare_next_batch(base.columns(), &state, 1)
+            .unwrap();
+        let (retry, _) = prepared
+            .prepare_next_batch(base.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(first, retry);
+        assert_eq!(prepared.remaining_edges(), 3);
+        prepared.commit_cursor(first_cursor);
+        let mut edges = first;
+        while prepared.remaining_edges() != 0 {
+            let (batch, cursor) = prepared
+                .prepare_next_batch(base.columns(), &state, 1)
+                .unwrap();
+            edges.extend(batch);
+            prepared.commit_cursor(cursor);
+        }
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:i".into(),
+                    relation: RDF_TYPE.into(),
+                    destination: "urn:A".into(),
+                },
+                DirectEdge {
+                    source: "urn:j".into(),
+                    relation: RDF_TYPE.into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:k".into(),
+                    relation: RDF_TYPE.into(),
+                    destination: "urn:C".into(),
+                },
+            ]
+        );
+
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    max_edges: 2,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("configured limit")
+        ));
+    }
+
+    #[test]
+    fn one_root_overlay_class_assertion_composes_exclusions_modes_and_fallbacks() {
+        let base = named_class_assertion_base_fixture();
+        let delta = named_class_assertion_delta_fixture(b"urn:B", b"urn:j", false);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+        for (excluded, expected_sources) in [
+            (Vec::new(), vec!["urn:i", "urn:j", "urn:k"]),
+            (1_u32.to_le_bytes().to_vec(), vec!["urn:j", "urn:k"]),
+            (2_u32.to_le_bytes().to_vec(), vec!["urn:i", "urn:j"]),
+            (
+                [1_u32.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
+                vec!["urn:j"],
+            ),
+        ] {
+            let base_columns = base.columns().with_excluded_root_ids(&excluded);
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base_columns,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, expected_sources.len());
+            assert_eq!(
+                prepared.statistics().class_assertions,
+                expected_sources.len()
+            );
+            assert_eq!(prepared.statistics().edges, expected_sources.len());
+            let (edges, cursor) = prepared
+                .prepare_next_batch(base_columns, &running_state(), expected_sources.len())
+                .unwrap();
+            prepared.commit_cursor(cursor);
+            assert_eq!(
+                edges
+                    .iter()
+                    .map(|edge| edge.source.as_str())
+                    .collect::<Vec<_>>(),
+                expected_sources
+            );
+            assert!(prepared.is_exhausted());
+        }
+
+        let mut only_taxonomy = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            DirectCompileOptions {
+                only_taxonomy: true,
+                ..options
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(only_taxonomy.statistics().class_assertions, 3);
+        assert_eq!(only_taxonomy.statistics().edges, 3);
+        let (edges, cursor) = only_taxonomy
+            .prepare_next_batch(base.columns(), &running_state(), 3)
+            .unwrap();
+        only_taxonomy.commit_cursor(cursor);
+        assert_eq!(edges.len(), 3);
+        assert!(only_taxonomy.is_exhausted());
+
+        let asserted = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            DirectCompileOptions {
+                asserted_taxonomy_only: true,
+                ..options
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(asserted.statistics().class_assertions, 3);
+        assert_eq!(asserted.statistics().edges, 0);
+        assert_eq!(asserted.emission_attempts(), 0);
+        assert!(asserted.is_exhausted());
+
+        let duplicate = named_class_assertion_delta_fixture(b"urn:A", b"urn:i", false);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                duplicate.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        let annotated = named_class_assertion_delta_fixture(b"urn:B", b"urn:j", true);
         assert!(matches!(
             prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
