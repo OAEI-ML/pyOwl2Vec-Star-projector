@@ -697,6 +697,59 @@ impl SilentAnnotationPropertyRoot {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SilentClassDisjointnessRoot {
+    Classes,
+    Union,
+}
+
+impl SilentClassDisjointnessRoot {
+    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
+        match tag {
+            TAG_DISJOINT_CLASSES
+                if counts
+                    == (RootCounts {
+                        disjoint_classes: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Classes)
+            }
+            TAG_DISJOINT_UNION
+                if counts
+                    == (RootCounts {
+                        disjoint_unions: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Union)
+            }
+            _ => None,
+        }
+    }
+
+    fn constructor(self) -> &'static str {
+        match self {
+            Self::Classes => "DisjointClasses",
+            Self::Union => "DisjointUnion",
+        }
+    }
+
+    fn statistics_counter(self, statistics: &mut DirectCompileStats) -> &mut usize {
+        match self {
+            Self::Classes => &mut statistics.disjoint_classes,
+            Self::Union => &mut statistics.disjoint_unions,
+        }
+    }
+
+    fn statistics_count(self, statistics: &DirectCompileStats) -> usize {
+        match self {
+            Self::Classes => statistics.disjoint_classes,
+            Self::Union => statistics.disjoint_unions,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ObjectPropertyExpression<'a> {
     iri: &'a str,
     owlapi_hash: i32,
@@ -6861,6 +6914,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let silent_object_property_root = SilentObjectPropertyRoot::classify(delta_counts, delta_tag);
     let silent_annotation_property_root =
         SilentAnnotationPropertyRoot::classify(delta_counts, delta_tag);
+    let silent_class_disjointness_root =
+        SilentClassDisjointnessRoot::classify(delta_counts, delta_tag);
     let projection = if delta_tag == TAG_SUB_CLASS_OF
         && (delta_counts
             == (RootCounts {
@@ -7071,6 +7126,35 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 2, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {constructor} root must be unannotated",
+            )));
+        }
+        None
+    } else if let Some(kind) = silent_class_disjointness_root {
+        let constructor = kind.constructor();
+        let (item_count, annotation_field) = match kind {
+            SilentClassDisjointnessRoot::Classes => {
+                delta_columns.validate_disjoint_classes(delta_root, options.max_iri_bytes)?;
+                let field_start = delta_columns.exact_fields(delta_root, 2)?;
+                let (_item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
+                (item_count, field_start + 1)
+            }
+            SilentClassDisjointnessRoot::Union => {
+                delta_columns.validate_disjoint_union(delta_root, options.max_iri_bytes)?;
+                let field_start = delta_columns.exact_fields(delta_root, 3)?;
+                let (_item_start, item_count) = delta_columns.node_set_range(field_start + 1, 2)?;
+                (item_count, field_start + 2)
+            }
+        };
+        if item_count > 3 {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {constructor} root requires a canonical binary or ternary class-expression set",
+            )));
+        }
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(annotation_field, 0)?;
         if annotation_count != 0 {
             return Err(KernelError::unsupported(format!(
                 "bounded local-overlay {constructor} root must be unannotated",
@@ -7373,7 +7457,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -7709,6 +7793,27 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             let kind = silent_annotation_property_root.ok_or_else(|| {
                 KernelError::malformed(
                     "encoded local-overlay annotation-property root lost its constructor",
+                )
+            })?;
+            let constructor = kind.constructor();
+            let count = kind
+                .statistics_count(statistics)
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource(format!("encoded {constructor} count overflow"))
+                })?;
+            *kind.statistics_counter(statistics) = count;
+            if !options.asserted_taxonomy_only {
+                statistics.skipped_axioms = statistics
+                    .skipped_axioms
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
+            }
+        }
+        None if silent_class_disjointness_root.is_some() => {
+            let kind = silent_class_disjointness_root.ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded local-overlay class-disjointness root lost its constructor",
                 )
             })?;
             let constructor = kind.constructor();
@@ -8747,6 +8852,78 @@ mod tests {
         };
         fixture.push_node_ref(3);
         fixture.push_node_ref(target_id);
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(root_tag);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn silent_class_disjointness_delta_fixture(
+        root_tag: u16,
+        member_count: usize,
+        recursive_member: bool,
+        annotated: bool,
+    ) -> Fixture {
+        assert!([TAG_DISJOINT_CLASSES, TAG_DISJOINT_UNION].contains(&root_tag));
+        assert!(member_count >= 2);
+        assert!(member_count <= 4);
+        let mut fixture = Fixture::default();
+        let mut class_ids = Vec::with_capacity(member_count + 1);
+        if root_tag == TAG_DISJOINT_UNION {
+            fixture.push_scalar(COMPONENT_TEXT, b"urn:Defined");
+            fixture.finish_node(TAG_IRI);
+            let iri_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY);
+            class_ids.push(fixture.node_tags.len() as u64 / 2);
+        }
+        for iri in [b"urn:A".as_slice(), b"urn:B", b"urn:C", b"urn:D"]
+            .iter()
+            .take(member_count)
+        {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI);
+            let iri_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY);
+            class_ids.push(fixture.node_tags.len() as u64 / 2);
+        }
+        let defined_id = (root_tag == TAG_DISJOINT_UNION).then_some(class_ids[0]);
+        let member_start = usize::from(defined_id.is_some());
+        let mut member_ids = class_ids[member_start..].to_vec();
+        if recursive_member {
+            let final_member = member_ids
+                .last_mut()
+                .expect("disjointness member envelope is nonempty");
+            fixture.push_node_ref(*final_member);
+            fixture.finish_node(TAG_OBJECT_COMPLEMENT_OF);
+            *final_member = fixture.node_tags.len() as u64 / 2;
+        }
+        let annotation_ids = if annotated {
+            fixture.push_scalar(COMPONENT_TEXT, b"urn:label");
+            fixture.finish_node(TAG_IRI);
+            let property_iri_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(property_iri_id);
+            fixture.finish_node(TAG_ENTITY);
+            let property_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_node_ref(property_id);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            vec![fixture.node_tags.len() as u64 / 2]
+        } else {
+            Vec::new()
+        };
+        if let Some(defined_id) = defined_id {
+            fixture.push_node_ref(defined_id);
+        }
+        fixture.push_node_set(&member_ids);
         fixture.push_node_set(&annotation_ids);
         fixture.finish_node(root_tag);
         fixture.root_kinds.push(ROOT_AXIOM);
@@ -12610,6 +12787,149 @@ mod tests {
                     canonical_limits().max_workspace_bytes,
                 ),
                 Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            ));
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_silent_class_disjointness_axioms() {
+        let base = named_subclass_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        for tag in [TAG_DISJOINT_CLASSES, TAG_DISJOINT_UNION] {
+            for (member_count, recursive_member) in [(2, false), (3, false), (2, true)] {
+                let delta = silent_class_disjointness_delta_fixture(
+                    tag,
+                    member_count,
+                    recursive_member,
+                    false,
+                );
+                let kind = SilentClassDisjointnessRoot::classify(
+                    delta
+                        .columns()
+                        .classify_roots(options.max_iri_bytes, &running_state())
+                        .unwrap(),
+                    tag,
+                )
+                .unwrap();
+                let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                )
+                .unwrap();
+                assert_eq!(prepared.statistics().roots, 3);
+                assert_eq!(kind.statistics_count(&prepared.statistics()), 1);
+                assert_eq!(prepared.statistics().skipped_axioms, 1);
+                assert_eq!(prepared.statistics().edges, 1);
+                assert_eq!(prepared.emission_attempts(), 0);
+                let (edges, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &running_state(), 1)
+                    .unwrap();
+                prepared.commit_cursor(cursor);
+                assert_eq!(
+                    edges,
+                    vec![DirectEdge {
+                        source: "urn:A".into(),
+                        relation: SUBCLASS_OF.into(),
+                        destination: "urn:B".into(),
+                    }]
+                );
+                assert!(prepared.is_exhausted());
+
+                let asserted = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    DirectCompileOptions {
+                        asserted_taxonomy_only: true,
+                        ..options
+                    },
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                )
+                .unwrap();
+                assert_eq!(kind.statistics_count(&asserted.statistics()), 1);
+                assert_eq!(asserted.statistics().skipped_axioms, 0);
+                assert_eq!(asserted.statistics().edges, 1);
+                assert_eq!(asserted.emission_attempts(), 0);
+            }
+        }
+
+        let delta = silent_class_disjointness_delta_fixture(TAG_DISJOINT_CLASSES, 2, false, false);
+        let excluded_subclass = 2_u32.to_le_bytes();
+        let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+        let silent = prepare_single_overlay_delta_batches_uncommitted(
+            selected_declaration,
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(silent.statistics().roots, 2);
+        assert_eq!(silent.statistics().disjoint_classes, 1);
+        assert_eq!(silent.statistics().skipped_axioms, 1);
+        assert_eq!(silent.statistics().edges, 0);
+        assert_eq!(silent.emission_attempts(), 0);
+        assert!(silent.is_exhausted());
+
+        let duplicate_base =
+            silent_class_disjointness_delta_fixture(TAG_DISJOINT_CLASSES, 2, false, false);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                duplicate_base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        for tag in [TAG_DISJOINT_CLASSES, TAG_DISJOINT_UNION] {
+            let annotated = silent_class_disjointness_delta_fixture(tag, 2, false, true);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    annotated.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            ));
+
+            let oversized = silent_class_disjointness_delta_fixture(tag, 4, false, false);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    oversized.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message))
+                    if message.contains("canonical binary or ternary")
             ));
         }
     }
