@@ -280,6 +280,13 @@ ordered member descriptors, dictionary/weak-reference offsets, canonical factory
 type, and all 60 integer payloads before commit and revalidate them after the private probe or
 iterator callback. Layout failure or mutation publishes no coarse counters, batch session, or
 retained role-state transition.
+Kernel-v46 evidence applies direct stable-ABI allocation to the exact eight-slot batch iterator.
+Its exact `collections.abc.Iterator` base must be object-sized, use `object.__new__`, and add no
+dictionary or weak-reference offset. Native code creates no three-field argument tuple and invokes
+no Python iterator factory or constructor callback. It must validate ordered member descriptors,
+canonical factory identity, exact owner/statistics identities, batch bound, zero yielded/batch/peak
+counters, initial boundary count one, and terminal state `active` before session or retained roles
+publish. Layout, payload, probe, or factory failure publishes neither.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These

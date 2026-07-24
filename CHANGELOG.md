@@ -7,6 +7,10 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden batch-session preparation now directly allocates its exact eight-slot iterator through the
+  CPython stable ABI. No argument tuple or Python iterator factory/constructor callback remains;
+  canonical base/layout, owner/statistics identities, and every initial state field are validated
+  before session or retained role-state publication. The capability stays hidden.
 - Hidden coarse and batch-session preparation now allocates the exact 60-slot statistics object
   directly through the CPython stable ABI. It creates no 60-field argument tuple and invokes no
   Python statistics factory or constructor callback; canonical layout, factory identity, exact

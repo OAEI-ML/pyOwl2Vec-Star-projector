@@ -1,0 +1,189 @@
+{
+  "schema": "pyowl-projector.p7-installed-direct-iterator-allocation-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "3860399842385993f58b756062d0e489be0eb160"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-3860399.tar",
+      "bytes": 3829760,
+      "sha256": "e95fd3e371e173d7f83d3e55f6987a246c5cf1ae40ae3404963fce33ab3e142d"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 464176,
+      "sha256": "0d0e3d8ba1597b6b31fa3bf8b76d54e3955ea50bcd46fa3a5f0edf0e0d65de5c"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 791268,
+      "sha256": "57249a93f910bc99a16c89dc7b9cf4b79d6249af2f40049f982bdc6e9ab97be8",
+      "encoded_direct_kernel_version": 46,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 60531,
+      "sha256": "108b6be5ad79b6349b89cbf670b102ba91de039a40368bbfded4893ee26b9811",
+      "matches_projector_revision": true
+    },
+    "case_sources": {
+      "foundation": {
+        "filename": "tests/test_native_encoded_foundation.py",
+        "bytes": 235920,
+        "sha256": "0e20355f4f0896d3492f74df685d257bae6e19d5e1175e3e3ecba26d8815280e"
+      },
+      "benchmark": {
+        "filename": "tests/test_encoded_benchmark.py",
+        "bytes": 13088,
+        "sha256": "9e9dd386c3d554b918d5ebec06fb97d1068d54391322ead208fb5d427760ba40"
+      }
+    },
+    "rust_source": {
+      "filename": "native/src/lib.rs",
+      "bytes": 88312,
+      "sha256": "0895a5d223486aabde22b0fa44a3a0d9fc1739a95816a59e0c82f18458a5296d",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_worktree": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 46,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false
+  },
+  "installed_verification": {
+    "direct_iterator_allocation_result": "5 passed",
+    "complete_suite_result": "1158 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "constructor_bypass": {
+        "python_iterator_factory_calls": 0,
+        "python_iterator_constructor_callbacks": 0,
+        "three_field_argument_tuple_created": false,
+        "final_type": "exact NativeEncodedDirectBatchIterator",
+        "owner_identity": "exact compiler",
+        "statistics_identity": "exact direct-allocated statistics",
+        "initial_state": {
+          "batch_edges": 2,
+          "yielded_edges": 0,
+          "boundary_calls": 1,
+          "edge_batches": 0,
+          "peak_buffered_edges": 0,
+          "terminal_state": "active"
+        },
+        "complete_drain": "exact scalar parity"
+      },
+      "replaced_factory": {
+        "python_iterator_factory_calls": 0,
+        "batch_session_published": false,
+        "retained_roles_committed": false
+      },
+      "incompatible_layout": {
+        "fails_before_final_iterator_allocation": true,
+        "batch_session_published": false,
+        "retained_roles_committed": false
+      },
+      "layout_mutation_during_allocation": {
+        "failure": "ProjectionError",
+        "batch_session_published": false,
+        "retained_roles_committed": false
+      },
+      "allocation_probe_failure": {
+        "failure": "ProjectionResourceError",
+        "batch_session_published": false,
+        "role_use_released": true,
+        "retained_roles_committed": false
+      },
+      "allocation_probe_mutates_statistics": {
+        "failure": "ProjectionError",
+        "batch_session_published": false,
+        "role_use_released": true,
+        "retained_roles_committed": false
+      }
+    }
+  },
+  "source_verification": {
+    "direct_iterator_allocation_invariant": {
+      "stable_abi_generic_allocation": true,
+      "python_iterator_factory_invocations": 0,
+      "python_iterator_constructor_callbacks": 0,
+      "three_field_argument_tuple_created": false,
+      "exact_collections_iterator_base_required": true,
+      "layout_neutral_base_required": true,
+      "exact_eight_slot_order_required": true,
+      "member_descriptors_required": true,
+      "dict_offset_required": 0,
+      "weakref_offset_required": 0,
+      "owner_and_statistics_identity_revalidated": true,
+      "all_six_scalar_state_fields_revalidated": true,
+      "layout_revalidated_after_external_probe": true,
+      "failure_publishes_session": false,
+      "failure_commits_retained_roles": false
+    },
+    "private_foundation_cases": 259,
+    "complete_suite_cases": 1158,
+    "rust_unit_cases": 38,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "runtime_dependency_boundary": "passed",
+    "release_artifact_audit": "passed; 30 members",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "Hidden batch-session preparation now allocates the exact canonical eight-slot iterator directly through the CPython stable ABI. The native transaction creates no constructor argument tuple and invokes no Python iterator factory or constructor callback, then revalidates the canonical factory identity, compatible base and slot layout, exact owner/statistics identities, and all initial state fields before session or retained-role publication.",
+  "known_blockers": [
+    "The compatibility coarse call still returns one O(E) Python list; only the hidden iterator exposes caller-bounded Python results.",
+    "Each final Edge still requires one Python object and three Python Unicode field objects, although it invokes no Python factory or constructor callback.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public iterator, sink, digest, artifact, dispatch, and Scala-instance lifecycle integration remain open.",
+    "Labelled corpus, performance, RSS, fuzz, sanitizer, thread/fork/shutdown, platform, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness and direct-allocation checkpoint; it carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The exact collections.abc.Iterator base must remain object-sized with object.__new__ and zero instance offsets; a future incompatible CPython layout fails closed.",
+    "The narrowly documented unsafe blocks call only PyType_GenericAlloc and PyObject_GenericSetAttr after the exact supported layout has been validated.",
+    "The iterator allocation probe is private, disabled by default, and exists only to exercise transactional failure and mutation paths.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

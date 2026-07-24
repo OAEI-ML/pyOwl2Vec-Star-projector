@@ -82,6 +82,9 @@ Malformed or changed layouts preserve the same atomic failure outcomes. Kernel v
 validated allocator for the exact 60-slot statistics type, removing the 60-field argument tuple
 and Python statistics factory/constructor callback from coarse and session preparation. All 60
 integer payloads and the layout are rechecked before counters, session, or retained roles publish.
+Kernel v46 then directly allocates the exact eight-slot iterator, removing its three-field argument
+tuple and Python factory/constructor callback while validating the compatible base, ordered slots,
+owner/statistics identities, and every initial state field before the same publication boundary.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is

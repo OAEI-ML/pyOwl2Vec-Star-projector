@@ -166,6 +166,13 @@ argument tuple and Python statistics factory/constructor callback. Coarse prepar
 layout and payload before output-counter or retained-role commit; batch preparation rechecks them
 after its iterator callback and before session publication. A malformed or changed statistics
 layout retains the same zero-publication outcome. Its disabled private probe is test-only.
+Kernel v46 directly allocates the exact eight-slot `NativeEncodedDirectBatchIterator` as well. It
+requires the exact object-sized `collections.abc.Iterator` base, `object.__new__`, ordered member
+descriptors, and zero instance offsets. Rust assigns the compiler/statistics identities and all six
+initial scalar state fields without a constructor argument tuple or Python factory/constructor
+callback, then revalidates them and the layout before session publication. Factory replacement,
+payload corruption, layout mutation, or the disabled private probe retains the same absent-session
+and unchanged-role outcome.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

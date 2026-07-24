@@ -250,6 +250,11 @@ The exact 60-slot statistics object is now allocated through that same validated
 boundary on both coarse and batch-session paths. No 60-field argument tuple, Python statistics
 factory call, or constructor callback remains; exact evidence is recorded in
 [`reports/p7/evidence/installed-direct-statistics-allocation-checkpoint.json`](reports/p7/evidence/installed-direct-statistics-allocation-checkpoint.json).
+Batch-session preparation now also allocates the exact eight-slot iterator directly, without its
+three-field argument tuple or Python factory/constructor callback. Its compatible base, canonical
+layout, owner/statistics identities, and initial state are transactionally validated; exact
+evidence is recorded in
+[`reports/p7/evidence/installed-direct-iterator-allocation-checkpoint.json`](reports/p7/evidence/installed-direct-iterator-allocation-checkpoint.json).
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).
@@ -259,9 +264,9 @@ to scalar compilation without re-entering stale native state. That lifecycle che
 kernel v31; the bounded, lazy, coarse-cursor, final-result, final-batch, batch-session,
 iterator-publication, factory-validation, edge-factory-validation, canonical-wrapper,
 final-payload-validation, complete-batch-validation, direct-edge-allocation, and
-direct-statistics-allocation checkpoints advance the private kernel through v32, v33, v34, v35,
-v36, v37, v38, v39, v40, v41, v42, v43, v44, and v45 while the public feature ledger remains
-exactly
+direct-statistics-allocation and direct-iterator-allocation checkpoints advance the private kernel
+through v32, v33, v34, v35, v36, v37, v38, v39, v40, v41, v42, v43, v44, v45, and v46 while the
+public feature ledger remains exactly
 `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
