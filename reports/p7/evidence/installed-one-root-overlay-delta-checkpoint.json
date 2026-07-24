@@ -1,0 +1,226 @@
+{
+  "schema": "pyowl-projector.p7-installed-one-root-overlay-delta-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "b4b808a3991b38e143d9b2238c9cccf356c0cdd5"
+  },
+  "source_archive": {
+    "filename": "projector-b4b808a.tar",
+    "bytes": 4208640,
+    "sha256": "6c1cc258fe31b0edf3bd9e5c24c8d3ceac5d4a75fce9e2e7025aa380cd65ae80",
+    "tree": "148e902e4e9bbf0e39eb9a430b51d17bb5ade458"
+  },
+  "source_trees": {
+    "src": "1ac3ca693f789adb78d961fd8ff59fe4ff30308e",
+    "native": "eaa11e9760657a1718edae36a8fcb022338e4f0a",
+    "integration_test": "40738d35048b565fd1d4b81384c8e0258e500e23",
+    "benchmark_test": "7e1252605feb25dbf2bedad70ce97df058e5ee8c"
+  },
+  "artifacts": {
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 495167,
+      "sha256": "ce4a71fb173b4f2a056690cb78a16a612bdda373a28b031fc4511e9d60ea08a7",
+      "record_sha256": "93359b1265e0710c1a0469ad6ab8f89c267d6d715660b26b826af51e234addfa",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "f7cd4d4b297e0c4d4c36b5d079f959fff559f2df49a871d77c6d0a6e150ded93"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "f2228e6e7c44cce8d4f8d2a332087567d504b41feb2b44bee1c963c95d5f102a"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 856980,
+      "sha256": "1dcd58e1879df617bc616a257425079f80ac47b5e11433a69144d8a8081784bd",
+      "encoded_direct_kernel_version": 48,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_encoded_adapter": {
+      "filename": "pyowl2vec_star_projector/encoded.py",
+      "bytes": 44839,
+      "sha256": "2ca884ac022ea60cf8ed103e4aa21081a786d4423e7102b64fb5c205130a29bb"
+    },
+    "installed_native_adapter": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 66454,
+      "sha256": "2d0390c033f0713487185362294db8d6038e9d581640d4bae9dc1b1a6ed24d81"
+    },
+    "integration_test": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 131386,
+      "sha256": "1eabb8a793034cbd3f4128b25c2f5d39611ae2d9153085e339cabb27856b1453"
+    },
+    "benchmark_test": {
+      "filename": "tests/test_encoded_benchmark.py",
+      "bytes": 16734,
+      "sha256": "c429ada23e7df8d4444635c8c2e6417c7132fb8f63b3d766e432b58e2687c43a"
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "source_date_epoch": 1784885750,
+    "native_binary_transplanted": false,
+    "runtime_install_no_index": true,
+    "runtime_install_no_deps": true,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "setuptools_rust": "1.13.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true
+  },
+  "supported_slice": {
+    "top_manifest_roles": [
+      "OVERLAY_BASE",
+      "OVERLAY_DELTA"
+    ],
+    "top_manifest_segment_count": 2,
+    "posting_modes": [
+      "ALL",
+      "ALL"
+    ],
+    "top_local_root_count": 1,
+    "top_local_root_shape": "unannotated named-class to named-class SubClassOf",
+    "top_local_anonymous_scope_map": "empty",
+    "top_local_member_tokens": "absent",
+    "referenced_source": "same-scope fully-revalidated exact-direct view",
+    "referenced_source_segment_count": 1,
+    "manifest_identity": "base and local-delta owners, sources, roles, postings, and descriptors rebound at the Rust seam",
+    "native_input": "eleven referenced-source buffers plus eleven top-local buffers",
+    "retained_owners": "referenced source and top overlay",
+    "canonical_merge_result": "one scalar absolute root-insertion position",
+    "canonical_root_index": "not constructed",
+    "limits": [
+      "top-owner-max-overlay-depth",
+      "top-owner-max-canonical-work",
+      "top-owner-max-index-bytes"
+    ],
+    "provider_layouts": [
+      "independent-bytes",
+      "packed-bytes"
+    ]
+  },
+  "result": {
+    "passed": true,
+    "installed_probe_provider_executions": 2,
+    "focused_integration_cases": 8,
+    "base_root_count_per_provider": 4,
+    "local_root_count_per_provider": 1,
+    "edge_count_per_provider": 2,
+    "ordered_edges_per_provider": [
+      [
+        "urn:native-integration#A",
+        "http://subclassof",
+        "urn:native-integration#B"
+      ],
+      [
+        "urn:native-integration#B",
+        "http://subclassof",
+        "urn:native-integration#C"
+      ]
+    ],
+    "ordered_edge_and_report_parity_every_provider": true,
+    "ingestion_path_every_provider": "encoded-native",
+    "top_local_buffer_bytes": 274,
+    "referenced_source_buffer_bytes": 521,
+    "encoded_buffer_bytes": 795,
+    "encoded_buffer_count": 22,
+    "encoded_detached_buffer_count": 22,
+    "encoded_zero_copy_buffers": 22,
+    "encoded_referenced_view_count": 1,
+    "encoded_segment_count": 3,
+    "encoded_posting_bytes": 0,
+    "encoded_indexed_buffer_count": 0,
+    "base_flattening_bytes": 0,
+    "encoded_staging_copy_bytes": 0,
+    "structural_copy_bytes": 0,
+    "scalar_axiom_materializations": 0,
+    "scalar_term_materializations": 0,
+    "per_row_ffi_calls": 0,
+    "native_compiled_edges": 2,
+    "native_batch_edges": 1,
+    "native_edge_batches": 2,
+    "native_boundary_calls": 3,
+    "native_peak_buffered_edges": 1,
+    "native_output_vector_edges": 0,
+    "native_retained_buffer_count": 22,
+    "whole_call_fallback_cases": [
+      "multiple local roots",
+      "local restriction",
+      "local declaration",
+      "literal-sensitive projection"
+    ],
+    "fallback_native_compiled_edges": 0,
+    "canonical_work_failure_before_output": true,
+    "canonical_workspace_failure_before_output": true,
+    "resource_failure_compiler_state": "failed",
+    "resource_failure_retained_buffer_count": 22,
+    "resource_failure_cancel_after_terminal_failure": false,
+    "cursor_publish_is_transactional": true
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 48,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_projection_ingestion": "scalar-native",
+    "ordinary_native_projection_native_counter_total": 0
+  },
+  "verification": {
+    "independent_review": "approved",
+    "installed_smoke": "passed",
+    "exact_archive_complete_suite": "1231 passed",
+    "exact_archive_focused_local_delta_cases": "8 passed, 91 deselected",
+    "exact_archive_benchmark_cases": "15 passed",
+    "installed_both_layout_probe": "passed; two exactly ordered edges and identical zero-forbidden-work counters per provider",
+    "source_complete_suite": "1231 passed",
+    "source_private_native_integration": "99 passed",
+    "source_benchmark_cases": "15 passed",
+    "ruff": "passed",
+    "ruff_format_modified_source_files": "passed",
+    "mypy_source": "passed; 17 source files",
+    "rust_unit_cases": 50,
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed",
+    "runtime_dependency_boundary": "passed",
+    "native_wheel_audit": "passed; 30 members"
+  },
+  "closed_gap": "The hidden Rust cursor now merges one canonical local OVERLAY_DELTA named-subclass root into its fully revalidated exact-direct base in exact structural order while retaining both tables, deriving only a scalar insertion position, and avoiding base flattening, structural staging, scalar ontology materialization, root indexing, and per-row FFI.",
+  "known_blockers": [
+    "A second local root, any local constructor other than unannotated named SubClassOf, duplicate local/base identity, literal-sensitive projection, retained Scala-instance state, and every nested local delta remain on whole-operation fallback.",
+    "Local deletion, annotations, anonymous-scope remapping, INCLUDE or EXCLUDE composition with a local delta, composites, mmap, arbitrary slices, and other segmented providers remain unsupported by this Rust slice.",
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "Independent Scala-oracle, corpus-scale throughput/RSS, sanitizer/fuzz, platform-wheel, SBOM, Exact shared-stack, and release acceptance remain open."
+  ],
+  "limitations": [
+    "This is focused private correctness evidence; it carries no timing, throughput, RSS, corpus, general segmented-provider, public-dispatch, or release claim.",
+    "The source-built wheel skipped build-dependency checking because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}
