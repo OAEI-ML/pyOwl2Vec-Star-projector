@@ -26,7 +26,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 44
+ENCODED_DIRECT_KERNEL_VERSION = 45
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -220,6 +220,9 @@ class NativeEncodedDirectStatistics:
 
 # Preserve canonical identities while tests or embedding code replace the callable factories.
 _NATIVE_ENCODED_DIRECT_STATISTICS_TYPE = NativeEncodedDirectStatistics
+_NATIVE_ENCODED_STATISTICS_ALLOCATION_PROBE: (
+    Callable[[NativeEncodedDirectStatistics], object] | None
+) = None
 
 
 def _native_skipped_counts(
@@ -479,6 +482,7 @@ class NativeEncodedDirectCompiler:
                 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE,
                 NativeEncodedDirectStatistics,
                 _NATIVE_ENCODED_DIRECT_STATISTICS_TYPE,
+                _NATIVE_ENCODED_STATISTICS_ALLOCATION_PROBE,
                 asserted_taxonomy_only,
                 only_taxonomy,
                 include_literals,
@@ -553,6 +557,7 @@ class NativeEncodedDirectCompiler:
                 self,
                 NativeEncodedDirectStatistics,
                 _NATIVE_ENCODED_DIRECT_STATISTICS_TYPE,
+                _NATIVE_ENCODED_STATISTICS_ALLOCATION_PROBE,
                 NativeEncodedDirectBatchIterator,
                 _NATIVE_ENCODED_DIRECT_BATCH_ITERATOR_TYPE,
                 asserted_taxonomy_only,

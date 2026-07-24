@@ -36,9 +36,10 @@ use pyo3::types::{
     PyBytes, PyInt, PyList, PyMapping, PyMemoryView, PySlice, PyString, PyTuple, PyType,
     PyTypeMethods,
 };
+use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 44;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 45;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -780,6 +781,7 @@ impl EncodedDirectCompiler {
         edge_allocation_probe,
         statistics_factory,
         statistics_type,
+        statistics_allocation_probe,
         asserted_taxonomy_only=false,
         only_taxonomy=false,
         include_literals=false,
@@ -797,6 +799,7 @@ impl EncodedDirectCompiler {
         edge_allocation_probe: Option<&Bound<'_, PyAny>>,
         statistics_factory: &Bound<'_, PyAny>,
         statistics_type: &Bound<'_, PyAny>,
+        statistics_allocation_probe: Option<&Bound<'_, PyAny>>,
         asserted_taxonomy_only: bool,
         only_taxonomy: bool,
         include_literals: bool,
@@ -843,6 +846,16 @@ impl EncodedDirectCompiler {
                 edge_factory,
                 edge_type.as_any(),
                 "encoded direct edge factory is not canonical",
+            )?;
+            let statistics_type = require_direct_statistics_layout(
+                py,
+                statistics_type,
+                "encoded direct statistics type has an incompatible native allocation layout",
+            )?;
+            require_canonical_factory(
+                statistics_factory,
+                statistics_type.as_any(),
+                "encoded direct statistics factory is not canonical",
             )?;
             let mut stream = py.detach(|| {
                 if let Some(retained) = retained_role_state.as_ref() {
@@ -921,20 +934,33 @@ impl EncodedDirectCompiler {
                 edge_type.as_any(),
                 "encoded direct edge factory is not canonical",
             )?;
-            let final_statistics =
-                statistics_factory.call1(direct_statistics_tuple(py, statistics)?)?;
+            let final_statistics = allocate_exact_statistics(py, &statistics_type, statistics)?;
+            require_exact_statistics_factory_result(
+                final_statistics.bind(py),
+                statistics_type.as_any(),
+                statistics,
+                "encoded direct statistics allocation returned an invalid final object",
+            )?;
+            if let Some(probe) = statistics_allocation_probe {
+                probe.call1((final_statistics.bind(py),))?;
+            }
             require_canonical_factory(
                 statistics_factory,
-                statistics_type,
+                statistics_type.as_any(),
                 "encoded direct statistics factory is not canonical",
             )?;
             require_exact_statistics_factory_result(
-                &final_statistics,
-                statistics_type,
+                final_statistics.bind(py),
+                statistics_type.as_any(),
                 statistics,
-                "encoded direct statistics factory returned an invalid final object",
+                "encoded direct statistics allocation returned an invalid final object",
             )?;
-            let statistics = final_statistics.unbind();
+            require_direct_statistics_layout(
+                py,
+                statistics_type.as_any(),
+                "encoded direct statistics type changed during native allocation",
+            )?;
+            let statistics = final_statistics;
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
                     Some(stream.try_clone_role_state().map_err(kernel_error)?)
@@ -994,6 +1020,7 @@ impl EncodedDirectCompiler {
         compiler_owner,
         statistics_factory,
         statistics_type,
+        statistics_allocation_probe,
         iterator_factory,
         iterator_type,
         asserted_taxonomy_only=false,
@@ -1012,6 +1039,7 @@ impl EncodedDirectCompiler {
         compiler_owner: &Bound<'_, PyAny>,
         statistics_factory: &Bound<'_, PyAny>,
         statistics_type: &Bound<'_, PyAny>,
+        statistics_allocation_probe: Option<&Bound<'_, PyAny>>,
         iterator_factory: &Bound<'_, PyAny>,
         iterator_type: &Bound<'_, PyAny>,
         asserted_taxonomy_only: bool,
@@ -1040,20 +1068,26 @@ impl EncodedDirectCompiler {
         let (stream, stats, retained_role_use) =
             self.prepare_batches_owned(py, options, retained_role_state.clone())?;
         let result = guarded(|| {
-            let statistics = statistics_factory
-                .call1(direct_statistics_tuple(py, stats)?)?
-                .unbind();
+            let statistics_type = require_direct_statistics_layout(
+                py,
+                statistics_type,
+                "encoded direct statistics type has an incompatible native allocation layout",
+            )?;
             require_canonical_factory(
                 statistics_factory,
-                statistics_type,
+                statistics_type.as_any(),
                 "encoded direct statistics factory is not canonical",
             )?;
+            let statistics = allocate_exact_statistics(py, &statistics_type, stats)?;
             require_exact_statistics_factory_result(
                 statistics.bind(py),
-                statistics_type,
+                statistics_type.as_any(),
                 stats,
-                "encoded direct statistics factory returned an invalid final object",
+                "encoded direct statistics allocation returned an invalid final object",
             )?;
+            if let Some(probe) = statistics_allocation_probe {
+                probe.call1((statistics.bind(py),))?;
+            }
             let iterator = iterator_factory
                 .call1((compiler_owner, statistics.bind(py), batch_edges))?
                 .unbind();
@@ -1070,14 +1104,25 @@ impl EncodedDirectCompiler {
                 batch_edges,
                 "encoded direct iterator factory returned an invalid final object",
             )?;
-            // The iterator constructor receives the statistics object and may
-            // execute arbitrary Python. Revalidate the earlier result after
-            // that final callback and before any session or role publication.
+            // The private allocation probe and the iterator constructor receive
+            // the statistics object and may execute arbitrary Python.
+            // Revalidate the earlier result and layout after those callbacks
+            // and before any session or role publication.
+            require_canonical_factory(
+                statistics_factory,
+                statistics_type.as_any(),
+                "encoded direct statistics factory is not canonical",
+            )?;
             require_exact_statistics_factory_result(
                 statistics.bind(py),
-                statistics_type,
+                statistics_type.as_any(),
                 stats,
-                "encoded direct statistics factory returned an invalid final object",
+                "encoded direct statistics allocation returned an invalid final object",
+            )?;
+            require_direct_statistics_layout(
+                py,
+                statistics_type.as_any(),
+                "encoded direct statistics type changed during native allocation",
             )?;
             let next_role_state =
                 if retained_role_state.is_some() && !options.asserted_taxonomy_only {
@@ -1442,7 +1487,24 @@ fn require_direct_edge_layout<'py>(
     expected_type: &Bound<'py, PyAny>,
     message: &'static str,
 ) -> PyResult<Bound<'py, PyType>> {
-    let edge_type = expected_type
+    require_direct_slots_layout(py, expected_type, &DIRECT_EDGE_FIELDS, message)
+}
+
+fn require_direct_statistics_layout<'py>(
+    py: Python<'py>,
+    expected_type: &Bound<'py, PyAny>,
+    message: &'static str,
+) -> PyResult<Bound<'py, PyType>> {
+    require_direct_slots_layout(py, expected_type, &DIRECT_STATISTICS_FIELDS, message)
+}
+
+fn require_direct_slots_layout<'py, const N: usize>(
+    py: Python<'py>,
+    expected_type: &Bound<'py, PyAny>,
+    expected_fields: &[&str; N],
+    message: &'static str,
+) -> PyResult<Bound<'py, PyType>> {
+    let direct_type = expected_type
         .cast::<PyType>()
         .map_err(|_| PyValueError::new_err(message))?
         .to_owned();
@@ -1450,46 +1512,46 @@ fn require_direct_edge_layout<'py>(
         .import("builtins")
         .and_then(|module| module.getattr("object"))
         .map_err(|_| PyValueError::new_err(message))?;
-    let base = edge_type
+    let base = direct_type
         .getattr("__base__")
         .map_err(|_| PyValueError::new_err(message))?;
-    let edge_new = edge_type
+    let direct_new = direct_type
         .getattr("__new__")
         .map_err(|_| PyValueError::new_err(message))?;
     let object_new = object_type
         .getattr("__new__")
         .map_err(|_| PyValueError::new_err(message))?;
-    if !base.is(&object_type) || !edge_new.is(&object_new) {
+    if !base.is(&object_type) || !direct_new.is(&object_new) {
         return Err(PyValueError::new_err(message));
     }
 
-    let slots = edge_type
+    let slots = direct_type
         .getattr("__slots__")
         .map_err(|_| PyValueError::new_err(message))?;
     let slots = slots
         .cast_into::<PyTuple>()
         .map_err(|_| PyValueError::new_err(message))?;
-    if slots.len() != DIRECT_EDGE_FIELDS.len() {
+    if slots.len() != expected_fields.len() {
         return Err(PyValueError::new_err(message));
     }
     let member_descriptor_type = py
         .import("types")
         .and_then(|module| module.getattr("MemberDescriptorType"))
         .map_err(|_| PyValueError::new_err(message))?;
-    for (index, expected) in DIRECT_EDGE_FIELDS.into_iter().enumerate() {
+    for (index, expected) in expected_fields.iter().enumerate() {
         let observed = slots
             .get_item(index)
             .and_then(|value| value.extract::<String>())
             .map_err(|_| PyValueError::new_err(message))?;
-        let descriptor = edge_type
-            .getattr(expected)
+        let descriptor = direct_type
+            .getattr(*expected)
             .map_err(|_| PyValueError::new_err(message))?;
-        if observed != expected || !descriptor.is_exact_instance(&member_descriptor_type) {
+        if observed != *expected || !descriptor.is_exact_instance(&member_descriptor_type) {
             return Err(PyValueError::new_err(message));
         }
     }
     for name in ["__dictoffset__", "__weakrefoffset__"] {
-        let offset = edge_type
+        let offset = direct_type
             .getattr(name)
             .and_then(|value| value.extract::<isize>())
             .map_err(|_| PyValueError::new_err(message))?;
@@ -1497,7 +1559,40 @@ fn require_direct_edge_layout<'py>(
             return Err(PyValueError::new_err(message));
         }
     }
-    Ok(edge_type)
+    Ok(direct_type)
+}
+
+fn allocate_exact_slotted_instance<'py>(
+    py: Python<'py>,
+    direct_type: &Bound<'py, PyType>,
+) -> PyResult<Bound<'py, PyAny>> {
+    // SAFETY: `direct_type` was checked above to be a live Python type whose
+    // direct base is `object`. `PyType_GenericAlloc` is its stable-ABI generic
+    // allocator and returns one owned reference or sets a Python exception.
+    unsafe {
+        Bound::<PyAny>::from_owned_ptr_or_err(
+            py,
+            ffi::PyType_GenericAlloc(direct_type.as_type_ptr(), 0),
+        )
+    }
+}
+
+fn set_exact_slot(
+    value: &Bound<'_, PyAny>,
+    name: &Bound<'_, PyString>,
+    field: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    // SAFETY: all three pointers are live Python objects under the same held
+    // GIL. Layout preflight proved `name` resolves to a canonical member
+    // descriptor; GenericSetAttr performs descriptor assignment and reference
+    // counting without invoking the frozen dataclass's `__setattr__`.
+    let result =
+        unsafe { ffi::PyObject_GenericSetAttr(value.as_ptr(), name.as_ptr(), field.as_ptr()) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(PyErr::fetch(value.py()))
+    }
 }
 
 fn allocate_exact_edge(
@@ -1505,31 +1600,14 @@ fn allocate_exact_edge(
     edge_type: &Bound<'_, PyType>,
     edge: &DirectEdge,
 ) -> PyResult<Py<PyAny>> {
-    // SAFETY: `edge_type` was checked above to be a live Python type whose direct
-    // base is `object`. `PyType_GenericAlloc` is its stable-ABI generic allocator
-    // and returns one owned reference or sets a Python exception.
-    let value = unsafe {
-        Bound::<PyAny>::from_owned_ptr_or_err(
-            py,
-            ffi::PyType_GenericAlloc(edge_type.as_type_ptr(), 0),
-        )?
-    };
+    let value = allocate_exact_slotted_instance(py, edge_type)?;
     for (name, field) in [
         (pyo3::intern!(py, "source"), edge.source.as_str()),
         (pyo3::intern!(py, "relation"), edge.relation.as_str()),
         (pyo3::intern!(py, "destination"), edge.destination.as_str()),
     ] {
         let field = PyString::new(py, field);
-        // SAFETY: all three pointers are live Python objects owned or borrowed
-        // under this GIL token. The preflight proved each name resolves to the
-        // canonical member descriptor; GenericSetAttr performs the descriptor
-        // assignment and reference-count updates without invoking frozen
-        // `Edge.__setattr__`.
-        let result =
-            unsafe { ffi::PyObject_GenericSetAttr(value.as_ptr(), name.as_ptr(), field.as_ptr()) };
-        if result != 0 {
-            return Err(PyErr::fetch(py));
-        }
+        set_exact_slot(&value, name, field.as_any())?;
     }
     Ok(value.unbind())
 }
@@ -1740,8 +1818,21 @@ const DIRECT_STATISTICS_FIELDS: [&str; 60] = [
     "root_provenance_buffer_bytes",
 ];
 
-fn direct_statistics_tuple(py: Python<'_>, stats: DirectCompileStats) -> PyResult<Py<PyTuple>> {
-    Ok(PyTuple::new(py, direct_statistics_values(stats))?.unbind())
+fn allocate_exact_statistics(
+    py: Python<'_>,
+    statistics_type: &Bound<'_, PyType>,
+    stats: DirectCompileStats,
+) -> PyResult<Py<PyAny>> {
+    let value = allocate_exact_slotted_instance(py, statistics_type)?;
+    for (name, field) in DIRECT_STATISTICS_FIELDS
+        .into_iter()
+        .zip(direct_statistics_values(stats))
+    {
+        let name = PyString::intern(py, name);
+        let field = field.into_bound_py_any(py)?;
+        set_exact_slot(&value, &name, &field)?;
+    }
+    Ok(value.unbind())
 }
 
 fn direct_statistics_values(stats: DirectCompileStats) -> [usize; 60] {

@@ -56,6 +56,9 @@ NATIVE_AVAILABLE = probe_native_backend().available
 _EDGE_ALLOCATION_PROBE = (
     "pyowl2vec_star_projector.native._NATIVE_ENCODED_EDGE_ALLOCATION_PROBE"
 )
+_STATISTICS_ALLOCATION_PROBE = (
+    "pyowl2vec_star_projector.native._NATIVE_ENCODED_STATISTICS_ALLOCATION_PROBE"
+)
 
 pytestmark = pytest.mark.skipif(
     not NATIVE_AVAILABLE,
@@ -5273,7 +5276,7 @@ def test_private_native_batch_validates_edge_payload_before_cursor_commit(
     assert batches.state == "exhausted"
 
 
-def test_private_native_batch_statistics_factory_is_in_session_transaction(
+def test_private_native_batch_statistics_allocation_is_in_session_transaction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     view = _snapshot(
@@ -5282,19 +5285,17 @@ def test_private_native_batch_statistics_factory_is_in_session_transaction(
     )
     statistics_calls = 0
 
-    def failing_statistics(*values: int) -> NativeEncodedDirectStatistics:
+    def failing_statistics_probe(statistics: NativeEncodedDirectStatistics) -> None:
         nonlocal statistics_calls
         statistics_calls += 1
-        assert len(values) == 60
+        assert type(statistics) is NativeEncodedDirectStatistics
+        assert statistics.edges == 3
         raise MemoryError("injected final batch statistics construction failure")
 
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
     with monkeypatch.context() as patch:
-        patch.setattr(
-            "pyowl2vec_star_projector.native.NativeEncodedDirectStatistics",
-            failing_statistics,
-        )
+        patch.setattr(_STATISTICS_ALLOCATION_PROBE, failing_statistics_probe)
         with pytest.raises(ProjectionResourceError, match="configured edge resources"):
             compiler.iter_batches(
                 bidirectional=False,
@@ -5415,7 +5416,7 @@ def test_private_native_batch_factory_results_are_validated_before_session_commi
                 role_state=role_state,
             )
 
-    assert calls[factory_name] == 1
+    assert calls[factory_name] == (0 if factory_name == "statistics" else 1)
     assert observed_final_statistics is (factory_name == "iterator")
     assert compiler.state == "failed"
     assert compiler._kernel.batch_state == "absent"
@@ -5499,19 +5500,17 @@ def test_private_native_coarse_result_factories_are_in_role_transaction(
 
     statistics_calls = 0
 
-    def failing_statistics(*values: int) -> NativeEncodedDirectStatistics:
+    def failing_statistics_probe(statistics: NativeEncodedDirectStatistics) -> None:
         nonlocal statistics_calls
         statistics_calls += 1
-        assert len(values) == 60
+        assert type(statistics) is NativeEncodedDirectStatistics
+        assert statistics.edges == 3
         raise MemoryError("injected final statistics construction failure")
 
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
     with monkeypatch.context() as patch:
-        patch.setattr(
-            "pyowl2vec_star_projector.native.NativeEncodedDirectStatistics",
-            failing_statistics,
-        )
+        patch.setattr(_STATISTICS_ALLOCATION_PROBE, failing_statistics_probe)
         with pytest.raises(ProjectionResourceError, match="configured edge resources"):
             compiler.compile_batch(
                 bidirectional=False,
@@ -5582,8 +5581,7 @@ def test_private_native_coarse_factory_results_validate_before_role_commit(
                 role_state=role_state,
             )
 
-    expected_calls = 0 if factory_name == "edge" else 1
-    assert calls == expected_calls
+    assert calls == 0
     assert compiler.state == "failed"
     assert compiler.coarse_output_chunks == 0
     assert compiler.coarse_output_vector_edges == 0
@@ -5647,15 +5645,14 @@ def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
             mutated = True
             patch.setattr(native_bridge, target, object)
 
-    canonical_statistics_post_init = NativeEncodedDirectStatistics.__post_init__
     canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
 
     def mutating_edge_probe(edge: Edge) -> None:
         assert type(edge) is Edge
         mutate_factory_global()
 
-    def mutating_statistics_post_init(statistics: NativeEncodedDirectStatistics) -> None:
-        canonical_statistics_post_init(statistics)
+    def mutating_statistics_probe(statistics: NativeEncodedDirectStatistics) -> None:
+        assert type(statistics) is NativeEncodedDirectStatistics
         mutate_factory_global()
 
     def mutating_iterator_init(
@@ -5673,11 +5670,7 @@ def test_private_native_wrappers_retain_canonical_types_during_factory_mutation(
         if factory_name == "edge":
             patch.setattr(_EDGE_ALLOCATION_PROBE, mutating_edge_probe)
         elif factory_name == "statistics":
-            patch.setattr(
-                NativeEncodedDirectStatistics,
-                "__post_init__",
-                mutating_statistics_post_init,
-            )
+            patch.setattr(_STATISTICS_ALLOCATION_PROBE, mutating_statistics_probe)
         else:
             patch.setattr(
                 NativeEncodedDirectBatchIterator,
@@ -5745,14 +5738,13 @@ def test_private_native_final_payloads_validate_before_state_commit(
     )
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
-    canonical_statistics_post_init = NativeEncodedDirectStatistics.__post_init__
     canonical_iterator_init = NativeEncodedDirectBatchIterator.__init__
 
     def corrupting_edge_probe(edge: Edge) -> None:
         object.__setattr__(edge, "source", "urn:corrupted")
 
-    def corrupting_statistics_post_init(statistics: NativeEncodedDirectStatistics) -> None:
-        canonical_statistics_post_init(statistics)
+    def corrupting_statistics_probe(statistics: NativeEncodedDirectStatistics) -> None:
+        assert type(statistics) is NativeEncodedDirectStatistics
         field = "roots" if surface == "coarse" else "root_provenance_buffer_bytes"
         object.__setattr__(statistics, field, getattr(statistics, field) + 1)
 
@@ -5769,11 +5761,7 @@ def test_private_native_final_payloads_validate_before_state_commit(
         if factory_name == "edge":
             patch.setattr(_EDGE_ALLOCATION_PROBE, corrupting_edge_probe)
         elif factory_name == "statistics":
-            patch.setattr(
-                NativeEncodedDirectStatistics,
-                "__post_init__",
-                corrupting_statistics_post_init,
-            )
+            patch.setattr(_STATISTICS_ALLOCATION_PROBE, corrupting_statistics_probe)
         else:
             patch.setattr(
                 NativeEncodedDirectBatchIterator,
@@ -6014,6 +6002,155 @@ def test_private_native_edge_layout_mutation_during_allocation_is_retryable(
     assert batches.peak_buffered_edges == 0
     assert [edge for batch in batches for edge in batch] == expected
     assert batches.state == "exhausted"
+
+
+@pytest.mark.parametrize("surface", ("coarse", "batches"))
+def test_private_native_statistics_allocation_bypasses_python_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B) SubClassOf(:C :D) SubClassOf(:E :F)")
+    compiler = prepare_native_encoded_direct(_lease(view))
+    constructor_calls = 0
+
+    def forbidden_post_init(statistics: NativeEncodedDirectStatistics) -> None:
+        nonlocal constructor_calls
+        constructor_calls += 1
+        raise AssertionError(f"Python statistics constructor called for {statistics!r}")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            NativeEncodedDirectStatistics,
+            "__post_init__",
+            forbidden_post_init,
+        )
+        if surface == "coarse":
+            _, statistics = compiler.compile_batch(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+            )
+        else:
+            batches = compiler.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024 * 1024,
+                batch_edges=2,
+            )
+            statistics = batches.statistics
+
+    assert constructor_calls == 0
+    assert type(statistics) is NativeEncodedDirectStatistics
+    assert statistics.roots == 3
+    assert statistics.edges == 3
+
+
+@pytest.mark.parametrize("surface", ("coarse", "batches"))
+def test_private_native_statistics_allocation_layout_fails_before_commit(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(NativeEncodedDirectStatistics, "roots", object())
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            if surface == "coarse":
+                compiler.compile_batch(
+                    bidirectional=False,
+                    max_edges=3,
+                    max_iri_bytes=1024 * 1024,
+                    role_state=role_state,
+                )
+            else:
+                compiler.iter_batches(
+                    bidirectional=False,
+                    max_edges=3,
+                    max_iri_bytes=1024 * 1024,
+                    batch_edges=2,
+                    role_state=role_state,
+                )
+
+    assert compiler.state == "failed"
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+    if surface == "coarse":
+        assert compiler.coarse_output_chunks == 0
+        assert compiler.coarse_output_vector_edges == 0
+        assert compiler.coarse_intermediate_list_edges == 0
+        assert compiler.peak_buffered_coarse_edges == 0
+    else:
+        assert compiler._kernel.batch_state == "absent"
+        assert compiler._kernel.remaining_batch_edges == 0
+        assert compiler._kernel.batch_boundary_calls == 0
+        assert compiler._kernel.emitted_edge_batches == 0
+        assert compiler._kernel.peak_buffered_batch_edges == 0
+
+
+@pytest.mark.parametrize("surface", ("coarse", "batches"))
+def test_private_native_statistics_layout_mutation_during_allocation_is_atomic(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    view = _snapshot(
+        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv) "
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))"
+    )
+    role_state = prepare_native_encoded_role_state()
+    compiler = prepare_native_encoded_direct(_lease(view))
+    probe_calls = 0
+
+    def mutating_statistics_probe(statistics: NativeEncodedDirectStatistics) -> None:
+        nonlocal probe_calls
+        probe_calls += 1
+        assert type(statistics) is NativeEncodedDirectStatistics
+        patch.setattr(
+            NativeEncodedDirectStatistics,
+            "__slots__",
+            tuple(reversed(NativeEncodedDirectStatistics.__slots__)),
+        )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_STATISTICS_ALLOCATION_PROBE, mutating_statistics_probe)
+        with pytest.raises(ProjectionError, match="native projector execution failed"):
+            if surface == "coarse":
+                compiler.compile_batch(
+                    bidirectional=False,
+                    max_edges=3,
+                    max_iri_bytes=1024 * 1024,
+                    role_state=role_state,
+                )
+            else:
+                compiler.iter_batches(
+                    bidirectional=False,
+                    max_edges=3,
+                    max_iri_bytes=1024 * 1024,
+                    batch_edges=2,
+                    role_state=role_state,
+                )
+
+    assert probe_calls == 1
+    assert compiler.state == "failed"
+    assert role_state.in_use is False
+    assert role_state.subrole_property_count == 0
+    assert role_state.inverse_property_count == 0
+    if surface == "coarse":
+        assert compiler.coarse_output_chunks == 0
+        assert compiler.coarse_output_vector_edges == 0
+        assert compiler.coarse_intermediate_list_edges == 0
+        assert compiler.peak_buffered_coarse_edges == 0
+    else:
+        assert compiler._kernel.batch_state == "absent"
+        assert compiler._kernel.remaining_batch_edges == 0
+        assert compiler._kernel.batch_boundary_calls == 0
+        assert compiler._kernel.emitted_edge_batches == 0
+        assert compiler._kernel.peak_buffered_batch_edges == 0
 
 
 def test_private_native_iterator_revalidates_statistics_after_constructor(
