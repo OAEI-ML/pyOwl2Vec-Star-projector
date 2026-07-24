@@ -279,9 +279,10 @@ def _resolve_private_overlay_aliases(
     This is intentionally narrower than general segment traversal.  It admits
     only iterative one-segment OVERLAY_BASE manifests whose local column tables
     and anonymous-scope maps are canonically empty.  Every segment is ALL, except
-    that at most one segment may carry a sorted EXCLUDE posting table.  Public
-    overlay-depth and cumulative canonical-work budgets bound resolution before
-    the direct source and optional borrowed posting table are handed to Rust.
+    that the terminal-adjacent segment may carry one sorted EXCLUDE posting
+    table.  Public overlay-depth and cumulative canonical-work budgets bound
+    resolution before the direct source and optional borrowed posting table are
+    handed to Rust.
     """
 
     current = lease
@@ -290,6 +291,7 @@ def _resolve_private_overlay_aliases(
     top_owner = lease.owner
     canonical_work = 0
     excluded_root_ids: memoryview | None = None
+    excluded_source_view: object | None = None
     while True:
         source_metadata = _private_overlay_alias_source(current)
         if source_metadata is None:
@@ -307,6 +309,8 @@ def _resolve_private_overlay_aliases(
                 ) from error
             if type(terminal_role) is not int or terminal_role != _SEGMENT_DIRECT:
                 return None
+            if excluded_root_ids is not None and excluded_source_view is not current.encoded_view:
+                return None
             return current, tuple(containers), excluded_root_ids
 
         owner, source, source_scope, segment_excluded_root_ids = source_metadata
@@ -314,6 +318,7 @@ def _resolve_private_overlay_aliases(
             if excluded_root_ids is not None:
                 return None
             excluded_root_ids = segment_excluded_root_ids
+            excluded_source_view = source
         containers.append(current)
         _enforce_public_limit(top_owner, "max_overlay_depth", len(containers))
         canonical_work += _private_encoded_lease_validation_work(current)

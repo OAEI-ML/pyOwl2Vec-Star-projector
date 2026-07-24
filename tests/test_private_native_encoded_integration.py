@@ -2843,10 +2843,9 @@ def test_excluding_overlay_recomputes_anonymous_ids_from_retained_roots(
     assert ingestion.counters["encoded_staging_copy_bytes"] == 0
 
 
-@pytest.mark.parametrize("exclusion_level", [0, 2], ids=["inner", "outer"])
-def test_hidden_iterator_compiles_one_exclusion_through_recursive_aliases(
-    exclusion_level: int,
+def test_hidden_iterator_compiles_terminal_adjacent_exclusion_through_recursive_aliases(
 ) -> None:
+    exclusion_level = 0
     base = cast(
         pyowl_core.OntologyView,
         _snapshot(
@@ -2935,6 +2934,98 @@ def test_hidden_iterator_compiles_one_exclusion_through_recursive_aliases(
     assert ingestion.counters["encoded_staging_copy_bytes"] == 0
     assert ingestion.counters["scalar_axiom_materializations"] == 0
     assert ingestion.counters["per_row_ffi_calls"] == 0
+
+
+def test_hidden_iterator_keeps_nonterminal_exclusion_on_whole_call_fallback() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "SubClassOf(:A :B) SubClassOf(:B :C)"
+        ),
+    )
+    removed = {
+        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
+    }
+    semantic_view = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
+    )
+    top_lease, _chain, _direct = _recursive_overlay_lease_with_exclusions(
+        base,
+        depth=3,
+        exclusion_levels=frozenset({2}),
+        removed=cast(set[object], removed),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(semantic_view, options=python_options)
+
+    with patch.object(
+        api_module,
+        "select_private_direct_ingestion",
+        return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                semantic_view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.reason.startswith(
+        "private native direct compiler unavailable: "
+        "direct native slice requires the canonical direct segment role"
+    )
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+    assert all(
+        value is False if name == "encoded_compiler_gil_released" else value == 0
+        for name, value in ingestion.counters.items()
+    )
+
+
+def test_private_selection_rejects_nonterminal_exclusion_during_real_validation() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "SubClassOf(:A :B) SubClassOf(:B :C)"
+        ),
+    )
+    removed = {
+        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
+    }
+    top_lease, _chain, _direct = _recursive_overlay_lease_with_exclusions(
+        base,
+        depth=3,
+        exclusion_levels=frozenset({2}),
+        removed=cast(set[object], removed),
+    )
+
+    class EncodedPublisher:
+        def __init__(self, encoded: object, template: object) -> None:
+            self._encoded = encoded
+            self.capabilities = cast(Any, template).capabilities
+            self.structural_fingerprint = cast(Any, template).structural_fingerprint
+
+        def view(self, *_args: object, **_kwargs: object) -> object:
+            return replace(cast(Any, self._encoded), owner=self)
+
+    publisher = EncodedPublisher(top_lease.encoded_view, top_lease.owner)
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="segment postings are not sorted unique in-range references",
+    ):
+        select_private_direct_ingestion(
+            publisher,
+            selected_backend="native",
+        )
 
 
 def test_hidden_iterator_keeps_multiple_exclusion_layers_on_whole_call_fallback() -> None:
