@@ -31,7 +31,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 48
+ENCODED_DIRECT_KERNEL_VERSION = 49
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1029,7 +1029,12 @@ def prepare_native_encoded_compilation(
                     "private native local-overlay slice does not bind Scala-instance state",
                 )
             local_delta_lease = lease
-            lease, canonical_work_limit, canonical_workspace_limit = resolved_delta
+            (
+                lease,
+                excluded_root_ids,
+                canonical_work_limit,
+                canonical_workspace_limit,
+            ) = resolved_delta
             container_leases = (local_delta_lease,)
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
@@ -1283,17 +1288,18 @@ def prepare_native_encoded_direct(
     slices, mmap, and other valid exporters are deliberately reported as unsupported until the
     abi3-safe design expands.  An optional independent root table is retained for the native
     annotation-provenance join.  One optional sorted EXCLUDE posting table is
-    retained and scanned in place by the native root cursor.  One mutually exclusive
-    top-local one-root overlay table may be retained for the bounded canonical merge.
+    retained and scanned in place by the native root cursor.  One top-local one-root overlay
+    table may be retained for the bounded canonical merge, including with that base posting.
+    The independent provenance table remains mutually exclusive with the local overlay.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
     local_delta_descriptor_sha256: bytes | None = None
     if local_delta_lease is not None:
         local_delta_descriptor_sha256 = _validated_direct_descriptor_digest(local_delta_lease)
-        if root_annotation_lease is not None or excluded_root_ids is not None:
+        if root_annotation_lease is not None:
             raise NativeEncodedDirectUnsupported(
-                "private native local-overlay slice cannot combine provenance or postings"
+                "private native local-overlay slice cannot combine root provenance"
             )
         if canonical_work_limit is None:
             canonical_work_limit = sys.maxsize
@@ -1357,6 +1363,7 @@ def prepare_native_encoded_direct(
                 lease.encoded_view,
                 lease.owner,
                 descriptor_sha256,
+                excluded_root_ids=excluded_root_ids,
                 overlay_delta_view=local_delta_lease.encoded_view,
                 overlay_delta_owner=local_delta_lease.owner,
                 overlay_delta_descriptor_sha256=local_delta_descriptor_sha256,

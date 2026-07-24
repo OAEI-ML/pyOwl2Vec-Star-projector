@@ -338,14 +338,14 @@ def _resolve_private_overlay_aliases(
 
 def _resolve_private_single_overlay_delta(
     lease: EncodedStructuralLease,
-) -> tuple[EncodedStructuralLease, int | None, int | None] | None:
+) -> tuple[EncodedStructuralLease, memoryview | None, int | None, int | None] | None:
     """Resolve the one-root local overlay slice without general segment traversal.
 
-    The private native seam admits only one direct ``ALL`` source and one local
-    ``ALL`` delta root.  Rust still validates the complete source and local
-    tables, their exact cross-table canonical order, and the local constructor
-    before output.  Every other valid segmented form remains a whole-operation
-    scalar fallback.
+    The private native seam admits only one direct ``ALL`` or ``EXCLUDE``
+    source and one local ``ALL`` delta root.  Rust still validates the complete
+    source and local tables, their exact cross-table canonical order, the
+    optional source posting table, and the local constructor before output.
+    Every other valid segmented form remains a whole-operation scalar fallback.
     """
 
     if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:
@@ -377,9 +377,7 @@ def _resolve_private_single_overlay_delta(
         or source is None
         or base_owner is not getattr(source, "owner", _MISSING)
         or type(base_posting_mode) is not int
-        or base_posting_mode != _POSTINGS_ALL
         or type(base_root_ids) is not memoryview
-        or base_root_ids.nbytes
         or type(base_scope_map) is not memoryview
         or base_scope_map.nbytes
         or base_member_token is not None
@@ -397,6 +395,16 @@ def _resolve_private_single_overlay_delta(
         or lease.buffers["root_kinds"].nbytes != 1
         or lease.buffers["root_ids"].nbytes != 4
     ):
+        return None
+    if base_posting_mode == _POSTINGS_ALL:
+        if base_root_ids.nbytes:
+            return None
+        excluded_root_ids = None
+    elif base_posting_mode == _POSTINGS_EXCLUDE:
+        if not base_root_ids.nbytes:
+            return None
+        excluded_root_ids = base_root_ids
+    else:
         return None
     source_scope = getattr(source, "scope", _MISSING)
     if source_scope is not lease.scope:
@@ -426,6 +434,7 @@ def _resolve_private_single_overlay_delta(
     _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
     return (
         source_lease,
+        excluded_root_ids,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
     )

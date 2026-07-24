@@ -2359,6 +2359,271 @@ def test_hidden_iterator_compiles_one_named_subclass_overlay_delta_without_flatt
 
 
 @pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    ("removed_sources", "expected_sources"),
+    [
+        (frozenset({"C"}), ("A", "D", "E")),
+        (frozenset({"E"}), ("A", "C", "D")),
+        (frozenset({"A", "C", "E"}), ("D",)),
+    ],
+    ids=["exclude-before-local", "exclude-after-local", "exclude-all-base"],
+)
+def test_hidden_iterator_composes_one_base_exclusion_with_one_local_delta(
+    provider_backend: pyowl_core.BackendPreference,
+    removed_sources: frozenset[str],
+    expected_sources: tuple[str, ...],
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:C :Top) SubClassOf(:E :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed = {
+        axiom
+        for axiom in base.iter_axioms()
+        if cast(Any, axiom).sub_class.iri.value.rsplit("#", 1)[-1] in removed_sources
+    }
+    assert len(removed) == len(removed_sources)
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:D :Top)", backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
+    base_segment = cast(Any, top_encoded.segments[0])
+    delta_segment = cast(Any, top_encoded.segments[1])
+    assert base_segment.posting_mode == 2
+    assert base_segment.root_ids.nbytes == 4 * len(removed)
+    assert delta_segment.posting_mode == 0
+    assert delta_segment.root_ids.nbytes == 0
+    source_encoded = base_segment.source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("mixed local overlay reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected == [
+        Edge(
+            f"urn:native-integration#{source}",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        for source in expected_sources
+    ]
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.view is overlay
+    assert compilation.lease.owner is base
+    assert compilation.local_delta_lease is compilation.container_leases[0]
+    assert compilation.local_delta_lease is not None
+    assert compilation.local_delta_lease.owner is overlay
+    assert compilation.excluded_root_ids is base_segment.root_ids
+    assert len(captured_compilers) == 1
+    assert captured_compilers[0].retained_buffer_count == 23
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 23
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 3
+    assert ingestion.counters["encoded_posting_bytes"] == base_segment.root_ids.nbytes
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+def test_one_root_local_overlay_requires_exact_base_posting_identity() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :Top) SubClassOf(:C :Top)"),
+    )
+    removed = {
+        next(
+            axiom
+            for axiom in base.iter_axioms()
+            if cast(Any, axiom).sub_class.iri.value.endswith("#C")
+        )
+    }
+    addition_source = cast(pyowl_core.OntologyView, _snapshot("SubClassOf(:D :Top)"))
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    negotiation = select_private_direct_ingestion(
+        overlay,
+        selected_backend="native",
+    )
+    top_lease = negotiation.lease
+    assert top_lease is not None
+    resolved = _resolve_private_single_overlay_delta(top_lease)
+    assert resolved is not None
+    base_lease, excluded_root_ids, max_work, max_workspace = resolved
+    assert excluded_root_ids is cast(Any, top_lease.segments[0]).root_ids
+    compiler = prepare_native_encoded_direct(
+        base_lease,
+        local_delta_lease=top_lease,
+        excluded_root_ids=excluded_root_ids,
+        canonical_work_limit=max_work,
+        canonical_workspace_limit=max_workspace,
+    )
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=2,
+        max_iri_bytes=1024,
+    )
+    assert [edge.as_tuple() for edge in edges] == [
+        (
+            "urn:native-integration#A",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+        (
+            "urn:native-integration#D",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+    ]
+    assert statistics.roots == statistics.subclasses == statistics.edges == 2
+    assert compiler.retained_buffer_count == 23
+    assert compiler.state == "finished"
+
+    forged_posting = memoryview(bytes(cast(memoryview, excluded_root_ids)))
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="does not retain the exact EXCLUDE table",
+    ):
+        prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=top_lease,
+            excluded_root_ids=forged_posting,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+
+
+def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :Top) SubClassOf(:C :Top)"),
+    )
+    removed = {
+        next(
+            axiom
+            for axiom in base.iter_axioms()
+            if cast(Any, axiom).sub_class.iri.value.endswith("#A")
+        )
+    }
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:D :Top) SubClassOf(:E :Top)"),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(overlay, options=python_options)
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            overlay,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.provenance.ingestion.path == "scalar-native"
+    assert report.provenance.ingestion.reason is not None
+    assert report.provenance.ingestion.counters.get("native_compiled_edges", 0) == 0
+    assert report.provenance.ingestion.counters["encoded_buffer_count"] == 0
+
+
+@pytest.mark.parametrize(
     ("local_body", "reason"),
     [
         (
@@ -2460,20 +2725,28 @@ def test_hidden_iterator_keeps_literal_sensitive_local_overlay_on_whole_call_fal
     ],
     ids=["canonical-work", "canonical-workspace"],
 )
-def test_one_root_local_overlay_fails_before_output_on_canonical_resource_bounds(
+def test_one_root_mixed_overlay_fails_before_output_on_canonical_resource_bounds(
     max_work: int,
     max_workspace: int,
     message: str,
 ) -> None:
     base = cast(
         pyowl_core.OntologyView,
-        _snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"),
+        _snapshot("SubClassOf(:A :B) SubClassOf(:B :C)"),
     )
-    addition_source = cast(pyowl_core.OntologyView, _snapshot("SubClassOf(:B :C)"))
+    removed = {
+        next(
+            axiom
+            for axiom in base.iter_axioms()
+            if cast(Any, axiom).sub_class.iri.value.endswith("#A")
+        )
+    }
+    addition_source = cast(pyowl_core.OntologyView, _snapshot("SubClassOf(:C :D)"))
     overlay = pyowl_core.apply_delta(
         base,
         pyowl_core.OntologyDelta(
             add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, removed),
         ),
     )
     negotiation = select_private_direct_ingestion(
@@ -2484,10 +2757,12 @@ def test_one_root_local_overlay_fails_before_output_on_canonical_resource_bounds
     assert top_lease is not None
     resolved = _resolve_private_single_overlay_delta(top_lease)
     assert resolved is not None
-    base_lease, _public_work, _public_workspace = resolved
+    base_lease, excluded_root_ids, _public_work, _public_workspace = resolved
+    assert excluded_root_ids is cast(Any, top_lease.segments[0]).root_ids
     compiler = prepare_native_encoded_direct(
         base_lease,
         local_delta_lease=top_lease,
+        excluded_root_ids=excluded_root_ids,
         canonical_work_limit=max_work,
         canonical_workspace_limit=max_workspace,
     )
@@ -2503,7 +2778,7 @@ def test_one_root_local_overlay_fails_before_output_on_canonical_resource_bounds
     assert captured.value.__cause__ is not None
     assert message in str(captured.value.__cause__)
     assert compiler.state == "failed"
-    assert compiler.retained_buffer_count == 22
+    assert compiler.retained_buffer_count == 23
     assert compiler.cancel() is False
 
 

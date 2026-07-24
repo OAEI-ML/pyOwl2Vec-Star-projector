@@ -40,7 +40,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 48;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 49;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -49,6 +49,7 @@ const DIRECT_SEGMENT: usize = 1;
 const OVERLAY_BASE_SEGMENT: usize = 2;
 const OVERLAY_DELTA_SEGMENT: usize = 3;
 const POSTINGS_ALL: usize = 0;
+const POSTINGS_EXCLUDE: usize = 2;
 const ENCODED_DESCRIPTOR_SHA256: [u8; 32] = [
     0x9a, 0xd2, 0x9d, 0xb6, 0xa7, 0xe6, 0x16, 0xf6, 0x5c, 0xea, 0x29, 0x57, 0xbc, 0x5b, 0xa8, 0xd1,
     0xf9, 0xb9, 0x9e, 0xf0, 0xeb, 0x1f, 0xe1, 0x43, 0x2c, 0x09, 0xbe, 0x25, 0x78, 0x62, 0x67, 0xb5,
@@ -794,7 +795,8 @@ impl EncodedDirectCompiler {
         canonical_workspace_limit: Option<usize>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
-        let excluded_root_ids = excluded_root_ids
+        let excluded_root_ids_view = excluded_root_ids;
+        let excluded_root_ids = excluded_root_ids_view
             .map(|value| retained_exact_bytes_buffer(value, "excluded_root_ids"))
             .transpose()?;
         let root_annotation_buffers = match (
@@ -821,9 +823,9 @@ impl EncodedDirectCompiler {
         ) {
             (None, None, None, None, None) => (None, None),
             (Some(view), Some(owner), Some(digest), Some(max_work), Some(max_workspace_bytes)) => {
-                if excluded_root_ids.is_some() || root_annotation_buffers.is_some() {
+                if root_annotation_buffers.is_some() {
                     return Err(EncodedDirectUnsupportedError::new_err(
-                        "bounded local-overlay compilation cannot combine provenance or postings",
+                        "bounded local-overlay compilation cannot combine root provenance",
                     ));
                 }
                 if max_work == 0 || max_workspace_bytes == 0 {
@@ -838,6 +840,7 @@ impl EncodedDirectCompiler {
                         digest,
                         encoded_view,
                         expected_owner,
+                        excluded_root_ids_view,
                     )?),
                     Some((max_work, max_workspace_bytes)),
                 )
@@ -2194,9 +2197,16 @@ fn retained_overlay_delta_buffers(
     descriptor_sha256: &Bound<'_, PyAny>,
     source_view: &Bound<'_, PyAny>,
     source_owner: &Bound<'_, PyAny>,
+    excluded_root_ids: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<RetainedDirectBuffer>> {
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
-    validate_overlay_delta_segments(encoded_view, expected_owner, source_view, source_owner)?;
+    validate_overlay_delta_segments(
+        encoded_view,
+        expected_owner,
+        source_view,
+        source_owner,
+        excluded_root_ids,
+    )?;
     retained_structural_buffers(encoded_view)
 }
 
@@ -2399,6 +2409,7 @@ fn validate_overlay_delta_segments(
     expected_owner: &Bound<'_, PyAny>,
     source_view: &Bound<'_, PyAny>,
     source_owner: &Bound<'_, PyAny>,
+    excluded_root_ids: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     let raw_segments = required_attribute(encoded_view, "segments")?;
     if !raw_segments.is_exact_instance_of::<PyTuple>() {
@@ -2420,13 +2431,7 @@ fn validate_overlay_delta_segments(
     let delta = segments
         .get_item(1)
         .map_err(|_| encoded_buffer_error("encoded local-overlay delta is inaccessible"))?;
-    validate_all_segment(
-        &base,
-        OVERLAY_BASE_SEGMENT,
-        source_owner,
-        Some(source_view),
-        "local-overlay base",
-    )?;
+    validate_overlay_base_segment(&base, source_owner, source_view, excluded_root_ids)?;
     validate_all_segment(
         &delta,
         OVERLAY_DELTA_SEGMENT,
@@ -2434,6 +2439,70 @@ fn validate_overlay_delta_segments(
         None,
         "local-overlay delta",
     )
+}
+
+fn validate_overlay_base_segment(
+    segment: &Bound<'_, PyAny>,
+    expected_owner: &Bound<'_, PyAny>,
+    expected_source: &Bound<'_, PyAny>,
+    excluded_root_ids: Option<&Bound<'_, PyAny>>,
+) -> PyResult<()> {
+    if exact_nonnegative_integer(&required_attribute(segment, "role")?, "segment role")?
+        != OVERLAY_BASE_SEGMENT
+    {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded local-overlay base has an unsupported role",
+        ));
+    }
+    if !required_attribute(segment, "owner")?.is(expected_owner) {
+        return Err(encoded_buffer_error(
+            "encoded local-overlay base does not retain its expected owner",
+        ));
+    }
+    if !required_attribute(segment, "source")?.is(expected_source) {
+        return Err(encoded_buffer_error(
+            "encoded local-overlay base does not retain the exact direct source",
+        ));
+    }
+    let posting_mode = exact_nonnegative_integer(
+        &required_attribute(segment, "posting_mode")?,
+        "segment posting_mode",
+    )?;
+    let root_ids = required_attribute(segment, "root_ids")?;
+    let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
+    match excluded_root_ids {
+        None => {
+            if posting_mode != POSTINGS_ALL || root_id_bytes != 0 {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "encoded local-overlay base requires ALL root selection",
+                ));
+            }
+        }
+        Some(expected) => {
+            if posting_mode != POSTINGS_EXCLUDE || root_id_bytes == 0 {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "encoded local-overlay base requires one nonempty EXCLUDE table",
+                ));
+            }
+            if !root_ids.is(expected) {
+                return Err(encoded_buffer_error(
+                    "encoded local-overlay base does not retain the exact EXCLUDE table",
+                ));
+            }
+        }
+    }
+    let anonymous_scope_map = required_attribute(segment, "anonymous_scope_map")?;
+    if checked_memoryview_length(&anonymous_scope_map, "anonymous_scope_map")? != 0 {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded local-overlay base anonymous_scope_map must be empty",
+        ));
+    }
+    if !required_attribute(segment, "member_token")?.is_none() {
+        return Err(encoded_buffer_error(
+            "encoded local-overlay base member_token must be None",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_all_segment(

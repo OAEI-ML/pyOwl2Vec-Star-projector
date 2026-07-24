@@ -6521,9 +6521,9 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             "bounded local-overlay compilation does not support literal projection",
         ));
     }
-    if !base_columns.excluded_root_ids.is_empty() || !delta_columns.excluded_root_ids.is_empty() {
+    if !delta_columns.excluded_root_ids.is_empty() {
         return Err(KernelError::unsupported(
-            "bounded local-overlay compilation requires ALL root selection",
+            "bounded local-overlay delta requires ALL root selection",
         ));
     }
     if delta_columns.root_count() != 1 {
@@ -6587,16 +6587,20 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         state,
     )?;
     let mut left_roots = 0_usize;
+    let mut next_insertion_scan = 0_usize;
     let mut insertion_position = None;
     while let Some(root) = merger.next(state)? {
         match root {
-            MergedCanonicalRoot::Left(_) => {
+            MergedCanonicalRoot::Left(root) => {
                 left_roots = left_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root counter overflow")
                 })?;
+                next_insertion_scan = root.index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local-overlay root position overflow")
+                })?;
             }
             MergedCanonicalRoot::Right(root) => {
-                if root.index != 0 || insertion_position.replace(left_roots).is_some() {
+                if root.index != 0 || insertion_position.replace(next_insertion_scan).is_some() {
                     return Err(KernelError::malformed(
                         "encoded local-overlay merge produced an inconsistent local root",
                     ));
@@ -6611,11 +6615,11 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     }
     let insertion_position = insertion_position
         .ok_or_else(|| KernelError::malformed("encoded local-overlay merge lost its local root"))?;
-    if left_roots != base_columns.root_count()
+    let selected_base_roots = base_columns.selected_root_count()?;
+    if left_roots != selected_base_roots
         || merger.report().deduplicated_roots != 0
         || merger.report().roots_emitted
-            != base_columns
-                .root_count()
+            != selected_base_roots
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?
     {
@@ -8372,6 +8376,229 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn one_root_overlay_delta_composes_base_exclusions_transactionally() {
+        let base = named_subclass_fixture();
+        let delta = named_subclass_delta_fixture(b"urn:B", b"urn:C");
+        let excluded_declaration = 1_u32.to_le_bytes();
+        let base_columns = base.columns().with_excluded_root_ids(&excluded_declaration);
+        let state = running_state();
+        let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base_columns,
+            delta.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 2,
+                max_iri_bytes: 1024,
+            },
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let stats = prepared.statistics();
+        assert_eq!(stats.roots, 2);
+        assert_eq!(stats.declarations, 0);
+        assert_eq!(stats.subclasses, 2);
+        assert_eq!(stats.edges, 2);
+        assert_eq!(prepared.emission_attempts(), 0);
+
+        let (first, first_cursor) = prepared
+            .prepare_next_batch(base_columns, &state, 1)
+            .unwrap();
+        let (retry, _) = prepared
+            .prepare_next_batch(base_columns, &state, 1)
+            .unwrap();
+        assert_eq!(first, retry);
+        assert_eq!(
+            first,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        assert_eq!(prepared.remaining_edges(), 2);
+        prepared.commit_cursor(first_cursor);
+        assert_eq!(prepared.remaining_edges(), 1);
+
+        let (second, second_cursor) = prepared
+            .prepare_next_batch(base_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            second,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:C".into(),
+            }]
+        );
+        prepared.commit_cursor(second_cursor);
+        assert!(prepared.is_exhausted());
+
+        let delta_before_base = named_subclass_delta_fixture(b"urn:0", b"urn:B");
+        let excluded_base_subclass = 2_u32.to_le_bytes();
+        let excluded_after_local = base
+            .columns()
+            .with_excluded_root_ids(&excluded_base_subclass);
+        let mut local_only = prepare_single_overlay_delta_batches_uncommitted(
+            excluded_after_local,
+            delta_before_base.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(local_only.statistics().roots, 2);
+        assert_eq!(local_only.statistics().declarations, 1);
+        assert_eq!(local_only.statistics().subclasses, 1);
+        let (local_edge, local_cursor) = local_only
+            .prepare_next_batch(excluded_after_local, &running_state(), 1)
+            .unwrap();
+        assert_eq!(local_edge[0].source, "urn:0");
+        local_only.commit_cursor(local_cursor);
+        assert!(local_only.is_exhausted());
+
+        let excluded_all = [1_u32.to_le_bytes(), 2_u32.to_le_bytes()].concat();
+        let no_base_roots = base.columns().with_excluded_root_ids(&excluded_all);
+        let all_removed = prepare_single_overlay_delta_batches_uncommitted(
+            no_base_roots,
+            delta.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(all_removed.statistics().roots, 1);
+        assert_eq!(all_removed.statistics().declarations, 0);
+        assert_eq!(all_removed.statistics().subclasses, 1);
+        assert_eq!(all_removed.statistics().edges, 1);
+    }
+
+    #[test]
+    fn one_root_overlay_delta_exclusion_failures_are_bounded_and_preoutput() {
+        let base = named_subclass_fixture();
+        let delta = named_subclass_delta_fixture(b"urn:B", b"urn:C");
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 2,
+            max_iri_bytes: 1024,
+        };
+        let invalid_postings = [
+            b"\x01\x00".to_vec(),
+            0_u32.to_le_bytes().to_vec(),
+            3_u32.to_le_bytes().to_vec(),
+            [1_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+            [2_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+        ];
+        for postings in &invalid_postings {
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns().with_excluded_root_ids(postings),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Malformed(message)) if message.contains("excluded")
+            ));
+        }
+
+        let excluded_declaration = 1_u32.to_le_bytes();
+        let selected_base = base.columns().with_excluded_root_ids(&excluded_declaration);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns().with_excluded_root_ids(&1_u32.to_le_bytes()),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message))
+                if message.contains("delta requires ALL root selection")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                1,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("work units")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                1,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("workspace bytes")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                DirectCompileOptions {
+                    max_edges: 1,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("configured limit")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                options,
+                &AtomicU8::new(STATE_CANCELLED),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Cancelled)
+        ));
     }
 
     #[test]
