@@ -34,6 +34,7 @@ from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedNegotiation,
     EncodedStructuralLease,
+    _resolve_private_single_overlay_delta,
     select_private_direct_ingestion,
 )
 from pyowl2vec_star_projector.native import (
@@ -42,6 +43,7 @@ from pyowl2vec_star_projector.native import (
     NativeEncodedDirectCompilation,
     NativeEncodedDirectCompiler,
     load_native_module,
+    prepare_native_encoded_direct,
 )
 from pyowl2vec_star_projector.provenance import ProjectionReport
 
@@ -2219,6 +2221,290 @@ def test_hidden_iterator_compiles_empty_overlay_alias_without_flattening(
         compiled_edges=len(actual),
         batch_edges=1,
     )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_compiles_one_named_subclass_overlay_delta_without_flattening(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "SubClassOf(:A :B)",
+            backend=provider_backend,
+        ),
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :C)", backend=provider_backend),
+    )
+    added = set(addition_source.iter_axioms())
+    assert len(added) == 1
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(add_axioms=cast(Any, added)),
+    )
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
+    assert top_encoded.buffers["root_kinds"].nbytes == 1
+    source_encoded = top_encoded.segments[0].source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("one-root local overlay reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#A",
+                "http://subclassof",
+                "urn:native-integration#B",
+            ),
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#C",
+            ),
+        ]
+    )
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.view is overlay
+    assert compilation.lease.owner is base
+    assert compilation.local_delta_lease is compilation.container_leases[0]
+    assert compilation.local_delta_lease is not None
+    assert compilation.local_delta_lease.owner is overlay
+    assert compilation.excluded_root_ids is None
+    assert len(captured_compilers) == 1
+    assert captured_compilers[0].retained_buffer_count == 22
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 3
+    assert ingestion.counters["encoded_posting_bytes"] == 0
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("local_body", "reason"),
+    [
+        (
+            "SubClassOf(:B :C) SubClassOf(:C :D)",
+            "direct native slice does not support segmented encoded views",
+        ),
+        (
+            "SubClassOf(:B ObjectSomeValuesFrom(:p :C))",
+            "bounded local-overlay root must be one named SubClassOf axiom",
+        ),
+        (
+            "Declaration(Class(:D))",
+            "bounded local-overlay root must be one named SubClassOf axiom",
+        ),
+    ],
+    ids=["multiple-local-roots", "local-restriction", "local-declaration"],
+)
+def test_hidden_iterator_keeps_adjacent_local_overlay_shapes_on_whole_call_fallback(
+    local_body: str,
+    reason: str,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) Declaration(Class(:C)) "
+            "Declaration(ObjectProperty(:p)) SubClassOf(:A :B)"
+        ),
+    )
+    addition_source = cast(pyowl_core.OntologyView, _snapshot(local_body))
+    added = set(addition_source.iter_axioms())
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(add_axioms=cast(Any, added)),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(overlay, options=python_options)
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            overlay,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.provenance.ingestion.path == "scalar-native"
+    assert report.provenance.ingestion.reason is not None
+    assert reason in report.provenance.ingestion.reason
+    assert report.provenance.ingestion.counters.get("native_compiled_edges", 0) == 0
+    assert report.provenance.ingestion.counters["encoded_buffer_count"] == 0
+
+
+def test_hidden_iterator_keeps_literal_sensitive_local_overlay_on_whole_call_fallback() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"),
+    )
+    addition_source = cast(pyowl_core.OntologyView, _snapshot("SubClassOf(:B :C)"))
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected = Projector().project(overlay, options=python_options)
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            overlay,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.provenance.ingestion.path == "scalar-native"
+    assert report.provenance.ingestion.reason is not None
+    assert "local-overlay slice does not support literal projection" in (
+        report.provenance.ingestion.reason
+    )
+    assert report.provenance.ingestion.counters.get("native_compiled_edges", 0) == 0
+
+
+@pytest.mark.parametrize(
+    ("max_work", "max_workspace", "message"),
+    [
+        (1, 1024 * 1024, "work units"),
+        (1024 * 1024, 1, "workspace bytes"),
+    ],
+    ids=["canonical-work", "canonical-workspace"],
+)
+def test_one_root_local_overlay_fails_before_output_on_canonical_resource_bounds(
+    max_work: int,
+    max_workspace: int,
+    message: str,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"),
+    )
+    addition_source = cast(pyowl_core.OntologyView, _snapshot("SubClassOf(:B :C)"))
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    negotiation = select_private_direct_ingestion(
+        overlay,
+        selected_backend="native",
+    )
+    top_lease = negotiation.lease
+    assert top_lease is not None
+    resolved = _resolve_private_single_overlay_delta(top_lease)
+    assert resolved is not None
+    base_lease, _public_work, _public_workspace = resolved
+    compiler = prepare_native_encoded_direct(
+        base_lease,
+        local_delta_lease=top_lease,
+        canonical_work_limit=max_work,
+        canonical_workspace_limit=max_workspace,
+    )
+
+    with pytest.raises(ProjectionResourceError) as captured:
+        compiler.iter_batches(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024,
+            batch_edges=1,
+        )
+
+    assert captured.value.__cause__ is not None
+    assert message in str(captured.value.__cause__)
+    assert compiler.state == "failed"
+    assert compiler.retained_buffer_count == 22
+    assert compiler.cancel() is False
 
 
 def _recursive_empty_overlay_lease(

@@ -23,9 +23,10 @@ use std::sync::{Arc, Mutex};
 use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
-    DirectColumns, DirectCompileOptions, DirectCompileStats, DirectEdge, KernelError,
-    OwnedRoleSnapshot, OwnedRoleState, PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES,
-    STATE_CANCELLED, STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    prepare_single_overlay_delta_batches_uncommitted, DirectColumns, DirectCompileOptions,
+    DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState,
+    PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED,
+    STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -39,12 +40,14 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 47;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 48;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
 const ENCODED_MODEL_SCHEMA: usize = 1;
 const DIRECT_SEGMENT: usize = 1;
+const OVERLAY_BASE_SEGMENT: usize = 2;
+const OVERLAY_DELTA_SEGMENT: usize = 3;
 const POSTINGS_ALL: usize = 0;
 const ENCODED_DESCRIPTOR_SHA256: [u8; 32] = [
     0x9a, 0xd2, 0x9d, 0xb6, 0xa7, 0xe6, 0x16, 0xf6, 0x5c, 0xea, 0x29, 0x57, 0xbc, 0x5b, 0xa8, 0xd1,
@@ -588,6 +591,10 @@ struct EncodedDirectCompiler {
     _encoded_view: Py<PyAny>,
     _owner: Py<PyAny>,
     buffers: Vec<RetainedDirectBuffer>,
+    _overlay_delta_view: Option<Py<PyAny>>,
+    _overlay_delta_owner: Option<Py<PyAny>>,
+    overlay_delta_buffers: Option<Vec<RetainedDirectBuffer>>,
+    canonical_merge_limits: Option<(usize, usize)>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
     _root_annotation_view: Option<Py<PyAny>>,
     _root_annotation_owner: Option<Py<PyAny>>,
@@ -674,11 +681,21 @@ impl EncodedDirectCompiler {
             .as_ref()
             .map_or(&[][..], RetainedDirectBuffer::as_slice);
         let columns = DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
+        let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            DirectColumns::from_ordered(slices)
+        });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
             DirectColumns::from_ordered(slices)
         });
+        if overlay_delta_columns.is_some() && retained_role_state.is_some() {
+            return self.finish_result(Err(EncodedDirectUnsupportedError::new_err(
+                "bounded local-overlay compilation does not bind retained role state",
+            )));
+        }
         let retained_role_use = match retained_role_state.as_ref() {
             Some(retained) => match retained.claim() {
                 Ok(role_use) => Some(role_use),
@@ -688,7 +705,24 @@ impl EncodedDirectCompiler {
         };
         let result = guarded(|| {
             py.detach(|| {
-                if let Some(retained) = retained_role_state.as_ref() {
+                if let Some(delta_columns) = overlay_delta_columns {
+                    let (max_work, max_workspace_bytes) =
+                        self.canonical_merge_limits.ok_or_else(|| {
+                            PyRuntimeError::new_err(
+                                "encoded local-overlay compiler lost its canonical limits",
+                            )
+                        })?;
+                    prepare_single_overlay_delta_batches_uncommitted(
+                        columns,
+                        delta_columns,
+                        options,
+                        &self.state,
+                        None,
+                        max_work,
+                        max_workspace_bytes,
+                    )
+                    .map_err(kernel_error)
+                } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
                         columns,
                         root_annotation_columns,
@@ -730,6 +764,7 @@ impl EncodedDirectCompiler {
 #[pymethods]
 impl EncodedDirectCompiler {
     #[new]
+    #[allow(clippy::too_many_arguments)] // The private PyO3 ABI keeps retained inputs explicit.
     #[pyo3(signature = (
         encoded_view,
         expected_owner,
@@ -738,6 +773,11 @@ impl EncodedDirectCompiler {
         root_annotation_owner=None,
         root_annotation_descriptor_sha256=None,
         excluded_root_ids=None,
+        overlay_delta_view=None,
+        overlay_delta_owner=None,
+        overlay_delta_descriptor_sha256=None,
+        canonical_work_limit=None,
+        canonical_workspace_limit=None,
     ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
@@ -747,6 +787,11 @@ impl EncodedDirectCompiler {
         root_annotation_owner: Option<&Bound<'_, PyAny>>,
         root_annotation_descriptor_sha256: Option<&Bound<'_, PyAny>>,
         excluded_root_ids: Option<&Bound<'_, PyAny>>,
+        overlay_delta_view: Option<&Bound<'_, PyAny>>,
+        overlay_delta_owner: Option<&Bound<'_, PyAny>>,
+        overlay_delta_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        canonical_work_limit: Option<usize>,
+        canonical_workspace_limit: Option<usize>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
         let excluded_root_ids = excluded_root_ids
@@ -767,10 +812,50 @@ impl EncodedDirectCompiler {
                 ));
             }
         };
+        let (overlay_delta_buffers, canonical_merge_limits) = match (
+            overlay_delta_view,
+            overlay_delta_owner,
+            overlay_delta_descriptor_sha256,
+            canonical_work_limit,
+            canonical_workspace_limit,
+        ) {
+            (None, None, None, None, None) => (None, None),
+            (Some(view), Some(owner), Some(digest), Some(max_work), Some(max_workspace_bytes)) => {
+                if excluded_root_ids.is_some() || root_annotation_buffers.is_some() {
+                    return Err(EncodedDirectUnsupportedError::new_err(
+                        "bounded local-overlay compilation cannot combine provenance or postings",
+                    ));
+                }
+                if max_work == 0 || max_workspace_bytes == 0 {
+                    return Err(PyMemoryError::new_err(
+                        "encoded local-overlay canonical limits must be positive",
+                    ));
+                }
+                (
+                    Some(retained_overlay_delta_buffers(
+                        view,
+                        owner,
+                        digest,
+                        encoded_view,
+                        expected_owner,
+                    )?),
+                    Some((max_work, max_workspace_bytes)),
+                )
+            }
+            _ => {
+                return Err(encoded_buffer_error(
+                    "encoded local-overlay view, owner, descriptor digest, and canonical limits must be supplied together",
+                ));
+            }
+        };
         Ok(Self {
             _encoded_view: encoded_view.clone().unbind(),
             _owner: expected_owner.clone().unbind(),
             buffers,
+            _overlay_delta_view: overlay_delta_view.map(|value| value.clone().unbind()),
+            _overlay_delta_owner: overlay_delta_owner.map(|value| value.clone().unbind()),
+            overlay_delta_buffers,
+            canonical_merge_limits,
             excluded_root_ids,
             _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
@@ -839,11 +924,21 @@ impl EncodedDirectCompiler {
             .as_ref()
             .map_or(&[][..], RetainedDirectBuffer::as_slice);
         let columns = DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
+        let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            DirectColumns::from_ordered(slices)
+        });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
             DirectColumns::from_ordered(slices)
         });
+        if overlay_delta_columns.is_some() && retained_role_state.is_some() {
+            return self.finish_result(Err(EncodedDirectUnsupportedError::new_err(
+                "bounded local-overlay compilation does not bind retained role state",
+            )));
+        }
         let retained_role_use = match retained_role_state.as_ref() {
             Some(retained) => match retained.claim() {
                 Ok(role_use) => Some(role_use),
@@ -873,7 +968,24 @@ impl EncodedDirectCompiler {
                 "encoded direct statistics factory is not canonical",
             )?;
             let mut stream = py.detach(|| {
-                if let Some(retained) = retained_role_state.as_ref() {
+                if let Some(delta_columns) = overlay_delta_columns {
+                    let (max_work, max_workspace_bytes) =
+                        self.canonical_merge_limits.ok_or_else(|| {
+                            PyRuntimeError::new_err(
+                                "encoded local-overlay compiler lost its canonical limits",
+                            )
+                        })?;
+                    prepare_single_overlay_delta_batches_uncommitted(
+                        columns,
+                        delta_columns,
+                        options,
+                        &self.state,
+                        None,
+                        max_work,
+                        max_workspace_bytes,
+                    )
+                    .map_err(kernel_error)
+                } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
                         columns,
                         root_annotation_columns,
@@ -1503,6 +1615,7 @@ impl EncodedDirectCompiler {
     #[getter]
     fn retained_buffer_count(&self) -> usize {
         self.buffers.len()
+            + self.overlay_delta_buffers.as_ref().map_or(0, Vec::len)
             + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
             + usize::from(self.excluded_root_ids.is_some())
     }
@@ -2070,6 +2183,28 @@ fn retained_direct_buffers(
     expected_owner: &Bound<'_, PyAny>,
     descriptor_sha256: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<RetainedDirectBuffer>> {
+    validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
+    validate_direct_segment(encoded_view, expected_owner)?;
+    retained_structural_buffers(encoded_view)
+}
+
+fn retained_overlay_delta_buffers(
+    encoded_view: &Bound<'_, PyAny>,
+    expected_owner: &Bound<'_, PyAny>,
+    descriptor_sha256: &Bound<'_, PyAny>,
+    source_view: &Bound<'_, PyAny>,
+    source_owner: &Bound<'_, PyAny>,
+) -> PyResult<Vec<RetainedDirectBuffer>> {
+    validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
+    validate_overlay_delta_segments(encoded_view, expected_owner, source_view, source_owner)?;
+    retained_structural_buffers(encoded_view)
+}
+
+fn validate_encoded_view_header(
+    encoded_view: &Bound<'_, PyAny>,
+    expected_owner: &Bound<'_, PyAny>,
+    descriptor_sha256: &Bound<'_, PyAny>,
+) -> PyResult<()> {
     let schema_name = required_attribute(encoded_view, "schema_name")?
         .extract::<String>()
         .map_err(|_| encoded_buffer_error("encoded schema_name must be text"))?;
@@ -2128,9 +2263,12 @@ fn retained_direct_buffers(
             "encoded descriptor must be nonempty exact immutable bytes",
         ));
     }
+    Ok(())
+}
 
-    validate_direct_segment(encoded_view, expected_owner)?;
-
+fn retained_structural_buffers(
+    encoded_view: &Bound<'_, PyAny>,
+) -> PyResult<Vec<RetainedDirectBuffer>> {
     let raw_buffers = required_attribute(encoded_view, "buffers")?;
     let mapping = raw_buffers
         .cast::<PyMapping>()
@@ -2252,6 +2390,106 @@ fn validate_direct_segment(
         return Err(encoded_buffer_error(
             "encoded direct segment member_token must be None",
         ));
+    }
+    Ok(())
+}
+
+fn validate_overlay_delta_segments(
+    encoded_view: &Bound<'_, PyAny>,
+    expected_owner: &Bound<'_, PyAny>,
+    source_view: &Bound<'_, PyAny>,
+    source_owner: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    let raw_segments = required_attribute(encoded_view, "segments")?;
+    if !raw_segments.is_exact_instance_of::<PyTuple>() {
+        return Err(encoded_buffer_error(
+            "encoded local-overlay segment manifest must be an exact tuple",
+        ));
+    }
+    let segments = raw_segments
+        .cast::<PyTuple>()
+        .map_err(|_| encoded_buffer_error("encoded local-overlay manifest is inaccessible"))?;
+    if segments.len() != 2 {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "bounded local-overlay compilation requires exactly base and delta segments",
+        ));
+    }
+    let base = segments
+        .get_item(0)
+        .map_err(|_| encoded_buffer_error("encoded local-overlay base is inaccessible"))?;
+    let delta = segments
+        .get_item(1)
+        .map_err(|_| encoded_buffer_error("encoded local-overlay delta is inaccessible"))?;
+    validate_all_segment(
+        &base,
+        OVERLAY_BASE_SEGMENT,
+        source_owner,
+        Some(source_view),
+        "local-overlay base",
+    )?;
+    validate_all_segment(
+        &delta,
+        OVERLAY_DELTA_SEGMENT,
+        expected_owner,
+        None,
+        "local-overlay delta",
+    )
+}
+
+fn validate_all_segment(
+    segment: &Bound<'_, PyAny>,
+    expected_role: usize,
+    expected_owner: &Bound<'_, PyAny>,
+    expected_source: Option<&Bound<'_, PyAny>>,
+    label: &str,
+) -> PyResult<()> {
+    if exact_nonnegative_integer(&required_attribute(segment, "role")?, "segment role")?
+        != expected_role
+    {
+        return Err(EncodedDirectUnsupportedError::new_err(format!(
+            "encoded {label} has an unsupported role",
+        )));
+    }
+    if !required_attribute(segment, "owner")?.is(expected_owner) {
+        return Err(encoded_buffer_error(format!(
+            "encoded {label} does not retain its expected owner",
+        )));
+    }
+    let source = required_attribute(segment, "source")?;
+    match expected_source {
+        Some(expected) if !source.is(expected) => {
+            return Err(encoded_buffer_error(format!(
+                "encoded {label} does not retain the exact direct source",
+            )));
+        }
+        None if !source.is_none() => {
+            return Err(encoded_buffer_error(format!(
+                "encoded {label} unexpectedly references a source view",
+            )));
+        }
+        _ => {}
+    }
+    if exact_nonnegative_integer(
+        &required_attribute(segment, "posting_mode")?,
+        "segment posting_mode",
+    )? != POSTINGS_ALL
+    {
+        return Err(EncodedDirectUnsupportedError::new_err(format!(
+            "encoded {label} requires ALL root selection",
+        )));
+    }
+    for name in ["root_ids", "anonymous_scope_map"] {
+        let buffer = required_attribute(segment, name)?;
+        if checked_memoryview_length(&buffer, name)? != 0 {
+            return Err(EncodedDirectUnsupportedError::new_err(format!(
+                "encoded {label} {name} must be empty",
+            )));
+        }
+    }
+    if !required_attribute(segment, "member_token")?.is_none() {
+        return Err(encoded_buffer_error(format!(
+            "encoded {label} member_token must be None",
+        )));
     }
     Ok(())
 }

@@ -17,6 +17,7 @@ from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
     _resolve_private_overlay_aliases,
+    _resolve_private_single_overlay_delta,
 )
 from .errors import (
     NativeBackendUnavailableError,
@@ -30,7 +31,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 47
+ENCODED_DIRECT_KERNEL_VERSION = 48
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -376,6 +377,7 @@ class NativeEncodedDirectCompiler:
     """Owner-retaining Python handle for the private one-shot Rust compiler."""
 
     lease: EncodedStructuralLease
+    local_delta_lease: EncodedStructuralLease | None
     root_annotation_lease: EncodedStructuralLease | None
     excluded_root_ids: memoryview | None
     _kernel: Any
@@ -470,7 +472,11 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
-        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values())
+        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values()) + (
+            0
+            if self.local_delta_lease is None
+            else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
+        )
         expected_root_bytes = (
             0
             if self.root_annotation_lease is None
@@ -545,7 +551,11 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
-        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values())
+        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values()) + (
+            0
+            if self.local_delta_lease is None
+            else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
+        )
         expected_root_bytes = (
             0
             if self.root_annotation_lease is None
@@ -856,6 +866,7 @@ class NativeEncodedDirectCompilation:
     view: object
     lease: EncodedStructuralLease
     container_leases: tuple[EncodedStructuralLease, ...]
+    local_delta_lease: EncodedStructuralLease | None
     excluded_root_ids: memoryview | None
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
@@ -917,6 +928,7 @@ class NativeEncodedDirectCompilation:
         retained_buffer_count = sum(len(lease.buffers) for lease in retained_leases)
         detached_buffer_count = (
             len(self.lease.buffers)
+            + (0 if self.local_delta_lease is None else len(self.local_delta_lease.buffers))
             + (0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers))
             + int(self.excluded_root_ids is not None)
         )
@@ -996,10 +1008,29 @@ def prepare_native_encoded_compilation(
     if cancellation_token is not None:
         cancellation_token.check()
     container_leases: tuple[EncodedStructuralLease, ...] = ()
+    local_delta_lease: EncodedStructuralLease | None = None
+    canonical_work_limit: int | None = None
+    canonical_workspace_limit: int | None = None
     excluded_root_ids: memoryview | None = None
     resolved_aliases = _resolve_private_overlay_aliases(lease)
     if resolved_aliases is not None:
         lease, container_leases, excluded_root_ids = resolved_aliases
+    else:
+        resolved_delta = _resolve_private_single_overlay_delta(lease)
+        if resolved_delta is not None:
+            if options.include_literals:
+                return (
+                    None,
+                    "private native local-overlay slice does not support literal projection",
+                )
+            if role_state is not None:
+                return (
+                    None,
+                    "private native local-overlay slice does not bind Scala-instance state",
+                )
+            local_delta_lease = lease
+            lease, canonical_work_limit, canonical_workspace_limit = resolved_delta
+            container_leases = (local_delta_lease,)
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
         if container_leases:
@@ -1016,6 +1047,9 @@ def prepare_native_encoded_compilation(
             return None, annotation_fallback_reason
     compiler = prepare_native_encoded_direct(
         lease,
+        local_delta_lease=local_delta_lease,
+        canonical_work_limit=canonical_work_limit,
+        canonical_workspace_limit=canonical_workspace_limit,
         root_annotation_lease=root_annotation_lease,
         excluded_root_ids=excluded_root_ids,
     )
@@ -1109,6 +1143,7 @@ def prepare_native_encoded_compilation(
                 view=view,
                 lease=lease,
                 container_leases=container_leases,
+                local_delta_lease=local_delta_lease,
                 excluded_root_ids=excluded_root_ids,
                 root_annotation_lease=root_annotation_lease,
                 options=options,
@@ -1235,6 +1270,9 @@ def _validated_direct_descriptor_digest(lease: EncodedStructuralLease) -> bytes:
 def prepare_native_encoded_direct(
     lease: EncodedStructuralLease,
     *,
+    local_delta_lease: EncodedStructuralLease | None = None,
+    canonical_work_limit: int | None = None,
+    canonical_workspace_limit: int | None = None,
     root_annotation_lease: EncodedStructuralLease | None = None,
     excluded_root_ids: memoryview | None = None,
 ) -> NativeEncodedDirectCompiler:
@@ -1245,10 +1283,35 @@ def prepare_native_encoded_direct(
     slices, mmap, and other valid exporters are deliberately reported as unsupported until the
     abi3-safe design expands.  An optional independent root table is retained for the native
     annotation-provenance join.  One optional sorted EXCLUDE posting table is
-    retained and scanned in place by the native root cursor.
+    retained and scanned in place by the native root cursor.  One mutually exclusive
+    top-local one-root overlay table may be retained for the bounded canonical merge.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
+    local_delta_descriptor_sha256: bytes | None = None
+    if local_delta_lease is not None:
+        local_delta_descriptor_sha256 = _validated_direct_descriptor_digest(local_delta_lease)
+        if root_annotation_lease is not None or excluded_root_ids is not None:
+            raise NativeEncodedDirectUnsupported(
+                "private native local-overlay slice cannot combine provenance or postings"
+            )
+        if canonical_work_limit is None:
+            canonical_work_limit = sys.maxsize
+        if canonical_workspace_limit is None:
+            canonical_workspace_limit = sys.maxsize
+        if (
+            type(canonical_work_limit) is not int
+            or canonical_work_limit < 1
+            or type(canonical_workspace_limit) is not int
+            or canonical_workspace_limit < 1
+        ):
+            raise ProjectionResourceError(
+                "private native local-overlay canonical limits must be positive"
+            )
+        canonical_work_limit = min(canonical_work_limit, sys.maxsize)
+        canonical_workspace_limit = min(canonical_workspace_limit, sys.maxsize)
+    elif canonical_work_limit is not None or canonical_workspace_limit is not None:
+        raise ValueError("canonical merge limits require a local delta lease")
     root_descriptor_sha256: bytes | None = None
     if root_annotation_lease is not None:
         root_descriptor_sha256 = _validated_direct_descriptor_digest(root_annotation_lease)
@@ -1289,7 +1352,18 @@ def prepare_native_encoded_direct(
     unsupported_type = cast(type[Exception], unsupported)
     buffer_error_type = cast(type[Exception], buffer_error)
     try:
-        if root_annotation_lease is None and excluded_root_ids is None:
+        if local_delta_lease is not None:
+            kernel = compiler(
+                lease.encoded_view,
+                lease.owner,
+                descriptor_sha256,
+                overlay_delta_view=local_delta_lease.encoded_view,
+                overlay_delta_owner=local_delta_lease.owner,
+                overlay_delta_descriptor_sha256=local_delta_descriptor_sha256,
+                canonical_work_limit=canonical_work_limit,
+                canonical_workspace_limit=canonical_workspace_limit,
+            )
+        elif root_annotation_lease is None and excluded_root_ids is None:
             kernel = compiler(lease.encoded_view, lease.owner, descriptor_sha256)
         elif excluded_root_ids is None:
             assert root_annotation_lease is not None
@@ -1321,6 +1395,7 @@ def prepare_native_encoded_direct(
         raise _execution_error(error) from error
     return NativeEncodedDirectCompiler(
         lease,
+        local_delta_lease,
         root_annotation_lease,
         excluded_root_ids,
         kernel,

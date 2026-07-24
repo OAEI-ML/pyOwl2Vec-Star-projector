@@ -336,6 +336,101 @@ def _resolve_private_overlay_aliases(
         )
 
 
+def _resolve_private_single_overlay_delta(
+    lease: EncodedStructuralLease,
+) -> tuple[EncodedStructuralLease, int | None, int | None] | None:
+    """Resolve the one-root local overlay slice without general segment traversal.
+
+    The private native seam admits only one direct ``ALL`` source and one local
+    ``ALL`` delta root.  Rust still validates the complete source and local
+    tables, their exact cross-table canonical order, and the local constructor
+    before output.  Every other valid segmented form remains a whole-operation
+    scalar fallback.
+    """
+
+    if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:
+        return None
+    base = cast(Any, lease.segments[0])
+    delta = cast(Any, lease.segments[1])
+    try:
+        base_role = base.role
+        base_owner = base.owner
+        source = base.source
+        base_posting_mode = base.posting_mode
+        base_root_ids = base.root_ids
+        base_scope_map = base.anonymous_scope_map
+        base_member_token = base.member_token
+        delta_role = delta.role
+        delta_owner = delta.owner
+        delta_source = delta.source
+        delta_posting_mode = delta.posting_mode
+        delta_root_ids = delta.root_ids
+        delta_scope_map = delta.anonymous_scope_map
+        delta_member_token = delta.member_token
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "core encoded local-overlay metadata is not readable"
+        ) from error
+    if (
+        type(base_role) is not int
+        or base_role != _SEGMENT_OVERLAY_BASE
+        or source is None
+        or base_owner is not getattr(source, "owner", _MISSING)
+        or type(base_posting_mode) is not int
+        or base_posting_mode != _POSTINGS_ALL
+        or type(base_root_ids) is not memoryview
+        or base_root_ids.nbytes
+        or type(base_scope_map) is not memoryview
+        or base_scope_map.nbytes
+        or base_member_token is not None
+        or type(delta_role) is not int
+        or delta_role != _SEGMENT_OVERLAY_DELTA
+        or delta_owner is not lease.owner
+        or delta_source is not None
+        or type(delta_posting_mode) is not int
+        or delta_posting_mode != _POSTINGS_ALL
+        or type(delta_root_ids) is not memoryview
+        or delta_root_ids.nbytes
+        or type(delta_scope_map) is not memoryview
+        or delta_scope_map.nbytes
+        or delta_member_token is not None
+        or lease.buffers["root_kinds"].nbytes != 1
+        or lease.buffers["root_ids"].nbytes != 4
+    ):
+        return None
+    source_scope = getattr(source, "scope", _MISSING)
+    if source_scope is not lease.scope:
+        return None
+
+    _enforce_public_limit(lease.owner, "max_overlay_depth", 1)
+    source_lease = _validate_encoded_view(
+        base_owner,
+        source,
+        type(lease.encoded_view),
+        source_scope,
+    )
+    if len(source_lease.segments) != 1:
+        return None
+    try:
+        source_role = cast(Any, source_lease.segments[0]).role
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "core encoded local-overlay source role is not readable"
+        ) from error
+    if type(source_role) is not int or source_role != _SEGMENT_DIRECT:
+        return None
+
+    validation_work = _private_encoded_lease_validation_work(
+        lease
+    ) + _private_encoded_lease_validation_work(source_lease)
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        source_lease,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
 def _private_overlay_alias_source(
     lease: EncodedStructuralLease,
 ) -> tuple[object, object, object, memoryview | None] | None:

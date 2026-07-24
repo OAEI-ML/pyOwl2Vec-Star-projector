@@ -785,6 +785,7 @@ struct EquivalentAggregateCursor {
 pub(crate) struct DirectEmissionCursor {
     phase: EmissionPhase,
     scan_index: usize,
+    overlay_delta_emitted: bool,
     pending: Option<PendingExpansion>,
     aggregate: Option<EquivalentAggregateCursor>,
     previous_property: Option<String>,
@@ -795,11 +796,19 @@ pub(crate) struct DirectEmissionCursor {
     emitted: usize,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct OwnedOverlayDelta {
+    source: String,
+    destination: String,
+    insertion_position: usize,
+}
+
 #[derive(Debug)]
 struct DirectPreparation {
     role_state: OwnedRoleState,
     anonymous_ids: AnonymousIds,
     selected_annotation_nodes: Option<Vec<usize>>,
+    overlay_delta: Option<OwnedOverlayDelta>,
     options: DirectCompileOptions,
     statistics: DirectCompileStats,
     #[cfg(test)]
@@ -4349,13 +4358,10 @@ impl<'a> DirectColumns<'a> {
 
 /// Exact cross-table canonical comparison and two-way root merging.
 ///
-/// The adapter does not admit local delta segments yet.  This foundation is
-/// intentionally kept behind the existing direct compiler seam until the
-/// bounded delta contract is reviewed.  Every traversal step and allocation is
-/// nevertheless explicit here so later admission does not need an unbounded
-/// comparator.
-#[cfg_attr(not(test), allow(dead_code))]
-mod canonical_merge {
+/// The adapter admits this merger only for the bounded one-root local overlay
+/// contract. Every traversal step and allocation remains explicit so the
+/// execution path never needs an unbounded canonical arena.
+pub(crate) mod canonical_merge {
     use super::*;
     use std::cmp::Ordering as CanonicalOrdering;
     use std::mem::size_of;
@@ -5334,6 +5340,7 @@ mod canonical_merge {
             Ok(())
         }
 
+        #[cfg_attr(not(test), allow(dead_code))]
         pub(crate) fn compare(
             &mut self,
             left_node: usize,
@@ -5713,6 +5720,7 @@ impl DirectEmissionCursor {
         Ok(Self {
             phase: self.phase,
             scan_index: self.scan_index,
+            overlay_delta_emitted: self.overlay_delta_emitted,
             pending: self
                 .pending
                 .as_ref()
@@ -5806,6 +5814,19 @@ impl DirectEmissionCursor {
 
             match self.phase {
                 EmissionPhase::Subclasses => {
+                    if !self.overlay_delta_emitted {
+                        if let Some(delta) = preparation.overlay_delta.as_ref() {
+                            if delta.insertion_position == self.scan_index {
+                                self.overlay_delta_emitted = true;
+                                self.set_taxonomy(
+                                    &delta.source,
+                                    &delta.destination,
+                                    preparation.options.bidirectional,
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
                     if self.scan_index == columns.root_count() {
                         self.scan_index = 0;
                         self.phase = if preparation.options.asserted_taxonomy_only {
@@ -6460,6 +6481,7 @@ fn prepare_direct(
         role_state: role_state.to_owned()?,
         anonymous_ids,
         selected_annotation_nodes,
+        overlay_delta: None,
         options,
         statistics: stats,
         #[cfg(test)]
@@ -6483,6 +6505,164 @@ pub(crate) fn prepare_direct_batches_uncommitted(
         preparation,
         cursor: DirectEmissionCursor::default(),
     })
+}
+
+pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
+    base_columns: DirectColumns<'_>,
+    delta_columns: DirectColumns<'_>,
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&OwnedRoleState>,
+    max_canonical_work: usize,
+    max_canonical_workspace_bytes: usize,
+) -> Result<PreparedDirectBatches, KernelError> {
+    if options.include_literals {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay compilation does not support literal projection",
+        ));
+    }
+    if !base_columns.excluded_root_ids.is_empty() || !delta_columns.excluded_root_ids.is_empty() {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay compilation requires ALL root selection",
+        ));
+    }
+    if delta_columns.root_count() != 1 {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay compilation requires exactly one local root",
+        ));
+    }
+
+    let mut prepared =
+        prepare_direct_batches_uncommitted(base_columns, None, options, state, retained)?;
+    delta_columns.validate_generic(state)?;
+    delta_columns.validate_supported_nodes(options.max_iri_bytes, state)?;
+    let delta_counts = delta_columns.classify_roots(options.max_iri_bytes, state)?;
+    if delta_counts
+        != (RootCounts {
+            subclasses: 1,
+            ..RootCounts::default()
+        })
+    {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay root must be one named SubClassOf axiom",
+        ));
+    }
+
+    let delta_root = delta_columns.root_id(0)?;
+    if delta_columns.root_kind(0)? != ROOT_AXIOM
+        || delta_columns.node_tag(delta_root)? != TAG_SUB_CLASS_OF
+    {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay root must be one named SubClassOf axiom",
+        ));
+    }
+    let field_start = delta_columns.exact_fields(delta_root, 3)?;
+    let (_annotation_start, annotation_count) = delta_columns.node_set_range(field_start + 2, 0)?;
+    if annotation_count != 0 {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay SubClassOf root must be unannotated",
+        ));
+    }
+    let (source, destination) =
+        match delta_columns.subclass_projection(delta_root, options.max_iri_bytes)? {
+            SubclassProjection::Taxonomy {
+                source,
+                destination,
+            } => (clone_text(source)?, clone_text(destination)?),
+            SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
+                return Err(KernelError::unsupported(
+                    "bounded local-overlay SubClassOf root must be named-to-named",
+                ));
+            }
+        };
+
+    use canonical_merge::MergedCanonicalRoot;
+    let mut merger = canonical_merge::CanonicalRootMerger::new(
+        base_columns,
+        delta_columns,
+        canonical_merge::CanonicalMergeLimits {
+            max_work: max_canonical_work,
+            max_workspace_bytes: max_canonical_workspace_bytes,
+        },
+        state,
+    )?;
+    let mut left_roots = 0_usize;
+    let mut insertion_position = None;
+    while let Some(root) = merger.next(state)? {
+        match root {
+            MergedCanonicalRoot::Left(_) => {
+                left_roots = left_roots.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local-overlay root counter overflow")
+                })?;
+            }
+            MergedCanonicalRoot::Right(root) => {
+                if root.index != 0 || insertion_position.replace(left_roots).is_some() {
+                    return Err(KernelError::malformed(
+                        "encoded local-overlay merge produced an inconsistent local root",
+                    ));
+                }
+            }
+            MergedCanonicalRoot::Both { .. } => {
+                return Err(KernelError::unsupported(
+                    "bounded local-overlay root duplicates its direct source",
+                ));
+            }
+        }
+    }
+    let insertion_position = insertion_position
+        .ok_or_else(|| KernelError::malformed("encoded local-overlay merge lost its local root"))?;
+    if left_roots != base_columns.root_count()
+        || merger.report().deduplicated_roots != 0
+        || merger.report().roots_emitted
+            != base_columns
+                .root_count()
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?
+    {
+        return Err(KernelError::malformed(
+            "encoded local-overlay merge produced inconsistent root counts",
+        ));
+    }
+
+    let additional_edges = 1_usize
+        .checked_add(usize::from(options.bidirectional))
+        .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+    let projected = prepared
+        .preparation
+        .statistics
+        .edges
+        .checked_add(additional_edges)
+        .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+    if projected > options.max_edges {
+        return Err(KernelError::resource(format!(
+            "encoded local-overlay batch requires {projected} edges; configured limit is {}",
+            options.max_edges,
+        )));
+    }
+    let statistics = &mut prepared.preparation.statistics;
+    statistics.roots = statistics
+        .roots
+        .checked_add(1)
+        .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?;
+    statistics.nodes = statistics
+        .nodes
+        .checked_add(delta_columns.node_count())
+        .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
+    statistics.subclasses = statistics
+        .subclasses
+        .checked_add(1)
+        .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+    statistics.edges = projected;
+    statistics.buffer_bytes = statistics
+        .buffer_bytes
+        .checked_add(delta_columns.buffer_bytes()?)
+        .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
+    prepared.preparation.overlay_delta = Some(OwnedOverlayDelta {
+        source,
+        destination,
+        insertion_position,
+    });
+    Ok(prepared)
 }
 
 pub(crate) fn prepare_direct_batches_with_retained_role_state(
@@ -7053,6 +7233,27 @@ mod tests {
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
         fixture.root_ids.extend_from_slice(&6_u32.to_le_bytes());
+        fixture
+    }
+
+    fn named_subclass_delta_fixture(source: &[u8], destination: &[u8]) -> Fixture {
+        let mut fixture = Fixture::default();
+        fixture.push_scalar(COMPONENT_TEXT, source);
+        fixture.finish_node(TAG_IRI); // 1
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 2
+        fixture.push_scalar(COMPONENT_TEXT, destination);
+        fixture.finish_node(TAG_IRI); // 3
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(3);
+        fixture.finish_node(TAG_ENTITY); // 4
+        fixture.push_node_ref(2);
+        fixture.push_node_ref(4);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 5
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
         fixture
     }
 
@@ -8058,6 +8259,200 @@ mod tests {
         assert_eq!(stats.declarations, 1);
         assert_eq!(stats.subclasses, 1);
         assert_eq!(stats.edges, 1);
+    }
+
+    #[test]
+    fn one_root_overlay_delta_merges_into_bounded_taxonomy_batches() {
+        let base = named_subclass_fixture();
+        let delta = named_subclass_delta_fixture(b"urn:B", b"urn:C");
+        let options = DirectCompileOptions {
+            bidirectional: true,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 4,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let stats = prepared.statistics();
+        assert_eq!(stats.roots, 3);
+        assert_eq!(stats.nodes, 11);
+        assert_eq!(stats.declarations, 1);
+        assert_eq!(stats.subclasses, 2);
+        assert_eq!(stats.edges, 4);
+        assert_eq!(
+            stats.buffer_bytes,
+            base.columns().buffer_bytes().unwrap() + delta.columns().buffer_bytes().unwrap()
+        );
+
+        let mut edges = Vec::new();
+        while prepared.remaining_edges() != 0 {
+            let (batch, cursor) = prepared
+                .prepare_next_batch(base.columns(), &state, 1)
+                .unwrap();
+            assert_eq!(batch.len(), 1);
+            edges.extend(batch);
+            prepared.commit_cursor(cursor);
+        }
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUPERCLASS_OF.into(),
+                    destination: "urn:A".into(),
+                },
+                DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:C".into(),
+                },
+                DirectEdge {
+                    source: "urn:C".into(),
+                    relation: SUPERCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn one_root_overlay_delta_uses_canonical_insertion_before_base_subclass() {
+        let base = named_subclass_fixture();
+        let delta = named_subclass_delta_fixture(b"urn:0", b"urn:B");
+        let state = running_state();
+        let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 2,
+                max_iri_bytes: 1024,
+            },
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let (edges, cursor) = prepared
+            .prepare_next_batch(base.columns(), &state, 2)
+            .unwrap();
+        prepared.commit_cursor(cursor);
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:0".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:B".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn one_root_overlay_delta_rejects_adjacent_shapes_and_resource_exhaustion() {
+        let base = named_subclass_fixture();
+        let delta = named_subclass_delta_fixture(b"urn:B", b"urn:C");
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 2,
+            max_iri_bytes: 1024,
+        };
+        let multiple_roots = named_subclass_fixture();
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                multiple_roots.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message))
+                if message.contains("exactly one local root")
+        ));
+        let duplicate = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                duplicate.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    include_literals: true,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message))
+                if message.contains("literal projection")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                1,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("work units")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                1,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("workspace bytes")
+        ));
     }
 
     #[test]
