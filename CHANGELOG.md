@@ -7,6 +7,11 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
+- Hidden bounded and coarse native output now allocates exact slotted `Edge` objects directly
+  through the CPython stable ABI, after validating their canonical object-base/member layout.
+  Production drains execute no Python `Edge` factory or constructor callback; exact type, payload,
+  distinct identity, canonical factory, and unchanged layout are still revalidated before cursor,
+  counters, or retained role state commits. The capability remains unadvertised.
 - Native final-batch validation now rechecks every exact `Edge` after the last constructor callback,
   rejects aliased final objects, and rechecks statistics after the iterator callback. A later
   callback cannot corrupt an earlier result before cursor, counters, session, or retained Scala

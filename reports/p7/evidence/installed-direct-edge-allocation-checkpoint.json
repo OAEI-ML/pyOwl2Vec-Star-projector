@@ -1,0 +1,182 @@
+{
+  "schema": "pyowl-projector.p7-installed-direct-edge-allocation-checkpoint/1",
+  "generated_on": "2026-07-23",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "f2230e447c60eefc63adf83289d11d42e1a98f4d"
+  },
+  "artifacts": {
+    "projector_source_archive": {
+      "filename": "projector-f2230e4.tar",
+      "bytes": 3788800,
+      "sha256": "024f3fccc46d6a9b3b4660702a9ae1f249deb53f8f07f1739fd9d006b5403b5e"
+    },
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 458623,
+      "sha256": "a025ef237c2039d14bf1d7044e55e1d0d9e3e25ca80fd36e5af870933a49ea02"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 774876,
+      "sha256": "52b488f096a9b9d8e59766b26fdef48f4188ecd2330aae99594f43e5f0b80085",
+      "encoded_direct_kernel_version": 44,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_projector_seam": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 60115,
+      "sha256": "adc46b3cb512815d1f86e543e9394859b2a43b94b977b60e3aa8861088f0d2b7",
+      "matches_projector_revision": true
+    },
+    "case_sources": {
+      "foundation": {
+        "filename": "tests/test_native_encoded_foundation.py",
+        "bytes": 226405,
+        "sha256": "efa44d2b89dde3960f14bba682485f32e35e295d328921a760ee859981ac3961"
+      },
+      "benchmark": {
+        "filename": "tests/test_encoded_benchmark.py",
+        "bytes": 13088,
+        "sha256": "0a6ee4d09af4ab060d3d5816b93de96fb54e68304a5ccd19f67cbd957a76a466"
+      }
+    },
+    "rust_source": {
+      "filename": "native/src/lib.rs",
+      "bytes": 80284,
+      "sha256": "ba1e29cf837392b6de7a93a39187d0580c7cf526e2e111a295a4d1cf81f9e7e2",
+      "matches_projector_revision": true
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_worktree": true,
+    "native_binary_transplanted": false,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "runtime_install_no_deps": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 44,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false
+  },
+  "installed_verification": {
+    "direct_edge_allocation_result": "8 passed",
+    "complete_suite_result": "1149 passed",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true,
+    "cases": {
+      "coarse_constructor_bypass": {
+        "python_edge_constructor_calls": 0,
+        "final_type": "exact Edge",
+        "payload": "exact scalar parity",
+        "final_identities": "distinct"
+      },
+      "bounded_constructor_bypass": {
+        "python_edge_constructor_calls": 0,
+        "final_type": "exact Edge",
+        "payload": "exact scalar parity",
+        "final_identities": "distinct"
+      },
+      "incompatible_layout": {
+        "surfaces": [
+          "coarse",
+          "bounded"
+        ],
+        "fails_before_final_object_allocation": true,
+        "bounded_cursor_committed": false,
+        "coarse_retained_roles_committed": false
+      },
+      "layout_mutation_during_bounded_allocation": {
+        "failure": "ProjectionError",
+        "batch_state_after_failure": "active",
+        "yielded_edges_after_failure": 0,
+        "edge_batches_after_failure": 0,
+        "bounded_retry": "exact"
+      },
+      "allocation_probe_failure": {
+        "failure": "ProjectionResourceError",
+        "batch_state_after_failure": "active",
+        "yielded_edges_after_failure": 0,
+        "bounded_retry": "exact"
+      }
+    }
+  },
+  "source_verification": {
+    "direct_edge_allocation_invariant": {
+      "stable_abi_generic_allocation": true,
+      "python_edge_factory_invocations": 0,
+      "python_edge_constructor_callbacks": 0,
+      "exact_object_base_required": true,
+      "exact_slot_order_required": [
+        "source",
+        "relation",
+        "destination"
+      ],
+      "member_descriptors_required": true,
+      "dict_offset_required": 0,
+      "weakref_offset_required": 0,
+      "layout_revalidated_after_complete_chunk": true,
+      "exact_type_payload_and_distinct_identity_revalidated": true,
+      "bounded_failure_commits_cursor": false,
+      "bounded_failure_publishes_counters": false,
+      "bounded_failure_is_exactly_retryable": true,
+      "coarse_failure_commits_retained_roles": false
+    },
+    "private_foundation_cases": 250,
+    "complete_suite_cases": 1149,
+    "rust_unit_cases": 38,
+    "ruff": "passed",
+    "mypy_source": "passed",
+    "runtime_dependency_boundary": "passed",
+    "release_artifact_audit": "passed; 30 members",
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed"
+  },
+  "closed_gap": "Every hidden bounded or coarse final Edge is now allocated directly as the exact canonical slotted type through the CPython stable ABI. The native transaction invokes no Python Edge factory or constructor callback, then revalidates the canonical factory identity, type layout, three payload strings, and distinct object identity before commit.",
+  "known_blockers": [
+    "The compatibility coarse call still returns one O(E) Python list; only the hidden iterator exposes caller-bounded Python results.",
+    "Each final Edge still requires one Python object and three Python Unicode field objects, although it no longer invokes a Python factory or constructor callback.",
+    "The statistics factory still receives one 60-field Python argument tuple inside the private PyO3 call.",
+    "Arbitrary slices, mmap, overlay, composite, and other segmented structural providers remain unsupported by the Rust kernel.",
+    "Public iterator, sink, digest, artifact, dispatch, and Scala-instance lifecycle integration remain open.",
+    "Labelled corpus, performance, RSS, fuzz, sanitizer, thread/fork/shutdown, platform, SBOM, and Exact shared-stack acceptance remain open."
+  ],
+  "limitations": [
+    "This is a structural correctness and direct-allocation checkpoint; it carries no timing, throughput, RSS, or release claim.",
+    "The exact native wheel was source-built, but dependency checking was skipped because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The isolated runtime installed both exact wheels with --no-deps because the bound core candidate's 0.1.0.dev0 version sorts before the projector's declared >=0.1 range.",
+    "The narrowly documented unsafe blocks call only PyType_GenericAlloc and PyObject_GenericSetAttr after the exact slotted layout has been validated.",
+    "The allocation probe is private, disabled by default, and exists only to exercise transactional failure and mutation paths.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}

@@ -74,8 +74,12 @@ final edge/statistics payload field plus the iterator's owner, statistics, bound
 before native commit, preserving the same atomic outcomes for constructor-injected payload
 corruption. Kernel v43 revalidates the complete edge chunk after its last constructor callback,
 requires distinct edge identities, and revalidates statistics after the iterator callback, so a
-later callback cannot mutate or alias an earlier final object across the commit boundary. The
-private counter ledger separates compiled edges
+later callback cannot mutate or alias an earlier final object across the commit boundary. Kernel
+v44 then removes production `Edge` constructor callbacks: Rust validates the canonical exact
+slotted layout, allocates each object through the CPython stable ABI, assigns the three validated
+member fields, and rechecks the complete layout/type/payload/identity transaction before commit.
+Malformed or changed layouts preserve the same atomic failure outcomes. The private counter ledger
+separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
 built through fixed 256-edge cursor drains, and retained role state commits only after complete

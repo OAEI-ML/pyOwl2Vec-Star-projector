@@ -153,6 +153,13 @@ Kernel v43 closes the later-callback seam by revalidating every final `Edge` aft
 bounded or coarse chunk has been constructed, requiring distinct identities, and revalidating the
 statistics object after iterator construction. Aliasing or mutation of an earlier result cannot
 cross the same commit boundaries.
+Kernel v44 removes the production `Edge` constructor callbacks themselves. After requiring the
+canonical type's direct `object` base, inherited `object.__new__`, exact three-member slot layout,
+and zero dictionary/weak-reference offsets, Rust allocates each exact `Edge` through the CPython
+stable ABI and assigns its three strings through the validated member descriptors. It rechecks the
+layout and the complete exact, payload-equal, identity-distinct chunk before commit. A malformed or
+concurrently changed layout fails at the same atomic boundary; the disabled-by-default private
+allocation probe exists only for adversarial transaction tests.
 These facts remain hidden-checkpoint behavior, not public encoded-native acceptance.
 
 Within that validated expression envelope, non-projecting combinations stay encoded-native and

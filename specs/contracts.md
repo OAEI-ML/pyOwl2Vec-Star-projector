@@ -266,6 +266,13 @@ Kernel-v43 evidence additionally requires one final validation pass after the la
 bounded and coarse edge objects remain exact, payload-equal, and identity-distinct after the whole
 batch is constructed, and statistics remain exact after iterator construction. Later-callback
 corruption or aliasing retains the same failure-atomic outcomes.
+Kernel-v44 evidence replaces production `Edge` factory calls with direct stable-ABI allocation of
+the exact canonical slotted type. Native code must reject a non-object direct base, overridden
+`__new__`, changed slot order, non-member descriptors, or nonzero dictionary/weak-reference
+offsets before allocation; it must recheck the complete layout, canonical factory identity, exact
+type, payload, and distinct identities before commit. Production drains invoke no Python `Edge`
+factory or constructor callback. Layout failure or mutation retains the same bounded-retry and
+coarse state-atomic outcomes.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These
