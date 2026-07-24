@@ -2375,6 +2375,54 @@ This remains focused private correctness evidence, not another local axiom famil
 annotated/multi-root delta, local deletion, `INCLUDE`, nested-delta, composite, mmap, corpus,
 performance, public-dispatch, or release-acceptance evidence.
 
+### Bounded one-root class-disjointness delta
+
+Revision `45fc62331af21932c216c25f10c260ec62255f46` admits one unannotated local
+`DisjointClasses` or `DisjointUnion` root through kernel v69. The top manifest remains exactly
+`OVERLAY_BASE` plus `OVERLAY_DELTA`; its base may use `ALL` or the existing one exact nonempty
+`EXCLUDE` posting table, while the delta remains `ALL`. `DisjointClasses` requires a canonical
+binary or ternary set over the existing recursive class-expression envelope. `DisjointUnion`
+additionally requires a named defined class. An annotated or four-member axiom, duplicate
+base/local identity, second local root, or other unsupported local shape retains whole-operation
+fallback or typed pre-output rejection.
+
+Rust uses one root-tag/count classifier for the two constructors and reuses the complete direct
+validators for recursive class expressions, node arity, canonical set order and uniqueness, the
+named `DisjointUnion` head, and annotation graphs. The local envelope additionally requires an
+empty axiom annotation set before invoking the bounded canonical merger. Every admitted axiom is
+silent: it emits no edge and retains no owned emitting delta record. Normal and `only_taxonomy`
+projection preserve the exact constructor count and skipped-axiom diagnostic; asserted-taxonomy
+preserves the constructor count but suppresses that diagnostic, matching the pinned scalar
+behavior. The base edge total is checked against the caller bound before publication. No selected
+root index, flattened base, copied structural graph, canonical-byte arena, scalar ontology value,
+complete output vector, or per-row FFI call is created.
+
+The exact installed matrix crosses independent- and packed-bytes exporters, four representative
+constructor shapes, and an `ALL` base, one partial base exclusion, exclusion of every base root,
+and `only_taxonomy`: 32 supported executions with exact scalar ordered-edge/report parity.
+Forty-seven adjacent integration cases retain whole-call fallback, including annotated and
+four-member forms of both constructors. The representative binary `DisjointClasses` `ALL` case
+reports 733 structural bytes, 22 retained zero-copy buffers, one skipped disjoint-classes axiom,
+and two one-edge base batches. A ternary `DisjointClasses` partial exclusion reports 850 bytes and
+retains the exact four-byte posting exporter as the twenty-third native input. A recursive
+`DisjointUnion` with both base roots excluded reports 1,017 bytes, retains the eight-byte posting
+table, publishes the local root and diagnostic with zero edges, and performs only the initial
+native boundary call. A taxonomy-only recursive `DisjointClasses` case reports 760 bytes and the
+same two base edges. Both provider layouts have identical results, statistics, and counters.
+
+The exact `45fc623` archive built a fresh release-profile abi3 wheel and passed all 1,689 tests
+from the isolated installed projector/core payload. All 557 private integration cases, the 79
+focused class-disjointness/adjacent-fallback cases, 15 benchmark cases, 77 Rust tests, rustfmt,
+Clippy with warnings denied, Ruff, strict mypy over 17 source files, the installed smoke, runtime
+dependency boundary, and 30-member native-wheel audit passed. The public feature ledger remains
+exactly `abi3-py310` and `bounded-batches`; ordinary public native projection still uses
+scalar-native with zero native counters. Exact archive, wheel, installed-payload, counter, and
+gate hashes are recorded in
+[`installed-one-root-class-disjointness-delta-checkpoint.json`](evidence/installed-one-root-class-disjointness-delta-checkpoint.json).
+This remains focused private correctness evidence, not another local axiom family,
+annotated/multi-root delta, local deletion, `INCLUDE`, nested-delta, composite, mmap, corpus,
+performance, public-dispatch, or release-acceptance evidence.
+
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
 
@@ -2387,6 +2435,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | Bounded batches without per-row FFI | The hidden iterator's Rust and Python outputs are caller-bounded, start with zero emission attempts, use one PyO3 entry per batch, preserve exact order, and report compiled/vector/peak counters. Each final bounded `Edge` tuple is allocated as the exact canonical slotted type through the stable ABI and its layout, canonical identity marker, three string fields, exact type, and distinct identity are validated before cursor commit. There is no intermediate Python tuple-edge list and no Python `Edge` factory or constructor callback; each edge still requires one Python object and three Python Unicode field objects. The 60-field statistics result and eight-slot batch iterator are likewise allocated directly without argument tuples or Python factory/constructor callbacks. The legacy private coarse call must still return one whole Python list, but builds and validates its final `Edge` objects through 256-edge native chunks with no complete Rust output vector or intermediate complete tuple-edge list. Hidden Projector sink/digest/artifact integration is exact-wheel proven through the existing policy machinery; ordinary public iterator/sink/digest/artifact selection remains open |
 | Production dispatch and provenance | Open; public dispatch remains unchanged and the capability is absent. Explicitly hidden named-edge iterator, sink, digest, and artifact adapters select the private kernel and report its exact ingestion counters after complete consumption |
 | Direct/mmap/overlay/composite support | Exact full bytes and the canonical eleven-column packed direct-bytes arena are supported. A bounded chain of canonical empty-local `OVERLAY_BASE` aliases to an exact-direct source is installed-wheel proven without flattening, with every owner retained and public depth/work bounds enforced. Only the terminal-adjacent segment may use one nonempty sorted `EXCLUDE` table, retained and binary-searched without indexing; public validation and an internal identity guard reject or fall back from nonterminal postings. One exact two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` view may add one unannotated named-to-named or supported named-role restriction `SubClassOf`, one unannotated named-entity declaration, one unannotated named-class/named-individual `ClassAssertion`, one unannotated named-property/named-individual positive `ObjectPropertyAssertion`, one unannotated named-individual negative object assertion with a named or inverse named property, one unannotated named-property/named-individual positive or negative data assertion with a fully validated literal, one unannotated named `SubDataPropertyOf`, one unannotated canonical binary or ternary named-property `EquivalentDataProperties` or `DisjointDataProperties` set, one unannotated named-property `DataPropertyDomain` over the existing recursive class-expression envelope, one unannotated named-property `DataPropertyRange` over the existing recursive data-range envelope, one unannotated named `FunctionalDataProperty`, one unannotated named-to-recursive-range `DatatypeDefinition`, one unannotated recursive `HasKey` over canonical named/inverse-object and named-data-property sets with at least one property, one unannotated canonical binary or ternary named-individual `SameIndividual` or `DifferentIndividuals` set, one unannotated canonical binary or ternary named/inverse-object-property `EquivalentObjectProperties` or `DisjointObjectProperties` set, one unannotated unary object-property characteristic over a named or inverse named expression, or one unannotated `SubAnnotationPropertyOf`, `AnnotationPropertyDomain`, or `AnnotationPropertyRange` over named annotation properties and IRI targets through the bounded canonical merger while retaining both tables and deriving only a scalar insertion position; the base segment may also carry one exact nonempty `EXCLUDE` table. Multiple local roots, other local logical axioms, annotated roots, anonymous or complex local assertions, unsupported restriction fillers, positive inverse local object properties, literal-emitting projection, local deletion, nested deltas, multiple `EXCLUDE` layers, `INCLUDE`, annotation-sensitive aliases, mmap, composite, and other segmented families remain unsupported by the Rust path |
+| Kernel v69 bounded local-delta addendum | One unannotated canonical binary or ternary `DisjointClasses` set over recursive class expressions, or one unannotated `DisjointUnion` with a named defined class and the same member envelope, is now admitted through the silent transaction over an `ALL` or one exact base `EXCLUDE` table. Annotated, oversized, multi-root, nested, and other segmented forms remain unsupported |
 | Generated differential parity | Exact installed campaign passes 128 deterministic mixed-rule sources through both supported direct exporter layouts: 256 executions, every one of the 32 semantic-boolean/duplicate/order combinations, batch bounds 1–7, 6,264 post-policy edges, exact ordered/report/diagnostic parity, and zero staging-copy/per-row-FFI counters. Broader generated, segmented-provider, independent Scala-oracle, and corpus matrices remain open |
 | Invalid encoded-column rejection | Exact installed campaign passes 29 predefined cases over all eleven columns, 256 generated sources, and both direct provider layouts: 14,848 typed pre-output failures with equal direct/Projector and provider results, terminal failed state, no batch session/output counters/edges/report, and explicit native-view cleanup. Coverage-guided and mutational fuzzing, sanitizers, broader protocol/resource failures, and exhaustive invalid-input proof remain open |
 | Lifetime/GIL/cancel/failure safety | Focused private bytes-path, owner lifetime, released-GIL concurrent cancellation, active-cursor thread handoff, isolated re-entrancy, Scala-instance exclusion, batch close/collection/sink-failure/fallback cleanup, state atomicity, panic conversion, a quiescent POSIX fork, and normal shutdown with an unfinished cursor pass against the installed wheels. Exact retry after malformed/replaced factory identities, payload corruption, allocation-probe failure, edge/statistics/iterator-layout mutation, and direct final-object validation also pass. Multithreaded-fork, cross-platform/free-threaded/subinterpreter, fuzz, and sanitizer acceptance remain open |

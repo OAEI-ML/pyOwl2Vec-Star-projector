@@ -140,7 +140,7 @@ reports 22 retained structural buffers, 12 native inputs including the posting e
 posting bytes, and zero selection indexing, flattening, staging, scalar materialization, or
 per-row FFI. Multiple `EXCLUDE` layers, `INCLUDE`/composite selection,
 annotation-sensitive aliases, mmap, and public selection remain open.
-Kernels v48–v68 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
+Kernels v48–v69 add one bounded two-segment `OVERLAY_BASE`/`OVERLAY_DELTA` slice. The base may use
 `ALL` or one exact `EXCLUDE` table, while the `ALL` delta may contain exactly one unannotated
 named-to-named `SubClassOf`, supported named-role Some/All/Min/Max restriction `SubClassOf`, named
 entity `Declaration`, named-class/named-individual `ClassAssertion`, or named-property/named-
@@ -158,9 +158,11 @@ named/inverse-object-property `EquivalentObjectProperties` or `DisjointObjectPro
 one of the seven unary object-property characteristic axioms over a named or inverse named
 object-property expression, or a named-annotation-property `SubAnnotationPropertyOf`,
 `AnnotationPropertyDomain`, or `AnnotationPropertyRange` with named annotation-property or IRI
-targets as appropriate. The canonical merger derives one insertion scalar without flattening or
-indexing either table; unsupported, annotated, anonymous, multi-root, nested, or literal-emitting
-local shapes retain whole-operation fallback or typed pre-output rejection.
+targets as appropriate, or a canonical binary or ternary `DisjointClasses` set over recursive
+class expressions, or a `DisjointUnion` with a named defined class and canonical binary or ternary
+recursive class-expression set. The canonical merger derives one insertion scalar without
+flattening or indexing either table; unsupported, annotated, anonymous, multi-root, nested, or
+literal-emitting local shapes retain whole-operation fallback or typed pre-output rejection.
 Kernel v52 inserts the local `ClassAssertion` in the scalar class-assertion phase.
 Kernel v53 inserts the local positive object assertion in the scalar object-assertion phase and
 fails closed with a typed reference error for an inverse local property before output. Both
@@ -203,6 +205,11 @@ Kernel v68 admits local `SubAnnotationPropertyOf`, `AnnotationPropertyDomain`, a
 complete direct validators for named annotation properties and IRI domain/range targets, requires
 an empty axiom annotation set, and preserves the exact constructor count under normal,
 taxonomy-only, and asserted-taxonomy modes.
+Kernel v69 admits local `DisjointClasses` and `DisjointUnion` through one exact classifier and
+silent-root transaction. It reuses the complete recursive class-expression validators, requires a
+canonical binary or ternary member set and empty axiom annotations, rechecks the named
+`DisjointUnion` head, and preserves the exact constructor count under normal, taxonomy-only, and
+asserted-taxonomy modes.
 The private counter ledger separates compiled edges
 from zero vector-backed output edges and the peak buffered batch. Kernel v34 also removes the
 legacy coarse call's complete Rust output vector and duplicate emitter: the required Python list is
