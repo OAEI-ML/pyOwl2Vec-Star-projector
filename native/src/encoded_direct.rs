@@ -750,6 +750,47 @@ impl SilentClassDisjointnessRoot {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SilentIgnoredClassRoot {
+    Subclass,
+    Assertion,
+}
+
+impl SilentIgnoredClassRoot {
+    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
+        match tag {
+            TAG_SUB_CLASS_OF
+                if counts
+                    == (RootCounts {
+                        subclasses: 1,
+                        ignored_subclasses: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Subclass)
+            }
+            TAG_CLASS_ASSERTION
+                if counts
+                    == (RootCounts {
+                        class_assertions: 1,
+                        ignored_class_assertions: 1,
+                        ..RootCounts::default()
+                    }) =>
+            {
+                Some(Self::Assertion)
+            }
+            _ => None,
+        }
+    }
+
+    fn constructor(self) -> &'static str {
+        match self {
+            Self::Subclass => "SubClassOf",
+            Self::Assertion => "ClassAssertion",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ObjectPropertyExpression<'a> {
     iri: &'a str,
     owlapi_hash: i32,
@@ -6916,6 +6957,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         SilentAnnotationPropertyRoot::classify(delta_counts, delta_tag);
     let silent_class_disjointness_root =
         SilentClassDisjointnessRoot::classify(delta_counts, delta_tag);
+    let silent_ignored_class_root = SilentIgnoredClassRoot::classify(delta_counts, delta_tag);
     let projection = if delta_tag == TAG_SUB_CLASS_OF
         && (delta_counts
             == (RootCounts {
@@ -7004,6 +7046,48 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 ));
             }
         }
+    } else if let Some(kind) = silent_ignored_class_root {
+        let constructor = kind.constructor();
+        let field_start = delta_columns.exact_fields(delta_root, 3)?;
+        let (_annotation_start, annotation_count) =
+            delta_columns.node_set_range(field_start + 2, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {constructor} root must be unannotated",
+            )));
+        }
+        match kind {
+            SilentIgnoredClassRoot::Subclass => {
+                if !matches!(
+                    delta_columns.subclass_projection(delta_root, options.max_iri_bytes)?,
+                    SubclassProjection::Ignored
+                ) {
+                    return Err(KernelError::malformed(
+                        "encoded local-overlay ignored SubClassOf root changed projection",
+                    ));
+                }
+            }
+            SilentIgnoredClassRoot::Assertion => {
+                if !matches!(
+                    delta_columns.class_assertion_projection(delta_root, options.max_iri_bytes,)?,
+                    ClassAssertionProjection::Ignored
+                ) {
+                    return Err(KernelError::malformed(
+                        "encoded local-overlay ignored ClassAssertion root changed projection",
+                    ));
+                }
+            }
+        }
+        if !delta_columns
+            .axiom_anonymous_ids(state)?
+            .node_ids
+            .is_empty()
+        {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay ignored {constructor} root requires no anonymous individuals or local scope remap",
+            )));
+        }
+        None
     } else if delta_counts
         == (RootCounts {
             object_property_assertions: 1,
@@ -7457,7 +7541,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named SubClassOf, named ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
+            "bounded local-overlay root must be one unannotated Declaration, supported named or ignored-shape SubClassOf, named or ignored-shape ClassAssertion, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -7608,6 +7692,36 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 .checked_add(1)
                 .ok_or_else(|| {
                     KernelError::resource("encoded object-property-assertion count overflow")
+                })?;
+        }
+        None if matches!(
+            silent_ignored_class_root,
+            Some(SilentIgnoredClassRoot::Subclass)
+        ) =>
+        {
+            statistics.subclasses = statistics
+                .subclasses
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+            statistics.ignored_subclasses = statistics
+                .ignored_subclasses
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded ignored-subclass count overflow"))?;
+        }
+        None if matches!(
+            silent_ignored_class_root,
+            Some(SilentIgnoredClassRoot::Assertion)
+        ) =>
+        {
+            statistics.class_assertions = statistics
+                .class_assertions
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded class-assertion count overflow"))?;
+            statistics.ignored_class_assertions = statistics
+                .ignored_class_assertions
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded ignored-class-assertion count overflow")
                 })?;
         }
         None if delta_tag == TAG_DECLARATION => {
@@ -8635,6 +8749,82 @@ mod tests {
         for root_id in [9_u32, 10] {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
+        fixture
+    }
+
+    fn ignored_class_axiom_delta_fixture(
+        root_tag: u16,
+        recursive: bool,
+        annotated: bool,
+        anonymous: bool,
+    ) -> Fixture {
+        assert!([TAG_SUB_CLASS_OF, TAG_CLASS_ASSERTION].contains(&root_tag));
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"urn:B",
+            b"urn:C",
+            b"urn:i",
+            b"urn:label",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=5
+        }
+        for iri_id in [1_u64, 2, 3] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 6..=8
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+        fixture.push_node_ref(4);
+        fixture.finish_node(TAG_ENTITY); // 9
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 10
+
+        fixture.push_node_set(&[7, 8]);
+        fixture.finish_node(TAG_OBJECT_INTERSECTION_OF); // 11
+        let mut ignored_class_id = 11_u64;
+        if recursive {
+            fixture.push_node_ref(ignored_class_id);
+            fixture.finish_node(TAG_OBJECT_COMPLEMENT_OF); // 12
+            ignored_class_id = 12;
+        }
+
+        let mut individual_id = 9_u64;
+        if anonymous {
+            fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+            fixture.push_scalar(COMPONENT_BYTES, b"local");
+            fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL);
+            let anonymous_id = fixture.node_tags.len() as u64 / 2;
+            fixture.push_node_set(&[anonymous_id]);
+            fixture.finish_node(TAG_OBJECT_ONE_OF);
+            ignored_class_id = fixture.node_tags.len() as u64 / 2;
+            individual_id = anonymous_id;
+        }
+
+        let annotation_ids = if annotated {
+            fixture.push_node_ref(10);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            vec![fixture.node_tags.len() as u64 / 2]
+        } else {
+            Vec::new()
+        };
+        if root_tag == TAG_SUB_CLASS_OF {
+            fixture.push_node_ref(6);
+            fixture.push_node_ref(ignored_class_id);
+        } else {
+            fixture.push_node_ref(ignored_class_id);
+            fixture.push_node_ref(individual_id);
+        }
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(root_tag);
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
         fixture
     }
 
@@ -12930,6 +13120,183 @@ mod tests {
                 ),
                 Err(KernelError::Unsupported(message))
                     if message.contains("canonical binary or ternary")
+            ));
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_silent_ignored_class_axioms() {
+        let base = named_subclass_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        for root_tag in [TAG_SUB_CLASS_OF, TAG_CLASS_ASSERTION] {
+            for recursive in [false, true] {
+                let delta = ignored_class_axiom_delta_fixture(root_tag, recursive, false, false);
+                let counts = delta
+                    .columns()
+                    .classify_roots(options.max_iri_bytes, &running_state())
+                    .unwrap();
+                let kind =
+                    SilentIgnoredClassRoot::classify(counts, root_tag).expect("ignored root");
+                let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                )
+                .unwrap();
+                let statistics = prepared.statistics();
+                assert_eq!(statistics.roots, 3);
+                assert_eq!(
+                    statistics.subclasses,
+                    1 + usize::from(root_tag == TAG_SUB_CLASS_OF)
+                );
+                assert_eq!(
+                    statistics.ignored_subclasses,
+                    usize::from(root_tag == TAG_SUB_CLASS_OF)
+                );
+                assert_eq!(
+                    statistics.class_assertions,
+                    usize::from(root_tag == TAG_CLASS_ASSERTION)
+                );
+                assert_eq!(
+                    statistics.ignored_class_assertions,
+                    usize::from(root_tag == TAG_CLASS_ASSERTION)
+                );
+                assert_eq!(statistics.skipped_axioms, 0);
+                assert_eq!(statistics.edges, 1);
+                assert_eq!(prepared.emission_attempts(), 0);
+                assert!(prepared.preparation.overlay_delta.is_none());
+                assert_eq!(
+                    kind.constructor(),
+                    if root_tag == TAG_SUB_CLASS_OF {
+                        "SubClassOf"
+                    } else {
+                        "ClassAssertion"
+                    }
+                );
+                let (edges, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &running_state(), 1)
+                    .unwrap();
+                prepared.commit_cursor(cursor);
+                assert_eq!(
+                    edges,
+                    vec![DirectEdge {
+                        source: "urn:A".into(),
+                        relation: SUBCLASS_OF.into(),
+                        destination: "urn:B".into(),
+                    }]
+                );
+                assert!(prepared.is_exhausted());
+
+                for mode in [
+                    DirectCompileOptions {
+                        only_taxonomy: true,
+                        ..options
+                    },
+                    DirectCompileOptions {
+                        asserted_taxonomy_only: true,
+                        ..options
+                    },
+                ] {
+                    let prepared = prepare_single_overlay_delta_batches_uncommitted(
+                        base.columns(),
+                        delta.columns(),
+                        mode,
+                        &running_state(),
+                        None,
+                        canonical_limits().max_work,
+                        canonical_limits().max_workspace_bytes,
+                    )
+                    .unwrap();
+                    let statistics = prepared.statistics();
+                    assert_eq!(
+                        statistics.ignored_subclasses,
+                        usize::from(root_tag == TAG_SUB_CLASS_OF)
+                    );
+                    assert_eq!(
+                        statistics.ignored_class_assertions,
+                        usize::from(root_tag == TAG_CLASS_ASSERTION)
+                    );
+                    assert_eq!(statistics.skipped_axioms, 0);
+                    assert_eq!(statistics.edges, 1);
+                    assert_eq!(prepared.emission_attempts(), 0);
+                    assert!(prepared.preparation.overlay_delta.is_none());
+                }
+            }
+        }
+
+        for root_tag in [TAG_SUB_CLASS_OF, TAG_CLASS_ASSERTION] {
+            let delta = ignored_class_axiom_delta_fixture(root_tag, false, false, false);
+            let excluded_subclass = 2_u32.to_le_bytes();
+            let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+            let prepared = prepare_single_overlay_delta_batches_uncommitted(
+                selected_declaration,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, 2);
+            assert_eq!(prepared.statistics().edges, 0);
+            assert_eq!(prepared.statistics().skipped_axioms, 0);
+            assert_eq!(prepared.emission_attempts(), 0);
+            assert!(prepared.preparation.overlay_delta.is_none());
+            assert!(prepared.is_exhausted());
+
+            let duplicate_base = ignored_class_axiom_delta_fixture(root_tag, false, false, false);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    duplicate_base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+            ));
+
+            let annotated = ignored_class_axiom_delta_fixture(root_tag, false, true, false);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    annotated.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            ));
+
+            let anonymous = ignored_class_axiom_delta_fixture(root_tag, false, false, true);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    anonymous.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message))
+                    if message.contains("no anonymous individuals or local scope remap")
             ));
         }
     }
