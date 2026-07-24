@@ -7,11 +7,12 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
-- The hidden P7 cursor now admits one canonical zero-delta overlay alias by fully revalidating its
-  exact-direct source and handing those source buffers to Rust without flattening or copying.
-  Both the overlay container and source owner remain retained; provenance distinguishes 22
-  retained zero-copy buffers from the 11 passed across the native boundary. Edited, posted,
-  recursively segmented, annotation-sensitive, and composite forms still select whole-call
+- The hidden P7 cursor now resolves a bounded chain of canonical zero-delta overlay aliases by
+  fully revalidating every container and the terminal exact-direct source, then handing only the
+  terminal source buffers to Rust without flattening or copying. Every owner remains retained;
+  provenance for the three-alias checkpoint distinguishes 44 retained zero-copy buffers from the
+  11 passed across the native boundary. Depth, cumulative-work, and cycle failures occur before
+  output. Edited, posted, annotation-sensitive, and composite forms still select whole-call
   fallback, and ordinary public dispatch remains unchanged.
 - A bounded P7 invalid encoded-column campaign now applies 29 deterministic validation cases to
   every one of the eleven repository-owned structural columns for both independent- and

@@ -297,16 +297,19 @@ result is in
 [`reports/p7/evidence/installed-encoded-column-validation-checkpoint.json`](reports/p7/evidence/installed-encoded-column-validation-checkpoint.json).
 This is finite deterministic compatibility evidence, not mutational or coverage-guided fuzzing.
 
-One bounded segmented-owner slice is now connected to the hidden Rust cursor. A canonical
-one-segment `OVERLAY_BASE`/`ALL` view with empty local columns, postings, and anonymous-scope map
-fully revalidates its referenced exact-direct source and passes those source buffers to Rust
-without flattening or staging. The compilation retains both owners and reports 22 retained
-zero-copy buffers, 11 Rust-detached buffers, two retained segments, and one referenced view.
-Independent- and packed-bytes providers have exact scalar edge/report parity. Edited overlays,
-annotation-sensitive aliases, recursive aliases, and other segmented families remain on
-whole-operation fallback. Exact installed-wheel evidence is recorded in
+One bounded segmented-owner slice is now connected to the hidden Rust cursor. A bounded chain of
+canonical one-segment `OVERLAY_BASE`/`ALL` views with empty local columns, postings, and
+anonymous-scope maps fully revalidates each container and its terminal exact-direct source, then
+passes only the terminal source buffers to Rust without flattening or staging. The three-alias
+checkpoint retains every owner and reports 44 retained zero-copy buffers, 11 Rust-detached
+buffers, four retained segments, and three referenced views. Both direct exporter layouts have
+exact scalar edge/report parity; depth, cumulative-work, and transitive-cycle failures occur before
+output. Edited overlays, annotation-sensitive aliases, posting selections, and other segmented
+families remain on whole-operation fallback. The initial one-alias evidence remains in
 [`reports/p7/evidence/installed-empty-overlay-alias-checkpoint.json`](reports/p7/evidence/installed-empty-overlay-alias-checkpoint.json);
-the public feature ledger and ordinary dispatch remain unchanged.
+the recursive exact installed-wheel evidence is in
+[`reports/p7/evidence/installed-recursive-empty-overlay-alias-checkpoint.json`](reports/p7/evidence/installed-recursive-empty-overlay-alias-checkpoint.json).
+The public feature ledger and ordinary dispatch remain unchanged.
 
 The lifecycle binding is independently hash-bound in
 [`reports/p7/evidence/installed-scala-lifecycle-checkpoint.json`](reports/p7/evidence/installed-scala-lifecycle-checkpoint.json).

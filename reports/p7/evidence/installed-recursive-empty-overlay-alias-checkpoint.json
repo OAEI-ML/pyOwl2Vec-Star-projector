@@ -1,0 +1,190 @@
+{
+  "schema": "pyowl-projector.p7-installed-recursive-empty-overlay-alias-checkpoint/1",
+  "generated_on": "2026-07-24",
+  "status": "checkpoint-only",
+  "acceptance_complete": false,
+  "public_acceptance_ready": false,
+  "performance_claim": false,
+  "source_revisions": {
+    "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
+    "projector": "3ef4f15b13758582c05fde228c1274947a636aee"
+  },
+  "source_archive": {
+    "filename": "projector-3ef4f15.tar",
+    "bytes": 4024320,
+    "sha256": "5d137b690ef1f7e76c7db433230dd833eee66267f5e43078a1d4e50f3c06009c",
+    "tree": "b20225ad3cbf81014fa08a58122419a3312cb834"
+  },
+  "source_trees": {
+    "src": "938156b7c500d97e5946bf8ce749f19ce2286167",
+    "native": "25071886d819b0987d38a93f5dcd657084154403",
+    "integration_test": "eb500a2f0bed952c33ab0788cd6632845dcf162b"
+  },
+  "artifacts": {
+    "projector_native_wheel": {
+      "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
+      "bytes": 466988,
+      "sha256": "b829898ffeeb9b73af92b7d0e707db37420329ed316f0e517c9ea3da364e7893",
+      "record_sha256": "274d21fa432e07631e4fc90a5b430762addf575f921934bfd23d737426db99a3",
+      "installed_record_bytes": 4460,
+      "installed_record_sha256": "a3a3b3d2fb1597f31177cf94401244ce256f13eeab8172896f225117d8c18dea"
+    },
+    "core_wheel": {
+      "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
+      "bytes": 1195908,
+      "sha256": "342afb2ae823c61d8c3ddfc8556e3e6cd1c5baf3107229cb96c306eab66c08ca",
+      "record_sha256": "f2228e6e7c44cce8d4f8d2a332087567d504b41feb2b44bee1c963c95d5f102a"
+    },
+    "installed_projector_native": {
+      "filename": "pyowl2vec_star_projector/_native.abi3.so",
+      "bytes": 791268,
+      "sha256": "57249a93f910bc99a16c89dc7b9cf4b79d6249af2f40049f982bdc6e9ab97be8",
+      "encoded_direct_kernel_version": 46,
+      "features": [
+        "abi3-py310",
+        "bounded-batches"
+      ]
+    },
+    "installed_encoded_adapter": {
+      "filename": "pyowl2vec_star_projector/encoded.py",
+      "bytes": 40279,
+      "sha256": "194e7ce77c27b050db9cafe16a613d1f2a63d4bb55d2a3ebed5df836989ffdd3"
+    },
+    "installed_native_adapter": {
+      "filename": "pyowl2vec_star_projector/native.py",
+      "bytes": 61442,
+      "sha256": "82480ebd9943eb438f74ad00c7fdbe17f4b7508a122e8e2c590a00c431a6fd51"
+    },
+    "integration_test": {
+      "filename": "tests/test_private_native_encoded_integration.py",
+      "bytes": 102491,
+      "sha256": "0b017225848ca607f678d1be5757cfe587d1c044155de57c10e22516f0aa0b45"
+    }
+  },
+  "build": {
+    "kind": "exact-revision-source-built-native-checkpoint",
+    "release_profile": true,
+    "isolated_git_archive": true,
+    "source_date_epoch": 1784875939,
+    "native_binary_transplanted": false,
+    "runtime_install_no_index": true,
+    "runtime_install_no_deps": true,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "build": "1.5.0",
+    "setuptools": "83.0.0",
+    "setuptools_rust": "1.13.0",
+    "wheel_used": "0.47.0",
+    "wheel_pinned": "0.46.3",
+    "dependency_check_skipped": true,
+    "release_artifact": false
+  },
+  "environment": {
+    "python": "CPython 3.12.3",
+    "platform": "macOS-26.5.2-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "loaded_projector_from_installed_payload": true,
+    "loaded_core_from_installed_payload": true
+  },
+  "supported_slice": {
+    "manifest_roles": [
+      "OVERLAY_BASE"
+    ],
+    "posting_mode": "ALL",
+    "container_chain": "one-or-more-canonical-empty-aliases",
+    "container_local_columns": "canonical-empty",
+    "container_postings": "empty",
+    "container_anonymous_scope_maps": "empty",
+    "terminal_source": "fully-revalidated-exact-direct",
+    "native_input": "terminal-source-buffers-only",
+    "retained_owners": "all-overlay-containers-and-terminal-source",
+    "resolution": "iterative-active-identity-walk",
+    "limits": [
+      "top-owner-max-overlay-depth",
+      "top-owner-max-canonical-work"
+    ],
+    "provider_layouts": [
+      "independent-bytes",
+      "packed-bytes"
+    ]
+  },
+  "result": {
+    "passed": true,
+    "provider_executions": 2,
+    "alias_depth_per_provider": 3,
+    "edge_count_per_provider": 1,
+    "ordered_edge_and_report_parity_every_provider": true,
+    "ingestion_path_every_provider": "encoded-native",
+    "container_buffer_bytes_each": 8,
+    "terminal_source_buffer_bytes": 366,
+    "encoded_buffer_bytes": 390,
+    "encoded_buffer_count": 44,
+    "encoded_detached_buffer_count": 11,
+    "encoded_zero_copy_buffers": 44,
+    "encoded_referenced_view_count": 3,
+    "encoded_segment_count": 4,
+    "encoded_posting_bytes": 0,
+    "base_flattening_bytes": 0,
+    "encoded_staging_copy_bytes": 0,
+    "structural_copy_bytes": 0,
+    "scalar_axiom_materializations": 0,
+    "scalar_term_materializations": 0,
+    "per_row_ffi_calls": 0,
+    "native_compiled_edges": 1,
+    "native_batch_edges": 1,
+    "native_edge_batches": 1,
+    "native_boundary_calls": 2,
+    "native_peak_buffered_edges": 1,
+    "native_output_vector_edges": 0,
+    "owner_order_terminal_then_inner_to_outer": true,
+    "all_owners_live_while_cursor_active": true,
+    "all_owners_released_after_cursor_close": true,
+    "default_depth_32_accepted": true,
+    "default_depth_33_typed_failure_before_output": true,
+    "default_depth_33_report_absent": true,
+    "reduced_depth_limit_typed_failure_before_output": true,
+    "reduced_canonical_work_limit_typed_failure_before_output": true,
+    "transitive_cycle_typed_failure_before_output": true,
+    "failed_bound_and_cycle_reports_absent": true
+  },
+  "public_contract": {
+    "encoded_direct_kernel_version": 46,
+    "native_features": [
+      "abi3-py310",
+      "bounded-batches"
+    ],
+    "encoded_structural_compiler_advertised": false,
+    "public_dispatch_changed": false,
+    "ordinary_native_projection_ingestion": "scalar-native",
+    "ordinary_native_projection_native_counter_total": 0
+  },
+  "verification": {
+    "installed_smoke": "passed",
+    "exact_archive_complete_suite": "1195 passed",
+    "exact_archive_focused_recursive_alias_cases": "6 passed, 65 deselected",
+    "installed_depth_boundary_probe": "depth 32 accepted; depth 33 typed failure before report",
+    "source_complete_suite": "1195 passed",
+    "source_private_native_integration": "71 passed",
+    "ruff": "passed",
+    "ruff_format_source_files": "passed",
+    "mypy_source": "passed; 17 source files",
+    "rust_unit_cases": 38,
+    "rustfmt": "passed",
+    "clippy_warnings_denied": "passed",
+    "runtime_dependency_boundary": "passed",
+    "native_wheel_audit": "passed; 30 members"
+  },
+  "closed_gap": "A bounded recursive chain of canonical zero-delta overlays now reuses its fully revalidated terminal exact-direct source in the hidden Rust cursor without base flattening, staging copy, scalar materialization, or per-row FFI while retaining and accounting for every owner.",
+  "known_blockers": [
+    "INCLUDE/EXCLUDE postings, local overlay deltas, composites, mmap, arbitrary slices, and other segmented providers remain unsupported by the Rust path.",
+    "Aliases requiring independent root-scoped annotation provenance retain whole-operation scalar fallback.",
+    "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
+    "Independent Scala-oracle, corpus-scale throughput/RSS, sanitizer/fuzz, platform-wheel, SBOM, Exact shared-stack, and release acceptance remain open."
+  ],
+  "limitations": [
+    "This is focused private correctness evidence; it carries no timing, throughput, RSS, corpus, general segmented-provider, public-dispatch, or release claim.",
+    "The recursive provider chain is test-constructed from public immutable encoded-view records because pyOWLCore does not currently expose a convenience constructor for nested empty overlays.",
+    "The source-built wheel skipped build-dependency checking because wheel 0.47.0 was installed while the project pins 0.46.3.",
+    "The public encoded-native feature remains deliberately unadvertised."
+  ]
+}
