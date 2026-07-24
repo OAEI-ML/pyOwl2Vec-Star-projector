@@ -7,13 +7,15 @@ from packaging or performance changes because profile output is a data contract.
 
 ### Added
 
-- Kernel v47 extends the hidden P7 overlay seam to one canonical `EXCLUDE` posting table anywhere
-  in the bounded empty-local alias chain. Rust retains the exact immutable posting exporter,
+- Kernel v47 extends the hidden P7 overlay seam to one canonical terminal-adjacent `EXCLUDE`
+  posting table in the bounded empty-local alias chain. Rust retains the exact immutable exporter,
   validates complete sorted/unique 1-based source-root positions, and binary-searches it in place
   across root classification, role state, anonymous-ID reachability, counts, and cursor emission;
   it creates no selection index and performs no flattening, staging copy, scalar materialization,
   or per-row FFI. Both direct exporter layouts match scalar ordered edges and reports across the
-  focused removal matrix. Multiple `EXCLUDE` layers, `INCLUDE`, local deltas, annotation-sensitive
+  focused removal matrix. Public validation rejects a nonterminal posting as a source-local
+  out-of-range reference, and the internal resolver defensively falls back if handed a forged
+  prevalidated lease. Multiple `EXCLUDE` layers, `INCLUDE`, local deltas, annotation-sensitive
   aliases, and other segmented forms still select whole-call fallback, while the public feature
   ledger and ordinary dispatch remain unchanged.
 - The hidden P7 cursor now resolves a bounded chain of canonical zero-delta overlay aliases by

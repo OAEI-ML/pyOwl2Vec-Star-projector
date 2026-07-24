@@ -7,28 +7,28 @@
   "performance_claim": false,
   "source_revisions": {
     "core": "6750aa0d9a9fc50c0d6931f7ac8f6310623bc7cf",
-    "projector": "c8b675587a364e3deb9b0f2e05725487aea7df56"
+    "projector": "5ada96a0751f7a1267fa42136e30761b94dbd8a9"
   },
   "source_archive": {
-    "filename": "projector-c8b6755.tar",
-    "bytes": 4065280,
-    "sha256": "cb1ee18e1e38fd30e03530656e1525a2373197ab7eb387afd16a3c8e91bde710",
-    "tree": "d7b7d1feeda97f746acbb4ae3f54c78a4ee0c749"
+    "filename": "projector-5ada96a.tar",
+    "bytes": 4085760,
+    "sha256": "ff4e0b5414c8e3336d03a7663da3b02e90de8b9c8197988d740d87bddc6541aa",
+    "tree": "1870dc66db1633cead207c574a174fef7210c6ed"
   },
   "source_trees": {
-    "src": "5c1f31e499be4209c5e2aad30a317c5c232dc605",
+    "src": "974341f92567ce1b9c7dc382a7f81a48c03ab877",
     "native": "ad4aa1eae1692aca46c2daeef659c0ecc97491f9",
-    "integration_test": "4802d76c9e3c573d2862c74730eabca29fae659a",
+    "integration_test": "9859954cddb1d74dfd8271458a3df2380003cae0",
     "foundation_test": "6c23c7f56adf8927a1ead7cab8fb1638f1847d31"
   },
   "artifacts": {
     "projector_native_wheel": {
       "filename": "pyowl2vec_star_projector-0.1.0rc1-cp310-abi3-macosx_14_0_x86_64.whl",
-      "bytes": 470046,
-      "sha256": "4499d00cd926d21540fe4ce863943ea6775f2af3e1e6313e47f8b3ac46c0081c",
-      "record_sha256": "6b76a3d2b647f8219f9dac665e0c5c9150fb65463d4136d1fb457ae9e3a2558e",
+      "bytes": 470465,
+      "sha256": "3b0ace72502322e54c3a8bcc0ea48168b7fd5dcd37e7f7e7b522673d966b42e9",
+      "record_sha256": "47a9a19868017cbe0d4ac65c782dd6b5c22a9af3ff958d202fe08d233d5e4c87",
       "installed_record_bytes": 4460,
-      "installed_record_sha256": "049f727220b2f898b23bc1a5348d57d3c2c458b799c9a1d9f6b7efb6de31fe5e"
+      "installed_record_sha256": "61c3aa1c9de38a797f75dc9a20365d55c985d0381fb79a5d40bf680306cfd97e"
     },
     "core_wheel": {
       "filename": "pyowl_core-0.1.0.dev0-cp312-cp312-macosx_14_0_x86_64.whl",
@@ -48,8 +48,8 @@
     },
     "installed_encoded_adapter": {
       "filename": "pyowl2vec_star_projector/encoded.py",
-      "bytes": 40975,
-      "sha256": "68f79426ca43b75e2b9c53370d3a6b5379f93fc22dd1ce17c4f3d54acf64477c"
+      "bytes": 41207,
+      "sha256": "9ce7353217c2e314f23a13aeb41aca9b1af1a48cae7d34a14a08dd8b2c8e09fd"
     },
     "installed_native_adapter": {
       "filename": "pyowl2vec_star_projector/native.py",
@@ -58,8 +58,8 @@
     },
     "integration_test": {
       "filename": "tests/test_private_native_encoded_integration.py",
-      "bytes": 117988,
-      "sha256": "eed09dd0074a17238d6335a5421a49c33ab7a4988f15f58e773147cbf759c2b2"
+      "bytes": 121246,
+      "sha256": "98509b218305efcc0654bc02a76c4190dfa1576caaec9f79932d189a3f390904"
     },
     "foundation_test": {
       "filename": "tests/test_native_encoded_foundation.py",
@@ -71,7 +71,7 @@
     "kind": "exact-revision-source-built-native-checkpoint",
     "release_profile": true,
     "isolated_git_archive": true,
-    "source_date_epoch": 1784878737,
+    "source_date_epoch": 1784880348,
     "native_binary_transplanted": false,
     "runtime_install_no_index": true,
     "runtime_install_no_deps": true,
@@ -100,7 +100,8 @@
       "ALL",
       "EXCLUDE"
     ],
-    "maximum_exclude_layers": 1,
+    "maximum_terminal_adjacent_exclude_layers": 1,
+    "exclude_position": "terminal-adjacent-only",
     "exclude_table": "nonempty-complete-immutable-bytes-exporter",
     "exclude_rows": "strictly-increasing-unique-in-range-1-based-little-endian-u32-source-root-positions",
     "container_chain": "one-or-more-canonical-empty-local-aliases",
@@ -124,7 +125,8 @@
     "passed": true,
     "installed_probe_provider_executions": 2,
     "focused_removal_matrix_provider_cases": 14,
-    "focused_integration_cases": 20,
+    "focused_integration_cases": 21,
+    "focused_scope_correction_cases": 3,
     "focused_foundation_cases": 8,
     "probe_edge_count_per_provider": 1,
     "ordered_edge_and_report_parity_every_supported_case": true,
@@ -161,10 +163,9 @@
     "anonymous_ids_recomputed_from_retained_roots": true,
     "first_retained_anonymous_id": "_:genid2147483648",
     "zero_output_exclusion_remains_encoded_native": true,
-    "recursive_exclusion_positions": [
-      "inner",
-      "outer"
-    ],
+    "recursive_terminal_adjacent_exclusion": true,
+    "nonterminal_exclusion_real_validation_typed_failure": true,
+    "nonterminal_forged_lease_selects_whole_call_fallback": true,
     "multiple_exclude_layers_select_whole_call_fallback": true,
     "malformed_posting_cases_fail_before_output": [
       "partial-row",
@@ -192,12 +193,13 @@
   },
   "verification": {
     "installed_smoke": "passed",
-    "exact_archive_complete_suite": "1222 passed",
-    "exact_archive_focused_excluding_overlay_cases": "20 passed, 70 deselected",
+    "exact_archive_complete_suite": "1223 passed",
+    "exact_archive_focused_excluding_overlay_cases": "21 passed, 70 deselected",
+    "exact_archive_focused_scope_correction_cases": "3 passed, 88 deselected",
     "exact_archive_focused_posting_foundation_cases": "8 passed, 259 deselected",
     "installed_both_layout_probe": "passed; one retained edge and exact zero-forbidden-work counters per provider",
-    "source_complete_suite": "1222 passed",
-    "source_private_native_integration": "90 passed",
+    "source_complete_suite": "1223 passed",
+    "source_private_native_integration": "91 passed",
     "source_native_encoded_foundation": "267 passed",
     "ruff": "passed",
     "ruff_format_source_files": "passed",
@@ -208,9 +210,10 @@
     "runtime_dependency_boundary": "passed",
     "native_wheel_audit": "passed; 30 members"
   },
-  "closed_gap": "One canonical EXCLUDE posting table may now select roots anywhere in a bounded empty-local overlay-alias chain while the hidden Rust cursor retains and scans its exact exporter without constructing an index, flattening the base, staging structural data, materializing scalar ontology values, or crossing the FFI per row.",
+  "closed_gap": "One canonical terminal-adjacent EXCLUDE posting table may now select roots in a bounded empty-local overlay-alias chain while the hidden Rust cursor retains and scans its exact exporter without constructing an index, flattening the base, staging structural data, materializing scalar ontology values, or crossing the FFI per row.",
   "known_blockers": [
-    "Multiple EXCLUDE layers require ordinal-filter composition and remain on whole-operation fallback.",
+    "Posting positions are source-local: nonterminal EXCLUDE layers in an empty-local alias chain are invalid, while forged prevalidated leases select whole-operation fallback.",
+    "Multiple EXCLUDE layers require broader segment composition and remain on whole-operation fallback.",
     "INCLUDE/composite posting modes, local overlay deltas, composites, mmap, arbitrary slices, and other segmented providers remain unsupported by the Rust path.",
     "Aliases requiring independent root-scoped annotation provenance retain whole-operation scalar fallback.",
     "The ordinary public iterator, sink, digest, and artifact methods still cannot select the hidden cursor because the encoded compiler feature remains unadvertised.",
@@ -218,7 +221,7 @@
   ],
   "limitations": [
     "This is focused private correctness evidence; it carries no timing, throughput, RSS, corpus, general posted-provider, public-dispatch, or release claim.",
-    "Recursive inner/outer placement is test-constructed from public immutable encoded-view records because pyOWLCore does not currently expose a convenience constructor for nested empty-local overlays.",
+    "Recursive terminal-adjacent placement is test-constructed from public immutable encoded-view records because pyOWLCore does not currently expose a convenience constructor for nested empty-local overlays.",
     "The source-built wheel skipped build-dependency checking because wheel 0.47.0 was installed while the project pins 0.46.3.",
     "The public encoded-native feature remains deliberately unadvertised."
   ]

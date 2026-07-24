@@ -146,20 +146,22 @@ while malformed referenced columns fail before output or report publication. Thi
 alone does not establish posting, local-delta, composite, mmap, public-dispatch, or corpus
 acceptance.
 
-The exact kernel-v47 excluding-overlay checkpoint adds one nonempty `EXCLUDE` table at either the
-inner or outer position of the same bounded empty-local chain. Twenty installed integration cases
-cover both direct exporter layouts; taxonomy/restriction, subrole, inverse, domain, range, silent
-annotation, and nonadjacent-projecting-root removal; anonymous-ID recomputation; zero-output
-removal; recursive placement; and whole-call fallback for a second `EXCLUDE` layer. Eight direct
-foundation cases require complete immutable posting exporters and typed pre-output rejection of
-partial, zero, out-of-range, duplicate, and descending `u32` rows plus sliced or mutable exporters.
-Every successful case requires exact scalar ordered-edge/report parity, encoded-native ingestion,
-exact posting-byte accounting, 22 retained structural buffers and 12 native inputs for one
-container, and zero selection indexing, flattening, staging copy, scalar materialization, or
-per-row FFI. The terminal exact-direct source is still validated in full, including excluded
-roots. This focused result does not establish multiple-selection composition, `INCLUDE`, local
-deltas, annotation-sensitive aliases, composite, mmap, public-dispatch, corpus, performance, or
-release acceptance.
+The exact kernel-v47 excluding-overlay checkpoint adds one nonempty `EXCLUDE` table on the
+terminal-adjacent alias in the same bounded empty-local chain. Twenty-one installed integration
+cases cover both direct exporter layouts; taxonomy/restriction, subrole, inverse, domain, range,
+silent annotation, and nonadjacent-projecting-root removal; anonymous-ID recomputation;
+zero-output removal; retained-owner recursive traversal; and whole-call fallback for a forged
+nonterminal or second `EXCLUDE` layer. Real adapter validation independently rejects the
+nonterminal posting as an out-of-range source-local reference. Eight direct foundation cases
+require complete immutable posting exporters and typed pre-output rejection of partial, zero,
+out-of-range, duplicate, and descending `u32` rows plus sliced or mutable exporters. Every
+successful case requires exact scalar ordered-edge/report parity, encoded-native ingestion, exact
+posting-byte accounting, 22 retained structural buffers and 12 native inputs for one container,
+and zero selection indexing, flattening, staging copy, scalar materialization, or per-row FFI. The
+terminal exact-direct source is still validated in full, including excluded roots. This focused
+result does not establish multiple-selection composition, `INCLUDE`, local deltas,
+annotation-sensitive aliases, composite, mmap, public-dispatch, corpus, performance, or release
+acceptance.
 
 ## 6. Real-ontology corpus
 
