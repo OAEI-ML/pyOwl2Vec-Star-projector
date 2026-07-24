@@ -16,7 +16,7 @@ from .diagnostics import ProjectionDiagnostic
 from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
-    _resolve_private_empty_overlay_alias,
+    _resolve_private_empty_overlay_aliases,
 )
 from .errors import (
     NativeBackendUnavailableError,
@@ -854,7 +854,7 @@ class NativeEncodedDirectCompilation:
 
     view: object
     lease: EncodedStructuralLease
-    container_lease: EncodedStructuralLease | None
+    container_leases: tuple[EncodedStructuralLease, ...]
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
@@ -908,7 +908,7 @@ class NativeEncodedDirectCompilation:
     @property
     def ingestion_counters(self) -> Mapping[str, int | bool]:
         retained_leases = (
-            (() if self.container_lease is None else (self.container_lease,))
+            self.container_leases
             + (self.lease,)
             + (() if self.root_annotation_lease is None else (self.root_annotation_lease,))
         )
@@ -930,7 +930,7 @@ class NativeEncodedDirectCompilation:
                 "encoded_detached_buffer_count": detached_buffer_count,
                 "encoded_indexed_buffer_count": 0,
                 "encoded_posting_bytes": 0,
-                "encoded_referenced_view_count": int(self.container_lease is not None)
+                "encoded_referenced_view_count": len(self.container_leases)
                 + int(self.root_annotation_lease is not None),
                 "encoded_segment_count": sum(len(lease.segments) for lease in retained_leases),
                 "encoded_staging_copy_bytes": 0,
@@ -986,14 +986,13 @@ def prepare_native_encoded_compilation(
         raise ProjectionError("isolated native compilation received retained Scala-instance state")
     if cancellation_token is not None:
         cancellation_token.check()
-    container_lease: EncodedStructuralLease | None = None
-    resolved_lease = _resolve_private_empty_overlay_alias(lease)
-    if resolved_lease is not None:
-        container_lease = lease
-        lease = resolved_lease
+    container_leases: tuple[EncodedStructuralLease, ...] = ()
+    resolved_aliases = _resolve_private_empty_overlay_aliases(lease)
+    if resolved_aliases is not None:
+        lease, container_leases = resolved_aliases
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
-        if container_lease is not None:
+        if container_leases:
             return (
                 None,
                 "private native empty-overlay alias does not support "
@@ -1098,7 +1097,7 @@ def prepare_native_encoded_compilation(
             NativeEncodedDirectCompilation(
                 view=view,
                 lease=lease,
-                container_lease=container_lease,
+                container_leases=container_leases,
                 root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,

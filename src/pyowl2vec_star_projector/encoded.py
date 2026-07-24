@@ -264,21 +264,75 @@ def _acquire_root_encoded_lease(
     return _validate_encoded_view(source_view, encoded, encoded_type, root_scope)
 
 
-def _resolve_private_empty_overlay_alias(
+def _resolve_private_empty_overlay_aliases(
     lease: EncodedStructuralLease,
-) -> EncodedStructuralLease | None:
-    """Resolve one canonical empty overlay to its retained direct source.
+) -> tuple[EncodedStructuralLease, tuple[EncodedStructuralLease, ...]] | None:
+    """Resolve canonical empty overlays to one retained direct source.
 
     This is intentionally narrower than general segment traversal.  It admits
-    only a one-segment OVERLAY_BASE/ALL manifest whose local column table is
-    canonically empty and whose anonymous-scope/posting tables are empty.
+    only iterative one-segment OVERLAY_BASE/ALL manifests whose local column
+    tables are canonically empty and whose anonymous-scope/posting tables are
+    empty.  Public overlay-depth and cumulative canonical-work budgets bound
+    resolution before the direct source is handed to Rust.
     """
 
+    current = lease
+    containers: list[EncodedStructuralLease] = []
+    active: dict[int, object] = {id(lease.encoded_view): lease.encoded_view}
+    top_owner = lease.owner
+    canonical_work = 0
+    while True:
+        source_metadata = _private_empty_overlay_alias_source(current)
+        if source_metadata is None:
+            if not containers:
+                return None
+            canonical_work += _private_encoded_lease_validation_work(current)
+            _enforce_public_limit(top_owner, "max_canonical_work", canonical_work)
+            if len(current.segments) != 1:
+                return None
+            try:
+                terminal_role = cast(Any, current.segments[0]).role
+            except Exception as error:
+                raise SnapshotCompatibilityError(
+                    "core encoded overlay alias terminal metadata is not readable"
+                ) from error
+            if type(terminal_role) is not int or terminal_role != _SEGMENT_DIRECT:
+                return None
+            return current, tuple(containers)
+
+        owner, source, source_scope = source_metadata
+        containers.append(current)
+        _enforce_public_limit(top_owner, "max_overlay_depth", len(containers))
+        canonical_work += _private_encoded_lease_validation_work(current)
+        _enforce_public_limit(top_owner, "max_canonical_work", canonical_work)
+
+        identity = id(source)
+        if active.get(identity) is source:
+            raise SnapshotCompatibilityError("core encoded empty-overlay alias graph is cyclic")
+        active[identity] = source
+        current = _validate_encoded_view(
+            owner,
+            source,
+            type(lease.encoded_view),
+            source_scope,
+        )
+
+
+def _private_empty_overlay_alias_source(
+    lease: EncodedStructuralLease,
+) -> tuple[object, object, object] | None:
     if type(lease) is not EncodedStructuralLease or len(lease.segments) != 1:
         return None
     segment = cast(Any, lease.segments[0])
     try:
         role = segment.role
+    except Exception as error:
+        raise SnapshotCompatibilityError(
+            "core encoded overlay alias role is not readable"
+        ) from error
+    if type(role) is not int or role != _SEGMENT_OVERLAY_BASE:
+        return None
+    try:
         owner = segment.owner
         source = segment.source
         posting_mode = segment.posting_mode
@@ -290,9 +344,7 @@ def _resolve_private_empty_overlay_alias(
             "core encoded overlay alias metadata is not readable"
         ) from error
     if (
-        type(role) is not int
-        or role != _SEGMENT_OVERLAY_BASE
-        or source is None
+        source is None
         or owner is not getattr(source, "owner", _MISSING)
         or type(posting_mode) is not int
         or posting_mode != _POSTINGS_ALL
@@ -311,12 +363,16 @@ def _resolve_private_empty_overlay_alias(
     source_scope = getattr(source, "scope", _MISSING)
     if source_scope is not lease.scope:
         return None
-    return _validate_encoded_view(
-        owner,
-        source,
-        type(lease.encoded_view),
-        source_scope,
-    )
+    return owner, source, source_scope
+
+
+def _private_encoded_lease_validation_work(lease: EncodedStructuralLease) -> int:
+    buffer_bytes = sum(value.nbytes for value in lease.buffers.values())
+    segment_bytes = 0
+    for raw_segment in lease.segments:
+        segment = cast(Any, raw_segment)
+        segment_bytes += 128 + segment.root_ids.nbytes + segment.anonymous_scope_map.nbytes
+    return buffer_bytes + segment_bytes
 
 
 def _advertised_schema_version(view: object) -> int | None:

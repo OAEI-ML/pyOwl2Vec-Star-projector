@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import gc
 import io
 import os
 import subprocess
 import sys
+import weakref
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -31,6 +33,7 @@ from pyowl2vec_star_projector.compiler import RoleState
 from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedNegotiation,
+    EncodedStructuralLease,
     select_private_direct_ingestion,
 )
 from pyowl2vec_star_projector.native import (
@@ -2216,6 +2219,365 @@ def test_hidden_iterator_compiles_empty_overlay_alias_without_flattening(
         compiled_edges=len(actual),
         batch_edges=1,
     )
+
+
+def _recursive_empty_overlay_lease(
+    base: pyowl_core.OntologyView,
+    *,
+    depth: int,
+) -> tuple[
+    pyowl_core.OntologyView,
+    EncodedStructuralLease,
+    tuple[EncodedStructuralLease, ...],
+    object,
+]:
+    assert depth >= 1
+    source_encoded = base.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    direct_encoded = source_encoded
+    source_owner: object = base
+    chain: list[EncodedStructuralLease] = []
+    top_view: pyowl_core.OntologyView = base
+    top_lease: EncodedStructuralLease | None = None
+    for _index in range(depth):
+        top_view = pyowl_core.apply_delta(base, pyowl_core.OntologyDelta())
+        selection = select_private_direct_ingestion(
+            top_view,
+            selected_backend="native",
+        )
+        assert selection.lease is not None
+        segment = replace(
+            cast(Any, selection.lease.segments[0]),
+            owner=source_owner,
+            source=source_encoded,
+        )
+        encoded = replace(
+            cast(Any, selection.lease.encoded_view),
+            segments=(segment,),
+        )
+        top_lease = replace(
+            selection.lease,
+            encoded_view=encoded,
+            segments=(segment,),
+        )
+        chain.append(top_lease)
+        source_encoded = encoded
+        source_owner = top_view
+    assert top_lease is not None
+    return top_view, top_lease, tuple(chain), direct_encoded
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_compiles_recursive_empty_overlay_aliases(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)",
+            backend=provider_backend,
+        ),
+    )
+    depth = 3
+    top_view, top_lease, chain, direct_encoded = _recursive_empty_overlay_lease(
+        base,
+        depth=depth,
+    )
+    expected_buffer_bytes = sum(
+        value.nbytes for value in cast(Any, direct_encoded).buffers.values()
+    ) + sum(sum(value.nbytes for value in lease.buffers.values()) for lease in chain)
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(top_view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("recursive empty aliases reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                top_view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.lease.encoded_view is direct_encoded
+    assert tuple(item.encoded_view for item in compilation.container_leases) == tuple(
+        item.encoded_view for item in reversed(chain)
+    )
+    assert tuple(item.owner for item in compilation.container_leases) == tuple(
+        item.owner for item in reversed(chain)
+    )
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 11 * (depth + 1)
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 11
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 11 * (depth + 1)
+    assert ingestion.counters["encoded_referenced_view_count"] == depth
+    assert ingestion.counters["encoded_segment_count"] == depth + 1
+    assert ingestion.counters["encoded_posting_bytes"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+def test_recursive_empty_overlay_owners_live_until_cursor_close() -> None:
+    class Owner:
+        def __init__(self, template: pyowl_core.OntologyView) -> None:
+            self.capabilities = template.capabilities
+            self.load_options = getattr(template, "load_options", None)
+            self.structural_fingerprint = template.structural_fingerprint
+
+    def create() -> tuple[
+        pyowl_core.OntologyView,
+        EncodedNegotiation,
+        tuple[weakref.ReferenceType[Owner], ...],
+    ]:
+        base = cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                "SubClassOf(:A :Top) SubClassOf(:B :Top) SubClassOf(:C :Top)"
+            ),
+        )
+        direct_selection = select_private_direct_ingestion(
+            base,
+            selected_backend="native",
+        )
+        assert direct_selection.lease is not None
+        source_owner = Owner(base)
+        direct_segment = replace(
+            cast(Any, direct_selection.lease.segments[0]),
+            owner=source_owner,
+        )
+        source_encoded = replace(
+            cast(Any, direct_selection.lease.encoded_view),
+            owner=source_owner,
+            segments=(direct_segment,),
+        )
+        owners = [source_owner]
+        source_owner_object: object = source_owner
+        top_view = base
+        top_lease: EncodedStructuralLease | None = None
+        for _index in range(2):
+            top_view = pyowl_core.apply_delta(base, pyowl_core.OntologyDelta())
+            template = select_private_direct_ingestion(
+                top_view,
+                selected_backend="native",
+            )
+            assert template.lease is not None
+            owner = Owner(top_view)
+            segment = replace(
+                cast(Any, template.lease.segments[0]),
+                owner=source_owner_object,
+                source=source_encoded,
+            )
+            encoded = replace(
+                cast(Any, template.lease.encoded_view),
+                owner=owner,
+                segments=(segment,),
+            )
+            top_lease = replace(
+                template.lease,
+                encoded_view=encoded,
+                owner=owner,
+                segments=(segment,),
+            )
+            owners.append(owner)
+            source_owner_object = owner
+            source_encoded = encoded
+        assert top_lease is not None
+        return (
+            top_view,
+            EncodedNegotiation("encoded-native", lease=top_lease),
+            tuple(weakref.ref(owner) for owner in owners),
+        )
+
+    top_view, negotiation, owner_refs = create()
+    expected = Projector().project(
+        top_view,
+        options=ProjectionOptions(backend="python", order="encounter"),
+    )
+    projector = Projector()
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=negotiation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("retained aliases reached scalar traversal"),
+        ),
+    ):
+        iterator = projector._iter_native_encoded_edges(
+            top_view,
+            options=ProjectionOptions(backend="native", order="encounter"),
+            buffer_edges=1,
+        )
+        assert next(iterator) == expected[0]
+
+    del negotiation
+    gc.collect()
+    assert all(reference() is not None for reference in owner_refs)
+    cast(Any, iterator).close()
+    del iterator
+    gc.collect()
+    assert all(reference() is None for reference in owner_refs)
+    assert projector.last_report is None
+
+
+@pytest.mark.parametrize(
+    ("limit_name", "maximum", "depth"),
+    [
+        ("max_overlay_depth", 2, 3),
+        ("max_canonical_work", 700, 2),
+    ],
+)
+def test_hidden_iterator_bounds_recursive_empty_overlay_alias_work(
+    limit_name: str,
+    maximum: int,
+    depth: int,
+) -> None:
+    limits = replace(pyowl_core.ParseLimits(), **{limit_name: maximum})
+    source = (
+        b"Prefix(:=<urn:native-integration#>) Ontology(<urn:native-integration> "
+        b"Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B))"
+    )
+    base = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.load_snapshot(
+            source,
+            options=pyowl_core.LoadOptions(
+                imports=pyowl_core.ImportPolicy.IGNORE,
+                backend=pyowl_core.BackendPreference.PYTHON,
+                limits=limits,
+            ),
+        ),
+    )
+    top_view, top_lease, _chain, _direct = _recursive_empty_overlay_lease(
+        base,
+        depth=depth,
+    )
+    projector = Projector()
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("over-budget aliases reached scalar traversal"),
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match=f"public {limit_name}",
+        ),
+    ):
+        list(
+            projector._iter_native_encoded_edges(
+                top_view,
+                options=ProjectionOptions(backend="native", order="encounter"),
+                buffer_edges=1,
+            )
+        )
+    assert projector.last_report is None
+
+
+def test_hidden_iterator_rejects_recursive_empty_overlay_cycle_before_output() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("Declaration(Class(:A)) SubClassOf(:A :Top)"),
+    )
+    top_view, top_lease, chain, _direct = _recursive_empty_overlay_lease(
+        base,
+        depth=2,
+    )
+    inner_encoded = cast(Any, chain[0].encoded_view)
+    inner_segment = replace(
+        cast(Any, inner_encoded.segments[0]),
+        owner=top_lease.owner,
+        source=top_lease.encoded_view,
+    )
+    object.__setattr__(inner_encoded, "segments", (inner_segment,))
+
+    projector = Projector()
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("cyclic aliases reached scalar traversal"),
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match="empty-overlay alias graph is cyclic",
+        ),
+    ):
+        list(
+            projector._iter_native_encoded_edges(
+                top_view,
+                options=ProjectionOptions(backend="native", order="encounter"),
+                buffer_edges=1,
+            )
+        )
+    assert projector.last_report is None
 
 
 def test_hidden_iterator_keeps_edited_overlay_on_whole_call_scalar_fallback() -> None:
