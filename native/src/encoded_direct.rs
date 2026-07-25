@@ -847,6 +847,7 @@ impl LocalProjectionMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LocalRuleContext {
     mode: LocalProjectionMode,
+    include_literals: bool,
     local_scope_remap_available: bool,
 }
 
@@ -854,6 +855,7 @@ impl LocalRuleContext {
     fn new(options: DirectCompileOptions, local_scope_remap_available: bool) -> Self {
         Self {
             mode: LocalProjectionMode::from_options(options),
+            include_literals: options.include_literals,
             local_scope_remap_available,
         }
     }
@@ -869,18 +871,19 @@ impl LocalAnonymousScopePolicy {
     fn validate(
         self,
         columns: DirectColumns<'_>,
+        root: usize,
         context: LocalRuleContext,
-        constructor: &str,
+        root_description: &str,
         state: &AtomicU8,
     ) -> Result<(), KernelError> {
         match self {
             Self::ExcludedByGrammar => Ok(()),
             Self::RejectWithoutRemap
                 if !context.local_scope_remap_available
-                    && !columns.axiom_anonymous_ids(state)?.node_ids.is_empty() =>
+                    && columns.root_contains_anonymous_individual(root, state)? =>
             {
                 Err(KernelError::unsupported(format!(
-                    "bounded local-overlay ignored {constructor} root requires no anonymous individuals or local scope remap",
+                    "bounded local-overlay {root_description} root requires no anonymous individuals or local scope remap",
                 )))
             }
             Self::RejectWithoutRemap => Ok(()),
@@ -939,6 +942,7 @@ struct ObjectPropertyClassRule {
     tag: u16,
     kind: ObjectPropertyClassRuleKind,
     constructor: &'static str,
+    scope_description: &'static str,
     retain_ignored_by_mode: [bool; 3],
     scope_policy: LocalAnonymousScopePolicy,
 }
@@ -948,6 +952,7 @@ const OBJECT_PROPERTY_CLASS_RULES: [ObjectPropertyClassRule; 2] = [
         tag: TAG_OBJECT_PROPERTY_DOMAIN,
         kind: ObjectPropertyClassRuleKind::Domain,
         constructor: "ObjectPropertyDomain",
+        scope_description: "ignored ObjectPropertyDomain",
         retain_ignored_by_mode: [true, true, true],
         scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
     },
@@ -955,6 +960,7 @@ const OBJECT_PROPERTY_CLASS_RULES: [ObjectPropertyClassRule; 2] = [
         tag: TAG_OBJECT_PROPERTY_RANGE,
         kind: ObjectPropertyClassRuleKind::Range,
         constructor: "ObjectPropertyRange",
+        scope_description: "ignored ObjectPropertyRange",
         retain_ignored_by_mode: [true, true, true],
         scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
     },
@@ -1003,7 +1009,7 @@ impl ObjectPropertyClassRulePlan {
         }
         self.rule
             .scope_policy
-            .validate(columns, context, self.rule.constructor, state)
+            .validate(columns, root, context, self.rule.scope_description, state)
     }
 
     fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
@@ -1157,7 +1163,7 @@ impl LocalRoleRulePlan {
         }
         self.rule
             .scope_policy
-            .validate(columns, context, self.rule.constructor, state)?;
+            .validate(columns, root, context, self.rule.constructor, state)?;
         if !self.rule.state_neutral {
             return Err(KernelError::unsupported(format!(
                 "bounded local-overlay {} root requires retained role-state recomputation before base projection",
@@ -1184,6 +1190,166 @@ impl LocalRoleRulePlan {
                 .ok_or_else(|| {
                     KernelError::resource("encoded object-property-chain count overflow")
                 })?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalAnnotationRuleKind {
+    OntologyAnnotation,
+    Assertion,
+}
+
+impl LocalAnnotationRuleKind {
+    fn matches_single_root(self, counts: RootCounts) -> bool {
+        match self {
+            Self::OntologyAnnotation => {
+                counts
+                    == (RootCounts {
+                        ontology_annotations: 1,
+                        ..RootCounts::default()
+                    })
+            }
+            Self::Assertion => {
+                counts
+                    == (RootCounts {
+                        annotation_assertions: 1,
+                        ..RootCounts::default()
+                    })
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LocalAnnotationRule {
+    root_kind: u8,
+    tag: u16,
+    kind: LocalAnnotationRuleKind,
+    constructor: &'static str,
+    field_count: usize,
+    annotation_field_offset: usize,
+    annotation_error: &'static str,
+    retain_counter_by_mode: [bool; 3],
+    supports_literal_projection: bool,
+    scope_policy: LocalAnonymousScopePolicy,
+}
+
+const LOCAL_ANNOTATION_RULES: [LocalAnnotationRule; 2] = [
+    LocalAnnotationRule {
+        root_kind: ROOT_ONTOLOGY_ANNOTATION,
+        tag: TAG_ANNOTATION,
+        kind: LocalAnnotationRuleKind::OntologyAnnotation,
+        constructor: "ontology Annotation",
+        field_count: 3,
+        annotation_field_offset: 2,
+        annotation_error: "must have no nested annotations",
+        retain_counter_by_mode: [true, true, true],
+        supports_literal_projection: false,
+        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
+    },
+    LocalAnnotationRule {
+        root_kind: ROOT_AXIOM,
+        tag: TAG_ANNOTATION_ASSERTION,
+        kind: LocalAnnotationRuleKind::Assertion,
+        constructor: "AnnotationAssertion",
+        field_count: 4,
+        annotation_field_offset: 3,
+        annotation_error: "must be unannotated",
+        retain_counter_by_mode: [true, true, true],
+        supports_literal_projection: false,
+        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
+    },
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LocalAnnotationRulePlan {
+    rule: LocalAnnotationRule,
+    retain_counter: bool,
+}
+
+impl LocalAnnotationRulePlan {
+    fn classify(
+        counts: RootCounts,
+        root_kind: u8,
+        tag: u16,
+        context: LocalRuleContext,
+    ) -> Option<Self> {
+        LOCAL_ANNOTATION_RULES
+            .iter()
+            .copied()
+            .find(|rule| {
+                rule.root_kind == root_kind
+                    && rule.tag == tag
+                    && rule.kind.matches_single_root(counts)
+            })
+            .map(|rule| Self {
+                rule,
+                retain_counter: rule.retain_counter_by_mode[context.mode.index()],
+            })
+    }
+
+    fn validate(
+        self,
+        columns: DirectColumns<'_>,
+        root: usize,
+        context: LocalRuleContext,
+        state: &AtomicU8,
+    ) -> Result<(), KernelError> {
+        if context.include_literals && !self.rule.supports_literal_projection {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {} root requires literal projection to remain disabled",
+                self.rule.constructor,
+            )));
+        }
+        let field_start = columns.exact_fields(root, self.rule.field_count)?;
+        let annotation_field = field_start
+            .checked_add(self.rule.annotation_field_offset)
+            .ok_or_else(|| {
+                KernelError::resource("encoded local annotation field offset overflow")
+            })?;
+        let (_annotation_start, annotation_count) = columns.node_set_range(annotation_field, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(format!(
+                "bounded local-overlay {} root {}",
+                self.rule.constructor, self.rule.annotation_error,
+            )));
+        }
+        self.rule
+            .scope_policy
+            .validate(columns, root, context, self.rule.constructor, state)
+    }
+
+    fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
+        if !self.retain_counter {
+            return Ok(());
+        }
+        match self.rule.kind {
+            LocalAnnotationRuleKind::OntologyAnnotation => {
+                statistics.ontology_annotations = statistics
+                    .ontology_annotations
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded ontology-annotation count overflow")
+                    })?;
+            }
+            LocalAnnotationRuleKind::Assertion => {
+                statistics.annotation_assertions = statistics
+                    .annotation_assertions
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded annotation-assertion count overflow")
+                    })?;
+                statistics.selected_annotation_assertions = statistics
+                    .selected_annotation_assertions
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource(
+                            "encoded selected-annotation-assertion count overflow",
+                        )
+                    })?;
+            }
         }
         Ok(())
     }
@@ -1938,6 +2104,57 @@ impl<'a> DirectColumns<'a> {
             return Ok(length_order);
         }
         Ok(left_key.cmp(right_key))
+    }
+
+    fn root_contains_anonymous_individual(
+        self,
+        root: usize,
+        state: &AtomicU8,
+    ) -> Result<bool, KernelError> {
+        let reachable_length = self
+            .node_count()
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded reachability length overflow"))?;
+        let mut reachable = Vec::new();
+        reachable
+            .try_reserve_exact(reachable_length)
+            .map_err(|_| KernelError::resource("encoded reachability allocation failed"))?;
+        reachable.resize(reachable_length, false);
+        let mut stack = Vec::new();
+        queue_reachable_node(&mut stack, &mut reachable, root)?;
+        while let Some(node_id) = stack.pop() {
+            check_cancel(state, node_id)?;
+            if self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL {
+                return Ok(true);
+            }
+            let (start, end) = self.field_range(node_id)?;
+            for field_index in start..end {
+                let kind = self.field_kind(field_index)?;
+                if kind == COMPONENT_NODE {
+                    queue_reachable_node(
+                        &mut stack,
+                        &mut reachable,
+                        self.field_node(field_index)?,
+                    )?;
+                    continue;
+                }
+                if ![COMPONENT_SET, COMPONENT_SEQUENCE].contains(&kind) {
+                    continue;
+                }
+                let item_start = self.field_value(field_index)?;
+                let length = self.field_length(field_index)?;
+                for item_index in item_start..item_start + length {
+                    if self.item_kinds[item_index] == COMPONENT_NODE {
+                        queue_reachable_node(
+                            &mut stack,
+                            &mut reachable,
+                            self.item_node(item_index)?,
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 
     fn axiom_anonymous_ids(self, state: &AtomicU8) -> Result<AnonymousIds, KernelError> {
@@ -7345,13 +7562,20 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     delta_columns.validate_supported_nodes(options.max_iri_bytes, state)?;
     let delta_counts = delta_columns.classify_roots(options.max_iri_bytes, state)?;
     let delta_root = delta_columns.root_id(0)?;
-    if delta_columns.root_kind(0)? != ROOT_AXIOM {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one supported axiom",
-        ));
-    }
+    let delta_root_kind = delta_columns.root_kind(0)?;
     let delta_tag = delta_columns.node_tag(delta_root)?;
     let local_rule_context = LocalRuleContext::new(options, false);
+    let local_annotation_rule = LocalAnnotationRulePlan::classify(
+        delta_counts,
+        delta_root_kind,
+        delta_tag,
+        local_rule_context,
+    );
+    if delta_root_kind != ROOT_AXIOM && local_annotation_rule.is_none() {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay root must be one supported axiom or ontology annotation",
+        ));
+    }
     let silent_object_property_root = SilentObjectPropertyRoot::classify(delta_counts, delta_tag);
     let silent_annotation_property_root =
         SilentAnnotationPropertyRoot::classify(delta_counts, delta_tag);
@@ -7363,7 +7587,10 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let object_property_class_rule =
         ObjectPropertyClassRulePlan::classify(delta_counts, delta_tag, local_rule_context);
     let local_role_rule = LocalRoleRulePlan::classify(delta_counts, delta_tag, local_rule_context);
-    let projection = if delta_tag == TAG_SUB_CLASS_OF
+    let projection = if let Some(rule) = local_annotation_rule {
+        rule.validate(delta_columns, delta_root, local_rule_context, state)?;
+        None
+    } else if delta_tag == TAG_SUB_CLASS_OF
         && (delta_counts
             == (RootCounts {
                 subclasses: 1,
@@ -7374,7 +7601,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     subclasses: 1,
                     restriction_subclasses: 1,
                     ..RootCounts::default()
-                })) {
+                }))
+    {
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 2, 0)?;
@@ -7985,7 +8213,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one unannotated Declaration, supported named or ignored-shape SubClassOf, named or ignored-shape ClassAssertion, ignored-shape EquivalentClasses, ignored-shape ObjectPropertyDomain or ObjectPropertyRange, state-neutral property-chain SubObjectPropertyOf, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
+            "bounded local-overlay root must be one supported state-neutral ontology Annotation or AnnotationAssertion, unannotated Declaration, supported named or ignored-shape SubClassOf, named or ignored-shape ClassAssertion, ignored-shape EquivalentClasses, ignored-shape ObjectPropertyDomain or ObjectPropertyRange, state-neutral property-chain SubObjectPropertyOf, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -8137,6 +8365,12 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 .ok_or_else(|| {
                     KernelError::resource("encoded object-property-assertion count overflow")
                 })?;
+        }
+        None if local_annotation_rule.is_some() => {
+            let Some(rule) = local_annotation_rule else {
+                unreachable!("matched local annotation rule remains available");
+            };
+            rule.apply_statistics(statistics)?;
         }
         None if matches!(
             silent_ignored_class_root,
@@ -9513,6 +9747,75 @@ mod tests {
         fixture.push_node_set(&annotation_ids);
         fixture.finish_node(root_tag);
         fixture.root_kinds.push(ROOT_AXIOM);
+        fixture
+            .root_ids
+            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn local_annotation_delta_fixture(
+        kind: LocalAnnotationRuleKind,
+        literal_value: bool,
+        annotated: bool,
+        anonymous: bool,
+    ) -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:label".as_slice(),
+            b"urn:subject",
+            b"urn:value",
+            XSD_STRING.as_bytes(),
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=4
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 5
+        fixture.push_scalar(COMPONENT_ENUM, b"datatype");
+        fixture.push_node_ref(4);
+        fixture.finish_node(TAG_ENTITY); // 6
+        fixture.push_scalar(COMPONENT_TEXT, b"annotation-value");
+        fixture.push_node_ref(6);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 7
+        fixture.push_scalar(COMPONENT_BYTES, &[11; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"local");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 8
+
+        let annotation_ids = if annotated {
+            fixture.push_node_ref(5);
+            fixture.push_node_ref(3);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION); // 9
+            vec![9]
+        } else {
+            Vec::new()
+        };
+        let value_id = if anonymous {
+            8
+        } else if literal_value {
+            7
+        } else {
+            3
+        };
+        match kind {
+            LocalAnnotationRuleKind::OntologyAnnotation => {
+                fixture.push_node_ref(5);
+                fixture.push_node_ref(value_id);
+                fixture.push_node_set(&annotation_ids);
+                fixture.finish_node(TAG_ANNOTATION);
+                fixture.root_kinds.push(ROOT_ONTOLOGY_ANNOTATION);
+            }
+            LocalAnnotationRuleKind::Assertion => {
+                fixture.push_node_ref(5);
+                fixture.push_node_ref(if anonymous { 8 } else { 2 });
+                fixture.push_node_ref(if anonymous { 3 } else { value_id });
+                fixture.push_node_set(&annotation_ids);
+                fixture.finish_node(TAG_ANNOTATION_ASSERTION);
+                fixture.root_kinds.push(ROOT_AXIOM);
+            }
+        }
         fixture
             .root_ids
             .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
@@ -14589,6 +14892,174 @@ mod tests {
                         "requires retained role-state recomputation before base projection"
                     )
             ));
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_accepts_state_neutral_annotation_roots() {
+        let base = named_subclass_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        for kind in [
+            LocalAnnotationRuleKind::OntologyAnnotation,
+            LocalAnnotationRuleKind::Assertion,
+        ] {
+            for literal_value in [false, true] {
+                let delta = local_annotation_delta_fixture(kind, literal_value, false, false);
+                let counts = delta
+                    .columns()
+                    .classify_roots(options.max_iri_bytes, &running_state())
+                    .unwrap();
+                let root_kind = delta.columns().root_kind(0).unwrap();
+                let root = delta.columns().root_id(0).unwrap();
+                let tag = delta.columns().node_tag(root).unwrap();
+                let plan = LocalAnnotationRulePlan::classify(
+                    counts,
+                    root_kind,
+                    tag,
+                    LocalRuleContext::new(options, false),
+                )
+                .unwrap();
+                assert_eq!(plan.rule.kind, kind);
+
+                for variant in [
+                    options,
+                    DirectCompileOptions {
+                        only_taxonomy: true,
+                        ..options
+                    },
+                    DirectCompileOptions {
+                        asserted_taxonomy_only: true,
+                        ..options
+                    },
+                ] {
+                    let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                        base.columns(),
+                        delta.columns(),
+                        variant,
+                        &running_state(),
+                        None,
+                        canonical_limits().max_work,
+                        canonical_limits().max_workspace_bytes,
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!("local annotation kind={kind:?} literal={literal_value}: {error:?}")
+                    });
+                    let statistics = prepared.statistics();
+                    assert_eq!(statistics.roots, 3);
+                    assert_eq!(
+                        statistics.ontology_annotations,
+                        usize::from(kind == LocalAnnotationRuleKind::OntologyAnnotation)
+                    );
+                    assert_eq!(
+                        statistics.annotation_assertions,
+                        usize::from(kind == LocalAnnotationRuleKind::Assertion)
+                    );
+                    assert_eq!(
+                        statistics.selected_annotation_assertions,
+                        usize::from(kind == LocalAnnotationRuleKind::Assertion)
+                    );
+                    assert_eq!(statistics.annotation_edges, 0);
+                    assert_eq!(statistics.non_string_literal_renderings, 0);
+                    assert_eq!(statistics.skipped_axioms, 0);
+                    assert_eq!(statistics.edges, 1);
+                    assert_eq!(prepared.emission_attempts(), 0);
+                    assert!(prepared.preparation.overlay_delta.is_none());
+                    let (edges, cursor) = prepared
+                        .prepare_next_batch(base.columns(), &running_state(), 1)
+                        .unwrap();
+                    prepared.commit_cursor(cursor);
+                    assert_eq!(
+                        edges,
+                        vec![DirectEdge {
+                            source: "urn:A".into(),
+                            relation: SUBCLASS_OF.into(),
+                            destination: "urn:B".into(),
+                        }]
+                    );
+                    assert!(prepared.is_exhausted());
+                }
+            }
+
+            let delta = local_annotation_delta_fixture(kind, false, false, false);
+            let excluded_subclass = 2_u32.to_le_bytes();
+            let selected_declaration = base.columns().with_excluded_root_ids(&excluded_subclass);
+            let silent = prepare_single_overlay_delta_batches_uncommitted(
+                selected_declaration,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(silent.statistics().roots, 2);
+            assert_eq!(silent.statistics().edges, 0);
+            assert_eq!(silent.statistics().skipped_axioms, 0);
+            assert_eq!(silent.emission_attempts(), 0);
+            assert!(silent.preparation.overlay_delta.is_none());
+            assert!(silent.is_exhausted());
+
+            let duplicate_base = local_annotation_delta_fixture(kind, false, false, false);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    duplicate_base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+            ));
+
+            let annotated = local_annotation_delta_fixture(kind, false, true, false);
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    annotated.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message))
+                    if message.contains(
+                        if kind == LocalAnnotationRuleKind::OntologyAnnotation {
+                            "must have no nested annotations"
+                        } else {
+                            "must be unannotated"
+                        }
+                    )
+            ));
+
+            let anonymous = local_annotation_delta_fixture(kind, false, false, true);
+            let anonymous_result = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                anonymous.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            );
+            assert!(
+                matches!(
+                    &anonymous_result,
+                    Err(KernelError::Unsupported(message))
+                        if message.contains("no anonymous individuals or local scope remap")
+                ),
+                "{anonymous_result:?}",
+            );
         }
     }
 
