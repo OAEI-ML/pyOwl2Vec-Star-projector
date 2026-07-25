@@ -3287,6 +3287,472 @@ def test_private_overlay_property_chain_preserves_asserted_taxonomy() -> None:
 @pytest.mark.parametrize(
     ("local_body", "root_family"),
     [
+        ("SubObjectPropertyOf(:p :super)", "sub-property"),
+        (
+            "SubObjectPropertyOf("
+            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "sub-property",
+        ),
+        ("InverseObjectProperties(:p :super)", "inverse-properties"),
+        (
+            "InverseObjectProperties("
+            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "inverse-properties",
+        ),
+    ],
+    ids=[
+        "named-sub-property",
+        "inverse-expression-sub-property",
+        "named-inverse-properties",
+        "inverse-expression-inverse-properties",
+    ],
+)
+@pytest.mark.parametrize(
+    ("removed_sources", "only_taxonomy", "keep_taxonomy", "keep_restriction"),
+    [
+        (frozenset(), False, True, True),
+        (frozenset({"C"}), False, True, False),
+        (frozenset({"A"}), False, False, True),
+        (frozenset(), True, True, False),
+    ],
+    ids=[
+        "base-all",
+        "exclude-restriction",
+        "exclude-taxonomy",
+        "only-taxonomy",
+    ],
+)
+def test_hidden_iterator_recomputes_base_for_one_local_role_axiom(
+    provider_backend: pyowl_core.BackendPreference,
+    local_body: str,
+    root_family: str,
+    removed_sources: frozenset[str],
+    only_taxonomy: bool,
+    keep_taxonomy: bool,
+    keep_restriction: bool,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) "
+            "SubClassOf(:C ObjectSomeValuesFrom(:super :D))",
+            backend=provider_backend,
+        ),
+    )
+    removed = {
+        axiom
+        for axiom in base.iter_axioms()
+        if cast(Any, axiom).sub_class.iri.value.rsplit("#", 1)[-1] in removed_sources
+    }
+    assert len(removed) == len(removed_sources)
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(local_body, backend=provider_backend),
+    )
+    added = set(addition_source.iter_axioms())
+    assert len(added) == 1
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, added),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
+    base_segment = cast(Any, top_encoded.segments[0])
+    delta_segment = cast(Any, top_encoded.segments[1])
+    assert base_segment.posting_mode == (2 if removed else 0)
+    assert base_segment.root_ids.nbytes == 4 * len(removed)
+    assert delta_segment.posting_mode == 0
+    assert delta_segment.root_ids.nbytes == 0
+    assert delta_segment.anonymous_scope_map.nbytes == 0
+    source_encoded = base_segment.source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(
+        value.nbytes for value in top_encoded.buffers.values()
+    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        only_taxonomy=only_taxonomy,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "stateful local role axiom reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    expected_edges = []
+    if keep_taxonomy:
+        expected_edges.append(
+            Edge(
+                "urn:native-integration#A",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        )
+    if keep_restriction:
+        expected_edges.append(
+            Edge(
+                "urn:native-integration#C",
+                "urn:native-integration#super",
+                "urn:native-integration#D",
+            )
+        )
+        if root_family == "sub-property":
+            expected_edges.append(
+                Edge(
+                    "urn:native-integration#C",
+                    "urn:native-integration#p",
+                    "urn:native-integration#D",
+                )
+            )
+        else:
+            expected_edges.append(
+                Edge(
+                    "urn:native-integration#D",
+                    "urn:native-integration#p",
+                    "urn:native-integration#C",
+                )
+            )
+    assert actual == expected == expected_edges
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.provenance.counts.ignored_shapes == int(
+        only_taxonomy and "C" not in removed_sources
+    )
+    expected_diagnostics = (
+        (("MOWL_IGNORED_SHAPE", "SubClassOf", 1),)
+        if only_taxonomy and "C" not in removed_sources
+        else ()
+    )
+    assert tuple(
+        (diagnostic.code, diagnostic.constructor, diagnostic.count)
+        for diagnostic in report.diagnostics
+    ) == expected_diagnostics
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.view is overlay
+    assert compilation.lease.owner is base
+    assert compilation.local_delta_lease is compilation.container_leases[0]
+    assert compilation.local_delta_lease is not None
+    assert compilation.local_delta_lease.owner is overlay
+    assert compilation.excluded_root_ids is (
+        base_segment.root_ids if removed else None
+    )
+    statistics = compilation.native_statistics
+    selected_base_roots = 2 - len(removed_sources)
+    is_sub_property = root_family == "sub-property"
+    assert statistics.roots == selected_base_roots + 1
+    assert statistics.subclasses == selected_base_roots
+    assert statistics.restriction_subclasses == int(
+        "C" not in removed_sources
+    )
+    assert statistics.sub_object_properties == int(is_sub_property)
+    assert statistics.object_property_chains == 0
+    assert statistics.inverse_object_properties == int(not is_sub_property)
+    assert statistics.role_expansion_edges == int(keep_restriction)
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == len(expected_edges)
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22 + int(bool(removed))
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 3
+    assert ingestion.counters["encoded_posting_bytes"] == 4 * len(removed)
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    ("local_body", "root_family"),
+    [
+        ("SubObjectPropertyOf(:p :super)", "sub-property"),
+        ("InverseObjectProperties(:p :super)", "inverse-properties"),
+    ],
+    ids=["sub-property", "inverse-properties"],
+)
+def test_hidden_iterator_merges_local_axiom_with_base_role_state(
+    provider_backend: pyowl_core.BackendPreference,
+    local_body: str,
+    root_family: str,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) "
+            "SubClassOf(:C ObjectSomeValuesFrom(:super :D)) "
+            "SubObjectPropertyOf(:baseChild :super) "
+            "InverseObjectProperties(:baseInv :super)",
+            backend=provider_backend,
+        ),
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(local_body, backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "merged local role axiom reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    is_sub_property = root_family == "sub-property"
+    expected_expansion = (
+        Edge(
+            "urn:native-integration#C",
+            "urn:native-integration#p",
+            "urn:native-integration#D",
+        )
+        if is_sub_property
+        else Edge(
+            "urn:native-integration#D",
+            "urn:native-integration#p",
+            "urn:native-integration#C",
+        )
+    )
+    expected_other_role = (
+        Edge(
+            "urn:native-integration#D",
+            "urn:native-integration#baseInv",
+            "urn:native-integration#C",
+        )
+        if is_sub_property
+        else Edge(
+            "urn:native-integration#C",
+            "urn:native-integration#baseChild",
+            "urn:native-integration#D",
+        )
+    )
+    expected_role_edges = (
+        [expected_expansion, expected_other_role]
+        if is_sub_property
+        else [expected_other_role, expected_expansion]
+    )
+    expected_edges = [
+        Edge(
+            "urn:native-integration#A",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+        Edge(
+            "urn:native-integration#C",
+            "urn:native-integration#super",
+            "urn:native-integration#D",
+        ),
+        *expected_role_edges,
+    ]
+    assert actual == expected == expected_edges
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == ()
+    assert len(captured) == 1
+    statistics = captured[0].native_statistics
+    assert statistics.roots == 5
+    assert statistics.subclasses == 2
+    assert statistics.restriction_subclasses == 1
+    assert statistics.sub_object_properties == 1 + int(is_sub_property)
+    assert statistics.inverse_object_properties == 1 + int(not is_sub_property)
+    assert statistics.role_expansion_edges == 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == 4
+
+
+@pytest.mark.parametrize(
+    ("local_body", "root_family"),
+    [
+        ("SubObjectPropertyOf(:p :super)", "sub-property"),
+        (
+            "SubObjectPropertyOf("
+            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "sub-property",
+        ),
+        ("InverseObjectProperties(:p :super)", "inverse-properties"),
+        (
+            "InverseObjectProperties("
+            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "inverse-properties",
+        ),
+    ],
+    ids=[
+        "named-sub-property",
+        "inverse-expression-sub-property",
+        "named-inverse-properties",
+        "inverse-expression-inverse-properties",
+    ],
+)
+def test_private_overlay_stateful_role_axiom_preserves_asserted_taxonomy(
+    local_body: str,
+    root_family: str,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) "
+            "SubClassOf(:C ObjectSomeValuesFrom(:super :D))"
+        ),
+    )
+    addition_source = cast(pyowl_core.OntologyView, _snapshot(local_body))
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    negotiation = select_private_direct_ingestion(
+        overlay,
+        selected_backend="native",
+    )
+    top_lease = negotiation.lease
+    assert top_lease is not None
+    resolved = _resolve_private_single_overlay_delta(top_lease)
+    assert resolved is not None
+    base_lease, excluded_root_ids, max_work, max_workspace = resolved
+    assert excluded_root_ids is None
+    compiler = prepare_native_encoded_direct(
+        base_lease,
+        local_delta_lease=top_lease,
+        canonical_work_limit=max_work,
+        canonical_workspace_limit=max_workspace,
+    )
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024,
+        asserted_taxonomy_only=True,
+        only_taxonomy=True,
+    )
+
+    assert [edge.as_tuple() for edge in edges] == [
+        (
+            "urn:native-integration#A",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+    ]
+    is_sub_property = root_family == "sub-property"
+    assert statistics.roots == 3
+    assert statistics.subclasses == 2
+    assert statistics.restriction_subclasses == 1
+    assert statistics.sub_object_properties == int(is_sub_property)
+    assert statistics.object_property_chains == 0
+    assert statistics.inverse_object_properties == int(not is_sub_property)
+    assert statistics.role_expansion_edges == 0
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == 1
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    ("local_body", "root_family"),
+    [
         ('Annotation(<urn:meta> "value")', "ontology-annotation"),
         ("Annotation(<urn:meta> <urn:value>)", "ontology-annotation"),
         (
@@ -7400,14 +7866,12 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
             "bounded local-overlay SubObjectPropertyOf root must be unannotated",
         ),
         (
-            "SubObjectPropertyOf(:p :q)",
-            "bounded local-overlay SubObjectPropertyOf root requires retained "
-            "role-state recomputation before base projection",
+            'SubObjectPropertyOf(Annotation(:label "x") :p :q)',
+            "bounded local-overlay SubObjectPropertyOf root must be unannotated",
         ),
         (
-            "InverseObjectProperties(:p :q)",
-            "bounded local-overlay InverseObjectProperties root requires retained "
-            "role-state recomputation before base projection",
+            'InverseObjectProperties(Annotation(:label "x") :p :q)',
+            "bounded local-overlay InverseObjectProperties root must be unannotated",
         ),
         (
             'AnnotationAssertion(Annotation(:label "x") '
@@ -7635,8 +8099,8 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         "anonymous-ignored-local-object-property-domain",
         "anonymous-ignored-local-object-property-range",
         "annotated-local-object-property-chain",
-        "stateful-local-sub-object-property",
-        "stateful-local-inverse-object-properties",
+        "annotated-local-sub-object-property",
+        "annotated-local-inverse-object-properties",
         "annotated-local-annotation-assertion",
         "anonymous-local-annotation-assertion",
         "annotated-local-restriction",
