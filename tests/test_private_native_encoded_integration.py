@@ -3037,6 +3037,232 @@ def test_private_overlay_ignored_object_property_class_axiom_preserves_asserted_
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
+    ("local_body", "constructor", "counterpart"),
+    [
+        (
+            "ObjectPropertyDomain(:p :A)",
+            "ObjectPropertyDomain",
+            "ObjectPropertyRange",
+        ),
+        (
+            "ObjectPropertyRange(:p :A)",
+            "ObjectPropertyRange",
+            "ObjectPropertyDomain",
+        ),
+    ],
+    ids=["domain", "range"],
+)
+@pytest.mark.parametrize(
+    ("removal", "only_taxonomy", "expected_products"),
+    [
+        ("none", False, 2),
+        ("none", True, 2),
+        ("same", False, 1),
+        ("counterpart", False, 0),
+    ],
+    ids=[
+        "base-all",
+        "only-taxonomy",
+        "exclude-same-kind",
+        "exclude-counterpart",
+    ],
+)
+def test_hidden_iterator_projects_one_local_object_property_class_axiom(
+    provider_backend: pyowl_core.BackendPreference,
+    local_body: str,
+    constructor: str,
+    counterpart: str,
+    removal: str,
+    only_taxonomy: bool,
+    expected_products: int,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubObjectPropertyOf(:child :p) "
+            "InverseObjectProperties(:p :pinv) "
+            "ObjectPropertyDomain(:p :D) "
+            "ObjectPropertyRange(:p :R)",
+            backend=provider_backend,
+        ),
+    )
+    removed_constructor = {
+        "none": None,
+        "same": constructor,
+        "counterpart": counterpart,
+    }[removal]
+    removed = {
+        axiom
+        for axiom in base.iter_axioms()
+        if type(axiom).__name__ == removed_constructor
+    }
+    assert len(removed) == int(removed_constructor is not None)
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(local_body, backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
+    base_segment = cast(Any, top_encoded.segments[0])
+    delta_segment = cast(Any, top_encoded.segments[1])
+    assert base_segment.posting_mode == (2 if removed else 0)
+    assert base_segment.root_ids.nbytes == 4 * len(removed)
+    assert delta_segment.posting_mode == 0
+    assert delta_segment.root_ids.nbytes == 0
+    assert delta_segment.anonymous_scope_map.nbytes == 0
+    source_encoded = base_segment.source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(
+        value.nbytes for value in top_encoded.buffers.values()
+    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        only_taxonomy=only_taxonomy,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "projecting local object-property domain/range reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    expected_edges: list[Edge] = []
+    is_domain = constructor == "ObjectPropertyDomain"
+    pairs = (
+        (("A", "R"), ("D", "R"))
+        if is_domain
+        else (("D", "A"), ("D", "R"))
+    )
+    for domain, range_ in pairs[:expected_products]:
+        expected_edges.extend(
+            [
+                Edge(
+                    f"urn:native-integration#{domain}",
+                    "urn:native-integration#p",
+                    f"urn:native-integration#{range_}",
+                ),
+                Edge(
+                    f"urn:native-integration#{domain}",
+                    "urn:native-integration#child",
+                    f"urn:native-integration#{range_}",
+                ),
+                Edge(
+                    f"urn:native-integration#{range_}",
+                    "urn:native-integration#pinv",
+                    f"urn:native-integration#{domain}",
+                ),
+            ]
+        )
+    assert actual == expected == expected_edges
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.provenance.counts.ignored_shapes == 0
+    assert report.diagnostics == ()
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.view is overlay
+    assert compilation.lease.owner is base
+    assert compilation.local_delta_lease is compilation.container_leases[0]
+    assert compilation.local_delta_lease is not None
+    assert compilation.local_delta_lease.owner is overlay
+    assert compilation.excluded_root_ids is (
+        base_segment.root_ids if removed else None
+    )
+    statistics = compilation.native_statistics
+    assert statistics.roots == 5 - len(removed)
+    assert statistics.sub_object_properties == 1
+    assert statistics.object_property_chains == 0
+    assert statistics.inverse_object_properties == 1
+    assert statistics.object_property_domains == (
+        1 - int(removed_constructor == "ObjectPropertyDomain") + int(is_domain)
+    )
+    assert statistics.object_property_ranges == (
+        1 - int(removed_constructor == "ObjectPropertyRange") + int(not is_domain)
+    )
+    assert statistics.ignored_object_property_domains == 0
+    assert statistics.ignored_object_property_ranges == 0
+    assert statistics.domain_range_edges == expected_products
+    assert statistics.role_expansion_edges == expected_products * 2
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == len(expected_edges)
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22 + int(bool(removed))
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 3
+    assert ingestion.counters["encoded_posting_bytes"] == 4 * len(removed)
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
     "local_body",
     [
         "SubObjectPropertyOf(ObjectPropertyChain(:left :right) :p)",
@@ -7831,16 +8057,6 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
             "binary or ternary ignored class-expression set",
         ),
         (
-            "ObjectPropertyDomain(:p :A)",
-            "bounded local-overlay ObjectPropertyDomain root requires an ignored "
-            "complete direct projection",
-        ),
-        (
-            "ObjectPropertyRange(:p :B)",
-            "bounded local-overlay ObjectPropertyRange root requires an ignored "
-            "complete direct projection",
-        ),
-        (
             'ObjectPropertyDomain(Annotation(:label "x") '
             "ObjectInverseOf(:p) :A)",
             "bounded local-overlay ObjectPropertyDomain root must be unannotated",
@@ -8092,8 +8308,6 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         "annotated-ignored-local-equivalent-classes",
         "anonymous-ignored-local-equivalent-classes",
         "oversized-ignored-local-equivalent-classes",
-        "projecting-local-object-property-domain",
-        "projecting-local-object-property-range",
         "annotated-ignored-local-object-property-domain",
         "annotated-ignored-local-object-property-range",
         "anonymous-ignored-local-object-property-domain",

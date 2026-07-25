@@ -988,13 +988,13 @@ impl ObjectPropertyClassRulePlan {
             })
     }
 
-    fn validate(
+    fn validate<'a>(
         self,
-        columns: DirectColumns<'_>,
+        columns: DirectColumns<'a>,
         root: usize,
         context: LocalRuleContext,
         state: &AtomicU8,
-    ) -> Result<(), KernelError> {
+    ) -> Result<Option<(ObjectPropertyClassRuleKind, &'a str, &'a str)>, KernelError> {
         let field_start = columns.exact_fields(root, 3)?;
         let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
         if annotation_count != 0 {
@@ -1003,15 +1003,29 @@ impl ObjectPropertyClassRulePlan {
                 self.rule.constructor,
             )));
         }
-        if !self.ignored {
-            return Err(KernelError::unsupported(format!(
-                "bounded local-overlay {} root requires an ignored complete direct projection",
-                self.rule.constructor,
-            )));
+        let projection =
+            columns.object_property_class_projection(root, self.rule.tag, context.max_iri_bytes)?;
+        if self.ignored {
+            if projection.is_some() {
+                return Err(KernelError::malformed(
+                    "encoded local object-property class rule changed after classification",
+                ));
+            }
+            self.rule.scope_policy.validate(
+                columns,
+                root,
+                context,
+                self.rule.scope_description,
+                state,
+            )?;
+            return Ok(None);
         }
-        self.rule
-            .scope_policy
-            .validate(columns, root, context, self.rule.scope_description, state)
+        let (property, class) = projection.ok_or_else(|| {
+            KernelError::malformed(
+                "encoded local object-property class projection changed after classification",
+            )
+        })?;
+        Ok(Some((self.rule.kind, property, class)))
     }
 
     fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
@@ -1023,7 +1037,7 @@ impl ObjectPropertyClassRulePlan {
                     .ok_or_else(|| {
                         KernelError::resource("encoded object-property-domain count overflow")
                     })?;
-                if self.retain_ignored_counter {
+                if self.ignored && self.retain_ignored_counter {
                     statistics.ignored_object_property_domains = statistics
                         .ignored_object_property_domains
                         .checked_add(1)
@@ -1041,7 +1055,7 @@ impl ObjectPropertyClassRulePlan {
                     .ok_or_else(|| {
                         KernelError::resource("encoded object-property-range count overflow")
                     })?;
-                if self.retain_ignored_counter {
+                if self.ignored && self.retain_ignored_counter {
                     statistics.ignored_object_property_ranges = statistics
                         .ignored_object_property_ranges
                         .checked_add(1)
@@ -1725,12 +1739,21 @@ struct OwnedOverlayDelta {
     insertion_position: usize,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct OwnedLocalObjectPropertyClass {
+    kind: ObjectPropertyClassRuleKind,
+    property: String,
+    class: String,
+    insertion_position: usize,
+}
+
 #[derive(Debug)]
 struct DirectPreparation {
     role_state: OwnedRoleState,
     anonymous_ids: AnonymousIds,
     selected_annotation_nodes: Option<Vec<usize>>,
     overlay_delta: Option<OwnedOverlayDelta>,
+    local_object_property_class: Option<OwnedLocalObjectPropertyClass>,
     options: DirectCompileOptions,
     statistics: DirectCompileStats,
     #[cfg(test)]
@@ -5318,7 +5341,12 @@ impl<'a> DirectColumns<'a> {
             };
             if after.is_some_and(|previous| property.as_bytes() <= previous.as_bytes())
                 || next.is_some_and(|current| property.as_bytes() >= current.as_bytes())
-                || !self.has_range_for_property(property, maximum_iri, state)?
+                || !self.has_object_property_class_for_property(
+                    TAG_OBJECT_PROPERTY_RANGE,
+                    property,
+                    maximum_iri,
+                    state,
+                )?
             {
                 continue;
             }
@@ -5327,26 +5355,29 @@ impl<'a> DirectColumns<'a> {
         Ok(next)
     }
 
-    fn has_range_for_property(
+    fn has_object_property_class_for_property(
         self,
+        expected_tag: u16,
         property: &str,
         maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<bool, KernelError> {
-        for range_index in 0..self.root_count() {
-            check_cancel(state, range_index)?;
-            if !self.root_is_selected(range_index)? {
+        if ![TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&expected_tag) {
+            return Err(KernelError::malformed(
+                "encoded object-property class match has the wrong constructor tag",
+            ));
+        }
+        for root_index in 0..self.root_count() {
+            check_cancel(state, root_index)?;
+            if !self.root_is_selected(root_index)? {
                 continue;
             }
-            let range_id = self.root_id(range_index)?;
-            if self.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
+            let node_id = self.root_id(root_index)?;
+            if self.node_tag(node_id)? != expected_tag {
                 continue;
             }
-            let Some((candidate, _range)) = self.object_property_class_projection(
-                range_id,
-                TAG_OBJECT_PROPERTY_RANGE,
-                maximum_iri,
-            )?
+            let Some((candidate, _class)) =
+                self.object_property_class_projection(node_id, expected_tag, maximum_iri)?
             else {
                 continue;
             };
@@ -5355,6 +5386,181 @@ impl<'a> DirectColumns<'a> {
             }
         }
         Ok(false)
+    }
+
+    fn object_property_class_match_count(
+        self,
+        expected_tag: u16,
+        property: &str,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<usize, KernelError> {
+        if ![TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&expected_tag) {
+            return Err(KernelError::malformed(
+                "encoded object-property class count has the wrong constructor tag",
+            ));
+        }
+        let mut count = 0_usize;
+        for root_index in 0..self.root_count() {
+            check_cancel(state, root_index)?;
+            if !self.root_is_selected(root_index)? {
+                continue;
+            }
+            let node_id = self.root_id(root_index)?;
+            if self.node_tag(node_id)? != expected_tag {
+                continue;
+            }
+            let Some((candidate, _class)) =
+                self.object_property_class_projection(node_id, expected_tag, maximum_iri)?
+            else {
+                continue;
+            };
+            if candidate == property {
+                count = count.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded object-property class count overflow")
+                })?;
+            }
+        }
+        Ok(count)
+    }
+}
+
+impl DirectPreparation {
+    fn next_paired_property<'a>(
+        &'a self,
+        columns: DirectColumns<'a>,
+        after: Option<&str>,
+        state: &AtomicU8,
+    ) -> Result<Option<&'a str>, KernelError> {
+        let base = columns.next_paired_property(after, self.options.max_iri_bytes, state)?;
+        let local = self
+            .local_object_property_class
+            .as_ref()
+            .filter(|local| {
+                after.is_none_or(|previous| local.property.as_bytes() > previous.as_bytes())
+            })
+            .map(|local| {
+                let counterpart_tag = match local.kind {
+                    ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_RANGE,
+                    ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_DOMAIN,
+                };
+                columns
+                    .has_object_property_class_for_property(
+                        counterpart_tag,
+                        &local.property,
+                        self.options.max_iri_bytes,
+                        state,
+                    )
+                    .map(|present| present.then_some(local.property.as_str()))
+            })
+            .transpose()?
+            .flatten();
+        Ok(match (base, local) {
+            (Some(base), Some(local)) if local.as_bytes() < base.as_bytes() => Some(local),
+            (Some(base), _) => Some(base),
+            (None, local) => local,
+        })
+    }
+
+    fn object_property_class_scan_len(
+        &self,
+        columns: DirectColumns<'_>,
+    ) -> Result<usize, KernelError> {
+        columns
+            .root_count()
+            .checked_add(usize::from(self.local_object_property_class.is_some()))
+            .ok_or_else(|| KernelError::resource("encoded local domain/range scan overflow"))
+    }
+
+    fn object_property_class_at<'a>(
+        &'a self,
+        columns: DirectColumns<'a>,
+        position: usize,
+    ) -> Result<Option<(ObjectPropertyClassRuleKind, &'a str, &'a str)>, KernelError> {
+        let base_count = columns.root_count();
+        let Some(local) = self.local_object_property_class.as_ref() else {
+            if position >= base_count {
+                return Err(KernelError::malformed(
+                    "encoded domain/range scan exceeded its root table",
+                ));
+            }
+            return Self::base_object_property_class_at(
+                columns,
+                position,
+                self.options.max_iri_bytes,
+            );
+        };
+        if local.insertion_position > base_count {
+            return Err(KernelError::malformed(
+                "encoded local domain/range insertion is out of range",
+            ));
+        }
+        if position == local.insertion_position {
+            return Ok(Some((
+                local.kind,
+                local.property.as_str(),
+                local.class.as_str(),
+            )));
+        }
+        let base_position = if position < local.insertion_position {
+            position
+        } else {
+            position.checked_sub(1).ok_or_else(|| {
+                KernelError::malformed("encoded local domain/range scan underflow")
+            })?
+        };
+        if base_position >= base_count {
+            return Err(KernelError::malformed(
+                "encoded local domain/range scan exceeded its merged root table",
+            ));
+        }
+        Self::base_object_property_class_at(columns, base_position, self.options.max_iri_bytes)
+    }
+
+    fn base_object_property_class_at<'a>(
+        columns: DirectColumns<'a>,
+        position: usize,
+        maximum_iri: usize,
+    ) -> Result<Option<(ObjectPropertyClassRuleKind, &'a str, &'a str)>, KernelError> {
+        if !columns.root_is_selected(position)? {
+            return Ok(None);
+        }
+        let node_id = columns.root_id(position)?;
+        let tag = columns.node_tag(node_id)?;
+        let kind = match tag {
+            TAG_OBJECT_PROPERTY_DOMAIN => ObjectPropertyClassRuleKind::Domain,
+            TAG_OBJECT_PROPERTY_RANGE => ObjectPropertyClassRuleKind::Range,
+            _ => return Ok(None),
+        };
+        Ok(columns
+            .object_property_class_projection(node_id, tag, maximum_iri)?
+            .map(|(property, class)| (kind, property, class)))
+    }
+
+    fn local_object_property_class_edge_counts(
+        &self,
+        columns: DirectColumns<'_>,
+        state: &AtomicU8,
+    ) -> Result<(usize, usize), KernelError> {
+        let Some(local) = self.local_object_property_class.as_ref() else {
+            return Ok((0, 0));
+        };
+        let counterpart_tag = match local.kind {
+            ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_RANGE,
+            ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_DOMAIN,
+        };
+        let products = columns.object_property_class_match_count(
+            counterpart_tag,
+            &local.property,
+            self.options.max_iri_bytes,
+            state,
+        )?;
+        let edges = products
+            .checked_mul(self.role_state.edge_count(&local.property)?)
+            .ok_or_else(|| {
+                KernelError::resource("encoded local domain/range edge-count overflow")
+            })?;
+        Ok((products, edges))
     }
 }
 
@@ -7177,9 +7383,9 @@ impl DirectEmissionCursor {
                 }
                 EmissionPhase::DomainRanges => {
                     if self.active_property.is_none() {
-                        let next = columns.next_paired_property(
+                        let next = preparation.next_paired_property(
+                            columns,
                             self.previous_property.as_deref(),
-                            preparation.options.max_iri_bytes,
                             state,
                         )?;
                         let Some(property) = next else {
@@ -7196,29 +7402,20 @@ impl DirectEmissionCursor {
                         clone_text(self.active_property.as_deref().ok_or_else(|| {
                             KernelError::malformed("encoded domain/range cursor lost its property")
                         })?)?;
+                    let scan_len = preparation.object_property_class_scan_len(columns)?;
                     if self.current_domain.is_none() {
                         let mut selected = None;
-                        while self.domain_index < columns.root_count() {
-                            let index = self.domain_index;
+                        while self.domain_index < scan_len {
+                            let position = self.domain_index;
                             self.domain_index += 1;
-                            check_cancel(state, index)?;
-                            if !columns.root_is_selected(index)? {
-                                continue;
-                            }
-                            let node_id = columns.root_id(index)?;
-                            if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
-                                continue;
-                            }
-                            let Some((candidate, domain)) = columns
-                                .object_property_class_projection(
-                                    node_id,
-                                    TAG_OBJECT_PROPERTY_DOMAIN,
-                                    preparation.options.max_iri_bytes,
-                                )?
+                            check_cancel(state, position)?;
+                            let Some((kind, candidate, domain)) =
+                                preparation.object_property_class_at(columns, position)?
                             else {
                                 continue;
                             };
-                            if candidate == property {
+                            if kind == ObjectPropertyClassRuleKind::Domain && candidate == property
+                            {
                                 selected = Some(clone_text(domain)?);
                                 break;
                             }
@@ -7231,26 +7428,16 @@ impl DirectEmissionCursor {
                         self.range_index = 0;
                     }
                     let mut selected_range = None;
-                    while self.range_index < columns.root_count() {
-                        let index = self.range_index;
+                    while self.range_index < scan_len {
+                        let position = self.range_index;
                         self.range_index += 1;
-                        check_cancel(state, index)?;
-                        if !columns.root_is_selected(index)? {
-                            continue;
-                        }
-                        let node_id = columns.root_id(index)?;
-                        if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_RANGE {
-                            continue;
-                        }
-                        let Some((candidate, range)) = columns.object_property_class_projection(
-                            node_id,
-                            TAG_OBJECT_PROPERTY_RANGE,
-                            preparation.options.max_iri_bytes,
-                        )?
+                        check_cancel(state, position)?;
+                        let Some((kind, candidate, range)) =
+                            preparation.object_property_class_at(columns, position)?
                         else {
                             continue;
                         };
-                        if candidate == property {
+                        if kind == ObjectPropertyClassRuleKind::Range && candidate == property {
                             selected_range = Some(range);
                             break;
                         }
@@ -7557,6 +7744,7 @@ fn prepare_direct<'a>(
         anonymous_ids,
         selected_annotation_nodes,
         overlay_delta: None,
+        local_object_property_class: None,
         options,
         statistics: stats,
         #[cfg(test)]
@@ -7661,6 +7849,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let object_property_class_rule =
         ObjectPropertyClassRulePlan::classify(delta_counts, delta_tag, local_rule_context);
     let local_role_rule = LocalRoleRulePlan::classify(delta_counts, delta_tag, local_rule_context);
+    let mut local_object_property_class = None;
     let mut local_role_state_axiom = None;
     let projection = if let Some(rule) = local_annotation_rule {
         rule.validate(delta_columns, delta_root, local_rule_context, state)?;
@@ -7830,7 +8019,17 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         }
         None
     } else if let Some(rule) = object_property_class_rule {
-        rule.validate(delta_columns, delta_root, local_rule_context, state)?;
+        local_object_property_class = rule
+            .validate(delta_columns, delta_root, local_rule_context, state)?
+            .map(|(kind, property, class)| {
+                Ok(OwnedLocalObjectPropertyClass {
+                    kind,
+                    property: clone_text(property)?,
+                    class: clone_text(class)?,
+                    insertion_position: 0,
+                })
+            })
+            .transpose()?;
         None
     } else if let Some(rule) = local_role_rule {
         local_role_state_axiom =
@@ -8289,7 +8488,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         None
     } else {
         return Err(KernelError::unsupported(
-            "bounded local-overlay root must be one supported state-neutral ontology Annotation or AnnotationAssertion, unannotated Declaration, supported named or ignored-shape SubClassOf, named or ignored-shape ClassAssertion, ignored-shape EquivalentClasses, ignored-shape ObjectPropertyDomain or ObjectPropertyRange, supported local SubObjectPropertyOf or InverseObjectProperties, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
+            "bounded local-overlay root must be one supported state-neutral ontology Annotation or AnnotationAssertion, unannotated Declaration, supported named or ignored-shape SubClassOf, named or ignored-shape ClassAssertion, ignored-shape EquivalentClasses, named or ignored-shape ObjectPropertyDomain or ObjectPropertyRange, supported local SubObjectPropertyOf or InverseObjectProperties, named ObjectPropertyAssertion, named-individual NegativeObjectPropertyAssertion, supported silent object-property axiom, supported silent annotation-property axiom, supported silent class-disjointness axiom, named-source data-property assertion, named SubDataPropertyOf, named EquivalentDataProperties, named DisjointDataProperties, named-property DataPropertyDomain, named-property DataPropertyRange, named FunctionalDataProperty, named DatatypeDefinition, supported HasKey, named SameIndividual, or named DifferentIndividuals axiom",
         ));
     };
 
@@ -8348,6 +8547,9 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     if let Some(axiom) = local_role_state_axiom.as_mut() {
         axiom.canonical_order = insertion_position;
     }
+    if let Some(local) = local_object_property_class.as_mut() {
+        local.insertion_position = insertion_position;
+    }
     let mut prepared = prepare_direct_batches_with_local_role_uncommitted(
         base_columns,
         None,
@@ -8356,8 +8558,9 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         retained,
         local_role_state_axiom,
     )?;
+    prepared.preparation.local_object_property_class = local_object_property_class;
 
-    let (additional_edges, additional_role_expansion_edges) = match &projection {
+    let (projection_edges, projection_role_expansion_edges) = match &projection {
         Some(OwnedOverlayDeltaProjection::Taxonomy { .. }) => (
             1_usize
                 .checked_add(usize::from(options.bidirectional))
@@ -8394,6 +8597,22 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         )
         | None => (0, 0),
     };
+    let (additional_domain_range_edges, expanded_local_domain_range_edges) =
+        if options.asserted_taxonomy_only {
+            (0, 0)
+        } else {
+            prepared
+                .preparation
+                .local_object_property_class_edge_counts(base_columns, state)?
+        };
+    let local_domain_range_role_expansion_edges = expanded_local_domain_range_edges
+        .checked_sub(additional_domain_range_edges)
+        .ok_or_else(|| {
+            KernelError::malformed("encoded local domain/range edge counters are inconsistent")
+        })?;
+    let additional_edges = projection_edges
+        .checked_add(expanded_local_domain_range_edges)
+        .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
     let projected = prepared
         .preparation
         .statistics
@@ -8435,7 +8654,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 })?;
             statistics.role_expansion_edges = statistics
                 .role_expansion_edges
-                .checked_add(additional_role_expansion_edges)
+                .checked_add(projection_role_expansion_edges)
                 .ok_or_else(|| {
                     KernelError::resource("encoded role-expansion edge-count overflow")
                 })?;
@@ -8769,6 +8988,14 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             ));
         }
     }
+    statistics.domain_range_edges = statistics
+        .domain_range_edges
+        .checked_add(additional_domain_range_edges)
+        .ok_or_else(|| KernelError::resource("encoded domain/range edge-count overflow"))?;
+    statistics.role_expansion_edges = statistics
+        .role_expansion_edges
+        .checked_add(local_domain_range_role_expansion_edges)
+        .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
     statistics.edges = projected;
     statistics.buffer_bytes = statistics
         .buffer_bytes
@@ -9838,6 +10065,46 @@ mod tests {
         fixture
             .root_ids
             .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn local_object_property_class_base_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:D".as_slice(),
+            b"urn:R",
+            b"urn:p",
+            b"urn:child",
+            b"urn:pinv",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=5
+        }
+        for iri_id in [1_u64, 2] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 6..=7
+        }
+        for iri_id in [3_u64, 4, 5] {
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 8..=10
+        }
+        for (tag, first, second) in [
+            (TAG_SUB_OBJECT_PROPERTY_OF, 9_u64, 8_u64),
+            (TAG_INVERSE_OBJECT_PROPERTIES, 8, 10),
+            (TAG_OBJECT_PROPERTY_DOMAIN, 8, 6),
+            (TAG_OBJECT_PROPERTY_RANGE, 8, 7),
+        ] {
+            fixture.push_node_ref(first);
+            fixture.push_node_ref(second);
+            fixture.push_empty_set();
+            fixture.finish_node(tag); // 11..=14
+        }
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 4]);
+        for root_id in 11_u32..=14 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
         fixture
     }
 
@@ -14816,18 +15083,35 @@ mod tests {
 
             let projecting =
                 ignored_object_property_class_delta_fixture(root_tag, false, false, false, false);
-            assert!(matches!(
-                prepare_single_overlay_delta_batches_uncommitted(
-                    base.columns(),
+            let counts = projecting
+                .columns()
+                .classify_roots(options.max_iri_bytes, &running_state())
+                .unwrap();
+            let plan = ObjectPropertyClassRulePlan::classify(
+                counts,
+                root_tag,
+                LocalRuleContext::new(options, false),
+            )
+            .unwrap();
+            assert!(!plan.ignored);
+            let root = projecting.columns().root_id(0).unwrap();
+            let projected = plan
+                .validate(
                     projecting.columns(),
-                    options,
+                    root,
+                    LocalRuleContext::new(options, false),
                     &running_state(),
-                    None,
-                    canonical_limits().max_work,
-                    canonical_limits().max_workspace_bytes,
-                ),
-                Err(KernelError::Unsupported(message))
-                    if message.contains("requires an ignored complete direct projection")
+                )
+                .unwrap();
+            assert!(matches!(
+                projected,
+                Some((kind, "urn:p", "urn:A"))
+                    if kind
+                        == if root_tag == TAG_OBJECT_PROPERTY_DOMAIN {
+                            ObjectPropertyClassRuleKind::Domain
+                        } else {
+                            ObjectPropertyClassRuleKind::Range
+                        }
             ));
 
             let annotated =
@@ -14860,6 +15144,255 @@ mod tests {
                 Err(KernelError::Unsupported(message))
                     if message.contains("no anonymous individuals or local scope remap")
             ));
+        }
+    }
+
+    #[test]
+    fn one_root_overlay_delta_projects_named_object_property_class_axioms() {
+        let base = local_object_property_class_base_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 6,
+            max_iri_bytes: 1024,
+        };
+        for (root_tag, kind) in [
+            (
+                TAG_OBJECT_PROPERTY_DOMAIN,
+                ObjectPropertyClassRuleKind::Domain,
+            ),
+            (
+                TAG_OBJECT_PROPERTY_RANGE,
+                ObjectPropertyClassRuleKind::Range,
+            ),
+        ] {
+            let delta =
+                ignored_object_property_class_delta_fixture(root_tag, false, false, false, false);
+            let expected = if kind == ObjectPropertyClassRuleKind::Domain {
+                vec![
+                    DirectEdge {
+                        source: "urn:A".into(),
+                        relation: "urn:p".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:A".into(),
+                        relation: "urn:child".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:R".into(),
+                        relation: "urn:pinv".into(),
+                        destination: "urn:A".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:p".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:child".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:R".into(),
+                        relation: "urn:pinv".into(),
+                        destination: "urn:D".into(),
+                    },
+                ]
+            } else {
+                vec![
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:p".into(),
+                        destination: "urn:A".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:child".into(),
+                        destination: "urn:A".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:A".into(),
+                        relation: "urn:pinv".into(),
+                        destination: "urn:D".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:p".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:child".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:R".into(),
+                        relation: "urn:pinv".into(),
+                        destination: "urn:D".into(),
+                    },
+                ]
+            };
+            for (variant, projects) in [
+                (options, true),
+                (
+                    DirectCompileOptions {
+                        only_taxonomy: true,
+                        ..options
+                    },
+                    true,
+                ),
+                (
+                    DirectCompileOptions {
+                        asserted_taxonomy_only: true,
+                        ..options
+                    },
+                    false,
+                ),
+            ] {
+                let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    variant,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                )
+                .unwrap_or_else(|error| panic!("local {kind:?}: {error:?}"));
+                let statistics = prepared.statistics();
+                assert_eq!(statistics.roots, 5);
+                assert_eq!(statistics.sub_object_properties, 1);
+                assert_eq!(statistics.inverse_object_properties, 1);
+                assert_eq!(
+                    statistics.object_property_domains,
+                    1 + usize::from(kind == ObjectPropertyClassRuleKind::Domain)
+                );
+                assert_eq!(
+                    statistics.object_property_ranges,
+                    1 + usize::from(kind == ObjectPropertyClassRuleKind::Range)
+                );
+                assert_eq!(statistics.ignored_object_property_domains, 0);
+                assert_eq!(statistics.ignored_object_property_ranges, 0);
+                assert_eq!(statistics.domain_range_edges, if projects { 2 } else { 0 });
+                assert_eq!(
+                    statistics.role_expansion_edges,
+                    if projects { 4 } else { 0 }
+                );
+                assert_eq!(statistics.skipped_axioms, 0);
+                assert_eq!(statistics.edges, if projects { 6 } else { 0 });
+                assert_eq!(prepared.emission_attempts(), 0);
+                assert!(prepared.preparation.overlay_delta.is_none());
+                assert!(prepared.preparation.local_object_property_class.is_some());
+
+                let mut edges = Vec::new();
+                while prepared.remaining_edges() != 0 {
+                    let (batch, cursor) = prepared
+                        .prepare_next_batch(base.columns(), &running_state(), 1)
+                        .unwrap();
+                    assert_eq!(batch.len(), 1);
+                    edges.extend(batch);
+                    prepared.commit_cursor(cursor);
+                }
+                let expected_edges = if projects { expected.as_slice() } else { &[] };
+                assert_eq!(edges.as_slice(), expected_edges);
+                assert!(prepared.is_exhausted());
+            }
+
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    DirectCompileOptions {
+                        max_edges: 5,
+                        ..options
+                    },
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Resource(message)) if message.contains("requires 6 edges")
+            ));
+            let retry = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(retry.statistics().edges, 6);
+            assert_eq!(retry.emission_attempts(), 0);
+
+            let excluded_same_kind = if kind == ObjectPropertyClassRuleKind::Domain {
+                3_u32.to_le_bytes()
+            } else {
+                4_u32.to_le_bytes()
+            };
+            let selected_base = base.columns().with_excluded_root_ids(&excluded_same_kind);
+            let mut selected = prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(selected.statistics().roots, 4);
+            assert_eq!(selected.statistics().domain_range_edges, 1);
+            assert_eq!(selected.statistics().role_expansion_edges, 2);
+            assert_eq!(selected.statistics().edges, 3);
+            assert_eq!(selected.emission_attempts(), 0);
+            let mut selected_edges = Vec::new();
+            while selected.remaining_edges() != 0 {
+                let (batch, cursor) = selected
+                    .prepare_next_batch(selected_base, &running_state(), 1)
+                    .unwrap();
+                assert_eq!(batch.len(), 1);
+                selected_edges.extend(batch);
+                selected.commit_cursor(cursor);
+            }
+            assert_eq!(selected_edges.as_slice(), &expected[..3]);
+            assert!(selected.is_exhausted());
+            assert_eq!(
+                selected
+                    .cursor
+                    .next_edge(selected_base, &selected.preparation, &running_state(),)
+                    .unwrap(),
+                None,
+            );
+
+            let excluded_counterpart = if kind == ObjectPropertyClassRuleKind::Domain {
+                4_u32.to_le_bytes()
+            } else {
+                3_u32.to_le_bytes()
+            };
+            let selected_base = base.columns().with_excluded_root_ids(&excluded_counterpart);
+            let selected = prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(selected.statistics().roots, 4);
+            assert_eq!(selected.statistics().domain_range_edges, 0);
+            assert_eq!(selected.statistics().role_expansion_edges, 0);
+            assert_eq!(selected.statistics().edges, 0);
+            assert_eq!(selected.emission_attempts(), 0);
+            assert!(selected.is_exhausted());
         }
     }
 
