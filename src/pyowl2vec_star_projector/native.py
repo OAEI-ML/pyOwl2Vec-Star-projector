@@ -31,7 +31,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 76
+ENCODED_DIRECT_KERNEL_VERSION = 77
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1288,8 +1288,8 @@ def prepare_native_encoded_direct(
     slices, mmap, and other valid exporters are deliberately reported as unsupported until the
     abi3-safe design expands.  An optional independent root table is retained for the native
     annotation-provenance join.  One optional sorted EXCLUDE posting table is
-    retained and scanned in place by the native root cursor.  One top-local one-root overlay
-    table may be retained for the bounded canonical merge, including with that base posting.
+    retained and scanned in place by the native root cursor. One bounded top-local overlay
+    table may be retained for the canonical merge, including with that base posting.
     The independent provenance table remains mutually exclusive with the local overlay.
     """
 

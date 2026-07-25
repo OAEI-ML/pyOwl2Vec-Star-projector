@@ -976,16 +976,28 @@ struct ObjectPropertyClassRulePlan {
 }
 
 impl ObjectPropertyClassRulePlan {
-    fn classify(counts: RootCounts, tag: u16, context: LocalRuleContext) -> Option<Self> {
+    fn from_rule(rule: ObjectPropertyClassRule, ignored: bool, context: LocalRuleContext) -> Self {
+        Self {
+            rule,
+            ignored,
+            retain_ignored_counter: rule.retain_ignored_by_mode[context.mode.index()],
+        }
+    }
+
+    fn for_tag(tag: u16, ignored: bool, context: LocalRuleContext) -> Option<Self> {
         OBJECT_PROPERTY_CLASS_RULES
             .iter()
             .copied()
-            .find(|rule| rule.tag == tag && rule.kind.matches_single_root(counts))
-            .map(|rule| Self {
-                rule,
-                ignored: rule.kind.is_ignored(counts),
-                retain_ignored_counter: rule.retain_ignored_by_mode[context.mode.index()],
-            })
+            .find(|rule| rule.tag == tag)
+            .map(|rule| Self::from_rule(rule, ignored, context))
+    }
+
+    fn classify(counts: RootCounts, tag: u16, context: LocalRuleContext) -> Option<Self> {
+        let rule = OBJECT_PROPERTY_CLASS_RULES
+            .iter()
+            .copied()
+            .find(|rule| rule.tag == tag && rule.kind.matches_single_root(counts))?;
+        Some(Self::from_rule(rule, rule.kind.is_ignored(counts), context))
     }
 
     fn validate<'a>(
@@ -1753,7 +1765,7 @@ struct DirectPreparation {
     anonymous_ids: AnonymousIds,
     selected_annotation_nodes: Option<Vec<usize>>,
     overlay_delta: Option<OwnedOverlayDelta>,
-    local_object_property_class: Option<OwnedLocalObjectPropertyClass>,
+    local_object_property_classes: [Option<OwnedLocalObjectPropertyClass>; 2],
     options: DirectCompileOptions,
     statistics: DirectCompileStats,
     #[cfg(test)]
@@ -5433,28 +5445,44 @@ impl DirectPreparation {
         state: &AtomicU8,
     ) -> Result<Option<&'a str>, KernelError> {
         let base = columns.next_paired_property(after, self.options.max_iri_bytes, state)?;
-        let local = self
-            .local_object_property_class
-            .as_ref()
-            .filter(|local| {
-                after.is_none_or(|previous| local.property.as_bytes() > previous.as_bytes())
-            })
-            .map(|local| {
-                let counterpart_tag = match local.kind {
-                    ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_RANGE,
-                    ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_DOMAIN,
+        let mut local_candidate = None;
+        for local in self.local_object_property_classes.iter().flatten() {
+            if after.is_some_and(|previous| local.property.as_bytes() <= previous.as_bytes()) {
+                continue;
+            }
+            let counterpart_kind = match local.kind {
+                ObjectPropertyClassRuleKind::Domain => ObjectPropertyClassRuleKind::Range,
+                ObjectPropertyClassRuleKind::Range => ObjectPropertyClassRuleKind::Domain,
+            };
+            let local_counterpart =
+                self.local_object_property_classes
+                    .iter()
+                    .flatten()
+                    .any(|candidate| {
+                        candidate.kind == counterpart_kind && candidate.property == local.property
+                    });
+            let base_counterpart = if local_counterpart {
+                false
+            } else {
+                let counterpart_tag = match counterpart_kind {
+                    ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_DOMAIN,
+                    ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_RANGE,
                 };
-                columns
-                    .has_object_property_class_for_property(
-                        counterpart_tag,
-                        &local.property,
-                        self.options.max_iri_bytes,
-                        state,
-                    )
-                    .map(|present| present.then_some(local.property.as_str()))
-            })
-            .transpose()?
-            .flatten();
+                columns.has_object_property_class_for_property(
+                    counterpart_tag,
+                    &local.property,
+                    self.options.max_iri_bytes,
+                    state,
+                )?
+            };
+            if (local_counterpart || base_counterpart)
+                && local_candidate
+                    .is_none_or(|candidate: &str| local.property.as_bytes() < candidate.as_bytes())
+            {
+                local_candidate = Some(local.property.as_str());
+            }
+        }
+        let local = local_candidate;
         Ok(match (base, local) {
             (Some(base), Some(local)) if local.as_bytes() < base.as_bytes() => Some(local),
             (Some(base), _) => Some(base),
@@ -5468,7 +5496,7 @@ impl DirectPreparation {
     ) -> Result<usize, KernelError> {
         columns
             .root_count()
-            .checked_add(usize::from(self.local_object_property_class.is_some()))
+            .checked_add(self.local_object_property_classes.iter().flatten().count())
             .ok_or_else(|| KernelError::resource("encoded local domain/range scan overflow"))
     }
 
@@ -5478,37 +5506,38 @@ impl DirectPreparation {
         position: usize,
     ) -> Result<Option<(ObjectPropertyClassRuleKind, &'a str, &'a str)>, KernelError> {
         let base_count = columns.root_count();
-        let Some(local) = self.local_object_property_class.as_ref() else {
-            if position >= base_count {
-                return Err(KernelError::malformed(
-                    "encoded domain/range scan exceeded its root table",
-                ));
-            }
-            return Self::base_object_property_class_at(
-                columns,
-                position,
-                self.options.max_iri_bytes,
-            );
-        };
-        if local.insertion_position > base_count {
+        let local_count = self.local_object_property_classes.iter().flatten().count();
+        let scan_len = base_count
+            .checked_add(local_count)
+            .ok_or_else(|| KernelError::resource("encoded local domain/range scan overflow"))?;
+        if position >= scan_len {
             return Err(KernelError::malformed(
-                "encoded local domain/range insertion is out of range",
+                "encoded domain/range scan exceeded its merged root table",
             ));
         }
-        if position == local.insertion_position {
-            return Ok(Some((
-                local.kind,
-                local.property.as_str(),
-                local.class.as_str(),
-            )));
+        for local in self.local_object_property_classes.iter().flatten() {
+            if local.insertion_position >= scan_len {
+                return Err(KernelError::malformed(
+                    "encoded local domain/range insertion is out of range",
+                ));
+            }
+            if position == local.insertion_position {
+                return Ok(Some((
+                    local.kind,
+                    local.property.as_str(),
+                    local.class.as_str(),
+                )));
+            }
         }
-        let base_position = if position < local.insertion_position {
-            position
-        } else {
-            position.checked_sub(1).ok_or_else(|| {
-                KernelError::malformed("encoded local domain/range scan underflow")
-            })?
-        };
+        let inserted_before = self
+            .local_object_property_classes
+            .iter()
+            .flatten()
+            .filter(|local| local.insertion_position < position)
+            .count();
+        let base_position = position
+            .checked_sub(inserted_before)
+            .ok_or_else(|| KernelError::malformed("encoded local domain/range scan underflow"))?;
         if base_position >= base_count {
             return Err(KernelError::malformed(
                 "encoded local domain/range scan exceeded its merged root table",
@@ -5542,31 +5571,66 @@ impl DirectPreparation {
         columns: DirectColumns<'_>,
         state: &AtomicU8,
     ) -> Result<(usize, usize), KernelError> {
-        let Some(local) = self.local_object_property_class.as_ref() else {
-            return Ok((0, 0));
-        };
-        let counterpart_tag = match local.kind {
-            ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_RANGE,
-            ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_DOMAIN,
-        };
-        let products = columns.object_property_class_match_count(
-            counterpart_tag,
-            &local.property,
-            self.options.max_iri_bytes,
-            state,
-        )?;
-        let edges = products
-            .checked_mul(self.role_state.edge_count(&local.property)?)
-            .ok_or_else(|| {
-                KernelError::resource("encoded local domain/range edge-count overflow")
+        let mut products = 0_usize;
+        let mut edges = 0_usize;
+        for local in self.local_object_property_classes.iter().flatten() {
+            let counterpart_tag = match local.kind {
+                ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_RANGE,
+                ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_DOMAIN,
+            };
+            let base_products = columns.object_property_class_match_count(
+                counterpart_tag,
+                &local.property,
+                self.options.max_iri_bytes,
+                state,
+            )?;
+            products = products.checked_add(base_products).ok_or_else(|| {
+                KernelError::resource("encoded local domain/range product-count overflow")
             })?;
+            edges = edges
+                .checked_add(
+                    base_products
+                        .checked_mul(self.role_state.edge_count(&local.property)?)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded local domain/range edge-count overflow")
+                        })?,
+                )
+                .ok_or_else(|| {
+                    KernelError::resource("encoded local domain/range edge-count overflow")
+                })?;
+        }
+        for domain in self
+            .local_object_property_classes
+            .iter()
+            .flatten()
+            .filter(|local| local.kind == ObjectPropertyClassRuleKind::Domain)
+        {
+            for range in self
+                .local_object_property_classes
+                .iter()
+                .flatten()
+                .filter(|local| local.kind == ObjectPropertyClassRuleKind::Range)
+            {
+                if domain.property != range.property {
+                    continue;
+                }
+                products = products.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local domain/range product-count overflow")
+                })?;
+                edges = edges
+                    .checked_add(self.role_state.edge_count(&domain.property)?)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded local domain/range edge-count overflow")
+                    })?;
+            }
+        }
         Ok((products, edges))
     }
 }
 
 /// Exact cross-table canonical comparison and two-way root merging.
 ///
-/// The adapter admits this merger only for the bounded one-root local overlay
+/// The adapter admits this merger only for the bounded local-overlay
 /// contract. Every traversal step and allocation remains explicit so the
 /// execution path never needs an unbounded canonical arena.
 pub(crate) mod canonical_merge {
@@ -7744,7 +7808,7 @@ fn prepare_direct<'a>(
         anonymous_ids,
         selected_annotation_nodes,
         overlay_delta: None,
-        local_object_property_class: None,
+        local_object_property_classes: [None, None],
         options,
         statistics: stats,
         #[cfg(test)]
@@ -7814,15 +7878,29 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             "bounded local-overlay delta requires ALL root selection",
         ));
     }
-    if delta_columns.root_count() != 1 {
+    let delta_root_count = delta_columns.root_count();
+    if !(1..=2).contains(&delta_root_count) {
         return Err(KernelError::unsupported(
-            "bounded local-overlay compilation requires exactly one local root",
+            "bounded local-overlay compilation requires exactly one local root or one canonical ObjectPropertyDomain/ObjectPropertyRange pair",
         ));
     }
 
     delta_columns.validate_generic(state)?;
     delta_columns.validate_supported_nodes(options.max_iri_bytes, state)?;
     let delta_counts = delta_columns.classify_roots(options.max_iri_bytes, state)?;
+    let paired_object_property_class = delta_root_count == 2;
+    if paired_object_property_class
+        && delta_counts
+            != (RootCounts {
+                object_property_domains: 1,
+                object_property_ranges: 1,
+                ..RootCounts::default()
+            })
+    {
+        return Err(KernelError::unsupported(
+            "bounded two-root local overlay requires exactly one named ObjectPropertyDomain and one named ObjectPropertyRange",
+        ));
+    }
     let delta_root = delta_columns.root_id(0)?;
     let delta_root_kind = delta_columns.root_kind(0)?;
     let delta_tag = delta_columns.node_tag(delta_root)?;
@@ -7833,7 +7911,10 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         delta_tag,
         local_rule_context,
     );
-    if delta_root_kind != ROOT_AXIOM && local_annotation_rule.is_none() {
+    if !paired_object_property_class
+        && delta_root_kind != ROOT_AXIOM
+        && local_annotation_rule.is_none()
+    {
         return Err(KernelError::unsupported(
             "bounded local-overlay root must be one supported axiom or ontology annotation",
         ));
@@ -7849,9 +7930,63 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let object_property_class_rule =
         ObjectPropertyClassRulePlan::classify(delta_counts, delta_tag, local_rule_context);
     let local_role_rule = LocalRoleRulePlan::classify(delta_counts, delta_tag, local_rule_context);
-    let mut local_object_property_class = None;
+    let mut object_property_class_rules = [object_property_class_rule, None];
+    let mut local_object_property_classes = [None, None];
+    if paired_object_property_class {
+        for root_index in 0..delta_root_count {
+            check_cancel(state, root_index)?;
+            let root = delta_columns.root_id(root_index)?;
+            if delta_columns.root_kind(root_index)? != ROOT_AXIOM {
+                return Err(KernelError::unsupported(
+                    "bounded two-root local overlay requires axiom roots",
+                ));
+            }
+            let tag = delta_columns.node_tag(root)?;
+            let rule = ObjectPropertyClassRulePlan::for_tag(tag, false, local_rule_context)
+                .ok_or_else(|| {
+                    KernelError::unsupported(
+                        "bounded two-root local overlay requires ObjectPropertyDomain and ObjectPropertyRange roots",
+                    )
+                })?;
+            let (kind, property, class) = rule
+                .validate(delta_columns, root, local_rule_context, state)?
+                .ok_or_else(|| {
+                    KernelError::unsupported(
+                        "bounded two-root local overlay requires named object properties and classes",
+                    )
+                })?;
+            object_property_class_rules[root_index] = Some(rule);
+            local_object_property_classes[root_index] = Some(OwnedLocalObjectPropertyClass {
+                kind,
+                property: clone_text(property)?,
+                class: clone_text(class)?,
+                insertion_position: 0,
+            });
+        }
+        let domain = local_object_property_classes
+            .iter()
+            .flatten()
+            .find(|local| local.kind == ObjectPropertyClassRuleKind::Domain)
+            .ok_or_else(|| {
+                KernelError::malformed("encoded two-root local overlay lost its domain")
+            })?;
+        let range = local_object_property_classes
+            .iter()
+            .flatten()
+            .find(|local| local.kind == ObjectPropertyClassRuleKind::Range)
+            .ok_or_else(|| {
+                KernelError::malformed("encoded two-root local overlay lost its range")
+            })?;
+        if domain.property != range.property {
+            return Err(KernelError::unsupported(
+                "bounded two-root local overlay requires its domain and range to use the same named object property",
+            ));
+        }
+    }
     let mut local_role_state_axiom = None;
-    let projection = if let Some(rule) = local_annotation_rule {
+    let projection = if paired_object_property_class {
+        None
+    } else if let Some(rule) = local_annotation_rule {
         rule.validate(delta_columns, delta_root, local_rule_context, state)?;
         None
     } else if delta_tag == TAG_SUB_CLASS_OF
@@ -8019,7 +8154,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         }
         None
     } else if let Some(rule) = object_property_class_rule {
-        local_object_property_class = rule
+        local_object_property_classes[0] = rule
             .validate(delta_columns, delta_root, local_rule_context, state)?
             .map(|(kind, property, class)| {
                 Ok(OwnedLocalObjectPropertyClass {
@@ -8503,24 +8638,40 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         state,
     )?;
     let mut left_roots = 0_usize;
+    let mut right_roots = 0_usize;
     let mut next_insertion_scan = 0_usize;
-    let mut insertion_position = None;
+    let mut insertion_positions = [None, None];
     while let Some(root) = merger.next(state)? {
         match root {
             MergedCanonicalRoot::Left(root) => {
                 left_roots = left_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root counter overflow")
                 })?;
-                next_insertion_scan = root.index.checked_add(1).ok_or_else(|| {
-                    KernelError::resource("encoded local-overlay root position overflow")
-                })?;
+                next_insertion_scan = root
+                    .index
+                    .checked_add(1)
+                    .and_then(|position| position.checked_add(right_roots))
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded local-overlay root position overflow")
+                    })?;
             }
             MergedCanonicalRoot::Right(root) => {
-                if root.index != 0 || insertion_position.replace(next_insertion_scan).is_some() {
+                let Some(position) = insertion_positions.get_mut(root.index) else {
                     return Err(KernelError::malformed(
                         "encoded local-overlay merge produced an inconsistent local root",
                     ));
+                };
+                if position.replace(next_insertion_scan).is_some() {
+                    return Err(KernelError::malformed(
+                        "encoded local-overlay merge produced a duplicate local root",
+                    ));
                 }
+                right_roots = right_roots.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local-overlay root counter overflow")
+                })?;
+                next_insertion_scan = next_insertion_scan.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local-overlay root position overflow")
+                })?;
             }
             MergedCanonicalRoot::Both { .. } => {
                 return Err(KernelError::unsupported(
@@ -8529,14 +8680,23 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             }
         }
     }
-    let insertion_position = insertion_position
+    if right_roots != delta_root_count
+        || insertion_positions[..delta_root_count]
+            .iter()
+            .any(Option::is_none)
+    {
+        return Err(KernelError::malformed(
+            "encoded local-overlay merge lost a local root",
+        ));
+    }
+    let insertion_position = insertion_positions[0]
         .ok_or_else(|| KernelError::malformed("encoded local-overlay merge lost its local root"))?;
     let selected_base_roots = base_columns.selected_root_count()?;
     if left_roots != selected_base_roots
         || merger.report().deduplicated_roots != 0
         || merger.report().roots_emitted
             != selected_base_roots
-                .checked_add(1)
+                .checked_add(delta_root_count)
                 .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?
     {
         return Err(KernelError::malformed(
@@ -8547,8 +8707,14 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     if let Some(axiom) = local_role_state_axiom.as_mut() {
         axiom.canonical_order = insertion_position;
     }
-    if let Some(local) = local_object_property_class.as_mut() {
-        local.insertion_position = insertion_position;
+    for (root_index, local) in local_object_property_classes.iter_mut().enumerate() {
+        if let Some(local) = local {
+            local.insertion_position = insertion_positions[root_index].ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded local-overlay object-property class lost its insertion position",
+                )
+            })?;
+        }
     }
     let mut prepared = prepare_direct_batches_with_local_role_uncommitted(
         base_columns,
@@ -8558,7 +8724,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         retained,
         local_role_state_axiom,
     )?;
-    prepared.preparation.local_object_property_class = local_object_property_class;
+    prepared.preparation.local_object_property_classes = local_object_property_classes;
 
     let (projection_edges, projection_role_expansion_edges) = match &projection {
         Some(OwnedOverlayDeltaProjection::Taxonomy { .. }) => (
@@ -8628,7 +8794,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let statistics = &mut prepared.preparation.statistics;
     statistics.roots = statistics
         .roots
-        .checked_add(1)
+        .checked_add(delta_root_count)
         .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?;
     statistics.nodes = statistics
         .nodes
@@ -8723,11 +8889,10 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     })?;
             }
         }
-        None if object_property_class_rule.is_some() => {
-            let Some(rule) = object_property_class_rule else {
-                unreachable!("matched object-property class rule remains available");
-            };
-            rule.apply_statistics(statistics)?;
+        None if object_property_class_rules.iter().any(Option::is_some) => {
+            for rule in object_property_class_rules.iter().flatten().copied() {
+                rule.apply_statistics(statistics)?;
+            }
         }
         None if local_role_rule.is_some() => {
             let Some(rule) = local_role_rule else {
@@ -9693,6 +9858,67 @@ mod tests {
             .root_kinds
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         for root_id in [7_u32, 8] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
+        fixture
+    }
+
+    fn local_object_property_class_pair_delta_fixture(
+        second_tag: u16,
+        same_property: bool,
+        annotated: bool,
+    ) -> Fixture {
+        assert!([TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&second_tag));
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:D".as_slice(),
+            b"urn:R",
+            b"urn:p",
+            b"urn:q",
+            b"urn:label",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=5
+        }
+        for iri_id in [1_u64, 2] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 6..=7
+        }
+        for iri_id in [3_u64, 4] {
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 8..=9
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 10
+
+        let annotation_ids = if annotated {
+            fixture.push_node_ref(10);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION); // 11
+            vec![11]
+        } else {
+            Vec::new()
+        };
+        fixture.push_node_ref(8);
+        fixture.push_node_ref(6);
+        fixture.push_node_set(&annotation_ids);
+        fixture.finish_node(TAG_OBJECT_PROPERTY_DOMAIN);
+        let domain_id = (fixture.node_tags.len() / 2) as u32;
+
+        fixture.push_node_ref(if same_property { 8 } else { 9 });
+        fixture.push_node_ref(7);
+        fixture.push_empty_set();
+        fixture.finish_node(second_tag);
+        let second_id = (fixture.node_tags.len() / 2) as u32;
+
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [domain_id, second_id] {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
@@ -15287,7 +15513,15 @@ mod tests {
                 assert_eq!(statistics.edges, if projects { 6 } else { 0 });
                 assert_eq!(prepared.emission_attempts(), 0);
                 assert!(prepared.preparation.overlay_delta.is_none());
-                assert!(prepared.preparation.local_object_property_class.is_some());
+                assert_eq!(
+                    prepared
+                        .preparation
+                        .local_object_property_classes
+                        .iter()
+                        .flatten()
+                        .count(),
+                    1
+                );
 
                 let mut edges = Vec::new();
                 while prepared.remaining_edges() != 0 {
@@ -15393,6 +15627,321 @@ mod tests {
             assert_eq!(selected.statistics().edges, 0);
             assert_eq!(selected.emission_attempts(), 0);
             assert!(selected.is_exhausted());
+        }
+    }
+
+    #[test]
+    fn two_root_overlay_delta_projects_local_domain_range_pair_transactionally() {
+        let base = overlay_role_base_fixture();
+        let delta =
+            local_object_property_class_pair_delta_fixture(TAG_OBJECT_PROPERTY_RANGE, true, false);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+        let expected = vec![
+            DirectEdge {
+                source: "urn:D".into(),
+                relation: "urn:p".into(),
+                destination: "urn:R".into(),
+            },
+            DirectEdge {
+                source: "urn:D".into(),
+                relation: "urn:child".into(),
+                destination: "urn:R".into(),
+            },
+            DirectEdge {
+                source: "urn:R".into(),
+                relation: "urn:pinv".into(),
+                destination: "urn:D".into(),
+            },
+        ];
+
+        for (variant, projects) in [
+            (options, true),
+            (
+                DirectCompileOptions {
+                    only_taxonomy: true,
+                    ..options
+                },
+                true,
+            ),
+            (
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                false,
+            ),
+        ] {
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                variant,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 4);
+            assert_eq!(statistics.sub_object_properties, 1);
+            assert_eq!(statistics.inverse_object_properties, 1);
+            assert_eq!(statistics.object_property_domains, 1);
+            assert_eq!(statistics.object_property_ranges, 1);
+            assert_eq!(statistics.domain_range_edges, usize::from(projects));
+            assert_eq!(
+                statistics.role_expansion_edges,
+                if projects { 2 } else { 0 }
+            );
+            assert_eq!(statistics.edges, if projects { 3 } else { 0 });
+            assert_eq!(prepared.emission_attempts(), 0);
+            assert!(prepared.preparation.overlay_delta.is_none());
+            assert_eq!(
+                prepared
+                    .preparation
+                    .local_object_property_classes
+                    .iter()
+                    .flatten()
+                    .count(),
+                2
+            );
+
+            let mut edges = Vec::new();
+            if projects {
+                let (first, first_cursor) = prepared
+                    .prepare_next_batch(base.columns(), &running_state(), 1)
+                    .unwrap();
+                let (retry, _) = prepared
+                    .prepare_next_batch(base.columns(), &running_state(), 1)
+                    .unwrap();
+                assert_eq!(first, retry);
+                assert_eq!(first.as_slice(), &expected[..1]);
+                prepared.commit_cursor(first_cursor);
+                edges.extend(first);
+            }
+            while prepared.remaining_edges() != 0 {
+                let (batch, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &running_state(), 1)
+                    .unwrap();
+                edges.extend(batch);
+                prepared.commit_cursor(cursor);
+            }
+            assert_eq!(
+                edges.as_slice(),
+                if projects { expected.as_slice() } else { &[] }
+            );
+            assert!(prepared.is_exhausted());
+        }
+
+        let cancellation = AtomicU8::new(STATE_RUNNING);
+        let mut cancellable = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            options,
+            &cancellation,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let remaining = cancellable.remaining_edges();
+        let (preview, cursor) = cancellable
+            .prepare_next_batch(base.columns(), &cancellation, 1)
+            .unwrap();
+        assert_eq!(cancellable.remaining_edges(), remaining);
+        cancellation.store(STATE_CANCELLED, Ordering::Release);
+        assert!(matches!(
+            cancellable.prepare_next_batch(base.columns(), &cancellation, 1),
+            Err(KernelError::Cancelled)
+        ));
+        assert_eq!(cancellable.remaining_edges(), remaining);
+        cancellation.store(STATE_RUNNING, Ordering::Release);
+        let (retry, _) = cancellable
+            .prepare_next_batch(base.columns(), &cancellation, 1)
+            .unwrap();
+        assert_eq!(retry, preview);
+        cancellable.commit_cursor(cursor);
+        assert_eq!(cancellable.remaining_edges(), remaining - 1);
+
+        let excluded_sub = 1_u32.to_le_bytes();
+        let excluded_inverse = 2_u32.to_le_bytes();
+        let mut excluded_both = Vec::new();
+        excluded_both.extend_from_slice(&excluded_sub);
+        excluded_both.extend_from_slice(&excluded_inverse);
+        for (excluded, expected_edges, expected_expansion) in [
+            (excluded_sub.as_slice(), 2_usize, 1_usize),
+            (excluded_inverse.as_slice(), 2, 1),
+            (excluded_both.as_slice(), 1, 0),
+        ] {
+            let selected_base = base.columns().with_excluded_root_ids(excluded);
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, 4 - excluded.len() / 4);
+            assert_eq!(prepared.statistics().domain_range_edges, 1);
+            assert_eq!(
+                prepared.statistics().role_expansion_edges,
+                expected_expansion
+            );
+            assert_eq!(prepared.statistics().edges, expected_edges);
+            let mut edges = Vec::new();
+            while prepared.remaining_edges() != 0 {
+                let (batch, cursor) = prepared
+                    .prepare_next_batch(selected_base, &running_state(), 1)
+                    .unwrap();
+                edges.extend(batch);
+                prepared.commit_cursor(cursor);
+            }
+            let expected_selected = match excluded {
+                value if value == excluded_sub.as_slice() => vec![
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:p".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:R".into(),
+                        relation: "urn:pinv".into(),
+                        destination: "urn:D".into(),
+                    },
+                ],
+                value if value == excluded_inverse.as_slice() => vec![
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:p".into(),
+                        destination: "urn:R".into(),
+                    },
+                    DirectEdge {
+                        source: "urn:D".into(),
+                        relation: "urn:child".into(),
+                        destination: "urn:R".into(),
+                    },
+                ],
+                _ => vec![DirectEdge {
+                    source: "urn:D".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:R".into(),
+                }],
+            };
+            assert_eq!(edges, expected_selected);
+        }
+
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    max_edges: 2,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("requires 3 edges")
+        ));
+        let retry = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(retry.statistics().edges, 3);
+        assert_eq!(retry.emission_attempts(), 0);
+
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                1,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("work")
+        ));
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                1,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("workspace")
+        ));
+    }
+
+    #[test]
+    fn two_root_overlay_delta_rejects_noncanonical_domain_range_envelopes() {
+        let base = overlay_role_base_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+        for (delta, expected) in [
+            (
+                local_object_property_class_pair_delta_fixture(
+                    TAG_OBJECT_PROPERTY_DOMAIN,
+                    true,
+                    false,
+                ),
+                "exactly one named ObjectPropertyDomain",
+            ),
+            (
+                local_object_property_class_pair_delta_fixture(
+                    TAG_OBJECT_PROPERTY_RANGE,
+                    false,
+                    false,
+                ),
+                "same named object property",
+            ),
+            (
+                local_object_property_class_pair_delta_fixture(
+                    TAG_OBJECT_PROPERTY_RANGE,
+                    true,
+                    true,
+                ),
+                "must be unannotated",
+            ),
+        ] {
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message)) if message.contains(expected)
+            ));
         }
     }
 
@@ -16645,7 +17194,7 @@ mod tests {
                 canonical_limits().max_workspace_bytes,
             ),
             Err(KernelError::Unsupported(message))
-                if message.contains("exactly one local root")
+                if message.contains("exactly one named ObjectPropertyDomain")
         ));
         let duplicate = named_subclass_delta_fixture(b"urn:A", b"urn:B");
         assert!(matches!(

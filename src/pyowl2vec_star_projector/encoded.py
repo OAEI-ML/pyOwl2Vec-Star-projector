@@ -339,13 +339,15 @@ def _resolve_private_overlay_aliases(
 def _resolve_private_single_overlay_delta(
     lease: EncodedStructuralLease,
 ) -> tuple[EncodedStructuralLease, memoryview | None, int | None, int | None] | None:
-    """Resolve the one-root local overlay slice without general segment traversal.
+    """Resolve the bounded local overlay slice without general segment traversal.
 
     The private native seam admits only one direct ``ALL`` or ``EXCLUDE``
-    source and one local ``ALL`` delta root.  Rust still validates the complete
-    source and local tables, their exact cross-table canonical order, the
-    optional source posting table, and the local constructor before output.
-    Every other valid segmented form remains a whole-operation scalar fallback.
+    source and either one local ``ALL`` delta root or the exact two-root
+    ObjectPropertyDomain/ObjectPropertyRange envelope. Rust still validates the
+    complete source and local tables, their exact cross-table canonical order,
+    the optional source posting table, and every local constructor before
+    output. Every other valid segmented form remains a whole-operation scalar
+    fallback.
     """
 
     if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:
@@ -392,8 +394,8 @@ def _resolve_private_single_overlay_delta(
         or type(delta_scope_map) is not memoryview
         or delta_scope_map.nbytes
         or delta_member_token is not None
-        or lease.buffers["root_kinds"].nbytes != 1
-        or lease.buffers["root_ids"].nbytes != 4
+        or lease.buffers["root_kinds"].nbytes not in {1, 2}
+        or lease.buffers["root_ids"].nbytes != 4 * lease.buffers["root_kinds"].nbytes
     ):
         return None
     if base_posting_mode == _POSTINGS_ALL:
