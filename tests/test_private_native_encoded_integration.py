@@ -9143,6 +9143,29 @@ def _two_member_subclass_composite(
     )
 
 
+def _two_member_duplicate_subclass_composite(
+    provider_backend: pyowl_core.BackendPreference,
+) -> pyowl_core.OntologyView:
+    left = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:B :Top)",
+            backend=provider_backend,
+        ),
+    )
+    right = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:C :Top)",
+            backend=provider_backend,
+        ),
+    )
+    return cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(left, right),
+    )
+
+
 @pytest.mark.parametrize(
     "provider_backend",
     [
@@ -9416,25 +9439,171 @@ def test_two_member_composite_preserves_cancel_limit_and_retry_preoutput(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+def test_hidden_iterator_deduplicates_two_member_composite_canonically(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _two_member_duplicate_subclass_composite(provider_backend)
+    top_encoded = composite.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
+    assert all(segment.posting_mode == 0 for segment in top_encoded.segments)
+    expected_buffer_bytes = sum(
+        value.nbytes for value in top_encoded.buffers.values()
+    ) + sum(
+        value.nbytes
+        for segment in top_encoded.segments
+        for value in cast(Any, segment.source).buffers.values()
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("deduplicated composite reached scalar traversal"),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected == [
+        Edge(
+            f"urn:native-integration#{source}",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        for source in ["A", "B", "C"]
+    ]
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 33
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 33
+    assert ingestion.counters["encoded_referenced_view_count"] == 2
+    assert ingestion.counters["encoded_segment_count"] == 4
+    assert ingestion.counters["encoded_posting_bytes"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=3,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_two_member_composite_dedup_preserves_cancel_limits_and_retry(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _two_member_duplicate_subclass_composite(provider_backend)
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_two_member_composite(top_lease)
+    assert resolved is not None
+    left_lease, right_lease, excluded, max_work, max_workspace = resolved
+    assert excluded is None
+    assert max_work is not None
+    assert max_workspace is not None
+
+    def compiler(
+        *,
+        work: int = max_work,
+        workspace: int = max_workspace,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            left_lease,
+            local_delta_lease=right_lease,
+            merge_manifest_lease=top_lease,
+            canonical_work_limit=work,
+            canonical_workspace_limit=workspace,
+        )
+
+    cancelled = compiler()
+    assert cancelled.cancel() is True
+    with pytest.raises(NativeEncodedDirectCancelled):
+        cancelled.compile_batch(
+            bidirectional=False,
+            max_edges=3,
+            max_iri_bytes=1024,
+        )
+    assert cancelled.state == "cancelled"
+    assert cancelled.retained_buffer_count == 22
+
+    for work, workspace, expected_message in [
+        (1, max_workspace, "work"),
+        (max_work, 1, "workspace"),
+    ]:
+        limited = compiler(work=work, workspace=workspace)
+        with pytest.raises(ProjectionResourceError) as captured:
+            limited.iter_batches(
+                bidirectional=False,
+                max_edges=3,
+                max_iri_bytes=1024,
+                batch_edges=1,
+            )
+        assert captured.value.__cause__ is not None
+        assert expected_message in str(captured.value.__cause__)
+        assert limited.state == "failed"
+        assert limited.coarse_output_chunks == 0
+        assert limited.peak_buffered_coarse_edges == 0
+
+    retry = compiler()
+    edges, statistics = retry.compile_batch(
+        bidirectional=False,
+        max_edges=3,
+        max_iri_bytes=1024,
+    )
+    assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["A", "B", "C"]
+    assert statistics.roots == statistics.subclasses == statistics.edges == 3
+    assert retry.state == "finished"
+    assert retry.retained_buffer_count == 22
+    assert retry.cancel() is False
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
 @pytest.mark.parametrize(
     "shape",
-    ["duplicate", "scope-remap", "bridge"],
+    ["scope-remap", "bridge"],
 )
 def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
     provider_backend: pyowl_core.BackendPreference,
     shape: str,
 ) -> None:
-    if shape == "duplicate":
-        left = cast(
-            pyowl_core.OntologyView,
-            _snapshot("SubClassOf(:A :Top)", backend=provider_backend),
-        )
-        right = cast(
-            pyowl_core.OntologyView,
-            _snapshot("SubClassOf(:A :Top)", backend=provider_backend),
-        )
-        composite = pyowl_core.compose_views(left, right)
-    elif shape == "scope-remap":
+    if shape == "scope-remap":
         left = cast(
             pyowl_core.OntologyView,
             _snapshot("ClassAssertion(:A _:same)", backend=provider_backend),

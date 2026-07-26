@@ -8162,6 +8162,14 @@ impl LocalOverlayWorkspace {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CrossTableDuplicatePolicy {
+    Reject,
+    Deduplicate,
+}
+
+const DEDUPLICATED_OVERLAY_SCAN_INDEX: usize = usize::MAX - 1;
+
 pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     base_columns: DirectColumns<'_>,
     delta_columns: DirectColumns<'_>,
@@ -8170,6 +8178,50 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     retained: Option<&OwnedRoleState>,
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
+) -> Result<PreparedDirectBatches, KernelError> {
+    prepare_two_table_batches_uncommitted(
+        base_columns,
+        delta_columns,
+        options,
+        state,
+        retained,
+        max_canonical_work,
+        max_canonical_workspace_bytes,
+        CrossTableDuplicatePolicy::Reject,
+    )
+}
+
+pub(crate) fn prepare_two_member_composite_batches_uncommitted(
+    left_columns: DirectColumns<'_>,
+    right_columns: DirectColumns<'_>,
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&OwnedRoleState>,
+    max_canonical_work: usize,
+    max_canonical_workspace_bytes: usize,
+) -> Result<PreparedDirectBatches, KernelError> {
+    prepare_two_table_batches_uncommitted(
+        left_columns,
+        right_columns,
+        options,
+        state,
+        retained,
+        max_canonical_work,
+        max_canonical_workspace_bytes,
+        CrossTableDuplicatePolicy::Deduplicate,
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
+fn prepare_two_table_batches_uncommitted(
+    base_columns: DirectColumns<'_>,
+    delta_columns: DirectColumns<'_>,
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&OwnedRoleState>,
+    max_canonical_work: usize,
+    max_canonical_workspace_bytes: usize,
+    duplicate_policy: CrossTableDuplicatePolicy,
 ) -> Result<PreparedDirectBatches, KernelError> {
     if options.include_literals {
         return Err(KernelError::unsupported(
@@ -8911,6 +8963,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     )?;
     let mut left_roots = 0_usize;
     let mut right_roots = 0_usize;
+    let mut unique_right_roots = 0_usize;
+    let mut deduplicated_right_roots = 0_usize;
     let mut next_insertion_scan = 0_usize;
     let mut next_base_scan_index = 0_usize;
     let mut insertion_positions = [None, None];
@@ -8923,7 +8977,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 next_insertion_scan = root
                     .index
                     .checked_add(1)
-                    .and_then(|position| position.checked_add(right_roots))
+                    .and_then(|position| position.checked_add(unique_right_roots))
                     .ok_or_else(|| {
                         KernelError::resource("encoded local-overlay root position overflow")
                     })?;
@@ -8959,14 +9013,55 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 right_roots = right_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root counter overflow")
                 })?;
+                unique_right_roots = unique_right_roots.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local-overlay root counter overflow")
+                })?;
                 next_insertion_scan = next_insertion_scan.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root position overflow")
                 })?;
             }
-            MergedCanonicalRoot::Both { .. } => {
-                return Err(KernelError::unsupported(
-                    "bounded local-overlay root duplicates its direct source",
-                ));
+            MergedCanonicalRoot::Both { left, right } => {
+                if duplicate_policy == CrossTableDuplicatePolicy::Reject {
+                    return Err(KernelError::unsupported(
+                        "bounded local-overlay root duplicates its direct source",
+                    ));
+                }
+                if !emitting_delta {
+                    return Err(KernelError::unsupported(
+                        "bounded two-member composite structural deduplication requires emitting roots",
+                    ));
+                }
+                let Some(delta) = overlay_deltas.get_mut(right.index) else {
+                    return Err(KernelError::malformed(
+                        "encoded composite merge produced an inconsistent duplicate root",
+                    ));
+                };
+                if delta.insertion_scan_index != usize::MAX {
+                    return Err(KernelError::malformed(
+                        "encoded composite merge repeated a duplicate root",
+                    ));
+                }
+                delta.insertion_scan_index = DEDUPLICATED_OVERLAY_SCAN_INDEX;
+                left_roots = left_roots.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded composite root counter overflow")
+                })?;
+                right_roots = right_roots.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded composite root counter overflow")
+                })?;
+                deduplicated_right_roots =
+                    deduplicated_right_roots.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded deduplicated-root counter overflow")
+                    })?;
+                next_insertion_scan = left
+                    .index
+                    .checked_add(1)
+                    .and_then(|position| position.checked_add(unique_right_roots))
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded composite root position overflow")
+                    })?;
+                next_base_scan_index = left.index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded composite root position overflow")
+                })?;
             }
         }
     }
@@ -8988,10 +9083,10 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let selected_base_roots = base_columns.selected_root_count()?;
     let merge_report = merger.report();
     if left_roots != selected_base_roots
-        || merge_report.deduplicated_roots != 0
+        || merge_report.deduplicated_roots != deduplicated_right_roots
         || merge_report.roots_emitted
             != selected_base_roots
-                .checked_add(delta_root_count)
+                .checked_add(unique_right_roots)
                 .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?
     {
         return Err(KernelError::malformed(
@@ -8999,6 +9094,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         ));
     }
     drop(merger);
+    overlay_deltas.retain(|delta| delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX);
     canonicalize_overlay_delta_plan(&mut overlay_deltas);
 
     if let Some(axiom) = local_role_state_axiom.as_mut() {
@@ -9095,7 +9191,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let statistics = &mut prepared.preparation.statistics;
     statistics.roots = statistics
         .roots
-        .checked_add(delta_root_count)
+        .checked_add(unique_right_roots)
         .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?;
     statistics.nodes = statistics
         .nodes
@@ -19090,6 +19186,59 @@ mod tests {
             ),
             Err(KernelError::Resource(message)) if message.contains("workspace bytes")
         ));
+    }
+
+    #[test]
+    fn two_member_composite_deduplicates_one_structurally_identical_root() {
+        let left = named_subclass_fixture();
+        let right = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_two_member_composite_batches_uncommitted(
+            left.columns(),
+            right.columns(),
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 2);
+        assert_eq!(statistics.declarations, 1);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(
+            statistics.buffer_bytes,
+            left.columns().buffer_bytes().unwrap() + right.columns().buffer_bytes().unwrap()
+        );
+        assert!(prepared.preparation.overlay_deltas.is_empty());
+
+        let (first, first_cursor) = prepared
+            .prepare_next_batch(left.columns(), &state, 1)
+            .unwrap();
+        let (retry, _) = prepared
+            .prepare_next_batch(left.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(first, retry);
+        assert_eq!(
+            first,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        prepared.commit_cursor(first_cursor);
+        assert!(prepared.is_exhausted());
     }
 
     #[test]

@@ -23,7 +23,8 @@ use std::sync::{Arc, Mutex};
 use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
-    prepare_single_overlay_delta_batches_uncommitted, DirectColumns, DirectCompileOptions,
+    prepare_single_overlay_delta_batches_uncommitted,
+    prepare_two_member_composite_batches_uncommitted, DirectColumns, DirectCompileOptions,
     DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState,
     PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED,
     STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
@@ -40,7 +41,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 82;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 83;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -716,15 +717,27 @@ impl EncodedDirectCompiler {
                                 "encoded local-overlay compiler lost its canonical limits",
                             )
                         })?;
-                    prepare_single_overlay_delta_batches_uncommitted(
-                        columns,
-                        delta_columns,
-                        options,
-                        &self.state,
-                        None,
-                        max_work,
-                        max_workspace_bytes,
-                    )
+                    if self._merge_manifest_view.is_some() {
+                        prepare_two_member_composite_batches_uncommitted(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                    } else {
+                        prepare_single_overlay_delta_batches_uncommitted(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                    }
                     .map_err(kernel_error)
                 } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
@@ -1021,15 +1034,27 @@ impl EncodedDirectCompiler {
                                 "encoded local-overlay compiler lost its canonical limits",
                             )
                         })?;
-                    prepare_single_overlay_delta_batches_uncommitted(
-                        columns,
-                        delta_columns,
-                        options,
-                        &self.state,
-                        None,
-                        max_work,
-                        max_workspace_bytes,
-                    )
+                    if self._merge_manifest_view.is_some() {
+                        prepare_two_member_composite_batches_uncommitted(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                    } else {
+                        prepare_single_overlay_delta_batches_uncommitted(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                    }
                     .map_err(kernel_error)
                 } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
