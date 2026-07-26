@@ -5,17 +5,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import re
-import stat
 import uuid
 from pathlib import Path
 from typing import Any
 
 if __package__:
-    from .release_support import canonical_json, write_if_changed
+    from .release_support import canonical_json, read_stable_regular_file, write_if_changed
 else:
-    from release_support import canonical_json, write_if_changed
+    from release_support import canonical_json, read_stable_regular_file, write_if_changed
 
 _NAMESPACE = uuid.UUID("2a582b0c-c26a-45a9-8a1f-9a2783ca1fef")
 _BUILD_INPUT_PATHS = (
@@ -114,50 +112,12 @@ def _cargo_licenses(text: str) -> dict[tuple[str, str], str]:
     return result
 
 
-def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
-    return (
-        value.st_dev,
-        value.st_ino,
-        value.st_mode,
-        value.st_size,
-        value.st_mtime_ns,
-        value.st_ctime_ns,
-    )
-
-
-def _read_stable_regular_file(path: Path, *, label: str) -> bytes:
-    try:
-        initial = path.lstat()
-    except OSError as error:
-        raise ValueError(
-            f"build provenance: cannot inspect build input {label}: {error}"
-        ) from error
-    if not stat.S_ISREG(initial.st_mode):
-        raise ValueError(
-            f"build provenance: build input must be a regular non-symlink file: {label}"
-        )
-    try:
-        with path.open("rb") as stream:
-            opened = os.fstat(stream.fileno())
-            payload = stream.read()
-            completed = os.fstat(stream.fileno())
-        final = path.lstat()
-    except OSError as error:
-        raise ValueError(f"build provenance: cannot read build input {label}: {error}") from error
-    identities = {
-        _stat_identity(initial),
-        _stat_identity(opened),
-        _stat_identity(completed),
-        _stat_identity(final),
-    }
-    if len(identities) != 1 or not stat.S_ISREG(opened.st_mode) or len(payload) != opened.st_size:
-        raise ValueError(f"build provenance: build input changed while reading: {label}")
-    return payload
-
-
 def _capture_build_inputs(root: Path) -> dict[str, bytes]:
     return {
-        relative_path: _read_stable_regular_file(root / relative_path, label=relative_path)
+        relative_path: read_stable_regular_file(
+            root / relative_path,
+            label=f"build provenance input {relative_path}",
+        )
         for relative_path in _BUILD_INPUT_PATHS
     }
 
@@ -266,6 +226,7 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
     }
     return {
         "schema": "pyowl-projector.build-provenance/1",
+        "scope": "deterministic-build-and-release-recipe",
         "distribution": "pyowl2vec-star-projector",
         "version": project["version"],
         "source_date_epoch": {

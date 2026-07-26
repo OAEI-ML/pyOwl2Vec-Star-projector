@@ -13,12 +13,12 @@ from pathlib import Path
 import pytest
 
 import _build_backend
-from tools import generate_supply_chain
+from tools import audit_release, generate_supply_chain, release_gate
 from tools.audit_release import _audit_metadata, _audit_native_payloads, audit_artifact
 from tools.generate_supply_chain import build_provenance, generate
 from tools.hash_artifacts import create_manifest, verify_manifest
 from tools.release_gate import local_checks
-from tools.release_support import read_toml
+from tools.release_support import read_stable_regular_file, read_toml
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = re.compile(r"(?m)^\s*-?\s*uses:\s+([^\s#]+)")
@@ -79,6 +79,7 @@ def test_version_and_generated_supply_chain_are_consistent() -> None:
 def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
     provenance = build_provenance(ROOT)
     assert provenance["schema"] == "pyowl-projector.build-provenance/1"
+    assert provenance["scope"] == "deterministic-build-and-release-recipe"
     assert provenance["distribution"] == "pyowl2vec-star-projector"
     assert provenance["version"] == "0.1.0rc1"
     assert provenance["source_date_epoch"] == {
@@ -177,7 +178,7 @@ def test_stable_build_input_reader_rejects_concurrent_change(
 
     monkeypatch.setattr(Path, "lstat", mutate_before_final_identity)
     with pytest.raises(ValueError, match="changed while reading"):
-        generate_supply_chain._read_stable_regular_file(path, label="input.txt")
+        read_stable_regular_file(path, label="input.txt")
 
 
 def test_external_release_gates_are_never_silently_presented_as_passed() -> None:
@@ -272,6 +273,49 @@ def test_hash_manifest_is_complete_unique_and_path_safe(tmp_path: Path) -> None:
     ]
 
 
+def test_release_gate_exactly_binds_manifest_audit_and_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "example-0.1-py3-none-any.whl"
+    artifact.write_bytes(b"not a zip archive")
+    report = {
+        "schema": "pyowl-projector.release-audit/1",
+        "version": "0.1",
+        "artifacts": [audit_artifact(artifact, expected_version="0.1")],
+    }
+    audit_path = tmp_path / "release-audit.json"
+    audit_path.write_text(json.dumps(report), encoding="utf-8")
+    (tmp_path / "SHA256SUMS").write_text(create_manifest(tmp_path), encoding="utf-8")
+    checkout = {
+        "commit": "1" * 40,
+        "tree": "2" * 40,
+        "tracked_worktree_clean": True,
+    }
+    monkeypatch.setattr(release_gate, "_checkout_identity", lambda root: (checkout, []))
+
+    checks = release_gate._artifact_checks(ROOT, tmp_path, audit_path, "0.1")
+    binding = next(check for check in checks if check["name"] == "artifact-evidence-binding")
+    assert binding["passed"] is True
+    assert binding["evidence"]["checkout_context"] == checkout
+    assert binding["evidence"]["artifacts"] == [
+        {
+            "name": artifact.name,
+            "kind": "invalid-wheel",
+            "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            "bytes": len(artifact.read_bytes()),
+            "members": 0,
+        }
+    ]
+
+    artifact.write_bytes(b"changed after audit")
+    checks = release_gate._artifact_checks(ROOT, tmp_path, audit_path, "0.1")
+    binding = next(check for check in checks if check["name"] == "artifact-evidence-binding")
+    assert binding["passed"] is False
+    assert "hash mismatch" in binding["detail"]
+    assert "does not exactly match the current artifact audit" in binding["detail"]
+
+
 def test_release_audit_rejects_duplicate_normalized_archive_members(tmp_path: Path) -> None:
     artifact = tmp_path / "example-0.1-py3-none-any.whl"
     with warnings.catch_warnings():
@@ -285,6 +329,28 @@ def test_release_audit_rejects_duplicate_normalized_archive_members(tmp_path: Pa
     assert report["errors"] == [
         "archive could not be read safely: duplicate archive member: 'example/module.py'"
     ]
+
+
+def test_release_audit_hashes_exact_bytes_even_if_path_is_swapped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "example-0.1-py3-none-any.whl"
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr("example/module.py", "original")
+    original = artifact.read_bytes()
+    original_archive_members = audit_release.archive_members
+
+    def swap_after_snapshot(path: Path, *, payload: bytes | None = None):
+        path.write_bytes(b"replacement")
+        return original_archive_members(path, payload=payload)
+
+    monkeypatch.setattr(audit_release, "archive_members", swap_after_snapshot)
+    report = audit_artifact(artifact, expected_version="0.1")
+    assert report["sha256"] == hashlib.sha256(original).hexdigest()
+    assert report["bytes"] == len(original)
+    assert "release artifact changed during audit" in report["errors"]
+    assert report["passed"] is False
 
 
 def test_sdist_header_normalization_is_byte_reproducible(tmp_path: Path) -> None:

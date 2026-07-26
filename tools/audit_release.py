@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import tarfile
@@ -17,18 +18,18 @@ if __package__:
         FORBIDDEN_BINARY_SUFFIXES,
         FORBIDDEN_PATH_PARTS,
         archive_members,
+        read_stable_regular_file,
         read_toml,
         release_artifacts,
-        sha256_file,
     )
 else:
     from release_support import (
         FORBIDDEN_BINARY_SUFFIXES,
         FORBIDDEN_PATH_PARTS,
         archive_members,
+        read_stable_regular_file,
         read_toml,
         release_artifacts,
-        sha256_file,
     )
 
 _NATIVE_SUFFIXES = (".dll", ".dylib", ".pyd", ".so")
@@ -57,19 +58,52 @@ _FORBIDDEN_NATIVE_MARKERS = (
 )
 
 
+def _artifact_identity(path: Path) -> tuple[int, int, int, int, int, int]:
+    value = path.lstat()
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _identity_error(
+    path: Path,
+    initial: tuple[int, int, int, int, int, int],
+) -> str | None:
+    try:
+        final = _artifact_identity(path)
+    except OSError as error:
+        return f"release artifact disappeared during audit: {error}"
+    if final != initial:
+        return "release artifact changed during audit"
+    return None
+
+
 def audit_artifact(path: Path, *, expected_version: str) -> dict[str, object]:
     errors: list[str] = []
+    payload: bytes | None = None
+    initial_identity: tuple[int, int, int, int, int, int] | None = None
     try:
-        members = dict(archive_members(path))
+        initial_identity = _artifact_identity(path)
+        payload = read_stable_regular_file(path, label=f"release artifact {path.name}")
+        members = dict(archive_members(path, payload=payload))
     except (OSError, ValueError, tarfile.TarError, zipfile.BadZipFile) as error:
         kind = "invalid-wheel" if path.suffix == ".whl" else "invalid-sdist"
+        if initial_identity is not None:
+            changed = _identity_error(path, initial_identity)
+            if changed is not None:
+                errors.append(changed)
         return {
             "artifact": path.name,
             "kind": kind,
-            "sha256": sha256_file(path),
-            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(payload).hexdigest() if payload is not None else None,
+            "bytes": len(payload) if payload is not None else None,
             "members": 0,
-            "errors": [f"archive could not be read safely: {error}"],
+            "errors": [f"archive could not be read safely: {error}", *errors],
             "passed": False,
         }
     lowered = {name.lower(): content for name, content in members.items()}
@@ -90,12 +124,15 @@ def audit_artifact(path: Path, *, expected_version: str) -> dict[str, object]:
         errors.append("unsupported artifact suffix")
 
     _required_conformance_kit(lowered, errors)
+    changed = _identity_error(path, initial_identity)
+    if changed is not None:
+        errors.append(changed)
 
     return {
         "artifact": path.name,
         "kind": kind,
-        "sha256": sha256_file(path),
-        "bytes": path.stat().st_size,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "bytes": len(payload),
         "members": len(members),
         "errors": errors,
         "passed": not errors,

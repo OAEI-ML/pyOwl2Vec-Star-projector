@@ -29,7 +29,9 @@ jobs:
       - run: python -m build --sdist --wheel --outdir dist
       - run: python tools/audit_release.py dist --report dist/release-audit.json
       - run: python tools/hash_artifacts.py dist --output dist/SHA256SUMS
-      - run: python tools/release_gate.py --artifacts dist --report dist/release-gate.json
+      - run: >-
+          python tools/release_gate.py --artifacts dist
+          --audit-report dist/release-audit.json --report dist/release-gate.json
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: dist/*

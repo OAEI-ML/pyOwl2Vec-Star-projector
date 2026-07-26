@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 
 if __package__:
-    from .release_support import release_artifacts, sha256_file
+    from .release_support import read_stable_regular_file, release_artifacts, sha256_file
 else:
-    from release_support import release_artifacts, sha256_file
+    from release_support import read_stable_regular_file, release_artifacts, sha256_file
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
@@ -24,11 +24,15 @@ def create_manifest(directory: Path) -> str:
     return "".join(f"{sha256_file(path)}  {path.name}\n" for path in artifacts)
 
 
-def verify_manifest(directory: Path, manifest: Path) -> list[str]:
+def verify_manifest_content(directory: Path, content: bytes) -> list[str]:
     errors: list[str] = []
     artifacts = {path.name: path for path in release_artifacts(directory)}
     seen: set[str] = set()
-    for number, line in enumerate(manifest.read_text(encoding="utf-8").splitlines(), 1):
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return ["hash manifest is not UTF-8"]
+    for number, line in enumerate(text.splitlines(), 1):
         try:
             expected, name = line.split("  ", 1)
         except ValueError:
@@ -53,6 +57,14 @@ def verify_manifest(directory: Path, manifest: Path) -> list[str]:
     for name in sorted(artifacts.keys() - seen):
         errors.append(f"manifest missing release artifact {name}")
     return errors
+
+
+def verify_manifest(directory: Path, manifest: Path) -> list[str]:
+    try:
+        content = read_stable_regular_file(manifest, label="SHA256SUMS")
+    except ValueError as error:
+        return [str(error)]
+    return verify_manifest_content(directory, content)
 
 
 def main(argv: list[str] | None = None) -> int:

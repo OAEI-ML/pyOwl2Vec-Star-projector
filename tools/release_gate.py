@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 if __package__:
@@ -13,17 +15,32 @@ if __package__:
     from .audit_runtime import audit as audit_runtime
     from .check_dependency_dag import check_dependency_dag
     from .generate_supply_chain import generate
-    from .release_support import read_toml, release_artifacts
+    from .hash_artifacts import verify_manifest_content
+    from .release_support import (
+        read_stable_regular_file,
+        read_toml,
+        release_artifacts,
+    )
 else:
     from audit_release import audit_artifact
     from audit_runtime import audit as audit_runtime
     from check_dependency_dag import check_dependency_dag
     from generate_supply_chain import generate
-    from release_support import read_toml, release_artifacts
+    from hash_artifacts import verify_manifest_content
+    from release_support import read_stable_regular_file, read_toml, release_artifacts
 
 
-def _check(name: str, passed: bool, detail: str) -> dict[str, object]:
-    return {"name": name, "passed": passed, "detail": detail}
+def _check(
+    name: str,
+    passed: bool,
+    detail: str,
+    *,
+    evidence: dict[str, object] | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {"name": name, "passed": passed, "detail": detail}
+    if evidence is not None:
+        result["evidence"] = evidence
+    return result
 
 
 def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, str]:
@@ -80,7 +97,244 @@ def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, 
     return True, f"{len(references)} source-checkout lane(s) pinned to {commit}"
 
 
-def local_checks(root: Path, artifact_directory: Path | None) -> list[dict[str, object]]:
+def _git_output(root: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ("git", "-C", str(root), *arguments),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "unknown Git error"
+        raise ValueError(detail)
+    return completed.stdout.strip()
+
+
+def _checkout_identity(root: Path) -> tuple[dict[str, object], list[str]]:
+    errors: list[str] = []
+    try:
+        commit = _git_output(root, "rev-parse", "--verify", "HEAD")
+        tree = _git_output(root, "rev-parse", "--verify", "HEAD^{tree}")
+        status = _git_output(root, "status", "--porcelain=v1", "--untracked-files=no")
+    except ValueError as error:
+        return {}, [f"cannot resolve release checkout identity: {error}"]
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        errors.append(f"release checkout commit is not an exact Git object ID: {commit!r}")
+    if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
+        errors.append(f"release checkout tree is not an exact Git object ID: {tree!r}")
+    clean = not status
+    if not clean:
+        errors.append("release checkout has tracked worktree or index changes")
+    return {
+        "commit": commit,
+        "tree": tree,
+        "tracked_worktree_clean": clean,
+    }, errors
+
+
+def _evidence_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return path.name
+
+
+def _artifact_inventory(
+    directory: Path,
+) -> tuple[list[Path], dict[str, tuple[int, int, int, int, int, int]]]:
+    artifacts = release_artifacts(directory)
+    identities = {}
+    for path in artifacts:
+        value = path.lstat()
+        identities[path.name] = (
+            value.st_dev,
+            value.st_ino,
+            value.st_mode,
+            value.st_size,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+    return artifacts, identities
+
+
+def _revalidate_payload(path: Path, payload: bytes, label: str) -> str | None:
+    try:
+        current = read_stable_regular_file(path, label=label)
+    except ValueError as error:
+        return str(error)
+    if current != payload:
+        return f"{label} changed during evidence verification"
+    return None
+
+
+def _artifact_checks(
+    root: Path,
+    artifact_directory: Path,
+    audit_report_path: Path | None,
+    version: str,
+) -> list[dict[str, object]]:
+    checks: list[dict[str, object]] = []
+    artifact_set_errors: list[str] = []
+    try:
+        artifacts, initial_inventory = _artifact_inventory(artifact_directory)
+    except (OSError, ValueError) as error:
+        artifacts = []
+        initial_inventory = {}
+        artifact_set_errors.append(str(error))
+    if not artifacts and not artifact_set_errors:
+        artifact_set_errors.append("release artifact set is empty")
+    reports = [audit_artifact(path, expected_version=version) for path in artifacts]
+    kinds = {str(report["kind"]) for report in reports if report["passed"]}
+    audit_errors = [
+        f"{report['artifact']}: {report['errors']}" for report in reports if not report["passed"]
+    ]
+    checks.append(
+        _check(
+            "artifact-audit",
+            bool(reports) and not audit_errors,
+            "; ".join(audit_errors) if audit_errors else f"audited {len(reports)} artifact(s)",
+        )
+    )
+    required_kinds = {"sdist", "universal-wheel"}
+    checks.append(
+        _check(
+            "fallback-artifact-set",
+            required_kinds <= kinds,
+            f"found kinds: {sorted(kinds)}",
+        )
+    )
+
+    manifest_path = artifact_directory / "SHA256SUMS"
+    manifest_errors: list[str] = []
+    manifest_captured = False
+    try:
+        manifest_payload = read_stable_regular_file(manifest_path, label="SHA256SUMS")
+    except ValueError as error:
+        manifest_payload = b""
+        manifest_errors.append(str(error))
+    else:
+        manifest_captured = True
+        try:
+            manifest_errors.extend(verify_manifest_content(artifact_directory, manifest_payload))
+        except (OSError, ValueError) as error:
+            manifest_errors.append(str(error))
+        expected_manifest = "".join(
+            f"{report['sha256']}  {report['artifact']}\n" for report in reports
+        ).encode("utf-8")
+        if manifest_payload != expected_manifest:
+            manifest_errors.append(
+                "SHA256SUMS does not exactly bind the current audited artifact set"
+            )
+
+    report_errors: list[str] = []
+    audit_payload = b""
+    audit_captured = False
+    if audit_report_path is None:
+        report_errors.append("release audit report path was not provided")
+    else:
+        try:
+            audit_payload = read_stable_regular_file(
+                audit_report_path,
+                label="release audit report",
+            )
+        except ValueError as error:
+            report_errors.append(str(error))
+        else:
+            audit_captured = True
+            try:
+                audit_document = json.loads(audit_payload)
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                report_errors.append(f"release audit report is not valid JSON: {error}")
+            else:
+                expected_document = {
+                    "schema": "pyowl-projector.release-audit/1",
+                    "version": version,
+                    "artifacts": reports,
+                }
+                if audit_document != expected_document:
+                    report_errors.append(
+                        "release audit report does not exactly match the current artifact audit"
+                    )
+
+    checkout, checkout_errors = _checkout_identity(root)
+    artifact_subjects = [
+        {
+            "name": report["artifact"],
+            "kind": report["kind"],
+            "sha256": report["sha256"],
+            "bytes": report["bytes"],
+            "members": report["members"],
+        }
+        for report in reports
+    ]
+    try:
+        _, final_inventory = _artifact_inventory(artifact_directory)
+    except (OSError, ValueError) as error:
+        artifact_set_errors.append(str(error))
+    else:
+        if final_inventory != initial_inventory:
+            artifact_set_errors.append(
+                "release artifact set or file identities changed during evidence verification"
+            )
+    if manifest_captured:
+        changed = _revalidate_payload(manifest_path, manifest_payload, "SHA256SUMS")
+        if changed is not None:
+            manifest_errors.append(changed)
+    if audit_captured and audit_report_path is not None:
+        changed = _revalidate_payload(
+            audit_report_path,
+            audit_payload,
+            "release audit report",
+        )
+        if changed is not None:
+            report_errors.append(changed)
+
+    binding = {
+        "schema": "pyowl-projector.artifact-binding/1",
+        "scope": "verified-subject-digests-and-checkout-context",
+        "checkout_context": checkout,
+        "artifacts": artifact_subjects,
+        "sha256_manifest": {
+            "path": _evidence_path(manifest_path, root),
+            "bytes": len(manifest_payload),
+            "sha256": hashlib.sha256(manifest_payload).hexdigest(),
+        },
+        "release_audit": {
+            "path": (
+                _evidence_path(audit_report_path, root) if audit_report_path is not None else None
+            ),
+            "bytes": len(audit_payload),
+            "sha256": hashlib.sha256(audit_payload).hexdigest(),
+        },
+    }
+    binding_errors = [
+        *artifact_set_errors,
+        *manifest_errors,
+        *report_errors,
+        *checkout_errors,
+    ]
+    checks.append(
+        _check(
+            "artifact-evidence-binding",
+            not binding_errors,
+            "; ".join(binding_errors)
+            if binding_errors
+            else (
+                f"verified {len(artifact_subjects)} artifact subject(s) alongside checkout "
+                f"context {checkout['commit']} tree {checkout['tree']}; derivation requires "
+                "the signed build attestation"
+            ),
+            evidence=binding,
+        )
+    )
+    return checks
+
+
+def local_checks(
+    root: Path,
+    artifact_directory: Path | None,
+    audit_report_path: Path | None = None,
+) -> list[dict[str, object]]:
     metadata = read_toml(root / "pyproject.toml")
     version = str(metadata["project"]["version"])
     checks: list[dict[str, object]] = []
@@ -146,29 +400,7 @@ def local_checks(root: Path, artifact_directory: Path | None) -> list[dict[str, 
     ]
     checks.append(_check("supply-chain-current", not stale, f"stale: {stale or 'none'}"))
     if artifact_directory is not None:
-        artifacts = release_artifacts(artifact_directory)
-        reports = [audit_artifact(path, expected_version=version) for path in artifacts]
-        kinds = {str(report["kind"]) for report in reports if report["passed"]}
-        errors = [
-            f"{report['artifact']}: {report['errors']}"
-            for report in reports
-            if not report["passed"]
-        ]
-        checks.append(
-            _check(
-                "artifact-audit",
-                bool(reports) and not errors,
-                "; ".join(errors) if errors else f"audited {len(reports)} artifact(s)",
-            )
-        )
-        required_kinds = {"sdist", "universal-wheel"}
-        checks.append(
-            _check(
-                "fallback-artifact-set",
-                required_kinds <= kinds,
-                f"found kinds: {sorted(kinds)}",
-            )
-        )
+        checks.extend(_artifact_checks(root, artifact_directory, audit_report_path, version))
     return checks
 
 
@@ -176,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--artifacts", type=Path)
+    parser.add_argument("--audit-report", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument(
         "--include-external",
@@ -185,7 +418,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     artifact_directory = args.artifacts.resolve() if args.artifacts else None
-    checks = local_checks(root, artifact_directory)
+    if artifact_directory is not None and args.audit_report is None:
+        parser.error("--audit-report is required with --artifacts")
+    if artifact_directory is None and args.audit_report is not None:
+        parser.error("--audit-report requires --artifacts")
+    audit_report_path = args.audit_report.resolve() if args.audit_report else None
+    checks = local_checks(root, artifact_directory, audit_report_path)
     external = json.loads((root / "release/external-gates.json").read_text(encoding="utf-8"))
     external_blocked = [
         gate for gate in external["gates"] if gate["status"] not in ("passed", "not-applicable")
@@ -198,6 +436,12 @@ def main(argv: list[str] | None = None) -> int:
         "local_passed": all(bool(check["passed"]) for check in checks),
         "release_passed": all(bool(check["passed"]) for check in checks) and not external_blocked,
     }
+    artifact_binding = next(
+        (check["evidence"] for check in checks if check["name"] == "artifact-evidence-binding"),
+        None,
+    )
+    if artifact_binding is not None:
+        report["artifact_binding"] = artifact_binding
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)

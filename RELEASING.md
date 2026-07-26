@@ -98,7 +98,8 @@ authenticated repository context. Sign `SHA256SUMS` with the approved release id
 the signature before publication.
 
 ```bash
-python tools/release_gate.py --artifacts dist-a --include-external --report release-gate.json
+python tools/release_gate.py --artifacts dist-a --audit-report release-audit.json \
+  --include-external --report release-gate.json
 ```
 
 Exit status `2` means local checks passed but external gates remain unresolved. Only exit status

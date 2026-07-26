@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import os
+import stat
 import tarfile
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from io import BufferedReader
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, TypeVar
 
 ARCHIVE_SUFFIXES = (".whl", ".tar.gz")
 FORBIDDEN_BINARY_SUFFIXES = (".class", ".ear", ".jar", ".war")
@@ -18,6 +22,7 @@ FORBIDDEN_PATH_PARTS = (
     "/tests/goldens/",
     "/tools/java-oracle/",
 )
+_T = TypeVar("_T")
 
 
 def canonical_json(value: object) -> bytes:
@@ -26,27 +31,88 @@ def canonical_json(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def release_artifacts(directory: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in directory.iterdir()
-        if path.is_file() and path.name.endswith(ARCHIVE_SUFFIXES)
+def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
     )
 
 
-def archive_members(path: Path) -> Iterator[tuple[str, bytes]]:
+def _consume_stable_regular_file(
+    path: Path,
+    *,
+    label: str,
+    consume: Callable[[BufferedReader], _T],
+) -> _T:
+    try:
+        initial = path.lstat()
+    except OSError as error:
+        raise ValueError(f"cannot inspect {label}: {error}") from error
+    if not stat.S_ISREG(initial.st_mode):
+        raise ValueError(f"{label} must be a regular non-symlink file")
+    try:
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            result = consume(stream)
+            position = stream.tell()
+            completed = os.fstat(stream.fileno())
+        final = path.lstat()
+    except OSError as error:
+        raise ValueError(f"cannot read {label}: {error}") from error
+    identities = {
+        _stat_identity(initial),
+        _stat_identity(opened),
+        _stat_identity(completed),
+        _stat_identity(final),
+    }
+    if len(identities) != 1 or not stat.S_ISREG(opened.st_mode) or position != opened.st_size:
+        raise ValueError(f"{label} changed while reading")
+    return result
+
+
+def read_stable_regular_file(path: Path, *, label: str) -> bytes:
+    payload = _consume_stable_regular_file(path, label=label, consume=lambda stream: stream.read())
+    return payload
+
+
+def sha256_file(path: Path) -> str:
+    def consume(stream: BufferedReader) -> str:
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+        return digest.hexdigest()
+
+    return _consume_stable_regular_file(
+        path, label=f"release artifact {path.name}", consume=consume
+    )
+
+
+def release_artifacts(directory: Path) -> list[Path]:
+    artifacts: list[Path] = []
+    for path in directory.iterdir():
+        if not path.name.endswith(ARCHIVE_SUFFIXES):
+            continue
+        try:
+            identity = path.lstat()
+        except OSError as error:
+            raise ValueError(f"cannot inspect release artifact {path.name}: {error}") from error
+        if not stat.S_ISREG(identity.st_mode):
+            raise ValueError(f"release artifact must be a regular non-symlink file: {path.name}")
+        artifacts.append(path)
+    return sorted(artifacts)
+
+
+def archive_members(path: Path, *, payload: bytes | None = None) -> Iterator[tuple[str, bytes]]:
     """Yield safe normalized archive member names and bytes."""
+    if payload is None:
+        payload = read_stable_regular_file(path, label=f"release artifact {path.name}")
     seen: set[str] = set()
     if path.suffix == ".whl":
-        with zipfile.ZipFile(path) as archive:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             for info in sorted(archive.infolist(), key=lambda item: item.filename):
                 if info.is_dir():
                     continue
@@ -57,7 +123,7 @@ def archive_members(path: Path) -> Iterator[tuple[str, bytes]]:
                 yield name, archive.read(info)
         return
     if path.name.endswith(".tar.gz"):
-        with tarfile.open(path, "r:gz") as archive:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
             for info in sorted(archive.getmembers(), key=lambda item: item.name):
                 if not info.isfile():
                     continue
