@@ -878,7 +878,6 @@ def _single_scope_mapped_construct_scope(
                 _read_uint(buffers["node_tags"], property_id - 1, 2) != _TAG_ENTITY
                 or value_id != anonymous_node_id
                 or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
-                or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
             ):
                 return None
             resolved_construct_tag = root_tag
@@ -1065,7 +1064,6 @@ def _single_scope_mapped_construct_scope(
                 or (subject_id != anonymous_node_id and subject_tag != _TAG_IRI)
                 or (value_id != anonymous_node_id and value_tag not in {_TAG_IRI, _TAG_LITERAL})
                 or _read_uint(buffers["field_kinds"], start + 3, 1) != _COMPONENT_SET
-                or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
             ):
                 return None
         else:  # pragma: no cover - the rule-table membership check is exhaustive.

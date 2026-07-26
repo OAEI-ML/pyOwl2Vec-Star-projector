@@ -2729,10 +2729,10 @@ impl<'a> DirectColumns<'a> {
                 }
                 self.validate_annotation(root, maximum_iri)?;
                 let start = self.exact_fields(root, 3)?;
-                let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
-                if self.field_node(start + 1)? != anonymous_node || annotation_count != 0 {
+                self.node_set_range(start + 2, 0)?;
+                if self.field_node(start + 1)? != anonymous_node {
                     return Err(KernelError::unsupported(
-                        "bounded anonymous-scope ontology Annotation requires its anonymous value and no nested annotations",
+                        "bounded anonymous-scope ontology Annotation requires its anonymous value",
                     ));
                 }
                 construct_kind = Some(ScopeMappedCompositeKind::SilentOntologyAnnotation);
@@ -2961,15 +2961,12 @@ impl<'a> DirectColumns<'a> {
                     }
                     self.validate_annotation_assertion(root, maximum_iri)?;
                     let start = self.exact_fields(root, 4)?;
-                    let (_annotation_start, annotation_count) =
-                        self.node_set_range(start + 3, 0)?;
+                    self.node_set_range(start + 3, 0)?;
                     let subject = self.field_node(start + 1)?;
                     let value = self.field_node(start + 2)?;
-                    if annotation_count != 0
-                        || (subject == anonymous_node) == (value == anonymous_node)
-                    {
+                    if (subject == anonymous_node) == (value == anonymous_node) {
                         return Err(KernelError::unsupported(
-                            "bounded anonymous-scope composite requires one unannotated AnnotationAssertion with exactly one anonymous subject or value",
+                            "bounded anonymous-scope composite requires one AnnotationAssertion with exactly one anonymous subject or value",
                         ));
                     }
                     construct_kind = Some(ScopeMappedCompositeKind::SilentAnnotation);
@@ -9360,10 +9357,10 @@ fn own_composite_tail_projection(
         columns.validate_annotation(root, max_iri_bytes)?;
         let start = columns.exact_fields(root, 3)?;
         let value = columns.field_node(start + 1)?;
-        let (_annotation_start, annotation_count) = columns.node_set_range(start + 2, 0)?;
-        if columns.node_tag(value)? != TAG_ANONYMOUS_INDIVIDUAL || annotation_count != 0 {
+        columns.node_set_range(start + 2, 0)?;
+        if columns.node_tag(value)? != TAG_ANONYMOUS_INDIVIDUAL {
             return Err(KernelError::unsupported(
-                "bounded anonymous-scope ontology Annotation requires its anonymous value and no nested annotations",
+                "bounded anonymous-scope ontology Annotation requires its anonymous value",
             ));
         }
         return Ok(OwnedOverlayDeltaProjection::SilentOntologyAnnotation);
@@ -9575,13 +9572,12 @@ fn own_composite_tail_projection(
     {
         columns.validate_annotation_assertion(root, max_iri_bytes)?;
         let field_start = columns.exact_fields(root, 4)?;
-        let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
+        columns.node_set_range(field_start + 3, 0)?;
         let subject_tag = columns.node_tag(columns.field_node(field_start + 1)?)?;
         let value_tag = columns.node_tag(columns.field_node(field_start + 2)?)?;
-        if annotation_count != 0
-            || usize::from(subject_tag == TAG_ANONYMOUS_INDIVIDUAL)
-                + usize::from(value_tag == TAG_ANONYMOUS_INDIVIDUAL)
-                != 1
+        if usize::from(subject_tag == TAG_ANONYMOUS_INDIVIDUAL)
+            + usize::from(value_tag == TAG_ANONYMOUS_INDIVIDUAL)
+            != 1
         {
             return Err(KernelError::unsupported(
                 "bounded anonymous-scope AnnotationAssertion requires exactly one anonymous subject or value",
@@ -12515,7 +12511,10 @@ mod tests {
         fixture
     }
 
-    fn scope_mapped_annotation_assertion_fixture(anonymous_subject: bool) -> Fixture {
+    fn scope_mapped_annotation_assertion_fixture(
+        anonymous_subject: bool,
+        annotated: bool,
+    ) -> Fixture {
         let mut fixture = Fixture::default();
         for iri in [
             b"urn:B".as_slice(),
@@ -12543,20 +12542,39 @@ mod tests {
         fixture.push_node_ref(8);
         fixture.push_none();
         fixture.finish_node(TAG_LITERAL); // 10
+        let metadata_id = if annotated {
+            fixture.push_node_ref(7);
+            fixture.push_node_ref(10);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION); // 11
+            Some(11_u64)
+        } else {
+            None
+        };
+        let taxonomy_id = 11_u64 + u64::from(annotated);
         fixture.push_node_ref(5);
         fixture.push_node_ref(6);
         fixture.push_empty_set();
-        fixture.finish_node(TAG_SUB_CLASS_OF); // 11
+        fixture.finish_node(TAG_SUB_CLASS_OF);
+        let assertion_id = taxonomy_id + 1;
         fixture.push_node_ref(7);
         fixture.push_node_ref(if anonymous_subject { 9 } else { 1 });
         fixture.push_node_ref(if anonymous_subject { 10 } else { 9 });
-        fixture.push_empty_set();
-        fixture.finish_node(TAG_ANNOTATION_ASSERTION); // 12
+        if let Some(metadata_id) = metadata_id {
+            fixture.push_node_set(&[metadata_id]);
+        } else {
+            fixture.push_empty_set();
+        }
+        fixture.finish_node(TAG_ANNOTATION_ASSERTION);
         fixture
             .root_kinds
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
-        fixture.root_ids.extend_from_slice(&11_u32.to_le_bytes());
-        fixture.root_ids.extend_from_slice(&12_u32.to_le_bytes());
+        fixture
+            .root_ids
+            .extend_from_slice(&(taxonomy_id as u32).to_le_bytes());
+        fixture
+            .root_ids
+            .extend_from_slice(&(assertion_id as u32).to_le_bytes());
         fixture
     }
 
@@ -12597,7 +12615,10 @@ mod tests {
         fixture
     }
 
-    fn scope_mapped_ontology_annotation_fixture(include_taxonomy: bool) -> Fixture {
+    fn scope_mapped_ontology_annotation_fixture(
+        include_taxonomy: bool,
+        annotated: bool,
+    ) -> Fixture {
         let mut fixture = Fixture::default();
         for iri in [b"urn:meta".as_slice(), b"urn:B", b"urn:Top"] {
             fixture.push_scalar(COMPONENT_TEXT, iri);
@@ -12615,23 +12636,44 @@ mod tests {
         fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
         fixture.push_scalar(COMPONENT_BYTES, b"same");
         fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 7
+        let metadata_id = if annotated {
+            fixture.push_node_ref(4);
+            fixture.push_node_ref(2);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION); // 8
+            Some(8_u64)
+        } else {
+            None
+        };
+        let annotation_id = 8_u64 + u64::from(annotated);
         fixture.push_node_ref(4);
         fixture.push_node_ref(7);
-        fixture.push_empty_set();
-        fixture.finish_node(TAG_ANNOTATION); // 8
+        if let Some(metadata_id) = metadata_id {
+            fixture.push_node_set(&[metadata_id]);
+        } else {
+            fixture.push_empty_set();
+        }
+        fixture.finish_node(TAG_ANNOTATION);
+        let taxonomy_id = annotation_id + 1;
         fixture.push_node_ref(5);
         fixture.push_node_ref(6);
         fixture.push_empty_set();
-        fixture.finish_node(TAG_SUB_CLASS_OF); // 9
+        fixture.finish_node(TAG_SUB_CLASS_OF);
         if include_taxonomy {
             fixture
                 .root_kinds
                 .extend_from_slice(&[ROOT_ONTOLOGY_ANNOTATION, ROOT_AXIOM]);
-            fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
-            fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
+            fixture
+                .root_ids
+                .extend_from_slice(&(annotation_id as u32).to_le_bytes());
+            fixture
+                .root_ids
+                .extend_from_slice(&(taxonomy_id as u32).to_le_bytes());
         } else {
             fixture.root_kinds.push(ROOT_ONTOLOGY_ANNOTATION);
-            fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
+            fixture
+                .root_ids
+                .extend_from_slice(&(annotation_id as u32).to_le_bytes());
         }
         fixture
     }
@@ -22421,9 +22463,11 @@ mod tests {
 
     #[test]
     fn two_member_composite_remaps_silent_annotation_assertion_scopes() {
-        for anonymous_subject in [false, true] {
-            let left = scope_mapped_annotation_assertion_fixture(anonymous_subject);
-            let right = scope_mapped_annotation_assertion_fixture(anonymous_subject);
+        for (anonymous_subject, annotated) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let left = scope_mapped_annotation_assertion_fixture(anonymous_subject, annotated);
+            let right = scope_mapped_annotation_assertion_fixture(anonymous_subject, annotated);
             let mut left_scope_map = [0_u8; 64];
             left_scope_map[..32].fill(7);
             left_scope_map[32..].fill(8);
@@ -22500,8 +22544,8 @@ mod tests {
 
     #[test]
     fn two_member_composite_remaps_silent_ontology_annotation_scopes() {
-        let left = scope_mapped_ontology_annotation_fixture(true);
-        let right = scope_mapped_ontology_annotation_fixture(true);
+        let left = scope_mapped_ontology_annotation_fixture(true, true);
+        let right = scope_mapped_ontology_annotation_fixture(true, true);
         let mut left_scope_map = [0_u8; 64];
         left_scope_map[..32].fill(7);
         left_scope_map[32..].fill(8);
@@ -22562,9 +22606,9 @@ mod tests {
 
     #[test]
     fn nested_member_composite_remaps_silent_ontology_annotation_scopes() {
-        let left = scope_mapped_ontology_annotation_fixture(false);
+        let left = scope_mapped_ontology_annotation_fixture(false, true);
         let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
-        let right = scope_mapped_ontology_annotation_fixture(false);
+        let right = scope_mapped_ontology_annotation_fixture(false, true);
         let mut left_scope_map = [0_u8; 64];
         left_scope_map[..32].fill(7);
         left_scope_map[32..].fill(9);
@@ -23226,10 +23270,12 @@ mod tests {
 
     #[test]
     fn nested_member_composite_remaps_silent_annotation_scopes_across_one_neutral_table() {
-        for anonymous_subject in [false, true] {
-            let left = scope_mapped_annotation_assertion_fixture(anonymous_subject);
+        for (anonymous_subject, annotated) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let left = scope_mapped_annotation_assertion_fixture(anonymous_subject, annotated);
             let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
-            let right = scope_mapped_annotation_assertion_fixture(anonymous_subject);
+            let right = scope_mapped_annotation_assertion_fixture(anonymous_subject, annotated);
             let mut left_scope_map = [0_u8; 64];
             left_scope_map[..32].fill(7);
             left_scope_map[32..].fill(8);

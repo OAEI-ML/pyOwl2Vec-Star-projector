@@ -9187,12 +9187,14 @@ def _scope_mapped_annotation_assertion_composite(
     provider_backend: pyowl_core.BackendPreference,
     *,
     anonymous_subject: bool,
+    annotated: bool = False,
 ) -> pyowl_core.OntologyView:
     property_iri = "<http://www.w3.org/2000/01/rdf-schema#label>"
+    metadata = 'Annotation(<urn:annotation-metadata> "nested") ' if annotated else ""
     assertion = (
-        f'AnnotationAssertion({property_iri} _:same "value")'
+        f'AnnotationAssertion({metadata}{property_iri} _:same "value")'
         if anonymous_subject
-        else f"AnnotationAssertion({property_iri} :B _:same)"
+        else f"AnnotationAssertion({metadata}{property_iri} :B _:same)"
     )
     members = [
         cast(
@@ -9247,8 +9249,10 @@ def _scope_mapped_swrl_composite(
 def _scope_mapped_ontology_annotation_composite(
     *,
     nested: bool,
+    annotated: bool = False,
 ) -> pyowl_core.OntologyView:
-    annotation = "Annotation(<urn:ontology-note> _:same)"
+    metadata = 'Annotation(<urn:annotation-metadata> "nested") ' if annotated else ""
+    annotation = f"Annotation({metadata}<urn:ontology-note> _:same)"
     if not nested:
         members = [
             cast(
@@ -9550,6 +9554,20 @@ _SCOPE_MAPPED_NESTED_SILENT_FAMILIES = (
     ),
     (
         'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> _:same "value")',
+        None,
+        "annotation_assertions",
+        0,
+    ),
+    (
+        'AnnotationAssertion(Annotation(<urn:annotation-metadata> "nested") '
+        "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)",
+        None,
+        "annotation_assertions",
+        0,
+    ),
+    (
+        'AnnotationAssertion(Annotation(<urn:annotation-metadata> "nested") '
+        '<http://www.w3.org/2000/01/rdf-schema#label> _:same "value")',
         None,
         "annotation_assertions",
         0,
@@ -10226,17 +10244,25 @@ def test_scope_mapped_rule_resolver_scans_each_supported_family_once(
 
 
 @pytest.mark.parametrize(
-    "silent_family",
-    ["ontology-annotation", "swrl"],
-    ids=["ontology-annotation", "swrl"],
+    ("silent_family", "annotated"),
+    [
+        ("ontology-annotation", False),
+        ("ontology-annotation", True),
+        ("swrl", False),
+    ],
+    ids=["ontology-annotation", "annotated-ontology-annotation", "swrl"],
 )
 @pytest.mark.parametrize("nested", [False, True], ids=["flat", "nested"])
 def test_hidden_iterator_remaps_silent_non_axiom_scopes_in_one_native_pass(
     silent_family: str,
+    annotated: bool,
     nested: bool,
 ) -> None:
     composite = (
-        _scope_mapped_ontology_annotation_composite(nested=nested)
+        _scope_mapped_ontology_annotation_composite(
+            nested=nested,
+            annotated=annotated,
+        )
         if silent_family == "ontology-annotation"
         else _scope_mapped_swrl_composite(nested=nested)
     )
@@ -10359,13 +10385,16 @@ def test_hidden_iterator_remaps_silent_non_axiom_scopes_in_one_native_pass(
     [False, True],
     ids=["anonymous-value", "anonymous-subject"],
 )
+@pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
 def test_hidden_iterator_remaps_silent_annotation_assertion_scopes(
     provider_backend: pyowl_core.BackendPreference,
     anonymous_subject: bool,
+    annotated: bool,
 ) -> None:
     composite = _scope_mapped_annotation_assertion_composite(
         provider_backend,
         anonymous_subject=anonymous_subject,
+        annotated=annotated,
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
@@ -13127,6 +13156,8 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
         "different-individuals",
         "annotation-value",
         "annotation-subject",
+        "annotated-annotation-value",
+        "annotated-annotation-subject",
     ],
 )
 def test_hidden_iterator_remaps_nested_silent_scopes_in_one_native_pass(
@@ -13305,6 +13336,8 @@ def test_hidden_iterator_remaps_nested_silent_scopes_in_one_native_pass(
         "different-individuals",
         "annotation-value",
         "annotation-subject",
+        "annotated-annotation-value",
+        "annotated-annotation-subject",
     ],
 )
 def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
@@ -14355,7 +14388,11 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         assert resolved is not None
     else:
         assert resolved is None
-    assert _resolve_private_scope_mapped_nested_overlay_composite(top_lease) is None
+    scope_resolved = _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
+    if shape == "annotated-scoped-annotation":
+        assert scope_resolved is not None
+    else:
+        assert scope_resolved is None
     assert _resolve_private_four_table_nested_composite(top_lease) is None
     if shape == "multi-anonymous-scope-remap":
         assert all(cast(Any, segment).anonymous_scope_map.nbytes for segment in top_lease.segments)
@@ -14376,10 +14413,16 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
 
     assert actual == expected
     ingestion = report.provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert ingestion.reason is not None
-    assert ingestion.counters.get("native_compiled_edges", 0) == 0
-    assert ingestion.counters["encoded_buffer_count"] == 0
+    if shape == "annotated-scoped-annotation":
+        assert ingestion.path == "encoded-native"
+        assert ingestion.reason is None
+        assert ingestion.counters["native_compiled_edges"] == 1
+        assert ingestion.counters["encoded_buffer_count"] > 0
+    else:
+        assert ingestion.path == "scalar-native"
+        assert ingestion.reason is not None
+        assert ingestion.counters.get("native_compiled_edges", 0) == 0
+        assert ingestion.counters["encoded_buffer_count"] == 0
 
 
 @pytest.mark.parametrize(
@@ -14629,10 +14672,16 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
 
     assert actual == expected
     ingestion = report.provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert ingestion.reason is not None
-    assert ingestion.counters.get("native_compiled_edges", 0) == 0
-    assert ingestion.counters["encoded_buffer_count"] == 0
+    if shape == "annotated-annotation-assertion":
+        assert ingestion.path == "encoded-native"
+        assert ingestion.reason is None
+        assert ingestion.counters["native_compiled_edges"] == 0
+        assert ingestion.counters["encoded_buffer_count"] > 0
+    else:
+        assert ingestion.path == "scalar-native"
+        assert ingestion.reason is not None
+        assert ingestion.counters.get("native_compiled_edges", 0) == 0
+        assert ingestion.counters["encoded_buffer_count"] == 0
 
 
 @pytest.mark.parametrize(
