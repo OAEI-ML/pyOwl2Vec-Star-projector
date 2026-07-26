@@ -1219,6 +1219,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
                 _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
                 _TAG_SAME_INDIVIDUAL,
                 _TAG_DIFFERENT_INDIVIDUALS,
+                _TAG_ANNOTATION_ASSERTION,
             )
         )
     ):

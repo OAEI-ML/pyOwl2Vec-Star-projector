@@ -9338,31 +9338,50 @@ def _scope_mapped_nested_overlay_composite(
     )
 
 
-_SCOPE_MAPPED_NESTED_SKIPPED_FAMILIES = (
+_SCOPE_MAPPED_NESTED_SILENT_FAMILIES = (
     (
         "NegativeObjectPropertyAssertion(:p _:same :j)",
         "NegativeObjectPropertyAssertion",
         "negative_object_property_assertions",
+        2,
     ),
     (
         'DataPropertyAssertion(:dp _:same "value")',
         "DataPropertyAssertion",
         "data_property_assertions",
+        2,
     ),
     (
         'NegativeDataPropertyAssertion(:dp _:same "blocked")',
         "NegativeDataPropertyAssertion",
         "negative_data_property_assertions",
+        2,
     ),
     (
         "SameIndividual(_:same :j)",
         "SameIndividual",
         "same_individuals",
+        2,
     ),
     (
         "DifferentIndividuals(_:same :j)",
         "DifferentIndividuals",
         "different_individuals",
+        2,
+    ),
+    (
+        "AnnotationAssertion("
+        "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)",
+        None,
+        "annotation_assertions",
+        0,
+    ),
+    (
+        'AnnotationAssertion('
+        '<http://www.w3.org/2000/01/rdf-schema#label> _:same "value")',
+        None,
+        "annotation_assertions",
+        0,
     ),
 )
 
@@ -12247,12 +12266,29 @@ def test_hidden_iterator_keeps_adjacent_three_member_shapes_fail_closed(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize(
+    "nested",
+    [False, True],
+    ids=["flat", "nested"],
+)
 def test_scope_mapped_annotation_assertions_keep_literal_projection_fail_closed(
     provider_backend: pyowl_core.BackendPreference,
+    nested: bool,
 ) -> None:
-    composite = _scope_mapped_annotation_assertion_composite(
-        provider_backend,
-        anonymous_subject=False,
+    assertion = (
+        "AnnotationAssertion("
+        "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)"
+    )
+    composite = (
+        _scope_mapped_nested_overlay_composite(
+            provider_backend,
+            assertion=assertion,
+        )
+        if nested
+        else _scope_mapped_annotation_assertion_composite(
+            provider_backend,
+            anonymous_subject=False,
+        )
     )
     python_options = ProjectionOptions(
         backend="python",
@@ -12607,21 +12643,24 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    ("assertion", "constructor", "counter"),
-    _SCOPE_MAPPED_NESTED_SKIPPED_FAMILIES,
+    ("assertion", "constructor", "counter", "expected_skipped"),
+    _SCOPE_MAPPED_NESTED_SILENT_FAMILIES,
     ids=[
         "negative-object",
         "data",
         "negative-data",
         "same-individual",
         "different-individuals",
+        "annotation-value",
+        "annotation-subject",
     ],
 )
-def test_hidden_iterator_remaps_nested_skipped_scopes_in_one_native_pass(
+def test_hidden_iterator_remaps_nested_silent_scopes_in_one_native_pass(
     provider_backend: pyowl_core.BackendPreference,
     assertion: str,
-    constructor: str,
+    constructor: str | None,
     counter: str,
+    expected_skipped: int,
 ) -> None:
     composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
@@ -12714,9 +12753,14 @@ def test_hidden_iterator_remaps_nested_skipped_scopes_in_one_native_pass(
         )
     ]
     _assert_semantic_report_parity(expected_report, report)
-    assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
-        ("MOWL_SKIPPED_AXIOM", constructor, 2),
+    expected_diagnostics = (
+        ()
+        if constructor is None
+        else (("MOWL_SKIPPED_AXIOM", constructor, 2),)
     )
+    assert tuple(
+        (item.code, item.constructor, item.count) for item in report.diagnostics
+    ) == expected_diagnostics
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
@@ -12736,10 +12780,11 @@ def test_hidden_iterator_remaps_nested_skipped_scopes_in_one_native_pass(
         "negative_data_property_assertions",
         "same_individuals",
         "different_individuals",
+        "annotation_assertions",
     ):
         assert getattr(statistics, family_counter) == (2 if family_counter == counter else 0)
     assert statistics.anonymous_individuals == 2
-    assert statistics.skipped_axioms == 2
+    assert statistics.skipped_axioms == expected_skipped
     assert statistics.edges == 1
     assert compiler.retained_buffer_count == 35
 
@@ -12775,21 +12820,24 @@ def test_hidden_iterator_remaps_nested_skipped_scopes_in_one_native_pass(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    ("assertion", "_constructor", "counter"),
-    _SCOPE_MAPPED_NESTED_SKIPPED_FAMILIES,
+    ("assertion", "_constructor", "counter", "expected_skipped"),
+    _SCOPE_MAPPED_NESTED_SILENT_FAMILIES,
     ids=[
         "negative-object",
         "data",
         "negative-data",
         "same-individual",
         "different-individuals",
+        "annotation-value",
+        "annotation-subject",
     ],
 )
-def test_scope_mapped_nested_skipped_families_preserve_limits_and_retry(
+def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
     assertion: str,
-    _constructor: str,
+    _constructor: str | None,
     counter: str,
+    expected_skipped: int,
 ) -> None:
     composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
@@ -12879,7 +12927,7 @@ def test_scope_mapped_nested_skipped_families_preserve_limits_and_retry(
     assert statistics.subclasses == 1
     assert getattr(statistics, counter) == 2
     assert statistics.anonymous_individuals == 2
-    assert statistics.skipped_axioms == 2
+    assert statistics.skipped_axioms == expected_skipped
     assert statistics.edges == 1
     assert retry.state == "finished"
     assert retry.retained_buffer_count == 35
@@ -13596,6 +13644,7 @@ def test_nested_overlay_member_preserves_identity_cancel_limits_and_retry(
         "bridge",
         "multi-anonymous-scope-remap",
         "annotated-scoped-family",
+        "annotated-scoped-annotation",
         "empty-overlay",
         "silent-local",
     ],
@@ -13616,6 +13665,14 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         sibling = direct("ObjectPropertyAssertion(:p _:same _:other)")
     elif shape == "annotated-scoped-family":
         scoped = 'SameIndividual(Annotation(:label "x") _:same :j)'
+        base = direct(scoped)
+        addition = direct("SubClassOf(:B :Top)")
+        sibling = direct(scoped)
+    elif shape == "annotated-scoped-annotation":
+        scoped = (
+            "AnnotationAssertion(Annotation(:label \"x\") "
+            "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)"
+        )
         base = direct(scoped)
         addition = direct("SubClassOf(:B :Top)")
         sibling = direct(scoped)
