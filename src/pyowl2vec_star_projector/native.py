@@ -32,7 +32,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 84
+ENCODED_DIRECT_KERNEL_VERSION = 85
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -383,6 +383,7 @@ class NativeEncodedDirectCompiler:
     root_annotation_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
     excluded_root_ids: memoryview | None
+    right_excluded_root_ids: memoryview | None
     _kernel: Any
     _module: Any
 
@@ -872,6 +873,7 @@ class NativeEncodedDirectCompilation:
     local_delta_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
     excluded_root_ids: memoryview | None
+    right_excluded_root_ids: memoryview | None
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
@@ -936,6 +938,7 @@ class NativeEncodedDirectCompilation:
             + (0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers))
             + int(self.included_root_ids is not None)
             + int(self.excluded_root_ids is not None)
+            + int(self.right_excluded_root_ids is not None)
         )
         retained_buffer_bytes = sum(
             buffer.nbytes for lease in retained_leases for buffer in lease.buffers.values()
@@ -1022,6 +1025,7 @@ def prepare_native_encoded_compilation(
     canonical_workspace_limit: int | None = None
     included_root_ids: memoryview | None = None
     excluded_root_ids: memoryview | None = None
+    right_excluded_root_ids: memoryview | None = None
     resolved_aliases = _resolve_private_overlay_aliases(lease)
     if resolved_aliases is not None:
         lease, container_leases, excluded_root_ids = resolved_aliases
@@ -1067,6 +1071,7 @@ def prepare_native_encoded_compilation(
                     local_delta_lease,
                     included_root_ids,
                     excluded_root_ids,
+                    right_excluded_root_ids,
                     canonical_work_limit,
                     canonical_workspace_limit,
                 ) = resolved_composite
@@ -1093,6 +1098,7 @@ def prepare_native_encoded_compilation(
         root_annotation_lease=root_annotation_lease,
         included_root_ids=included_root_ids,
         excluded_root_ids=excluded_root_ids,
+        right_excluded_root_ids=right_excluded_root_ids,
         merge_manifest_lease=merge_manifest_lease,
     )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
@@ -1202,6 +1208,7 @@ def prepare_native_encoded_compilation(
                 local_delta_lease=local_delta_lease,
                 included_root_ids=included_root_ids,
                 excluded_root_ids=excluded_root_ids,
+                right_excluded_root_ids=right_excluded_root_ids,
                 root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,
@@ -1338,6 +1345,7 @@ def prepare_native_encoded_direct(
     root_annotation_lease: EncodedStructuralLease | None = None,
     included_root_ids: memoryview | None = None,
     excluded_root_ids: memoryview | None = None,
+    right_excluded_root_ids: memoryview | None = None,
 ) -> NativeEncodedDirectCompiler:
     """Bind validated public leases to the unadvertised Rust foundation.
 
@@ -1348,9 +1356,9 @@ def prepare_native_encoded_direct(
     annotation-provenance join.  One optional sorted INCLUDE or EXCLUDE posting table is
     retained and scanned in place by the native root cursor. One bounded top-local overlay
     table may be retained for the canonical merge, including with an EXCLUDE base posting.  One
-    exact two-member composite manifest may instead bind that same two-table merger and its
-    source-local selection.  The independent provenance table remains mutually exclusive with
-    either merge form.
+    exact two-member composite manifest may instead bind that same two-table merger and retain
+    an EXCLUDE selection for either member.  The independent provenance table remains mutually
+    exclusive with either merge form.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
@@ -1389,8 +1397,12 @@ def prepare_native_encoded_direct(
         raise ValueError("canonical merge limits require a local delta lease")
     if included_root_ids is not None and merge_manifest_lease is None:
         raise ValueError("INCLUDE root selection requires a composite manifest lease")
+    if right_excluded_root_ids is not None and merge_manifest_lease is None:
+        raise ValueError("right EXCLUDE root selection requires a composite manifest lease")
     if included_root_ids is not None and excluded_root_ids is not None:
         raise ValueError("root selection cannot combine INCLUDE and EXCLUDE postings")
+    if included_root_ids is not None and right_excluded_root_ids is not None:
+        raise ValueError("composite root selection cannot mix INCLUDE and EXCLUDE postings")
     root_descriptor_sha256: bytes | None = None
     if root_annotation_lease is not None:
         root_descriptor_sha256 = _validated_direct_descriptor_digest(root_annotation_lease)
@@ -1443,10 +1455,9 @@ def prepare_native_encoded_direct(
                 canonical_work_limit=canonical_work_limit,
                 canonical_workspace_limit=canonical_workspace_limit,
                 included_root_ids=included_root_ids,
+                right_excluded_root_ids=right_excluded_root_ids,
                 merge_manifest_view=(
-                    None
-                    if merge_manifest_lease is None
-                    else merge_manifest_lease.encoded_view
+                    None if merge_manifest_lease is None else merge_manifest_lease.encoded_view
                 ),
                 merge_manifest_owner=(
                     None if merge_manifest_lease is None else merge_manifest_lease.owner
@@ -1490,6 +1501,7 @@ def prepare_native_encoded_direct(
         root_annotation_lease,
         included_root_ids,
         excluded_root_ids,
+        right_excluded_root_ids,
         kernel,
         module,
     )

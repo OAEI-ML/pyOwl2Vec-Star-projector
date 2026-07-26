@@ -41,7 +41,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 84;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 85;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -603,6 +603,7 @@ struct EncodedDirectCompiler {
     canonical_merge_limits: Option<(usize, usize)>,
     included_root_ids: Option<RetainedDirectBuffer>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
+    right_excluded_root_ids: Option<RetainedDirectBuffer>,
     _root_annotation_view: Option<Py<PyAny>>,
     _root_annotation_owner: Option<Py<PyAny>>,
     root_annotation_buffers: Option<Vec<RetainedDirectBuffer>>,
@@ -697,7 +698,11 @@ impl EncodedDirectCompiler {
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
-            DirectColumns::from_ordered(slices)
+            let right_excluded_root_ids = self
+                .right_excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices).with_excluded_root_ids(right_excluded_root_ids)
         });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
@@ -807,6 +812,7 @@ impl EncodedDirectCompiler {
         merge_manifest_owner=None,
         merge_manifest_descriptor_sha256=None,
         included_root_ids=None,
+        right_excluded_root_ids=None,
     ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
@@ -825,6 +831,7 @@ impl EncodedDirectCompiler {
         merge_manifest_owner: Option<&Bound<'_, PyAny>>,
         merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
         included_root_ids: Option<&Bound<'_, PyAny>>,
+        right_excluded_root_ids: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
         let included_root_ids_view = included_root_ids;
@@ -834,6 +841,10 @@ impl EncodedDirectCompiler {
         let excluded_root_ids_view = excluded_root_ids;
         let excluded_root_ids = excluded_root_ids_view
             .map(|value| retained_exact_bytes_buffer(value, "excluded_root_ids"))
+            .transpose()?;
+        let right_excluded_root_ids_view = right_excluded_root_ids;
+        let right_excluded_root_ids = right_excluded_root_ids_view
+            .map(|value| retained_exact_bytes_buffer(value, "right_excluded_root_ids"))
             .transpose()?;
         if included_root_ids.is_some() && excluded_root_ids.is_some() {
             return Err(encoded_buffer_error(
@@ -900,6 +911,7 @@ impl EncodedDirectCompiler {
                             owner,
                             included_root_ids_view,
                             excluded_root_ids_view,
+                            right_excluded_root_ids_view,
                         )?;
                         buffers
                     } else {
@@ -930,6 +942,16 @@ impl EncodedDirectCompiler {
                 "encoded INCLUDE selection requires an exact composite manifest",
             ));
         }
+        if right_excluded_root_ids.is_some() && merge_manifest.is_none() {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded right EXCLUDE selection requires an exact composite manifest",
+            ));
+        }
+        if included_root_ids.is_some() && right_excluded_root_ids.is_some() {
+            return Err(encoded_buffer_error(
+                "encoded composite root selection cannot mix INCLUDE and EXCLUDE postings",
+            ));
+        }
         Ok(Self {
             _encoded_view: encoded_view.clone().unbind(),
             _owner: expected_owner.clone().unbind(),
@@ -942,6 +964,7 @@ impl EncodedDirectCompiler {
             canonical_merge_limits,
             included_root_ids,
             excluded_root_ids,
+            right_excluded_root_ids,
             _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
             root_annotation_buffers,
@@ -1018,7 +1041,11 @@ impl EncodedDirectCompiler {
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
-            DirectColumns::from_ordered(slices)
+            let right_excluded_root_ids = self
+                .right_excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices).with_excluded_root_ids(right_excluded_root_ids)
         });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
@@ -1727,6 +1754,7 @@ impl EncodedDirectCompiler {
             + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
             + usize::from(self.included_root_ids.is_some())
             + usize::from(self.excluded_root_ids.is_some())
+            + usize::from(self.right_excluded_root_ids.is_some())
     }
 
     /// Deterministic test hook proving another Python thread can cancel while
@@ -2327,6 +2355,7 @@ fn validate_two_member_composite_manifest(
     right_owner: &Bound<'_, PyAny>,
     included_root_ids: Option<&Bound<'_, PyAny>>,
     excluded_root_ids: Option<&Bound<'_, PyAny>>,
+    right_excluded_root_ids: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
     if left_view.is(right_view) || left_owner.is(right_owner) {
@@ -2396,7 +2425,7 @@ fn validate_two_member_composite_manifest(
                 ));
             }
             matched_right = true;
-            (right_owner, None, None)
+            (right_owner, None, right_excluded_root_ids)
         } else {
             return Err(encoded_buffer_error(
                 "encoded composite member lost its retained source identity",

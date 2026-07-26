@@ -8291,13 +8291,16 @@ fn prepare_two_table_batches_uncommitted(
             "bounded local-overlay compilation does not support literal projection",
         ));
     }
-    if !delta_columns.excluded_root_ids.is_empty() {
+    if duplicate_policy == CrossTableDuplicatePolicy::Reject
+        && (!delta_columns.included_root_ids.is_empty()
+            || !delta_columns.excluded_root_ids.is_empty())
+    {
         return Err(KernelError::unsupported(
             "bounded local-overlay delta requires ALL root selection",
         ));
     }
-    let delta_root_count = delta_columns.root_count();
-    if delta_root_count == 0 {
+    let delta_source_root_count = delta_columns.root_count();
+    if delta_source_root_count == 0 {
         return Err(KernelError::unsupported(
             "bounded local-overlay compilation requires a nonempty local root segment",
         ));
@@ -8305,6 +8308,23 @@ fn prepare_two_table_batches_uncommitted(
 
     delta_columns.validate_generic(state)?;
     delta_columns.validate_supported_nodes(options.max_iri_bytes, state)?;
+    let delta_root_count = delta_columns.selected_root_count()?;
+    if delta_root_count == 0 {
+        return Err(KernelError::unsupported(
+            "bounded two-table compilation requires at least one selected right root",
+        ));
+    }
+    let mut delta_root_index = None;
+    for index in 0..delta_source_root_count {
+        check_cancel(state, index)?;
+        if delta_columns.root_is_selected(index)? {
+            delta_root_index = Some(index);
+            break;
+        }
+    }
+    let delta_root_index = delta_root_index.ok_or_else(|| {
+        KernelError::malformed("encoded right selection lost its first selected root")
+    })?;
     let delta_counts = delta_columns.classify_roots(options.max_iri_bytes, state)?;
     let paired_object_property_class = delta_root_count == 2
         && delta_counts
@@ -8313,8 +8333,8 @@ fn prepare_two_table_batches_uncommitted(
                 object_property_ranges: 1,
                 ..RootCounts::default()
             });
-    let delta_root = delta_columns.root_id(0)?;
-    let delta_root_kind = delta_columns.root_kind(0)?;
+    let delta_root = delta_columns.root_id(delta_root_index)?;
+    let delta_root_kind = delta_columns.root_kind(delta_root_index)?;
     let delta_tag = delta_columns.node_tag(delta_root)?;
     let singular_emitting_delta = delta_root_count == 1
         && delta_root_kind == ROOT_AXIOM
@@ -8380,8 +8400,12 @@ fn prepare_two_table_batches_uncommitted(
         Vec::new()
     };
     if paired_object_property_class {
-        for root_index in 0..delta_root_count {
+        let mut selected_index = 0_usize;
+        for root_index in 0..delta_source_root_count {
             check_cancel(state, root_index)?;
+            if !delta_columns.root_is_selected(root_index)? {
+                continue;
+            }
             let root = delta_columns.root_id(root_index)?;
             if delta_columns.root_kind(root_index)? != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
@@ -8402,13 +8426,31 @@ fn prepare_two_table_batches_uncommitted(
                         "bounded two-root local overlay requires named object properties and classes",
                     )
                 })?;
-            object_property_class_rules[root_index] = Some(rule);
-            local_object_property_classes[root_index] = Some(OwnedLocalObjectPropertyClass {
+            let Some(rule_slot) = object_property_class_rules.get_mut(selected_index) else {
+                return Err(KernelError::malformed(
+                    "encoded right selection produced too many object-property class roots",
+                ));
+            };
+            let Some(local_slot) = local_object_property_classes.get_mut(selected_index) else {
+                return Err(KernelError::malformed(
+                    "encoded right selection produced too many object-property class roots",
+                ));
+            };
+            *rule_slot = Some(rule);
+            *local_slot = Some(OwnedLocalObjectPropertyClass {
                 kind,
                 property: clone_text(property)?,
                 class: clone_text(class)?,
                 insertion_position: 0,
             });
+            selected_index = selected_index
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded selected-root counter overflow"))?;
+        }
+        if selected_index != delta_root_count {
+            return Err(KernelError::malformed(
+                "encoded right selection lost an object-property class root",
+            ));
         }
         let domain = local_object_property_classes
             .iter()
@@ -8431,8 +8473,11 @@ fn prepare_two_table_batches_uncommitted(
         }
     }
     if emitting_delta {
-        for root_index in 0..delta_root_count {
+        for root_index in 0..delta_source_root_count {
             check_cancel(state, root_index)?;
+            if !delta_columns.root_is_selected(root_index)? {
+                continue;
+            }
             let root = delta_columns.root_id(root_index)?;
             if delta_columns.root_kind(root_index)? != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
@@ -8451,6 +8496,11 @@ fn prepare_two_table_batches_uncommitted(
                 insertion_scan_index: usize::MAX,
                 local_canonical_index: root_index,
             });
+        }
+        if overlay_deltas.len() != delta_root_count {
+            return Err(KernelError::malformed(
+                "encoded right selection lost an emitting root",
+            ));
         }
     }
     let mut local_role_state_axiom = None;
@@ -9030,6 +9080,7 @@ fn prepare_two_table_batches_uncommitted(
     let mut deduplicated_right_roots = 0_usize;
     let mut next_insertion_scan = 0_usize;
     let mut next_base_scan_index = 0_usize;
+    let mut next_right_plan_index = 0_usize;
     let mut insertion_positions = [None, None];
     while let Some(root) = merger.next(state)? {
         match root {
@@ -9050,11 +9101,16 @@ fn prepare_two_table_batches_uncommitted(
             }
             MergedCanonicalRoot::Right(root) => {
                 if emitting_delta {
-                    let Some(delta) = overlay_deltas.get_mut(root.index) else {
+                    let Some(delta) = overlay_deltas.get_mut(next_right_plan_index) else {
                         return Err(KernelError::malformed(
                             "encoded local-overlay merge produced an inconsistent local root",
                         ));
                     };
+                    if delta.local_canonical_index != root.index {
+                        return Err(KernelError::malformed(
+                            "encoded local-overlay merge reordered its selected local roots",
+                        ));
+                    }
                     if delta.insertion_scan_index != usize::MAX {
                         return Err(KernelError::malformed(
                             "encoded local-overlay merge produced a duplicate local root",
@@ -9062,7 +9118,7 @@ fn prepare_two_table_batches_uncommitted(
                     }
                     delta.insertion_scan_index = next_base_scan_index;
                 } else {
-                    let Some(position) = insertion_positions.get_mut(root.index) else {
+                    let Some(position) = insertion_positions.get_mut(next_right_plan_index) else {
                         return Err(KernelError::malformed(
                             "encoded local-overlay merge produced an inconsistent local root",
                         ));
@@ -9073,6 +9129,9 @@ fn prepare_two_table_batches_uncommitted(
                         ));
                     }
                 }
+                next_right_plan_index = next_right_plan_index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded selected-root counter overflow")
+                })?;
                 right_roots = right_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root counter overflow")
                 })?;
@@ -9094,17 +9153,25 @@ fn prepare_two_table_batches_uncommitted(
                         "bounded two-member composite structural deduplication requires emitting roots",
                     ));
                 }
-                let Some(delta) = overlay_deltas.get_mut(right.index) else {
+                let Some(delta) = overlay_deltas.get_mut(next_right_plan_index) else {
                     return Err(KernelError::malformed(
                         "encoded composite merge produced an inconsistent duplicate root",
                     ));
                 };
+                if delta.local_canonical_index != right.index {
+                    return Err(KernelError::malformed(
+                        "encoded composite merge reordered its selected duplicate roots",
+                    ));
+                }
                 if delta.insertion_scan_index != usize::MAX {
                     return Err(KernelError::malformed(
                         "encoded composite merge repeated a duplicate root",
                     ));
                 }
                 delta.insertion_scan_index = DEDUPLICATED_OVERLAY_SCAN_INDEX;
+                next_right_plan_index = next_right_plan_index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded selected-root counter overflow")
+                })?;
                 left_roots = left_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded composite root counter overflow")
                 })?;
@@ -9137,7 +9204,10 @@ fn prepare_two_table_batches_uncommitted(
             .iter()
             .any(Option::is_none)
     };
-    if right_roots != delta_root_count || lost_local_root {
+    if right_roots != delta_root_count
+        || next_right_plan_index != delta_root_count
+        || lost_local_root
+    {
         return Err(KernelError::malformed(
             "encoded local-overlay merge lost a local root",
         ));
@@ -19301,6 +19371,56 @@ mod tests {
             }]
         );
         prepared.commit_cursor(first_cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn two_member_composite_selects_both_exclude_tables_by_source_root_id() {
+        let left = named_subclass_fixture();
+        let right = named_subclass_fixture();
+        let excluded_declaration = 1_u32.to_le_bytes();
+        let selected_left = left.columns().with_excluded_root_ids(&excluded_declaration);
+        let selected_right = right
+            .columns()
+            .with_excluded_root_ids(&excluded_declaration);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_two_member_composite_batches_uncommitted(
+            selected_left,
+            selected_right,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 1);
+        assert_eq!(statistics.declarations, 0);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.edges, 1);
+        assert!(prepared.preparation.overlay_deltas.is_empty());
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(selected_left, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
         assert!(prepared.is_exhausted());
     }
 
