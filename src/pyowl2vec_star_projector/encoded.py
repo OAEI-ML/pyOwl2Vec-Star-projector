@@ -445,6 +445,7 @@ def _resolve_private_direct_composite_rows(
     lease: EncodedStructuralLease,
     *,
     member_count: int,
+    require_direct_sources: bool = True,
 ) -> tuple[
     tuple[
         EncodedStructuralLease,
@@ -453,11 +454,12 @@ def _resolve_private_direct_composite_rows(
     ],
     ...,
 ] | None:
-    """Validate one exact direct-member composite without flattening."""
+    """Validate one exact member composite without flattening source tables."""
 
     if (
         type(member_count) is not int
         or member_count < 2
+        or type(require_direct_sources) is not bool
         or type(lease) is not EncodedStructuralLease
         or len(lease.segments) != member_count
     ):
@@ -531,15 +533,17 @@ def _resolve_private_direct_composite_rows(
             type(lease.encoded_view),
             source_scope,
         )
-        if len(source_lease.segments) != 1:
-            return None
         try:
-            source_role = cast(Any, source_lease.segments[0]).role
+            source_roles = tuple(
+                cast(Any, source_segment).role for source_segment in source_lease.segments
+            )
         except Exception as error:
             raise SnapshotCompatibilityError(
-                "core encoded composite member role is not readable"
+                "core encoded composite member roles are not readable"
             ) from error
-        if type(source_role) is not int or source_role != _SEGMENT_DIRECT:
+        if any(type(source_role) is not int for source_role in source_roles) or (
+            require_direct_sources and source_roles != (_SEGMENT_DIRECT,)
+        ):
             return None
         if any(
             source_lease.encoded_view is prior.encoded_view or source_lease.owner is prior.owner
@@ -648,6 +652,73 @@ def _resolve_private_three_member_composite(
         first_excluded,
         second_excluded,
         third_excluded,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _resolve_private_nested_overlay_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview | None,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact overlay member and one direct member into three tables."""
+
+    rows = _resolve_private_direct_composite_rows(
+        lease,
+        member_count=2,
+        require_direct_sources=False,
+    )
+    if rows is None or any(
+        included is not None or excluded is not None
+        for _source, included, excluded in rows
+    ):
+        return None
+    overlay_rows: list[EncodedStructuralLease] = []
+    direct_rows: list[EncodedStructuralLease] = []
+    for source, _included, _excluded in rows:
+        roles = tuple(cast(Any, segment).role for segment in source.segments)
+        if roles == (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA):
+            overlay_rows.append(source)
+        elif roles == (_SEGMENT_DIRECT,):
+            direct_rows.append(source)
+        else:
+            return None
+    if len(overlay_rows) != 1 or len(direct_rows) != 1:
+        return None
+    nested_overlay = overlay_rows[0]
+    direct_member = direct_rows[0]
+    resolved_overlay = _resolve_private_single_overlay_delta(nested_overlay)
+    if resolved_overlay is None:
+        return None
+    base, excluded_root_ids, _overlay_work, _overlay_workspace = resolved_overlay
+    if (
+        base.encoded_view is direct_member.encoded_view
+        or base.owner is direct_member.owner
+    ):
+        return None
+
+    _enforce_public_limit(lease.owner, "max_overlay_depth", 1)
+    validation_work = (
+        _private_encoded_lease_validation_work(lease)
+        + _private_encoded_lease_validation_work(nested_overlay)
+        + _private_encoded_lease_validation_work(base)
+        + _private_encoded_lease_validation_work(direct_member)
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        base,
+        nested_overlay,
+        direct_member,
+        excluded_root_ids,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
     )

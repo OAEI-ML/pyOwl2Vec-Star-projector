@@ -34,6 +34,7 @@ from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedNegotiation,
     EncodedStructuralLease,
+    _resolve_private_nested_overlay_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
     _resolve_private_two_member_composite,
@@ -9255,6 +9256,53 @@ def _three_member_all_exclude_subclass_composite(
     )
 
 
+def _nested_overlay_member_subclass_composite(
+    provider_backend: pyowl_core.BackendPreference,
+    *,
+    remove_base: bool = True,
+) -> pyowl_core.OntologyView:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:Drop :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)", backend=provider_backend),
+    )
+    direct = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:C :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed = (
+        {
+            next(
+                axiom
+                for axiom in base.iter_axioms()
+                if cast(Any, axiom).sub_class.iri.value.endswith("#Drop")
+            )
+        }
+        if remove_base
+        else set()
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    return cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, direct),
+    )
+
+
 def _forged_one_include_subclass_composite(
     provider_backend: pyowl_core.BackendPreference,
 ) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease, memoryview]:
@@ -10614,6 +10662,465 @@ def test_hidden_iterator_keeps_adjacent_three_member_shapes_fail_closed(
     else:
         # Core preserves composition semantics by flattening the nested source.
         assert len(top_lease.segments) == 4
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(composite, options=python_options)
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            composite,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert ingestion.counters.get("native_compiled_edges", 0) == 0
+    assert ingestion.counters["encoded_buffer_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _nested_overlay_member_subclass_composite(provider_backend)
+    top_encoded = composite.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
+    assert all(segment.posting_mode == 0 for segment in top_encoded.segments)
+    assert all(segment.root_ids.nbytes == 0 for segment in top_encoded.segments)
+    nested_encoded = next(
+        cast(Any, segment).source
+        for segment in top_encoded.segments
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (2, 3)
+    )
+    direct_encoded = next(
+        cast(Any, segment).source
+        for segment in top_encoded.segments
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (1,)
+    )
+    nested_base_encoded = cast(Any, nested_encoded.segments[0]).source
+    assert nested_base_encoded is not None
+    assert nested_encoded.segments[0].posting_mode == 2
+    assert nested_encoded.segments[0].root_ids.nbytes == 4
+    expected_buffer_bytes = sum(
+        value.nbytes for value in top_encoded.buffers.values()
+    ) + sum(
+        value.nbytes for value in nested_encoded.buffers.values()
+    ) + sum(
+        value.nbytes for value in direct_encoded.buffers.values()
+    ) + sum(
+        value.nbytes for value in nested_base_encoded.buffers.values()
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("nested composite member reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected == [
+        Edge(
+            f"urn:native-integration#{source}",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        for source in ["A", "B", "C", "Shared"]
+    ]
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics == ()
+    assert len(captured) == len(captured_compilers) == 1
+    compilation = captured[0]
+    compiler = captured_compilers[0]
+    assert compilation.view is composite
+    assert compiler.merge_manifest_lease is compilation.container_leases[0]
+    assert compiler.merge_manifest_lease is not None
+    assert compilation.local_delta_lease is compilation.container_leases[1]
+    assert compilation.third_member_lease is compilation.container_leases[2]
+    assert compilation.nested_member_lease is compilation.local_delta_lease
+    assert compiler.nested_member_lease is compilation.nested_member_lease
+    assert compilation.lease.encoded_view is nested_base_encoded
+    assert compilation.local_delta_lease is not None
+    assert compilation.third_member_lease is not None
+    nested_base_segment = cast(Any, compilation.local_delta_lease.segments[0])
+    assert nested_base_segment.source is compilation.lease.encoded_view
+    assert compilation.excluded_root_ids is nested_base_segment.root_ids
+    assert compilation.included_root_ids is None
+    assert compilation.right_excluded_root_ids is None
+    assert compilation.third_excluded_root_ids is None
+    statistics = compilation.native_statistics
+    assert statistics.roots == 4
+    assert statistics.subclasses == 4
+    assert statistics.restriction_subclasses == 0
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == 4
+    assert compiler.retained_buffer_count == 34
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 44
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 34
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 44
+    assert ingestion.counters["encoded_referenced_view_count"] == 3
+    assert ingestion.counters["encoded_segment_count"] == 6
+    assert ingestion.counters["encoded_posting_bytes"] == 4
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=4,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_nested_overlay_member_accepts_source_local_all_selection(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _nested_overlay_member_subclass_composite(
+        provider_backend,
+        remove_base=False,
+    )
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_nested_overlay_composite(top_lease)
+    assert resolved is not None
+    assert resolved[3] is None
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            composite,
+            options=ProjectionOptions(backend="native", order="encounter"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert [edge.source.rsplit("#", 1)[-1] for edge in actual] == [
+        "A",
+        "B",
+        "C",
+        "Drop",
+        "Shared",
+    ]
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_detached_buffer_count"] == 33
+    assert ingestion.counters["encoded_posting_bytes"] == 0
+    assert ingestion.counters["native_compiled_edges"] == 5
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_nested_overlay_member_preserves_identity_cancel_limits_and_retry(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _nested_overlay_member_subclass_composite(provider_backend)
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_nested_overlay_composite(top_lease)
+    assert resolved is not None
+    (
+        base_lease,
+        nested_lease,
+        direct_lease,
+        excluded,
+        max_work,
+        max_workspace,
+    ) = resolved
+    assert excluded is not None
+    assert max_work is not None
+    assert max_workspace is not None
+    nested_base_segment = cast(Any, nested_lease.segments[0])
+    assert excluded is nested_base_segment.root_ids
+
+    def compiler(
+        *,
+        work: int = max_work,
+        workspace: int = max_workspace,
+        selector: memoryview = excluded,
+        sibling: EncodedStructuralLease = direct_lease,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=sibling,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=top_lease,
+            excluded_root_ids=selector,
+            canonical_work_limit=work,
+            canonical_workspace_limit=workspace,
+        )
+
+    cancelled = compiler()
+    assert cancelled.cancel() is True
+    with pytest.raises(NativeEncodedDirectCancelled):
+        cancelled.compile_batch(
+            bidirectional=False,
+            max_edges=4,
+            max_iri_bytes=1024,
+        )
+    assert cancelled.state == "cancelled"
+    assert cancelled.retained_buffer_count == 34
+
+    for work, workspace, expected_message in [
+        (1, max_workspace, "work"),
+        (max_work, 1, "workspace"),
+    ]:
+        limited = compiler(work=work, workspace=workspace)
+        with pytest.raises(ProjectionResourceError) as captured:
+            limited.iter_batches(
+                bidirectional=False,
+                max_edges=4,
+                max_iri_bytes=1024,
+                batch_edges=1,
+            )
+        assert captured.value.__cause__ is not None
+        assert expected_message in str(captured.value.__cause__)
+        assert limited.state == "failed"
+        assert limited.retained_buffer_count == 34
+        assert limited.coarse_output_chunks == 0
+        assert limited.peak_buffered_coarse_edges == 0
+
+    retry = compiler()
+    edges, statistics = retry.compile_batch(
+        bidirectional=False,
+        max_edges=4,
+        max_iri_bytes=1024,
+    )
+    assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["A", "B", "C", "Shared"]
+    assert statistics.roots == statistics.subclasses == statistics.edges == 4
+    assert retry.state == "finished"
+    assert retry.retained_buffer_count == 34
+    assert retry.cancel() is False
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="does not retain the exact EXCLUDE table",
+    ):
+        compiler(selector=memoryview(bytes(excluded)))
+
+    unrelated = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Other :Top)", backend=provider_backend),
+    )
+    unrelated_lease = select_private_direct_ingestion(
+        unrelated,
+        selected_backend="native",
+    ).lease
+    assert unrelated_lease is not None
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="nested composite member lost its retained source identity",
+    ):
+        compiler(sibling=unrelated_lease)
+
+    with pytest.raises(
+        ValueError,
+        match="must be the retained local delta lease",
+    ):
+        prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=direct_lease,
+            nested_member_lease=top_lease,
+            merge_manifest_lease=top_lease,
+            excluded_root_ids=excluded,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+
+    nested_index = next(
+        index
+        for index, segment in enumerate(top_lease.segments)
+        if cast(Any, segment).source is nested_lease.encoded_view
+    )
+    for posting_mode in (1, 2):
+        outer_segments = list(top_lease.segments)
+        outer_segments[nested_index] = replace(
+            cast(Any, outer_segments[nested_index]),
+            posting_mode=posting_mode,
+            root_ids=memoryview((1).to_bytes(4, "little")),
+        )
+        selected_view = replace(
+            cast(Any, top_lease.encoded_view),
+            segments=tuple(outer_segments),
+        )
+        selected_lease = replace(
+            top_lease,
+            encoded_view=selected_view,
+            segments=tuple(outer_segments),
+        )
+        assert _resolve_private_nested_overlay_composite(selected_lease) is None
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "two-overlays",
+        "three-outer-members",
+        "bridge",
+        "scope-remap",
+        "empty-overlay",
+        "silent-local",
+    ],
+)
+def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
+    provider_backend: pyowl_core.BackendPreference,
+    shape: str,
+) -> None:
+    def direct(body: str) -> pyowl_core.OntologyView:
+        return cast(
+            pyowl_core.OntologyView,
+            _snapshot(body, backend=provider_backend),
+        )
+
+    if shape == "scope-remap":
+        base = direct("ClassAssertion(:A _:same)")
+        addition = direct("SubClassOf(:B :Top)")
+        sibling = direct("ClassAssertion(:A _:same)")
+    else:
+        base = direct("SubClassOf(:A :Top)")
+        addition_body = (
+            "Declaration(Class(:B))" if shape == "silent-local" else "SubClassOf(:B :Top)"
+        )
+        addition = direct(addition_body)
+        sibling = direct("SubClassOf(:C :Top)")
+    overlay_delta = (
+        pyowl_core.OntologyDelta()
+        if shape == "empty-overlay"
+        else pyowl_core.OntologyDelta(add_axioms=cast(Any, set(addition.iter_axioms())))
+    )
+    overlay = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(base, overlay_delta),
+    )
+    if shape == "two-overlays":
+        second_addition = direct("SubClassOf(:D :Top)")
+        second_overlay = pyowl_core.apply_delta(
+            sibling,
+            pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(second_addition.iter_axioms()))
+            ),
+        )
+        composite = pyowl_core.compose_views(overlay, second_overlay)
+    elif shape == "three-outer-members":
+        composite = pyowl_core.compose_views(
+            overlay,
+            sibling,
+            direct("SubClassOf(:D :Top)"),
+        )
+    elif shape == "bridge":
+        bridge = direct("SubClassOf(:D :Top)")
+        composite = pyowl_core.compose_views(
+            overlay,
+            sibling,
+            delta=pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(bridge.iter_axioms()))
+            ),
+        )
+    else:
+        composite = pyowl_core.compose_views(overlay, sibling)
+    composite = cast(pyowl_core.OntologyView, composite)
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_nested_overlay_composite(top_lease)
+    if shape == "silent-local":
+        assert resolved is not None
+    else:
+        assert resolved is None
+    if shape == "scope-remap":
+        assert all(cast(Any, segment).anonymous_scope_map.nbytes for segment in top_lease.segments)
+    elif shape == "bridge":
+        assert top_lease.buffers["root_kinds"].nbytes == 1
 
     python_options = ProjectionOptions(backend="python", order="encounter")
     expected = Projector().project(composite, options=python_options)

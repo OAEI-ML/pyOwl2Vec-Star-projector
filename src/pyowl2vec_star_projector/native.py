@@ -16,6 +16,7 @@ from .diagnostics import ProjectionDiagnostic
 from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
+    _resolve_private_nested_overlay_composite,
     _resolve_private_overlay_aliases,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
@@ -33,7 +34,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 86
+ENCODED_DIRECT_KERNEL_VERSION = 87
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -381,6 +382,7 @@ class NativeEncodedDirectCompiler:
     lease: EncodedStructuralLease
     local_delta_lease: EncodedStructuralLease | None
     third_member_lease: EncodedStructuralLease | None
+    nested_member_lease: EncodedStructuralLease | None
     merge_manifest_lease: EncodedStructuralLease | None
     root_annotation_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
@@ -883,6 +885,7 @@ class NativeEncodedDirectCompilation:
     container_leases: tuple[EncodedStructuralLease, ...]
     local_delta_lease: EncodedStructuralLease | None
     third_member_lease: EncodedStructuralLease | None
+    nested_member_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
     excluded_root_ids: memoryview | None
     right_excluded_root_ids: memoryview | None
@@ -1036,6 +1039,7 @@ def prepare_native_encoded_compilation(
     container_leases: tuple[EncodedStructuralLease, ...] = ()
     local_delta_lease: EncodedStructuralLease | None = None
     third_member_lease: EncodedStructuralLease | None = None
+    nested_member_lease: EncodedStructuralLease | None = None
     merge_manifest_lease: EncodedStructuralLease | None = None
     canonical_work_limit: int | None = None
     canonical_workspace_limit: int | None = None
@@ -1124,6 +1128,36 @@ def prepare_native_encoded_compilation(
                         local_delta_lease,
                         third_member_lease,
                     )
+                else:
+                    resolved_nested = _resolve_private_nested_overlay_composite(lease)
+                    if resolved_nested is not None:
+                        if options.include_literals:
+                            return (
+                                None,
+                                "private native nested-member composite slice does not support "
+                                "literal projection",
+                            )
+                        if role_state is not None:
+                            return (
+                                None,
+                                "private native nested-member composite slice does not bind "
+                                "Scala-instance state",
+                            )
+                        merge_manifest_lease = lease
+                        (
+                            lease,
+                            local_delta_lease,
+                            third_member_lease,
+                            excluded_root_ids,
+                            canonical_work_limit,
+                            canonical_workspace_limit,
+                        ) = resolved_nested
+                        nested_member_lease = local_delta_lease
+                        container_leases = (
+                            merge_manifest_lease,
+                            local_delta_lease,
+                            third_member_lease,
+                        )
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
         if container_leases:
@@ -1142,6 +1176,7 @@ def prepare_native_encoded_compilation(
         lease,
         local_delta_lease=local_delta_lease,
         third_member_lease=third_member_lease,
+        nested_member_lease=nested_member_lease,
         canonical_work_limit=canonical_work_limit,
         canonical_workspace_limit=canonical_workspace_limit,
         root_annotation_lease=root_annotation_lease,
@@ -1257,6 +1292,7 @@ def prepare_native_encoded_compilation(
                 container_leases=container_leases,
                 local_delta_lease=local_delta_lease,
                 third_member_lease=third_member_lease,
+                nested_member_lease=nested_member_lease,
                 included_root_ids=included_root_ids,
                 excluded_root_ids=excluded_root_ids,
                 right_excluded_root_ids=right_excluded_root_ids,
@@ -1392,6 +1428,7 @@ def prepare_native_encoded_direct(
     *,
     local_delta_lease: EncodedStructuralLease | None = None,
     third_member_lease: EncodedStructuralLease | None = None,
+    nested_member_lease: EncodedStructuralLease | None = None,
     merge_manifest_lease: EncodedStructuralLease | None = None,
     canonical_work_limit: int | None = None,
     canonical_workspace_limit: int | None = None,
@@ -1411,8 +1448,9 @@ def prepare_native_encoded_direct(
     retained and scanned in place by the native root cursor. One bounded top-local overlay
     table may be retained for the canonical merge, including with an EXCLUDE base posting.  One
     exact two- or three-member composite manifest may instead bind the corresponding canonical
-    merger and retain an EXCLUDE selection for each member. The independent provenance table
-    remains mutually exclusive with either merge form.
+    merger and retain an EXCLUDE selection for each member. One exact two-member composite may
+    expand a one-layer overlay member into the same three-table pass. The independent provenance
+    table remains mutually exclusive with every merge form.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
@@ -1458,8 +1496,20 @@ def prepare_native_encoded_direct(
         raise ValueError("canonical merge limits require a local delta lease")
     if third_member_lease is not None and merge_manifest_lease is None:
         raise ValueError("third composite member requires a composite manifest lease")
+    if nested_member_lease is not None and nested_member_lease is not local_delta_lease:
+        raise ValueError("nested composite member must be the retained local delta lease")
+    if nested_member_lease is not None and (
+        third_member_lease is None or merge_manifest_lease is None
+    ):
+        raise ValueError("nested composite member requires three retained merge tables")
     if third_member_lease is None and third_excluded_root_ids is not None:
         raise ValueError("third EXCLUDE root selection requires a third composite member")
+    if nested_member_lease is not None and (
+        included_root_ids is not None
+        or right_excluded_root_ids is not None
+        or third_excluded_root_ids is not None
+    ):
+        raise ValueError("nested composite member requires outer ALL root selection")
     if included_root_ids is not None and merge_manifest_lease is None:
         raise ValueError("INCLUDE root selection requires a composite manifest lease")
     if right_excluded_root_ids is not None and merge_manifest_lease is None:
@@ -1531,6 +1581,15 @@ def prepare_native_encoded_direct(
                 ),
                 third_member_descriptor_sha256=third_member_descriptor_sha256,
                 third_excluded_root_ids=third_excluded_root_ids,
+                nested_member_view=(
+                    None if nested_member_lease is None else nested_member_lease.encoded_view
+                ),
+                nested_member_owner=(
+                    None if nested_member_lease is None else nested_member_lease.owner
+                ),
+                nested_member_descriptor_sha256=(
+                    None if nested_member_lease is None else local_delta_descriptor_sha256
+                ),
                 merge_manifest_view=(
                     None if merge_manifest_lease is None else merge_manifest_lease.encoded_view
                 ),
@@ -1573,6 +1632,7 @@ def prepare_native_encoded_direct(
         lease,
         local_delta_lease,
         third_member_lease,
+        nested_member_lease,
         merge_manifest_lease,
         root_annotation_lease,
         included_root_ids,
