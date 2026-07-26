@@ -9244,7 +9244,49 @@ def _scope_mapped_swrl_composite(
     )
 
 
+def _scope_mapped_ontology_annotation_composite(
+    *,
+    nested: bool,
+) -> pyowl_core.OntologyView:
+    annotation = "Annotation(<urn:ontology-note> _:same)"
+    if not nested:
+        members = [
+            cast(
+                pyowl_core.OntologyView,
+                _snapshot(f"SubClassOf(:B :Top) {annotation}"),
+            )
+            for _ in range(2)
+        ]
+        return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(annotation),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)"),
+    )
+    sibling = cast(
+        pyowl_core.OntologyView,
+        _snapshot(annotation),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(add_axioms=cast(Any, set(addition.iter_axioms()))),
+    )
+    return cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, sibling),
+    )
+
+
 _SCOPE_MAPPED_RULE_BODIES = (
+    pytest.param(
+        "Annotation(<urn:ontology-note> _:same)",
+        False,
+        id="ontology-annotation",
+    ),
     pytest.param(
         "SubClassOf(ObjectOneOf(_:same) :Top)",
         False,
@@ -10183,11 +10225,21 @@ def test_scope_mapped_rule_resolver_scans_each_supported_family_once(
     assert scope_scan.call_count == 2
 
 
+@pytest.mark.parametrize(
+    "silent_family",
+    ["ontology-annotation", "swrl"],
+    ids=["ontology-annotation", "swrl"],
+)
 @pytest.mark.parametrize("nested", [False, True], ids=["flat", "nested"])
-def test_hidden_iterator_remaps_silent_swrl_scopes_in_one_native_pass(
+def test_hidden_iterator_remaps_silent_non_axiom_scopes_in_one_native_pass(
+    silent_family: str,
     nested: bool,
 ) -> None:
-    composite = _scope_mapped_swrl_composite(nested=nested)
+    composite = (
+        _scope_mapped_ontology_annotation_composite(nested=nested)
+        if silent_family == "ontology-annotation"
+        else _scope_mapped_swrl_composite(nested=nested)
+    )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
         schema_version=1,
@@ -10240,7 +10292,9 @@ def test_hidden_iterator_remaps_silent_swrl_scopes_in_one_native_pass(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError("scope-mapped silent SWRLRule reached scalar traversal"),
+            side_effect=AssertionError(
+                f"scope-mapped silent {silent_family} reached scalar traversal"
+            ),
         ),
     ):
         projector = Projector()
@@ -10270,7 +10324,8 @@ def test_hidden_iterator_remaps_silent_swrl_scopes_in_one_native_pass(
     statistics = captured[0].native_statistics
     assert statistics.roots == 3
     assert statistics.subclasses == 1
-    assert statistics.swrl_rules == 2
+    assert statistics.ontology_annotations == (2 if silent_family == "ontology-annotation" else 0)
+    assert statistics.swrl_rules == (2 if silent_family == "swrl" else 0)
     assert statistics.anonymous_individuals == 0
     assert statistics.skipped_axioms == 0
     assert statistics.edges == 1

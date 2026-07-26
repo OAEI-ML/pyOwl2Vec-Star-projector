@@ -64,6 +64,7 @@ _TAG_IRI = 1
 _TAG_ENTITY = 2
 _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_LITERAL = 4
+_TAG_ANNOTATION = 5
 _TAG_OBJECT_ONE_OF = 33
 _TAG_OBJECT_HAS_VALUE = 36
 _TAG_SUB_CLASS_OF = 61
@@ -78,22 +79,24 @@ _TAG_DATA_PROPERTY_ASSERTION = 115
 _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION = 116
 _TAG_ANNOTATION_ASSERTION = 120
 _TAG_SWRL_RULE = 148
+_ROOT_ONTOLOGY_ANNOTATION = 1
 _ROOT_AXIOM = 2
 _ROOT_EXTENSION = 3
-_SCOPE_MAPPED_CONSTRUCT_TAGS = (
-    _TAG_SUB_CLASS_OF,
-    _TAG_OBJECT_PROPERTY_DOMAIN,
-    _TAG_OBJECT_PROPERTY_RANGE,
-    _TAG_CLASS_ASSERTION,
-    _TAG_OBJECT_PROPERTY_ASSERTION,
-    _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
-    _TAG_DATA_PROPERTY_ASSERTION,
-    _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
-    _TAG_SAME_INDIVIDUAL,
-    _TAG_DIFFERENT_INDIVIDUALS,
-    _TAG_ANNOTATION_ASSERTION,
-    _TAG_SWRL_RULE,
-)
+_SCOPE_MAPPED_CONSTRUCT_ROOT_KINDS = {
+    _TAG_ANNOTATION: _ROOT_ONTOLOGY_ANNOTATION,
+    _TAG_SUB_CLASS_OF: _ROOT_AXIOM,
+    _TAG_OBJECT_PROPERTY_DOMAIN: _ROOT_AXIOM,
+    _TAG_OBJECT_PROPERTY_RANGE: _ROOT_AXIOM,
+    _TAG_CLASS_ASSERTION: _ROOT_AXIOM,
+    _TAG_OBJECT_PROPERTY_ASSERTION: _ROOT_AXIOM,
+    _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION: _ROOT_AXIOM,
+    _TAG_DATA_PROPERTY_ASSERTION: _ROOT_AXIOM,
+    _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION: _ROOT_AXIOM,
+    _TAG_SAME_INDIVIDUAL: _ROOT_AXIOM,
+    _TAG_DIFFERENT_INDIVIDUALS: _ROOT_AXIOM,
+    _TAG_ANNOTATION_ASSERTION: _ROOT_AXIOM,
+    _TAG_SWRL_RULE: _ROOT_EXTENSION,
+}
 _DEFAULT_MAX_SEGMENTS = 1_025
 
 
@@ -807,7 +810,7 @@ def _single_scope_mapped_construct_scope(
 ) -> tuple[int, memoryview, int] | None:
     """Classify and return the sole source scope in one rule-table scan."""
 
-    if construct_tag is not None and construct_tag not in _SCOPE_MAPPED_CONSTRUCT_TAGS:
+    if construct_tag is not None and construct_tag not in _SCOPE_MAPPED_CONSTRUCT_ROOT_KINDS:
         return None
     buffers = lease.buffers
     anonymous_node_id: int | None = None
@@ -839,31 +842,47 @@ def _single_scope_mapped_construct_scope(
         root_kind = _read_uint(buffers["root_kinds"], root_index, 1)
         root_id = _read_uint(buffers["root_ids"], root_index, 4)
         root_tag = _read_uint(buffers["node_tags"], root_id - 1, 2)
-        if root_kind == _ROOT_EXTENSION:
-            if (
-                root_tag != _TAG_SWRL_RULE
-                or (construct_tag is not None and construct_tag != _TAG_SWRL_RULE)
-                or resolved_construct_tag is not None
-                or not _encoded_root_reaches_node(
-                    buffers,
-                    root_id,
-                    anonymous_node_id,
-                )
-            ):
-                return None
-            resolved_construct_tag = root_tag
-            continue
-        if root_kind != _ROOT_AXIOM:
-            return None
-        if root_tag == _TAG_SUB_CLASS_OF and _is_named_subclass_root(buffers, root_id):
-            continue
         if (
-            root_tag not in _SCOPE_MAPPED_CONSTRUCT_TAGS
-            or root_tag == _TAG_SWRL_RULE
+            root_kind == _ROOT_AXIOM
+            and root_tag == _TAG_SUB_CLASS_OF
+            and _is_named_subclass_root(buffers, root_id)
+        ):
+            continue
+        expected_root_kind = _SCOPE_MAPPED_CONSTRUCT_ROOT_KINDS.get(root_tag)
+        if (
+            expected_root_kind != root_kind
             or (construct_tag is not None and root_tag != construct_tag)
             or resolved_construct_tag is not None
         ):
             return None
+        if root_tag == _TAG_SWRL_RULE:
+            if not _encoded_root_reaches_node(
+                buffers,
+                root_id,
+                anonymous_node_id,
+            ):
+                return None
+            resolved_construct_tag = root_tag
+            continue
+        if root_tag == _TAG_ANNOTATION:
+            start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
+            end = _read_uint(buffers["node_field_offsets"], root_id, 8)
+            if end - start != 3 or any(
+                _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
+                for offset in (0, 1)
+            ):
+                return None
+            property_id = _read_uint(buffers["field_values"], start, 8)
+            value_id = _read_uint(buffers["field_values"], start + 1, 8)
+            if (
+                _read_uint(buffers["node_tags"], property_id - 1, 2) != _TAG_ENTITY
+                or value_id != anonymous_node_id
+                or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
+            ):
+                return None
+            resolved_construct_tag = root_tag
+            continue
         if root_tag == _TAG_SUB_CLASS_OF:
             start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
             end = _read_uint(buffers["node_field_offsets"], root_id, 8)

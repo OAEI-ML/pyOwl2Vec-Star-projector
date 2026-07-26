@@ -382,6 +382,7 @@ enum ScopeMappedCompositeKind {
     SameIndividual,
     DifferentIndividuals,
     SilentAnnotation,
+    SilentOntologyAnnotation,
     SilentSwrl,
 }
 
@@ -1798,6 +1799,7 @@ enum OwnedOverlayDeltaProjection {
     IgnoredAnnotationAssertion {
         anonymous_individuals: usize,
     },
+    SilentOntologyAnnotation,
     SilentSwrl,
 }
 
@@ -1816,6 +1818,7 @@ impl OwnedOverlayDeltaProjection {
             | Self::IgnoredDataPropertyAssertion { .. }
             | Self::IgnoredIndividualSet { .. }
             | Self::IgnoredAnnotationAssertion { .. }
+            | Self::SilentOntologyAnnotation
             | Self::SilentSwrl => EmissionPhase::ObjectAssertions,
         }
     }
@@ -2034,6 +2037,14 @@ impl OwnedOverlayDeltaProjection {
                     .checked_add(*anonymous_individuals)
                     .ok_or_else(|| {
                         KernelError::resource("encoded anonymous-individual count overflow")
+                    })?;
+            }
+            Self::SilentOntologyAnnotation => {
+                statistics.ontology_annotations = statistics
+                    .ontology_annotations
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded ontology-annotation count overflow")
                     })?;
             }
             Self::SilentSwrl => {
@@ -2705,6 +2716,28 @@ impl<'a> DirectColumns<'a> {
             let root_kind = self.root_kind(root_index)?;
             let root = self.root_id(root_index)?;
             let root_tag = self.node_tag(root)?;
+            if root_kind == ROOT_ONTOLOGY_ANNOTATION {
+                if root_tag != TAG_ANNOTATION {
+                    return Err(KernelError::malformed(
+                        "encoded ontology-annotation root is not an Annotation",
+                    ));
+                }
+                if construct_kind.is_some() {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                    ));
+                }
+                self.validate_annotation(root, maximum_iri)?;
+                let start = self.exact_fields(root, 3)?;
+                let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
+                if self.field_node(start + 1)? != anonymous_node || annotation_count != 0 {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope ontology Annotation requires its anonymous value and no nested annotations",
+                    ));
+                }
+                construct_kind = Some(ScopeMappedCompositeKind::SilentOntologyAnnotation);
+                continue;
+            }
             if root_kind == ROOT_EXTENSION {
                 if root_tag != TAG_SWRL_RULE {
                     return Err(KernelError::malformed(
@@ -2727,7 +2760,7 @@ impl<'a> DirectColumns<'a> {
             }
             if root_kind != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
-                    "bounded anonymous-scope composite requires axiom roots or one SWRL extension",
+                    "bounded anonymous-scope composite requires axiom roots, one ontology Annotation, or one SWRL extension",
                 ));
             }
             match root_tag {
@@ -8393,6 +8426,7 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
                             }
+                            | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
                             | OwnedOverlayDeltaProjection::SilentSwrl => false,
                         };
                         if handled {
@@ -8708,6 +8742,7 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
                             }
+                            | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
                             | OwnedOverlayDeltaProjection::SilentSwrl => {
                                 self.overlay_delta_index =
                                     self.overlay_delta_index.checked_add(1).ok_or_else(|| {
@@ -9319,6 +9354,22 @@ fn own_composite_tail_projection(
     let tag = columns.node_tag(root)?;
     if matches!(
         scope_mapped_construct,
+        Some((ScopeMappedCompositeKind::SilentOntologyAnnotation, _))
+    ) && tag == TAG_ANNOTATION
+    {
+        columns.validate_annotation(root, max_iri_bytes)?;
+        let start = columns.exact_fields(root, 3)?;
+        let value = columns.field_node(start + 1)?;
+        let (_annotation_start, annotation_count) = columns.node_set_range(start + 2, 0)?;
+        if columns.node_tag(value)? != TAG_ANONYMOUS_INDIVIDUAL || annotation_count != 0 {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope ontology Annotation requires its anonymous value and no nested annotations",
+            ));
+        }
+        return Ok(OwnedOverlayDeltaProjection::SilentOntologyAnnotation);
+    }
+    if matches!(
+        scope_mapped_construct,
         Some((ScopeMappedCompositeKind::SilentSwrl, _))
     ) && tag == TAG_SWRL_RULE
     {
@@ -9873,14 +9924,21 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             let root = tail_columns.root_id(root_index)?;
             let root_kind = tail_columns.root_kind(root_index)?;
             let root_tag = tail_columns.node_tag(root)?;
-            let silent_swrl = matches!(
-                scope_mapped_construct,
-                Some(ScopeMappedCompositeKind::SilentSwrl)
-            ) && root_kind == ROOT_EXTENSION
-                && root_tag == TAG_SWRL_RULE;
-            if root_kind != ROOT_AXIOM && !silent_swrl {
+            let mapped_silent_root = matches!(
+                (scope_mapped_construct, root_kind, root_tag),
+                (
+                    Some(ScopeMappedCompositeKind::SilentOntologyAnnotation),
+                    ROOT_ONTOLOGY_ANNOTATION,
+                    TAG_ANNOTATION,
+                ) | (
+                    Some(ScopeMappedCompositeKind::SilentSwrl),
+                    ROOT_EXTENSION,
+                    TAG_SWRL_RULE,
+                )
+            );
+            if root_kind != ROOT_AXIOM && !mapped_silent_root {
                 return Err(KernelError::unsupported(
-                    "bounded composite tail requires axiom roots or its mapped SWRL extension",
+                    "bounded composite tail requires axiom roots or its mapped silent root",
                 ));
             }
             let projection = own_composite_tail_projection(
@@ -10051,6 +10109,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. }
+            | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
             | OwnedOverlayDeltaProjection::SilentSwrl => (0, 0),
         };
         projection_edges = projection_edges
@@ -11120,6 +11179,7 @@ fn prepare_two_table_batches_uncommitted(
             | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. }
+            | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
             | OwnedOverlayDeltaProjection::SilentSwrl => (0, 0),
         };
         projection_edges = projection_edges
@@ -12534,6 +12594,45 @@ mod tests {
             fixture.root_kinds.push(ROOT_EXTENSION);
         }
         fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_ontology_annotation_fixture(include_taxonomy: bool) -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:meta".as_slice(), b"urn:B", b"urn:Top"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        for (kind, iri_id) in [
+            (b"annotation_property".as_slice(), 1_u64),
+            (b"class".as_slice(), 2_u64),
+            (b"class".as_slice(), 3_u64),
+        ] {
+            fixture.push_scalar(COMPONENT_ENUM, kind);
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 4..=6
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 7
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(7);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_ANNOTATION); // 8
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 9
+        if include_taxonomy {
+            fixture
+                .root_kinds
+                .extend_from_slice(&[ROOT_ONTOLOGY_ANNOTATION, ROOT_AXIOM]);
+            fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
+            fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
+        } else {
+            fixture.root_kinds.push(ROOT_ONTOLOGY_ANNOTATION);
+            fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
+        }
         fixture
     }
 
@@ -22397,6 +22496,130 @@ mod tests {
                     if message.contains("does not support literal projection")
             ));
         }
+    }
+
+    #[test]
+    fn two_member_composite_remaps_silent_ontology_annotation_scopes() {
+        let left = scope_mapped_ontology_annotation_fixture(true);
+        let right = scope_mapped_ontology_annotation_fixture(true);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(8);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(9);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_two_member_composite_batches_uncommitted(
+            left_columns,
+            right_columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.ontology_annotations, 2);
+        assert_eq!(statistics.anonymous_individuals, 0);
+        assert_eq!(statistics.skipped_axioms, 0);
+        assert_eq!(statistics.edges, 1);
+        assert!(prepared
+            .preparation
+            .overlay_deltas
+            .iter()
+            .any(|delta| matches!(
+                delta.projection,
+                OwnedOverlayDeltaProjection::SilentOntologyAnnotation
+            )));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_silent_ontology_annotation_scopes() {
+        let left = scope_mapped_ontology_annotation_fixture(false);
+        let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let right = scope_mapped_ontology_annotation_fixture(false);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_three_member_composite_batches_uncommitted(
+            [left_columns, neutral.columns(), right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.ontology_annotations, 2);
+        assert_eq!(statistics.anonymous_individuals, 0);
+        assert_eq!(statistics.skipped_axioms, 0);
+        assert_eq!(statistics.edges, 1);
+        assert!(prepared
+            .preparation
+            .overlay_deltas
+            .iter()
+            .any(|delta| matches!(
+                delta.projection,
+                OwnedOverlayDeltaProjection::SilentOntologyAnnotation
+            )));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
     }
 
     #[test]
