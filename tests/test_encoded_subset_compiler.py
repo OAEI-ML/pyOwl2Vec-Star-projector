@@ -428,6 +428,11 @@ def _forced_encoded(lease: EncodedStructuralLease) -> Iterator[None]:
             "select_ingestion",
             return_value=EncodedNegotiation("encoded-native", lease=lease),
         ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            return_value=(None, "test selects the broad encoded subset compiler"),
+        ),
         patch.object(api_module, "iter_native_passthrough", side_effect=passthrough),
     ):
         yield

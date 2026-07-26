@@ -525,13 +525,16 @@ class Projector:
                 )
                 compile_started = perf_counter()
                 limits = _streaming_limits(streaming_limits)
-                if private_encoded_direct and ingestion.path == "encoded-native":
+                native_direct_requested = ingestion.path == "encoded-native"
+                if native_direct_requested:
+                    native_direct_label = "private native" if private_encoded_direct else "native"
                     lease = ingestion.lease
                     if lease is None:  # pragma: no cover - guarded by negotiation
                         raise SnapshotCompatibilityError(
-                            "hidden native encoded ingestion lost its validated lease"
+                            f"{'hidden ' if private_encoded_direct else ''}"
+                            "native encoded ingestion lost its validated lease"
                         )
-                    private_fallback_reason: str | None = None
+                    direct_fallback_reason: str | None = None
                     native_role_state: NativeEncodedDirectRoleState | None = None
                     if options.compatibility_state == "scala-instance":
                         if self._native_scala_state is None and (
@@ -539,8 +542,9 @@ class Projector:
                         ):
                             self._native_scala_disabled = True
                         if self._native_scala_disabled:
-                            private_fallback_reason = (
-                                "private native Scala-instance lifecycle previously selected "
+                            direct_fallback_reason = (
+                                f"{native_direct_label} Scala-instance lifecycle "
+                                "previously selected "
                                 "scalar compilation"
                             )
                         else:
@@ -549,12 +553,12 @@ class Projector:
                                     self._native_scala_state = prepare_native_encoded_role_state()
                                 native_role_state = self._native_scala_state
                             except NativeBackendUnavailableError as error:
-                                private_fallback_reason = (
-                                    f"private native direct compiler unavailable: {error}"
+                                direct_fallback_reason = (
+                                    f"{native_direct_label} direct compiler unavailable: {error}"
                                 )
-                    if private_fallback_reason is None:
+                    if direct_fallback_reason is None:
                         try:
-                            native_encoded_compilation, private_fallback_reason = (
+                            native_encoded_compilation, direct_fallback_reason = (
                                 prepare_native_encoded_compilation(
                                     checked,
                                     lease,
@@ -569,12 +573,12 @@ class Projector:
                             NativeBackendUnavailableError,
                             NativeEncodedDirectUnsupported,
                         ) as error:
-                            private_fallback_reason = (
-                                f"private native direct compiler unavailable: {error}"
+                            direct_fallback_reason = (
+                                f"{native_direct_label} direct compiler unavailable: {error}"
                             )
-                    if native_encoded_compilation is None:
-                        reason = private_fallback_reason or (
-                            "private native direct compiler declined the encoded view"
+                    if native_encoded_compilation is None and private_encoded_direct:
+                        reason = direct_fallback_reason or (
+                            f"{native_direct_label} direct compiler declined the encoded view"
                         )
                         ingestion = EncodedNegotiation(
                             "scalar-native",
@@ -583,11 +587,12 @@ class Projector:
                 if options.compatibility_state == "scala-instance":
                     if native_encoded_compilation is None:
                         self._native_scala_disabled = True
-                    elif private_encoded_direct:
+                    else:
                         native_role_state = native_encoded_compilation.role_state
                         if native_role_state is None:  # pragma: no cover - preparation gate
                             raise SnapshotCompatibilityError(
-                                "hidden native Scala-instance compilation lost its role state"
+                                f"{'hidden ' if private_encoded_direct else ''}"
+                                "native Scala-instance compilation lost its role state"
                             )
                         self._scala_state = native_role_state.snapshot()
                 if native_encoded_compilation is None:
