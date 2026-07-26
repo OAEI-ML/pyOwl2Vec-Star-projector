@@ -6994,39 +6994,47 @@ pub(crate) mod canonical_merge {
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub(crate) struct CanonicalThreeRootGroup {
-        pub(crate) roots: [Option<CanonicalRootRef>; 3],
+    pub(crate) struct CanonicalKWayRootGroup<const N: usize> {
+        pub(crate) roots: [Option<CanonicalRootRef>; N],
     }
 
-    /// One bounded table-driven canonical pass over exactly three direct members.
-    pub(crate) struct CanonicalThreeRootMerger<'a> {
-        tables: [CanonicalTable<'a>; 3],
-        positions: [usize; 3],
-        posting_positions: [usize; 3],
+    /// One bounded table-driven canonical pass over a fixed number of direct tables.
+    pub(crate) struct CanonicalKWayRootMerger<'a, const N: usize> {
+        tables: [CanonicalTable<'a>; N],
+        positions: [usize; N],
+        posting_positions: [usize; N],
         left_cursor: CanonicalByteCursor<'a>,
         right_cursor: CanonicalByteCursor<'a>,
         budget: CanonicalBudget,
     }
 
-    impl<'a> CanonicalThreeRootMerger<'a> {
+    impl<'a, const N: usize> CanonicalKWayRootMerger<'a, N> {
         pub(crate) fn new(
-            columns: [DirectColumns<'a>; 3],
+            columns: [DirectColumns<'a>; N],
             limits: CanonicalMergeLimits,
             state: &AtomicU8,
         ) -> Result<Self, KernelError> {
+            if N < 2 {
+                return Err(KernelError::unsupported(
+                    "encoded bounded canonical merge requires at least two tables",
+                ));
+            }
             let mut budget = CanonicalBudget::new(limits)?;
-            let first = CanonicalTable::build(columns[0], &mut budget, state)?;
-            let second = CanonicalTable::build(columns[1], &mut budget, state)?;
-            let third = CanonicalTable::build(columns[2], &mut budget, state)?;
+            let mut table_slots: [Option<CanonicalTable<'a>>; N] = std::array::from_fn(|_| None);
+            for (index, column) in columns.into_iter().enumerate() {
+                table_slots[index] = Some(CanonicalTable::build(column, &mut budget, state)?);
+            }
+            let tables = table_slots
+                .map(|table| table.expect("every bounded canonical table was initialized"));
             let mut result = Self {
-                tables: [first, second, third],
-                positions: [0; 3],
-                posting_positions: [0; 3],
+                tables,
+                positions: [0; N],
+                posting_positions: [0; N],
                 left_cursor: CanonicalByteCursor::new(),
                 right_cursor: CanonicalByteCursor::new(),
                 budget,
             };
-            for table in 0..3 {
+            for table in 0..N {
                 result.validate_table(table, state)?;
             }
             Ok(result)
@@ -7233,13 +7241,13 @@ pub(crate) mod canonical_merge {
         pub(crate) fn next(
             &mut self,
             state: &AtomicU8,
-        ) -> Result<Option<CanonicalThreeRootGroup>, KernelError> {
-            let mut candidates = [None; 3];
+        ) -> Result<Option<CanonicalKWayRootGroup<N>>, KernelError> {
+            let mut candidates = [None; N];
             for (table, candidate) in candidates.iter_mut().enumerate() {
                 *candidate = self.selected_root(table, state)?;
             }
             let mut minimum_table = None;
-            for table in 0..3 {
+            for table in 0..N {
                 let Some(candidate) = candidates[table] else {
                     continue;
                 };
@@ -7248,7 +7256,7 @@ pub(crate) mod canonical_merge {
                     continue;
                 };
                 let minimum = candidates[current_minimum].ok_or_else(|| {
-                    KernelError::malformed("encoded three-table merge lost its minimum root")
+                    KernelError::malformed("encoded bounded merge lost its minimum root")
                 })?;
                 if self.compare_roots(table, candidate, current_minimum, minimum, state)?
                     == CanonicalOrdering::Less
@@ -7260,11 +7268,11 @@ pub(crate) mod canonical_merge {
                 return Ok(None);
             };
             let minimum = candidates[minimum_table].ok_or_else(|| {
-                KernelError::malformed("encoded three-table merge lost its minimum root")
+                KernelError::malformed("encoded bounded merge lost its minimum root")
             })?;
-            let mut roots = [None; 3];
+            let mut roots = [None; N];
             let mut root_count = 0_usize;
-            for table in 0..3 {
+            for table in 0..N {
                 let Some(candidate) = candidates[table] else {
                     continue;
                 };
@@ -7283,10 +7291,10 @@ pub(crate) mod canonical_merge {
                     .ok_or_else(|| KernelError::resource("encoded merged-root counter overflow"))?;
             }
             let duplicate_count = root_count.checked_sub(1).ok_or_else(|| {
-                KernelError::malformed("encoded three-table merge emitted an empty root group")
+                KernelError::malformed("encoded bounded merge emitted an empty root group")
             })?;
             self.budget.record_root_duplicates(duplicate_count)?;
-            Ok(Some(CanonicalThreeRootGroup { roots }))
+            Ok(Some(CanonicalKWayRootGroup { roots }))
         }
 
         pub(crate) fn report(&self) -> CanonicalMergeReport {
@@ -8586,14 +8594,57 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
 ) -> Result<PreparedDirectBatches, KernelError> {
-    if options.include_literals {
+    prepare_k_way_composite_batches_uncommitted(
+        columns,
+        options,
+        state,
+        retained,
+        max_canonical_work,
+        max_canonical_workspace_bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
+pub(crate) fn prepare_four_table_composite_batches_uncommitted(
+    columns: [DirectColumns<'_>; 4],
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&OwnedRoleState>,
+    max_canonical_work: usize,
+    max_canonical_workspace_bytes: usize,
+) -> Result<PreparedDirectBatches, KernelError> {
+    prepare_k_way_composite_batches_uncommitted(
+        columns,
+        options,
+        state,
+        retained,
+        max_canonical_work,
+        max_canonical_workspace_bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
+fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
+    columns: [DirectColumns<'_>; N],
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&OwnedRoleState>,
+    max_canonical_work: usize,
+    max_canonical_workspace_bytes: usize,
+) -> Result<PreparedDirectBatches, KernelError> {
+    if N < 2 {
         return Err(KernelError::unsupported(
-            "bounded three-member composite does not support literal projection",
+            "bounded composite requires at least two retained tables",
         ));
     }
-    let mut selected_counts = [0_usize; 3];
+    if options.include_literals {
+        return Err(KernelError::unsupported(
+            "bounded composite does not support literal projection",
+        ));
+    }
+    let mut selected_counts = [0_usize; N];
     let mut selected_total = 0_usize;
-    for table in 0..3 {
+    for table in 0..N {
         columns[table].validate_generic(state)?;
         columns[table].validate_supported_nodes(options.max_iri_bytes, state)?;
         selected_counts[table] = columns[table].selected_root_count()?;
@@ -8603,17 +8654,26 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
     }
     if selected_total == 0 {
         return Err(KernelError::unsupported(
-            "bounded three-member composite requires at least one selected root",
+            "bounded composite requires at least one selected root",
         ));
     }
 
-    let tail_root_count = selected_counts[1]
-        .checked_add(selected_counts[2])
-        .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
+    let mut tail_root_count = 0_usize;
+    for selected_count in selected_counts.iter().skip(1) {
+        tail_root_count = tail_root_count
+            .checked_add(*selected_count)
+            .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
+    }
     let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
     let mut overlay_deltas = local_workspace.reserve_overlay_deltas(tail_root_count)?;
-    let mut tail_offsets = [0_usize; 3];
-    tail_offsets[2] = selected_counts[1];
+    let mut tail_offsets = [0_usize; N];
+    let mut tail_offset = 0_usize;
+    for table in 1..N {
+        tail_offsets[table] = tail_offset;
+        tail_offset = tail_offset
+            .checked_add(selected_counts[table])
+            .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
+    }
     for tail_columns in columns.iter().skip(1) {
         for root_index in 0..tail_columns.root_count() {
             check_cancel(state, root_index)?;
@@ -8623,7 +8683,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
             let root = tail_columns.root_id(root_index)?;
             if tail_columns.root_kind(root_index)? != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
-                    "bounded three-member composite tail requires projecting axiom roots",
+                    "bounded composite tail requires projecting axiom roots",
                 ));
             }
             let projection = own_local_emitting_projection(
@@ -8642,7 +8702,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
     }
     if overlay_deltas.len() != tail_root_count {
         return Err(KernelError::malformed(
-            "encoded three-member selection lost a tail root",
+            "encoded bounded selection lost a tail root",
         ));
     }
 
@@ -8660,7 +8720,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
                 "encoded canonical comparison requires more than {max_canonical_work} work units"
             ))
         })?;
-    let mut merger = canonical_merge::CanonicalThreeRootMerger::new(
+    let mut merger = canonical_merge::CanonicalKWayRootMerger::<N>::new(
         columns,
         canonical_merge::CanonicalMergeLimits {
             max_work: canonical_work,
@@ -8668,7 +8728,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
         },
         state,
     )?;
-    let mut consumed = [0_usize; 3];
+    let mut consumed = [0_usize; N];
     let mut selected_base_roots = 0_usize;
     let mut unique_tail_roots = 0_usize;
     let mut deduplicated_tail_roots = 0_usize;
@@ -8689,7 +8749,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
                 .ok_or_else(|| KernelError::resource("encoded selected-root counter overflow"))?;
         }
         let mut retained_tail = base_root.is_some();
-        for table in 1..3 {
+        for table in 1..N {
             let Some(root) = group.roots[table] else {
                 continue;
             };
@@ -8697,13 +8757,11 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
                 .checked_add(consumed[table])
                 .ok_or_else(|| KernelError::resource("encoded composite plan-index overflow"))?;
             let delta = overlay_deltas.get_mut(plan_index).ok_or_else(|| {
-                KernelError::malformed(
-                    "encoded three-member merge produced an inconsistent tail root",
-                )
+                KernelError::malformed("encoded bounded merge produced an inconsistent tail root")
             })?;
             if delta.local_canonical_index != root.index {
                 return Err(KernelError::malformed(
-                    "encoded three-member merge reordered one source-local root group",
+                    "encoded bounded merge reordered one source-local root group",
                 ));
             }
             if retained_tail {
@@ -8738,7 +8796,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
                 .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?
     {
         return Err(KernelError::malformed(
-            "encoded three-member merge produced inconsistent root counts",
+            "encoded bounded merge produced inconsistent root counts",
         ));
     }
     drop(merger);
@@ -8796,7 +8854,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
         .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
     if projected > options.max_edges {
         return Err(KernelError::resource(format!(
-            "encoded three-member composite requires {projected} edges; configured limit is {}",
+            "encoded bounded composite requires {projected} edges; configured limit is {}",
             options.max_edges,
         )));
     }
@@ -8805,11 +8863,12 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
         .roots
         .checked_add(unique_tail_roots)
         .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?;
-    statistics.nodes = statistics
-        .nodes
-        .checked_add(columns[1].node_count())
-        .and_then(|nodes| nodes.checked_add(columns[2].node_count()))
-        .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
+    for tail_columns in columns.iter().skip(1) {
+        statistics.nodes = statistics
+            .nodes
+            .checked_add(tail_columns.node_count())
+            .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
+    }
     for local_delta in &overlay_deltas {
         local_delta.projection.apply_statistics(statistics)?;
     }
@@ -8818,13 +8877,12 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
         .checked_add(projection_role_expansion_edges)
         .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
     statistics.edges = projected;
-    let second_buffer_bytes = columns[1].buffer_bytes()?;
-    let third_buffer_bytes = columns[2].buffer_bytes()?;
-    statistics.buffer_bytes = statistics
-        .buffer_bytes
-        .checked_add(second_buffer_bytes)
-        .and_then(|bytes| bytes.checked_add(third_buffer_bytes))
-        .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
+    for tail_columns in columns.iter().skip(1) {
+        statistics.buffer_bytes = statistics
+            .buffer_bytes
+            .checked_add(tail_columns.buffer_bytes()?)
+            .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
+    }
     prepared.preparation.overlay_deltas = overlay_deltas;
     Ok(prepared)
 }
@@ -20033,6 +20091,67 @@ mod tests {
     }
 
     #[test]
+    fn four_table_composite_deduplicates_all_selected_source_roots() {
+        let first = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let second = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let third = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let fourth = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_four_table_composite_batches_uncommitted(
+            [
+                first.columns(),
+                second.columns(),
+                third.columns(),
+                fourth.columns(),
+            ],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 1);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(
+            statistics.buffer_bytes,
+            first.columns().buffer_bytes().unwrap()
+                + second.columns().buffer_bytes().unwrap()
+                + third.columns().buffer_bytes().unwrap()
+                + fourth.columns().buffer_bytes().unwrap()
+        );
+        assert!(prepared.preparation.overlay_deltas.is_empty());
+
+        let (first_batch, first_cursor) = prepared
+            .prepare_next_batch(first.columns(), &state, 1)
+            .unwrap();
+        let (retry_batch, _) = prepared
+            .prepare_next_batch(first.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(first_batch, retry_batch);
+        assert_eq!(
+            first_batch,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        prepared.commit_cursor(first_cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
     fn excluded_root_postings_filter_counts_and_emission_without_flattening() {
         let fixture = named_subclass_fixture();
         let excluded_declaration = 1_u32.to_le_bytes();
@@ -21705,7 +21824,7 @@ mod tests {
         let second = canonical_text_roots(&[b"b", b"d"]);
         let third = canonical_text_roots(&[b"c", b"d"]);
         let excluded_first = 1_u32.to_le_bytes();
-        let mut merger = canonical_merge::CanonicalThreeRootMerger::new(
+        let mut merger = canonical_merge::CanonicalKWayRootMerger::<3>::new(
             [
                 first.columns().with_excluded_root_ids(&excluded_first),
                 second.columns(),
@@ -21737,6 +21856,48 @@ mod tests {
         let report = merger.report();
         assert_eq!(report.roots_emitted, 3);
         assert_eq!(report.deduplicated_roots, 2);
+        assert!(report.work > 0);
+        assert!(report.workspace_bytes > 0);
+        assert!(report.canonical_bytes_compared > 0);
+    }
+
+    #[test]
+    fn canonical_four_root_cursor_merges_in_one_selected_k_way_pass() {
+        let first = canonical_text_roots(&[b"a", b"e"]);
+        let second = canonical_text_roots(&[b"b", b"e"]);
+        let third = canonical_text_roots(&[b"c", b"e"]);
+        let fourth = canonical_text_roots(&[b"d", b"e"]);
+        let excluded_first = 1_u32.to_le_bytes();
+        let mut merger = canonical_merge::CanonicalKWayRootMerger::<4>::new(
+            [
+                first.columns().with_excluded_root_ids(&excluded_first),
+                second.columns(),
+                third.columns(),
+                fourth.columns(),
+            ],
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+
+        for expected_table in 1..4 {
+            let group = merger.next(&running_state()).unwrap().unwrap();
+            assert_eq!(
+                group.roots.map(|root| root.map(|value| value.index)),
+                std::array::from_fn(|table| (table == expected_table).then_some(0))
+            );
+        }
+        let duplicate_group = merger.next(&running_state()).unwrap().unwrap();
+        assert_eq!(
+            duplicate_group
+                .roots
+                .map(|root| root.map(|value| value.index)),
+            [Some(1), Some(1), Some(1), Some(1)]
+        );
+        assert_eq!(merger.next(&running_state()).unwrap(), None);
+        let report = merger.report();
+        assert_eq!(report.roots_emitted, 4);
+        assert_eq!(report.deduplicated_roots, 3);
         assert!(report.work > 0);
         assert!(report.workspace_bytes > 0);
         assert!(report.canonical_bytes_compared > 0);

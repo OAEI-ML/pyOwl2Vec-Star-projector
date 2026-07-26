@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
+    prepare_four_table_composite_batches_uncommitted,
     prepare_single_overlay_delta_batches_uncommitted,
     prepare_three_member_composite_batches_uncommitted,
     prepare_two_member_composite_batches_uncommitted, DirectColumns, DirectCompileOptions,
@@ -42,7 +43,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 87;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 88;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -602,6 +603,9 @@ struct EncodedDirectCompiler {
     _third_member_view: Option<Py<PyAny>>,
     _third_member_owner: Option<Py<PyAny>>,
     third_member_buffers: Option<Vec<RetainedDirectBuffer>>,
+    _fourth_member_view: Option<Py<PyAny>>,
+    _fourth_member_owner: Option<Py<PyAny>>,
+    fourth_member_buffers: Option<Vec<RetainedDirectBuffer>>,
     _nested_member_view: Option<Py<PyAny>>,
     _nested_member_owner: Option<Py<PyAny>>,
     _merge_manifest_view: Option<Py<PyAny>>,
@@ -611,6 +615,7 @@ struct EncodedDirectCompiler {
     excluded_root_ids: Option<RetainedDirectBuffer>,
     right_excluded_root_ids: Option<RetainedDirectBuffer>,
     third_excluded_root_ids: Option<RetainedDirectBuffer>,
+    fourth_excluded_root_ids: Option<RetainedDirectBuffer>,
     _root_annotation_view: Option<Py<PyAny>>,
     _root_annotation_owner: Option<Py<PyAny>>,
     root_annotation_buffers: Option<Vec<RetainedDirectBuffer>>,
@@ -720,6 +725,15 @@ impl EncodedDirectCompiler {
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
             DirectColumns::from_ordered(slices).with_excluded_root_ids(third_excluded_root_ids)
         });
+        let fourth_member_columns = self.fourth_member_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            let fourth_excluded_root_ids = self
+                .fourth_excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices).with_excluded_root_ids(fourth_excluded_root_ids)
+        });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -748,14 +762,25 @@ impl EncodedDirectCompiler {
                         })?;
                     if self._merge_manifest_view.is_some() {
                         if let Some(third_columns) = third_member_columns {
-                            prepare_three_member_composite_batches_uncommitted(
-                                [columns, delta_columns, third_columns],
-                                options,
-                                &self.state,
-                                None,
-                                max_work,
-                                max_workspace_bytes,
-                            )
+                            if let Some(fourth_columns) = fourth_member_columns {
+                                prepare_four_table_composite_batches_uncommitted(
+                                    [columns, delta_columns, third_columns, fourth_columns],
+                                    options,
+                                    &self.state,
+                                    None,
+                                    max_work,
+                                    max_workspace_bytes,
+                                )
+                            } else {
+                                prepare_three_member_composite_batches_uncommitted(
+                                    [columns, delta_columns, third_columns],
+                                    options,
+                                    &self.state,
+                                    None,
+                                    max_work,
+                                    max_workspace_bytes,
+                                )
+                            }
                         } else {
                             prepare_two_member_composite_batches_uncommitted(
                                 columns,
@@ -847,6 +872,10 @@ impl EncodedDirectCompiler {
         nested_member_view=None,
         nested_member_owner=None,
         nested_member_descriptor_sha256=None,
+        fourth_member_view=None,
+        fourth_member_owner=None,
+        fourth_member_descriptor_sha256=None,
+        fourth_excluded_root_ids=None,
     ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
@@ -873,6 +902,10 @@ impl EncodedDirectCompiler {
         nested_member_view: Option<&Bound<'_, PyAny>>,
         nested_member_owner: Option<&Bound<'_, PyAny>>,
         nested_member_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        fourth_member_view: Option<&Bound<'_, PyAny>>,
+        fourth_member_owner: Option<&Bound<'_, PyAny>>,
+        fourth_member_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        fourth_excluded_root_ids: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
         let included_root_ids_view = included_root_ids;
@@ -890,6 +923,10 @@ impl EncodedDirectCompiler {
         let third_excluded_root_ids_view = third_excluded_root_ids;
         let third_excluded_root_ids = third_excluded_root_ids_view
             .map(|value| retained_exact_bytes_buffer(value, "third_excluded_root_ids"))
+            .transpose()?;
+        let fourth_excluded_root_ids_view = fourth_excluded_root_ids;
+        let fourth_excluded_root_ids = fourth_excluded_root_ids_view
+            .map(|value| retained_exact_bytes_buffer(value, "fourth_excluded_root_ids"))
             .transpose()?;
         if included_root_ids.is_some() && excluded_root_ids.is_some() {
             return Err(encoded_buffer_error(
@@ -938,6 +975,22 @@ impl EncodedDirectCompiler {
             }
         };
         let third_member_buffers = third_member
+            .map(|(view, owner, digest)| retained_direct_buffers(view, owner, digest))
+            .transpose()?;
+        let fourth_member = match (
+            fourth_member_view,
+            fourth_member_owner,
+            fourth_member_descriptor_sha256,
+        ) {
+            (None, None, None) => None,
+            (Some(view), Some(owner), Some(digest)) => Some((view, owner, digest)),
+            _ => {
+                return Err(encoded_buffer_error(
+                    "encoded fourth member view, owner, and descriptor digest must be supplied together",
+                ));
+            }
+        };
+        let fourth_member_buffers = fourth_member
             .map(|(view, owner, digest)| retained_direct_buffers(view, owner, digest))
             .transpose()?;
         let nested_member = match (
@@ -994,17 +1047,29 @@ impl EncodedDirectCompiler {
                                 expected_owner,
                                 excluded_root_ids_view,
                             )?;
-                            validate_nested_member_composite_manifest(
-                                manifest,
-                                manifest_owner,
-                                manifest_digest,
-                                nested_view,
-                                nested_owner,
-                                encoded_view,
-                                expected_owner,
-                                third_view,
-                                third_owner,
-                            )?;
+                            if let Some((fourth_view, fourth_owner, _)) = fourth_member {
+                                validate_nested_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    nested_view,
+                                    nested_owner,
+                                    encoded_view,
+                                    expected_owner,
+                                    &[(third_view, third_owner), (fourth_view, fourth_owner)],
+                                )?;
+                            } else {
+                                validate_nested_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    nested_view,
+                                    nested_owner,
+                                    encoded_view,
+                                    expected_owner,
+                                    &[(third_view, third_owner)],
+                                )?;
+                            }
                             buffers
                         } else if let Some((third_view, third_owner, _)) = third_member {
                             let buffers = retained_direct_buffers(view, owner, digest)?;
@@ -1068,9 +1133,21 @@ impl EncodedDirectCompiler {
                 "encoded nested composite member requires three retained merge tables",
             ));
         }
+        if fourth_member.is_some()
+            && (nested_member.is_none() || third_member.is_none() || merge_manifest.is_none())
+        {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded fourth composite member requires an exact nested-member composite",
+            ));
+        }
         if third_member.is_none() && third_excluded_root_ids.is_some() {
             return Err(EncodedDirectUnsupportedError::new_err(
                 "encoded third EXCLUDE selection requires an exact third composite member",
+            ));
+        }
+        if fourth_member.is_none() && fourth_excluded_root_ids.is_some() {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded fourth EXCLUDE selection requires an exact fourth composite member",
             ));
         }
         if included_root_ids.is_some() && merge_manifest.is_none() {
@@ -1084,7 +1161,9 @@ impl EncodedDirectCompiler {
             ));
         }
         if included_root_ids.is_some()
-            && (right_excluded_root_ids.is_some() || third_excluded_root_ids.is_some())
+            && (right_excluded_root_ids.is_some()
+                || third_excluded_root_ids.is_some()
+                || fourth_excluded_root_ids.is_some())
         {
             return Err(encoded_buffer_error(
                 "encoded composite root selection cannot mix INCLUDE and EXCLUDE postings",
@@ -1093,7 +1172,8 @@ impl EncodedDirectCompiler {
         if nested_member.is_some()
             && (included_root_ids.is_some()
                 || right_excluded_root_ids.is_some()
-                || third_excluded_root_ids.is_some())
+                || third_excluded_root_ids.is_some()
+                || fourth_excluded_root_ids.is_some())
         {
             return Err(encoded_buffer_error(
                 "encoded nested composite member requires outer ALL root selection",
@@ -1109,6 +1189,9 @@ impl EncodedDirectCompiler {
             _third_member_view: third_member_view.map(|value| value.clone().unbind()),
             _third_member_owner: third_member_owner.map(|value| value.clone().unbind()),
             third_member_buffers,
+            _fourth_member_view: fourth_member_view.map(|value| value.clone().unbind()),
+            _fourth_member_owner: fourth_member_owner.map(|value| value.clone().unbind()),
+            fourth_member_buffers,
             _nested_member_view: nested_member_view.map(|value| value.clone().unbind()),
             _nested_member_owner: nested_member_owner.map(|value| value.clone().unbind()),
             _merge_manifest_view: merge_manifest_view.map(|value| value.clone().unbind()),
@@ -1118,6 +1201,7 @@ impl EncodedDirectCompiler {
             excluded_root_ids,
             right_excluded_root_ids,
             third_excluded_root_ids,
+            fourth_excluded_root_ids,
             _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
             root_annotation_buffers,
@@ -1209,6 +1293,15 @@ impl EncodedDirectCompiler {
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
             DirectColumns::from_ordered(slices).with_excluded_root_ids(third_excluded_root_ids)
         });
+        let fourth_member_columns = self.fourth_member_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            let fourth_excluded_root_ids = self
+                .fourth_excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices).with_excluded_root_ids(fourth_excluded_root_ids)
+        });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -1257,14 +1350,25 @@ impl EncodedDirectCompiler {
                         })?;
                     if self._merge_manifest_view.is_some() {
                         if let Some(third_columns) = third_member_columns {
-                            prepare_three_member_composite_batches_uncommitted(
-                                [columns, delta_columns, third_columns],
-                                options,
-                                &self.state,
-                                None,
-                                max_work,
-                                max_workspace_bytes,
-                            )
+                            if let Some(fourth_columns) = fourth_member_columns {
+                                prepare_four_table_composite_batches_uncommitted(
+                                    [columns, delta_columns, third_columns, fourth_columns],
+                                    options,
+                                    &self.state,
+                                    None,
+                                    max_work,
+                                    max_workspace_bytes,
+                                )
+                            } else {
+                                prepare_three_member_composite_batches_uncommitted(
+                                    [columns, delta_columns, third_columns],
+                                    options,
+                                    &self.state,
+                                    None,
+                                    max_work,
+                                    max_workspace_bytes,
+                                )
+                            }
                         } else {
                             prepare_two_member_composite_batches_uncommitted(
                                 columns,
@@ -1925,11 +2029,13 @@ impl EncodedDirectCompiler {
         self.buffers.len()
             + self.overlay_delta_buffers.as_ref().map_or(0, Vec::len)
             + self.third_member_buffers.as_ref().map_or(0, Vec::len)
+            + self.fourth_member_buffers.as_ref().map_or(0, Vec::len)
             + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
             + usize::from(self.included_root_ids.is_some())
             + usize::from(self.excluded_root_ids.is_some())
             + usize::from(self.right_excluded_root_ids.is_some())
             + usize::from(self.third_excluded_root_ids.is_some())
+            + usize::from(self.fourth_excluded_root_ids.is_some())
     }
 
     /// Deterministic test hook proving another Python thread can cancel while
@@ -2849,17 +2955,31 @@ fn validate_nested_member_composite_manifest(
     nested_owner: &Bound<'_, PyAny>,
     base_view: &Bound<'_, PyAny>,
     base_owner: &Bound<'_, PyAny>,
-    direct_view: &Bound<'_, PyAny>,
-    direct_owner: &Bound<'_, PyAny>,
+    direct_members: &[(&Bound<'_, PyAny>, &Bound<'_, PyAny>)],
 ) -> PyResult<()> {
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
-    let retained_views = [nested_view, base_view, direct_view];
-    let retained_owners = [nested_owner, base_owner, direct_owner];
-    for left in 0..3 {
-        for right in left + 1..3 {
-            if retained_views[left].is(retained_views[right])
-                || retained_owners[left].is(retained_owners[right])
-            {
+    if !(1..=2).contains(&direct_members.len()) {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "bounded nested-member composite requires one or two direct siblings",
+        ));
+    }
+    if nested_view.is(base_view) || nested_owner.is(base_owner) {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "bounded nested-member composite requires distinct retained sources",
+        ));
+    }
+    for (index, (direct_view, direct_owner)) in direct_members.iter().enumerate() {
+        if direct_view.is(nested_view)
+            || direct_view.is(base_view)
+            || direct_owner.is(nested_owner)
+            || direct_owner.is(base_owner)
+        {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "bounded nested-member composite requires distinct retained sources",
+            ));
+        }
+        for (prior_view, prior_owner) in direct_members.iter().take(index) {
+            if direct_view.is(*prior_view) || direct_owner.is(*prior_owner) {
                 return Err(EncodedDirectUnsupportedError::new_err(
                     "bounded nested-member composite requires distinct retained sources",
                 ));
@@ -2892,16 +3012,16 @@ fn validate_nested_member_composite_manifest(
     let segments = raw_segments
         .cast::<PyTuple>()
         .map_err(|_| encoded_buffer_error("encoded nested composite manifest is inaccessible"))?;
-    if segments.len() != 2 {
+    let outer_member_count = direct_members.len() + 1;
+    if segments.len() != outer_member_count {
         return Err(EncodedDirectUnsupportedError::new_err(
-            "bounded nested-member composite requires exactly two outer members",
+            "bounded nested-member composite has an unsupported outer member count",
         ));
     }
 
-    let members = [(nested_view, nested_owner), (direct_view, direct_owner)];
-    let mut matched = [false; 2];
+    let mut matched = [false; 3];
     let mut previous_token: Option<[u8; 32]> = None;
-    for index in 0..2 {
+    for index in 0..outer_member_count {
         let segment = segments
             .get_item(index)
             .map_err(|_| encoded_buffer_error("encoded nested composite member is inaccessible"))?;
@@ -2913,21 +3033,27 @@ fn validate_nested_member_composite_manifest(
             ));
         }
         let source = required_attribute(&segment, "source")?;
-        let member_index = members
-            .iter()
-            .position(|(view, _)| source.is(*view))
-            .ok_or_else(|| {
-                encoded_buffer_error(
+        let (member_index, member_owner) = if source.is(nested_view) {
+            (0, nested_owner)
+        } else {
+            let Some((index, (_view, owner))) = direct_members
+                .iter()
+                .enumerate()
+                .find(|(_index, (view, _owner))| source.is(*view))
+            else {
+                return Err(encoded_buffer_error(
                     "encoded nested composite member lost its retained source identity",
-                )
-            })?;
+                ));
+            };
+            (index + 1, *owner)
+        };
         if matched[member_index] {
             return Err(encoded_buffer_error(
                 "encoded nested composite repeats one retained source identity",
             ));
         }
         matched[member_index] = true;
-        if !required_attribute(&segment, "owner")?.is(members[member_index].1) {
+        if !required_attribute(&segment, "owner")?.is(member_owner) {
             return Err(encoded_buffer_error(
                 "encoded nested composite member lost its retained owner identity",
             ));
@@ -2974,9 +3100,9 @@ fn validate_nested_member_composite_manifest(
         }
         previous_token = Some(token);
     }
-    if matched != [true; 2] {
+    if !matched[..outer_member_count].iter().all(|value| *value) {
         return Err(encoded_buffer_error(
-            "encoded nested composite did not retain both outer members",
+            "encoded nested composite did not retain every outer member",
         ));
     }
     Ok(())

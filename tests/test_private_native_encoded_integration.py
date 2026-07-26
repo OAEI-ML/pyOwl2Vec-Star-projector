@@ -34,6 +34,7 @@ from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedNegotiation,
     EncodedStructuralLease,
+    _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
@@ -154,9 +155,7 @@ def _diamond_import_snapshot() -> object:
     root = (
         b"Prefix(:=<urn:diamond#>) Ontology(<urn:diamond-root> "
         b"Import(<urn:diamond-left>) Import(<urn:diamond-right>) "
-        b"SubClassOf(:Root :Top) AnnotationAssertion("
-        + label
-        + b' :Root "root"))'
+        b"SubClassOf(:Root :Top) AnnotationAssertion(" + label + b' :Root "root"))'
     )
     left = (
         b"Prefix(:=<urn:diamond#>) Ontology(<urn:diamond-left> "
@@ -172,9 +171,7 @@ def _diamond_import_snapshot() -> object:
     )
     common = (
         b"Prefix(:=<urn:diamond#>) Ontology(<urn:diamond-common> "
-        b"SubClassOf(:Common :Top) AnnotationAssertion("
-        + label
-        + b' :Common "common"))'
+        b"SubClassOf(:Common :Top) AnnotationAssertion(" + label + b' :Common "common"))'
     )
     return pyowl_core.load_snapshot(
         root,
@@ -196,15 +193,11 @@ def _cyclic_import_snapshot() -> object:
     label = b"<http://www.w3.org/2000/01/rdf-schema#label>"
     first = (
         b"Prefix(:=<urn:cycle#>) Ontology(<urn:cycle-a> Import(<urn:cycle-b>) "
-        b"SubClassOf(:A :Top) AnnotationAssertion("
-        + label
-        + b' :A "a-root"))'
+        b"SubClassOf(:A :Top) AnnotationAssertion(" + label + b' :A "a-root"))'
     )
     second = (
         b"Prefix(:=<urn:cycle#>) Ontology(<urn:cycle-b> Import(<urn:cycle-a>) "
-        b"SubClassOf(:B :Top) AnnotationAssertion("
-        + label
-        + b' :B "b-imported"))'
+        b"SubClassOf(:B :Top) AnnotationAssertion(" + label + b' :B "b-imported"))'
     )
     return pyowl_core.load_snapshot(
         first,
@@ -790,9 +783,7 @@ def test_hidden_iterator_admits_exact_aggregate_and_ignored_equivalences(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=raw_edges, batch_edges=2)
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -871,9 +862,7 @@ def test_hidden_iterator_admits_supported_direct_restrictions_with_exact_diagnos
     assert ingestion.counters["native_batch_edges"] == 2
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=raw_edges, batch_edges=2)
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
 
@@ -946,9 +935,7 @@ def test_hidden_iterator_admits_exact_ignored_subclasses_and_class_assertions(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=raw_edges, batch_edges=2)
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -1078,9 +1065,7 @@ def test_hidden_iterator_admits_partitioned_multi_property_domain_ranges(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 2) // 3
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 2) // 3
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=raw_edges, batch_edges=3
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=raw_edges, batch_edges=3)
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -1150,9 +1135,7 @@ def test_hidden_iterator_admits_same_call_named_role_expansion(
 
 
 def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> None:
-    role_view = _snapshot(
-        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
-    )
+    role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
     consumer_view = _snapshot(
         "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
@@ -1224,13 +1207,9 @@ def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> Non
 def test_hidden_iterator_transitions_retained_scala_state_to_scalar_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    role_view = _snapshot(
-        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
-    )
+    role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
     restriction_view = _snapshot("SubClassOf(:A ObjectSomeValuesFrom(:p :B))")
-    domain_range_view = _snapshot(
-        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
-    )
+    domain_range_view = _snapshot("ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)")
     python_options = ProjectionOptions(
         backend="python",
         order="encounter",
@@ -1396,9 +1375,7 @@ def test_hidden_iterator_admits_fully_selected_class_annotations(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=raw_edges, batch_edges=2)
     assert ingestion.counters["scalar_axiom_materializations"] == 0
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
@@ -1525,9 +1502,7 @@ def test_hidden_iterator_applies_native_edge_limit_after_root_annotation_join() 
     ingestion = actual_report.provenance.ingestion
     assert ingestion.path == "encoded-native"
     assert ingestion.reason is None
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=len(expected), batch_edges=1
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=len(expected), batch_edges=1)
 
 
 def test_hidden_iterator_native_join_suppresses_all_imported_only_annotations() -> None:
@@ -1950,9 +1925,7 @@ def test_hidden_iterator_admits_anonymous_assertions_and_selected_values(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=raw_edges, batch_edges=2)
     assert ingestion.counters["scalar_axiom_materializations"] == 0
     assert ingestion.counters["per_row_ffi_calls"] == 0
 
@@ -2048,9 +2021,7 @@ def test_hidden_iterator_admits_exact_grouped_skipped_axioms(
     assert ingestion.path == "encoded-native"
     assert ingestion.counters["native_edge_batches"] == (raw_edges + 1) // 2
     assert ingestion.counters["native_boundary_calls"] == 1 + (raw_edges + 1) // 2
-    _assert_bounded_native_output(
-        ingestion.counters, compiled_edges=raw_edges, batch_edges=2
-    )
+    _assert_bounded_native_output(ingestion.counters, compiled_edges=raw_edges, batch_edges=2)
     assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
@@ -3073,8 +3044,7 @@ def test_two_local_object_property_class_roots_fail_before_output_and_retry() ->
     ("local_body", "constructor"),
     [
         (
-            "SubClassOf(:Ignored ObjectSomeValuesFrom("
-            ":p ObjectIntersectionOf(:B :C)))",
+            "SubClassOf(:Ignored ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
             "SubClassOf",
         ),
         (
@@ -3082,8 +3052,7 @@ def test_two_local_object_property_class_roots_fail_before_output_and_retry() ->
             "SubClassOf",
         ),
         (
-            "ClassAssertion(ObjectSomeValuesFrom("
-            ":p ObjectIntersectionOf(:B :C)) :i)",
+            "ClassAssertion(ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)) :i)",
             "ClassAssertion",
         ),
         (
@@ -3155,9 +3124,9 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_class_axiom(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -3188,9 +3157,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_class_axiom(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "ignored local class axiom reached scalar traversal"
-            ),
+            side_effect=AssertionError("ignored local class axiom reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -3214,9 +3181,9 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_class_axiom(
     assert actual == expected == expected_edges
     _assert_semantic_report_parity(expected_report, report)
     assert report.provenance.counts.ignored_shapes == 1
-    assert tuple(
-        (item.code, item.constructor, item.count) for item in report.diagnostics
-    ) == (("MOWL_IGNORED_SHAPE", constructor, 1),)
+    assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
+        ("MOWL_IGNORED_SHAPE", constructor, 1),
+    )
     assert len(captured) == 1
     compilation = captured[0]
     assert compilation.view is overlay
@@ -3224,9 +3191,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_class_axiom(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     is_subclass = constructor == "SubClassOf"
     assert statistics.roots == len(expected_sources) + 1
@@ -3347,12 +3312,10 @@ def test_private_overlay_ignored_class_axiom_preserves_asserted_taxonomy(
 @pytest.mark.parametrize(
     "local_body",
     [
-        "EquivalentClasses(:Ignored ObjectSomeValuesFrom("
-        ":p ObjectIntersectionOf(:B :C)))",
+        "EquivalentClasses(:Ignored ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
         "EquivalentClasses(ObjectSomeValuesFrom(:p :B) ObjectComplementOf(:C))",
         "EquivalentClasses(:Ignored ObjectComplementOf(ObjectUnionOf(:A :B)))",
-        "EquivalentClasses(:Ignored ObjectSomeValuesFrom(:p :B) "
-        "ObjectComplementOf(:C))",
+        "EquivalentClasses(:Ignored ObjectSomeValuesFrom(:p :B) ObjectComplementOf(:C))",
     ],
     ids=[
         "named-restriction",
@@ -3417,9 +3380,9 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_equivalence(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -3450,9 +3413,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_equivalence(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "ignored local EquivalentClasses reached scalar traversal"
-            ),
+            side_effect=AssertionError("ignored local EquivalentClasses reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -3476,9 +3437,9 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_equivalence(
     assert actual == expected == expected_edges
     _assert_semantic_report_parity(expected_report, report)
     assert report.provenance.counts.ignored_shapes == 1
-    assert tuple(
-        (item.code, item.constructor, item.count) for item in report.diagnostics
-    ) == (("MOWL_IGNORED_SHAPE", "EquivalentClasses", 1),)
+    assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
+        ("MOWL_IGNORED_SHAPE", "EquivalentClasses", 1),
+    )
     assert len(captured) == 1
     compilation = captured[0]
     assert compilation.view is overlay
@@ -3486,9 +3447,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_equivalence(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     assert statistics.roots == len(expected_sources) + 1
     assert statistics.subclasses == len(expected_sources)
@@ -3529,10 +3488,7 @@ def test_private_overlay_ignored_equivalence_preserves_asserted_taxonomy() -> No
     )
     addition_source = cast(
         pyowl_core.OntologyView,
-        _snapshot(
-            "EquivalentClasses(:Ignored "
-            "ObjectComplementOf(ObjectUnionOf(:A :B)))"
-        ),
+        _snapshot("EquivalentClasses(:Ignored ObjectComplementOf(ObjectUnionOf(:A :B)))"),
     )
     overlay = pyowl_core.apply_delta(
         base,
@@ -3601,8 +3557,7 @@ def test_private_overlay_ignored_equivalence_preserves_asserted_taxonomy() -> No
             "ObjectPropertyDomain",
         ),
         (
-            "ObjectPropertyDomain(:p "
-            "ObjectComplementOf(ObjectUnionOf(:A :B)))",
+            "ObjectPropertyDomain(:p ObjectComplementOf(ObjectUnionOf(:A :B)))",
             "ObjectPropertyDomain",
         ),
         (
@@ -3610,8 +3565,7 @@ def test_private_overlay_ignored_equivalence_preserves_asserted_taxonomy() -> No
             "ObjectPropertyRange",
         ),
         (
-            "ObjectPropertyRange(:p "
-            "ObjectComplementOf(ObjectIntersectionOf(:B :C)))",
+            "ObjectPropertyRange(:p ObjectComplementOf(ObjectIntersectionOf(:B :C)))",
             "ObjectPropertyRange",
         ),
     ],
@@ -3679,9 +3633,9 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_object_property_class
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -3738,9 +3692,9 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_object_property_class
     assert actual == expected == expected_edges
     _assert_semantic_report_parity(expected_report, report)
     assert report.provenance.counts.ignored_shapes == 1
-    assert tuple(
-        (item.code, item.constructor, item.count) for item in report.diagnostics
-    ) == (("MOWL_IGNORED_SHAPE", constructor, 1),)
+    assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
+        ("MOWL_IGNORED_SHAPE", constructor, 1),
+    )
     assert len(captured) == 1
     compilation = captured[0]
     assert compilation.view is overlay
@@ -3748,9 +3702,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_object_property_class
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     is_domain = constructor == "ObjectPropertyDomain"
     assert statistics.roots == len(expected_sources) + 1
@@ -3929,11 +3881,7 @@ def test_hidden_iterator_projects_one_local_object_property_class_axiom(
         "same": constructor,
         "counterpart": counterpart,
     }[removal]
-    removed = {
-        axiom
-        for axiom in base.iter_axioms()
-        if type(axiom).__name__ == removed_constructor
-    }
+    removed = {axiom for axiom in base.iter_axioms() if type(axiom).__name__ == removed_constructor}
     assert len(removed) == int(removed_constructor is not None)
     addition_source = cast(
         pyowl_core.OntologyView,
@@ -3961,9 +3909,9 @@ def test_hidden_iterator_projects_one_local_object_property_class_axiom(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -4011,11 +3959,7 @@ def test_hidden_iterator_projects_one_local_object_property_class_axiom(
 
     expected_edges: list[Edge] = []
     is_domain = constructor == "ObjectPropertyDomain"
-    pairs = (
-        (("A", "R"), ("D", "R"))
-        if is_domain
-        else (("D", "A"), ("D", "R"))
-    )
+    pairs = (("A", "R"), ("D", "R")) if is_domain else (("D", "A"), ("D", "R"))
     for domain, range_ in pairs[:expected_products]:
         expected_edges.extend(
             [
@@ -4047,9 +3991,7 @@ def test_hidden_iterator_projects_one_local_object_property_class_axiom(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     assert statistics.roots == 5 - len(removed)
     assert statistics.sub_object_properties == 1
@@ -4105,8 +4047,7 @@ def test_hidden_iterator_projects_one_local_object_property_class_axiom(
     [
         "SubObjectPropertyOf(ObjectPropertyChain(:left :right) :p)",
         "SubObjectPropertyOf(ObjectPropertyChain(:left :middle :right) :p)",
-        "SubObjectPropertyOf("
-        "ObjectPropertyChain(:left ObjectInverseOf(:right)) :p)",
+        "SubObjectPropertyOf(ObjectPropertyChain(:left ObjectInverseOf(:right)) :p)",
         "SubObjectPropertyOf("
         "ObjectPropertyChain(ObjectInverseOf(:left) :right) "
         "ObjectInverseOf(:p))",
@@ -4174,9 +4115,9 @@ def test_hidden_iterator_compiles_one_state_neutral_local_property_chain(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -4241,9 +4182,7 @@ def test_hidden_iterator_compiles_one_state_neutral_local_property_chain(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     assert statistics.roots == len(expected_sources) + 1
     assert statistics.subclasses == len(expected_sources)
@@ -4284,10 +4223,7 @@ def test_private_overlay_property_chain_preserves_asserted_taxonomy() -> None:
     )
     addition_source = cast(
         pyowl_core.OntologyView,
-        _snapshot(
-            "SubObjectPropertyOf("
-            "ObjectPropertyChain(:left ObjectInverseOf(:right)) :p)"
-        ),
+        _snapshot("SubObjectPropertyOf(ObjectPropertyChain(:left ObjectInverseOf(:right)) :p)"),
     )
     overlay = pyowl_core.apply_delta(
         base,
@@ -4353,14 +4289,12 @@ def test_private_overlay_property_chain_preserves_asserted_taxonomy() -> None:
     [
         ("SubObjectPropertyOf(:p :super)", "sub-property"),
         (
-            "SubObjectPropertyOf("
-            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "SubObjectPropertyOf(ObjectInverseOf(:p) ObjectInverseOf(:super))",
             "sub-property",
         ),
         ("InverseObjectProperties(:p :super)", "inverse-properties"),
         (
-            "InverseObjectProperties("
-            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "InverseObjectProperties(ObjectInverseOf(:p) ObjectInverseOf(:super))",
             "inverse-properties",
         ),
     ],
@@ -4398,8 +4332,7 @@ def test_hidden_iterator_recomputes_base_for_one_local_role_axiom(
     base = cast(
         pyowl_core.OntologyView,
         _snapshot(
-            "SubClassOf(:A :Top) "
-            "SubClassOf(:C ObjectSomeValuesFrom(:super :D))",
+            "SubClassOf(:A :Top) SubClassOf(:C ObjectSomeValuesFrom(:super :D))",
             backend=provider_backend,
         ),
     )
@@ -4437,9 +4370,9 @@ def test_hidden_iterator_recomputes_base_for_one_local_role_axiom(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -4470,9 +4403,7 @@ def test_hidden_iterator_recomputes_base_for_one_local_role_axiom(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "stateful local role axiom reached scalar traversal"
-            ),
+            side_effect=AssertionError("stateful local role axiom reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -4528,10 +4459,13 @@ def test_hidden_iterator_recomputes_base_for_one_local_role_axiom(
         if only_taxonomy and "C" not in removed_sources
         else ()
     )
-    assert tuple(
-        (diagnostic.code, diagnostic.constructor, diagnostic.count)
-        for diagnostic in report.diagnostics
-    ) == expected_diagnostics
+    assert (
+        tuple(
+            (diagnostic.code, diagnostic.constructor, diagnostic.count)
+            for diagnostic in report.diagnostics
+        )
+        == expected_diagnostics
+    )
     assert len(captured) == 1
     compilation = captured[0]
     assert compilation.view is overlay
@@ -4539,17 +4473,13 @@ def test_hidden_iterator_recomputes_base_for_one_local_role_axiom(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     selected_base_roots = 2 - len(removed_sources)
     is_sub_property = root_family == "sub-property"
     assert statistics.roots == selected_base_roots + 1
     assert statistics.subclasses == selected_base_roots
-    assert statistics.restriction_subclasses == int(
-        "C" not in removed_sources
-    )
+    assert statistics.restriction_subclasses == int("C" not in removed_sources)
     assert statistics.sub_object_properties == int(is_sub_property)
     assert statistics.object_property_chains == 0
     assert statistics.inverse_object_properties == int(not is_sub_property)
@@ -4647,9 +4577,7 @@ def test_hidden_iterator_merges_local_axiom_with_base_role_state(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "merged local role axiom reached scalar traversal"
-            ),
+            side_effect=AssertionError("merged local role axiom reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -4727,14 +4655,12 @@ def test_hidden_iterator_merges_local_axiom_with_base_role_state(
     [
         ("SubObjectPropertyOf(:p :super)", "sub-property"),
         (
-            "SubObjectPropertyOf("
-            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "SubObjectPropertyOf(ObjectInverseOf(:p) ObjectInverseOf(:super))",
             "sub-property",
         ),
         ("InverseObjectProperties(:p :super)", "inverse-properties"),
         (
-            "InverseObjectProperties("
-            "ObjectInverseOf(:p) ObjectInverseOf(:super))",
+            "InverseObjectProperties(ObjectInverseOf(:p) ObjectInverseOf(:super))",
             "inverse-properties",
         ),
     ],
@@ -4751,10 +4677,7 @@ def test_private_overlay_stateful_role_axiom_preserves_asserted_taxonomy(
 ) -> None:
     base = cast(
         pyowl_core.OntologyView,
-        _snapshot(
-            "SubClassOf(:A :Top) "
-            "SubClassOf(:C ObjectSomeValuesFrom(:super :D))"
-        ),
+        _snapshot("SubClassOf(:A :Top) SubClassOf(:C ObjectSomeValuesFrom(:super :D))"),
     )
     addition_source = cast(pyowl_core.OntologyView, _snapshot(local_body))
     overlay = pyowl_core.apply_delta(
@@ -4900,9 +4823,9 @@ def test_hidden_iterator_compiles_one_state_neutral_local_annotation_root(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -4967,18 +4890,14 @@ def test_hidden_iterator_compiles_one_state_neutral_local_annotation_root(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     is_ontology_annotation = root_family == "ontology-annotation"
     assert statistics.roots == len(expected_sources) + 1
     assert statistics.subclasses == len(expected_sources)
     assert statistics.ontology_annotations == int(is_ontology_annotation)
     assert statistics.annotation_assertions == int(not is_ontology_annotation)
-    assert statistics.selected_annotation_assertions == int(
-        not is_ontology_annotation
-    )
+    assert statistics.selected_annotation_assertions == int(not is_ontology_annotation)
     assert statistics.annotation_edges == 0
     assert statistics.non_string_literal_renderings == 0
     assert statistics.skipped_axioms == 0
@@ -5081,9 +5000,7 @@ def test_private_overlay_annotation_root_preserves_asserted_taxonomy(
     assert statistics.subclasses == 2
     assert statistics.ontology_annotations == int(is_ontology_annotation)
     assert statistics.annotation_assertions == int(not is_ontology_annotation)
-    assert statistics.selected_annotation_assertions == int(
-        not is_ontology_annotation
-    )
+    assert statistics.selected_annotation_assertions == int(not is_ontology_annotation)
     assert statistics.annotation_edges == 0
     assert statistics.non_string_literal_renderings == 0
     assert statistics.skipped_axioms == 0
@@ -5171,9 +5088,9 @@ def test_hidden_iterator_compiles_one_silent_local_class_disjointness_axiom(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -5236,9 +5153,7 @@ def test_hidden_iterator_compiles_one_silent_local_class_disjointness_axiom(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     assert statistics.roots == len(expected_sources) + 1
     assert statistics.subclasses == len(expected_sources)
@@ -5354,9 +5269,9 @@ def test_hidden_iterator_compiles_one_silent_local_annotation_property_axiom(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -5419,9 +5334,7 @@ def test_hidden_iterator_compiles_one_silent_local_annotation_property_axiom(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     assert statistics.roots == len(expected_sources) + 1
     assert statistics.subclasses == len(expected_sources)
@@ -5533,9 +5446,9 @@ def test_hidden_iterator_compiles_one_silent_local_has_key(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -5596,9 +5509,7 @@ def test_hidden_iterator_compiles_one_silent_local_has_key(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.has_keys == 1
@@ -5734,9 +5645,9 @@ def test_hidden_iterator_compiles_one_silent_local_object_property_axiom(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -5799,9 +5710,7 @@ def test_hidden_iterator_compiles_one_silent_local_object_property_axiom(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     assert statistics.roots == len(expected_sources) + 1
     assert statistics.subclasses == len(expected_sources)
@@ -6086,14 +5995,18 @@ def test_hidden_iterator_composes_one_base_exclusion_with_one_local_delta(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in expected_sources
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in expected_sources
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert len(captured) == 1
     compilation = captured[0]
@@ -6251,14 +6164,18 @@ def test_hidden_iterator_compiles_one_silent_local_declaration(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in expected_sources
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in expected_sources
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert len(captured) == 1
     compilation = captured[0]
@@ -6267,9 +6184,7 @@ def test_hidden_iterator_compiles_one_silent_local_declaration(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed_sources else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed_sources else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.declarations == 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
@@ -6382,11 +6297,7 @@ def test_hidden_iterator_compiles_one_named_local_restriction(
             backend=provider_backend,
         ),
     )
-    removed = {
-        axiom
-        for axiom in base.iter_axioms()
-        if type(axiom).__name__ == removed_constructor
-    }
+    removed = {axiom for axiom in base.iter_axioms() if type(axiom).__name__ == removed_constructor}
     assert len(removed) == int(removed_constructor is not None)
     addition_source = cast(
         pyowl_core.OntologyView,
@@ -6488,9 +6399,7 @@ def test_hidden_iterator_compiles_one_named_local_restriction(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == 3 - len(removed)
     assert compilation.native_statistics.subclasses == 1
     assert compilation.native_statistics.restriction_subclasses == 1
@@ -6665,9 +6574,7 @@ def test_hidden_iterator_compiles_one_named_local_class_assertion(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_edges)
     assert compilation.native_statistics.class_assertions == len(expected_edges)
     assert compilation.native_statistics.ignored_class_assertions == 0
@@ -6837,9 +6744,7 @@ def test_hidden_iterator_compiles_one_named_local_object_property_assertion(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_edges)
     assert compilation.native_statistics.object_property_assertions == len(expected_edges)
     assert compilation.native_statistics.edges == len(expected_edges)
@@ -7006,9 +6911,7 @@ def test_hidden_iterator_compiles_one_silent_local_negative_object_assertion(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.negative_object_property_assertions == 1
@@ -7178,9 +7081,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_assertion(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.data_property_assertions == 1
@@ -7285,9 +7186,9 @@ def test_hidden_iterator_compiles_one_silent_local_negative_data_property_assert
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -7350,9 +7251,7 @@ def test_hidden_iterator_compiles_one_silent_local_negative_data_property_assert
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.negative_data_property_assertions == 1
@@ -7448,9 +7347,9 @@ def test_hidden_iterator_compiles_one_silent_local_sub_data_property_axiom(
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -7481,9 +7380,7 @@ def test_hidden_iterator_compiles_one_silent_local_sub_data_property_axiom(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "silent local SubDataPropertyOf reached scalar traversal"
-            ),
+            side_effect=AssertionError("silent local SubDataPropertyOf reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -7513,9 +7410,7 @@ def test_hidden_iterator_compiles_one_silent_local_sub_data_property_axiom(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.sub_data_properties == 1
@@ -7617,9 +7512,9 @@ def test_hidden_iterator_compiles_one_silent_local_equivalent_data_properties(
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -7682,9 +7577,7 @@ def test_hidden_iterator_compiles_one_silent_local_equivalent_data_properties(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.equivalent_data_properties == 1
@@ -7786,9 +7679,9 @@ def test_hidden_iterator_compiles_one_silent_local_disjoint_data_properties(
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -7851,9 +7744,7 @@ def test_hidden_iterator_compiles_one_silent_local_disjoint_data_properties(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.disjoint_data_properties == 1
@@ -7896,8 +7787,7 @@ def test_hidden_iterator_compiles_one_silent_local_disjoint_data_properties(
     "local_body",
     [
         "DataPropertyDomain(:dp :Domain)",
-        "DataPropertyDomain(:dp "
-        "ObjectIntersectionOf(:Domain ObjectUnionOf(:Other :Third)))",
+        "DataPropertyDomain(:dp ObjectIntersectionOf(:Domain ObjectUnionOf(:Other :Third)))",
     ],
     ids=["named-domain", "recursive-domain"],
 )
@@ -7956,9 +7846,9 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_domain(
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -7989,9 +7879,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_domain(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "silent local DataPropertyDomain reached scalar traversal"
-            ),
+            side_effect=AssertionError("silent local DataPropertyDomain reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -8021,9 +7909,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_domain(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.data_property_domains == 1
@@ -8127,9 +8013,9 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_range(
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -8160,9 +8046,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_range(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "silent local DataPropertyRange reached scalar traversal"
-            ),
+            side_effect=AssertionError("silent local DataPropertyRange reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -8192,9 +8076,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_range(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.data_property_ranges == 1
@@ -8287,9 +8169,9 @@ def test_hidden_iterator_compiles_one_silent_local_functional_data_property(
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -8352,9 +8234,7 @@ def test_hidden_iterator_compiles_one_silent_local_functional_data_property(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.functional_data_properties == 1
@@ -8396,8 +8276,7 @@ def test_hidden_iterator_compiles_one_silent_local_functional_data_property(
 @pytest.mark.parametrize(
     "local_body",
     [
-        "DatatypeDefinition(:custom "
-        "<http://www.w3.org/2001/XMLSchema#string>)",
+        "DatatypeDefinition(:custom <http://www.w3.org/2001/XMLSchema#string>)",
         "DatatypeDefinition(:custom DataUnionOf("
         "<http://www.w3.org/2001/XMLSchema#string> "
         "DataComplementOf(<http://www.w3.org/2001/XMLSchema#integer>)))",
@@ -8459,9 +8338,9 @@ def test_hidden_iterator_compiles_one_silent_local_datatype_definition(
     assert delta_segment.root_ids.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -8492,9 +8371,7 @@ def test_hidden_iterator_compiles_one_silent_local_datatype_definition(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "silent local DatatypeDefinition reached scalar traversal"
-            ),
+            side_effect=AssertionError("silent local DatatypeDefinition reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -8524,9 +8401,7 @@ def test_hidden_iterator_compiles_one_silent_local_datatype_definition(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.datatype_definitions == 1
@@ -8642,9 +8517,9 @@ def test_hidden_iterator_compiles_one_silent_local_individual_set(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -8675,9 +8550,7 @@ def test_hidden_iterator_compiles_one_silent_local_individual_set(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                f"silent local {constructor} reached scalar traversal"
-            ),
+            side_effect=AssertionError(f"silent local {constructor} reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -8707,9 +8580,7 @@ def test_hidden_iterator_compiles_one_silent_local_individual_set(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     assert compilation.native_statistics.roots == len(expected_sources) + 1
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert getattr(compilation.native_statistics, statistics_field) == 1
@@ -8890,9 +8761,9 @@ def test_hidden_iterator_projects_nonempty_multi_root_emitting_overlay(
     assert delta_segment.anonymous_scope_map.nbytes == 0
     source_encoded = base_segment.source
     assert source_encoded is not None
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes for value in source_encoded.buffers.values()
+    )
 
     python_options = ProjectionOptions(
         backend="python",
@@ -8953,18 +8824,12 @@ def test_hidden_iterator_projects_nonempty_multi_root_emitting_overlay(
     assert compilation.local_delta_lease is compilation.container_leases[0]
     assert compilation.local_delta_lease is not None
     assert compilation.local_delta_lease.owner is overlay
-    assert compilation.excluded_root_ids is (
-        base_segment.root_ids if removed else None
-    )
+    assert compilation.excluded_root_ids is (base_segment.root_ids if removed else None)
     statistics = compilation.native_statistics
     assert statistics.roots == 10 - len(removed)
-    assert statistics.subclasses == 5 - sum(
-        index in removed_indices for index in (0, 1)
-    )
+    assert statistics.subclasses == 5 - sum(index in removed_indices for index in (0, 1))
     assert statistics.restriction_subclasses == 1
-    assert statistics.class_assertions == 3 - sum(
-        index in removed_indices for index in (2, 3)
-    )
+    assert statistics.class_assertions == 3 - sum(index in removed_indices for index in (2, 3))
     assert statistics.object_property_assertions == 2 - int(4 in removed_indices)
     assert statistics.skipped_axioms == 0
     assert statistics.edges == len(expected)
@@ -9303,6 +9168,60 @@ def _nested_overlay_member_subclass_composite(
     )
 
 
+def _four_table_nested_overlay_subclass_composite(
+    provider_backend: pyowl_core.BackendPreference,
+    *,
+    remove_base: bool = True,
+) -> pyowl_core.OntologyView:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:Drop :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)", backend=provider_backend),
+    )
+    first_direct = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:C :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    second_direct = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:D :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed = (
+        {
+            next(
+                axiom
+                for axiom in base.iter_axioms()
+                if cast(Any, axiom).sub_class.iri.value.endswith("#Drop")
+            )
+        }
+        if remove_base
+        else set()
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    return cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, first_direct, second_direct),
+    )
+
+
 def _forged_one_include_subclass_composite(
     provider_backend: pyowl_core.BackendPreference,
 ) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease, memoryview]:
@@ -9405,9 +9324,7 @@ def test_hidden_iterator_compiles_exact_two_member_composite_without_flattening(
     assert sum(segment.root_ids.nbytes for segment in top_encoded.segments) == (
         4 if remove_left else 0
     )
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
         value.nbytes
         for segment in top_encoded.segments
         for value in cast(Any, segment.source).buffers.values()
@@ -9455,14 +9372,18 @@ def test_hidden_iterator_compiles_exact_two_member_composite_without_flattening(
     report = _completed_report(projector)
 
     expected_sources = ["A", "B", "D"] if remove_left else ["A", "B", "C", "D"]
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in expected_sources
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in expected_sources
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert report.diagnostics == expected_report.diagnostics == ()
     assert len(captured) == len(captured_compilers) == 1
@@ -9475,12 +9396,8 @@ def test_hidden_iterator_compiles_exact_two_member_composite_without_flattening(
     assert compilation.local_delta_lease is compilation.container_leases[1]
     assert compilation.local_delta_lease is not None
     assert compilation.lease.owner is not compilation.local_delta_lease.owner
-    excluded_segments = [
-        segment for segment in top_encoded.segments if segment.posting_mode == 2
-    ]
-    assert compilation.excluded_root_ids is (
-        excluded_segments[0].root_ids if remove_left else None
-    )
+    excluded_segments = [segment for segment in top_encoded.segments if segment.posting_mode == 2]
+    assert compilation.excluded_root_ids is (excluded_segments[0].root_ids if remove_left else None)
     statistics = compilation.native_statistics
     assert statistics.roots == len(expected_sources)
     assert statistics.subclasses == len(expected_sources)
@@ -9495,9 +9412,7 @@ def test_hidden_iterator_compiles_exact_two_member_composite_without_flattening(
     assert ingestion.reason is None
     assert ingestion.counters["encoded_buffer_count"] == 33
     assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
-    assert ingestion.counters["encoded_detached_buffer_count"] == (
-        22 + int(remove_left)
-    )
+    assert ingestion.counters["encoded_detached_buffer_count"] == (22 + int(remove_left))
     assert ingestion.counters["encoded_zero_copy_buffers"] == 33
     assert ingestion.counters["encoded_referenced_view_count"] == 2
     assert ingestion.counters["encoded_segment_count"] == 4
@@ -9677,9 +9592,7 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
     assert all(segment.posting_mode == 0 for segment in top_encoded.segments)
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
         value.nbytes
         for segment in top_encoded.segments
         for value in cast(Any, segment.source).buffers.values()
@@ -9704,14 +9617,18 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in ["A", "B", "C"]
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in ["A", "B", "C"]
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     ingestion = report.provenance.ingestion
     assert ingestion.path == "encoded-native"
@@ -9884,14 +9801,18 @@ def test_hidden_iterator_compiles_one_exact_include_composite_member(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in ["A", "D"]
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in ["A", "D"]
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert len(captured) == 1
     compilation = captured[0]
@@ -10035,9 +9956,7 @@ def test_one_include_composite_preserves_identity_cancel_limits_and_retry(
 
     segments = list(forged_lease.segments)
     all_index = next(
-        index
-        for index, segment in enumerate(segments)
-        if cast(Any, segment).posting_mode == 0
+        index for index, segment in enumerate(segments) if cast(Any, segment).posting_mode == 0
     )
     segments[all_index] = replace(
         cast(Any, segments[all_index]),
@@ -10076,9 +9995,7 @@ def test_hidden_iterator_compiles_two_exact_exclude_composite_members(
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
     assert all(segment.posting_mode == 2 for segment in top_encoded.segments)
     assert [segment.root_ids.nbytes for segment in top_encoded.segments] == [4, 4]
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
         value.nbytes
         for segment in top_encoded.segments
         for value in cast(Any, segment.source).buffers.values()
@@ -10125,14 +10042,18 @@ def test_hidden_iterator_compiles_two_exact_exclude_composite_members(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in ["A", "C", "D"]
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in ["A", "C", "D"]
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert report.diagnostics == expected_report.diagnostics == ()
     assert len(captured) == len(captured_compilers) == 1
@@ -10349,9 +10270,7 @@ def test_hidden_iterator_merges_three_all_exclude_members_in_one_native_pass(
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4, 4)
     assert sorted(segment.posting_mode for segment in top_encoded.segments) == [0, 2, 2]
     assert sorted(segment.root_ids.nbytes for segment in top_encoded.segments) == [0, 4, 8]
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
         value.nbytes
         for segment in top_encoded.segments
         for value in cast(Any, segment.source).buffers.values()
@@ -10398,14 +10317,18 @@ def test_hidden_iterator_merges_three_all_exclude_members_in_one_native_pass(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in ["A", "B", "C", "Shared"]
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in ["A", "B", "C", "Shared"]
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert report.diagnostics == expected_report.diagnostics == ()
     assert len(captured) == len(captured_compilers) == 1
@@ -10584,9 +10507,7 @@ def test_three_member_composite_preserves_selectors_cancel_limits_and_retry(
 
     segments = list(top_lease.segments)
     all_index = next(
-        index
-        for index, segment in enumerate(segments)
-        if cast(Any, segment).posting_mode == 0
+        index for index, segment in enumerate(segments) if cast(Any, segment).posting_mode == 0
     )
     segments[all_index] = replace(
         cast(Any, segments[all_index]),
@@ -10717,14 +10638,11 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     assert nested_base_encoded is not None
     assert nested_encoded.segments[0].posting_mode == 2
     assert nested_encoded.segments[0].root_ids.nbytes == 4
-    expected_buffer_bytes = sum(
-        value.nbytes for value in top_encoded.buffers.values()
-    ) + sum(
-        value.nbytes for value in nested_encoded.buffers.values()
-    ) + sum(
-        value.nbytes for value in direct_encoded.buffers.values()
-    ) + sum(
-        value.nbytes for value in nested_base_encoded.buffers.values()
+    expected_buffer_bytes = (
+        sum(value.nbytes for value in top_encoded.buffers.values())
+        + sum(value.nbytes for value in nested_encoded.buffers.values())
+        + sum(value.nbytes for value in direct_encoded.buffers.values())
+        + sum(value.nbytes for value in nested_base_encoded.buffers.values())
     )
     python_options = ProjectionOptions(backend="python", order="encounter")
     expected_projector = Projector()
@@ -10768,14 +10686,18 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            f"urn:native-integration#{source}",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-        for source in ["A", "B", "C", "Shared"]
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in ["A", "B", "C", "Shared"]
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert report.diagnostics == expected_report.diagnostics == ()
     assert len(captured) == len(captured_compilers) == 1
@@ -10876,6 +10798,369 @@ def test_nested_overlay_member_accepts_source_local_all_selection(
     assert ingestion.counters["encoded_detached_buffer_count"] == 33
     assert ingestion.counters["encoded_posting_bytes"] == 0
     assert ingestion.counters["native_compiled_edges"] == 5
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_flattens_nested_overlay_with_two_direct_siblings(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _four_table_nested_overlay_subclass_composite(provider_backend)
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_four_table_nested_composite(top_lease)
+    assert resolved is not None
+    (
+        base_lease,
+        nested_lease,
+        first_direct_lease,
+        second_direct_lease,
+        excluded,
+        _max_work,
+        _max_workspace,
+    ) = resolved
+    assert excluded is not None
+    nested_base_segment = cast(Any, nested_lease.segments[0])
+    assert excluded is nested_base_segment.root_ids
+    retained_leases = (
+        top_lease,
+        nested_lease,
+        first_direct_lease,
+        second_direct_lease,
+        base_lease,
+    )
+    expected_buffer_bytes = sum(
+        buffer.nbytes for retained in retained_leases for buffer in retained.buffers.values()
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("four-table nested composite reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in ["A", "B", "C", "D", "Shared"]
+        ]
+    )
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics == ()
+    assert len(captured) == len(captured_compilers) == 1
+    compilation = captured[0]
+    compiler = captured_compilers[0]
+    assert compilation.view is composite
+    assert compilation.lease.encoded_view is base_lease.encoded_view
+    expected_container_views = (
+        top_lease.encoded_view,
+        nested_lease.encoded_view,
+        first_direct_lease.encoded_view,
+        second_direct_lease.encoded_view,
+    )
+    assert all(
+        retained.encoded_view is expected_view
+        for retained, expected_view in zip(
+            compilation.container_leases,
+            expected_container_views,
+            strict=True,
+        )
+    )
+    assert compilation.local_delta_lease is compilation.container_leases[1]
+    assert compilation.nested_member_lease is compilation.local_delta_lease
+    assert compilation.third_member_lease is compilation.container_leases[2]
+    assert compilation.fourth_member_lease is compilation.container_leases[3]
+    assert compiler.fourth_member_lease is compilation.fourth_member_lease
+    assert compilation.excluded_root_ids is excluded
+    assert compilation.included_root_ids is None
+    assert compilation.right_excluded_root_ids is None
+    assert compilation.third_excluded_root_ids is None
+    assert compilation.fourth_excluded_root_ids is None
+    statistics = compilation.native_statistics
+    assert statistics.roots == 5
+    assert statistics.subclasses == 5
+    assert statistics.restriction_subclasses == 0
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == 5
+    assert compiler.retained_buffer_count == 45
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 55
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 45
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 55
+    assert ingestion.counters["encoded_referenced_view_count"] == 4
+    assert ingestion.counters["encoded_segment_count"] == 8
+    assert ingestion.counters["encoded_posting_bytes"] == 4
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=5,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_four_table_nested_composite_accepts_source_local_all_selection(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _four_table_nested_overlay_subclass_composite(
+        provider_backend,
+        remove_base=False,
+    )
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_four_table_nested_composite(top_lease)
+    assert resolved is not None
+    assert resolved[4] is None
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            composite,
+            options=ProjectionOptions(backend="native", order="encounter"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert [edge.source.rsplit("#", 1)[-1] for edge in actual] == [
+        "A",
+        "B",
+        "C",
+        "D",
+        "Drop",
+        "Shared",
+    ]
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_detached_buffer_count"] == 44
+    assert ingestion.counters["encoded_posting_bytes"] == 0
+    assert ingestion.counters["native_compiled_edges"] == 6
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_four_table_nested_composite_preserves_identity_cancel_limits_and_retry(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _four_table_nested_overlay_subclass_composite(provider_backend)
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_four_table_nested_composite(top_lease)
+    assert resolved is not None
+    (
+        base_lease,
+        nested_lease,
+        first_direct_lease,
+        second_direct_lease,
+        excluded,
+        max_work,
+        max_workspace,
+    ) = resolved
+    assert excluded is not None
+    assert max_work is not None
+    assert max_workspace is not None
+    nested_base_segment = cast(Any, nested_lease.segments[0])
+    assert excluded is nested_base_segment.root_ids
+
+    def compiler(
+        *,
+        work: int = max_work,
+        workspace: int = max_workspace,
+        selector: memoryview = excluded,
+        fourth: EncodedStructuralLease = second_direct_lease,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=first_direct_lease,
+            fourth_member_lease=fourth,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=top_lease,
+            excluded_root_ids=selector,
+            canonical_work_limit=work,
+            canonical_workspace_limit=workspace,
+        )
+
+    cancelled = compiler()
+    assert cancelled.cancel() is True
+    with pytest.raises(NativeEncodedDirectCancelled):
+        cancelled.compile_batch(
+            bidirectional=False,
+            max_edges=5,
+            max_iri_bytes=1024,
+        )
+    assert cancelled.state == "cancelled"
+    assert cancelled.retained_buffer_count == 45
+
+    for work, workspace, expected_message in [
+        (1, max_workspace, "work"),
+        (max_work, 1, "workspace"),
+    ]:
+        limited = compiler(work=work, workspace=workspace)
+        with pytest.raises(ProjectionResourceError) as captured:
+            limited.iter_batches(
+                bidirectional=False,
+                max_edges=5,
+                max_iri_bytes=1024,
+                batch_edges=1,
+            )
+        assert captured.value.__cause__ is not None
+        assert expected_message in str(captured.value.__cause__)
+        assert limited.state == "failed"
+        assert limited.retained_buffer_count == 45
+        assert limited.coarse_output_chunks == 0
+        assert limited.peak_buffered_coarse_edges == 0
+
+    retry = compiler()
+    edges, statistics = retry.compile_batch(
+        bidirectional=False,
+        max_edges=5,
+        max_iri_bytes=1024,
+    )
+    assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == [
+        "A",
+        "B",
+        "C",
+        "D",
+        "Shared",
+    ]
+    assert statistics.roots == statistics.subclasses == statistics.edges == 5
+    assert retry.state == "finished"
+    assert retry.retained_buffer_count == 45
+    assert retry.cancel() is False
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="does not retain the exact EXCLUDE table",
+    ):
+        compiler(selector=memoryview(bytes(excluded)))
+
+    unrelated = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Other :Top)", backend=provider_backend),
+    )
+    unrelated_lease = select_private_direct_ingestion(
+        unrelated,
+        selected_backend="native",
+    ).lease
+    assert unrelated_lease is not None
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="nested composite member lost its retained source identity",
+    ):
+        compiler(fourth=unrelated_lease)
+
+    with pytest.raises(
+        ValueError,
+        match="requires an exact nested composite",
+    ):
+        prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=first_direct_lease,
+            fourth_member_lease=second_direct_lease,
+            merge_manifest_lease=top_lease,
+            excluded_root_ids=excluded,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+
+    outer_segments = list(top_lease.segments)
+    outer_segments[0] = replace(
+        cast(Any, outer_segments[0]),
+        posting_mode=1,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    selected_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(outer_segments),
+    )
+    selected_lease = replace(
+        top_lease,
+        encoded_view=selected_view,
+        segments=tuple(outer_segments),
+    )
+    assert _resolve_private_four_table_nested_composite(selected_lease) is None
 
 
 @pytest.mark.parametrize(
@@ -11043,7 +11328,7 @@ def test_nested_overlay_member_preserves_identity_cancel_limits_and_retry(
     "shape",
     [
         "two-overlays",
-        "three-outer-members",
+        "four-outer-members",
         "bridge",
         "scope-remap",
         "empty-overlay",
@@ -11084,25 +11369,26 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         second_addition = direct("SubClassOf(:D :Top)")
         second_overlay = pyowl_core.apply_delta(
             sibling,
-            pyowl_core.OntologyDelta(
-                add_axioms=cast(Any, set(second_addition.iter_axioms()))
-            ),
+            pyowl_core.OntologyDelta(add_axioms=cast(Any, set(second_addition.iter_axioms()))),
         )
-        composite = pyowl_core.compose_views(overlay, second_overlay)
-    elif shape == "three-outer-members":
+        composite = pyowl_core.compose_views(
+            overlay,
+            second_overlay,
+            direct("SubClassOf(:E :Top)"),
+        )
+    elif shape == "four-outer-members":
         composite = pyowl_core.compose_views(
             overlay,
             sibling,
             direct("SubClassOf(:D :Top)"),
+            direct("SubClassOf(:E :Top)"),
         )
     elif shape == "bridge":
         bridge = direct("SubClassOf(:D :Top)")
         composite = pyowl_core.compose_views(
             overlay,
             sibling,
-            delta=pyowl_core.OntologyDelta(
-                add_axioms=cast(Any, set(bridge.iter_axioms()))
-            ),
+            delta=pyowl_core.OntologyDelta(add_axioms=cast(Any, set(bridge.iter_axioms()))),
         )
     else:
         composite = pyowl_core.compose_views(overlay, sibling)
@@ -11117,6 +11403,7 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         assert resolved is not None
     else:
         assert resolved is None
+    assert _resolve_private_four_table_nested_composite(top_lease) is None
     if shape == "scope-remap":
         assert all(cast(Any, segment).anonymous_scope_map.nbytes for segment in top_lease.segments)
     elif shape == "bridge":
@@ -11226,8 +11513,7 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
             (2, 2, 0, 0, 0, 2),
         ),
         (
-            'SubClassOf(Annotation(:label "x") :B '
-            "ObjectSomeValuesFrom(:p :C))",
+            'SubClassOf(Annotation(:label "x") :B ObjectSomeValuesFrom(:p :C))',
             (2, 2, 1, 0, 0, 2),
         ),
         (
@@ -11405,8 +11691,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
     assert ingestion.path == "scalar-native"
     assert ingestion.reason is not None
     assert (
-        f"{constructor} root annotations require no anonymous individuals "
-        "or local scope remap"
+        f"{constructor} root annotations require no anonymous individuals or local scope remap"
     ) in ingestion.reason
     assert ingestion.counters.get("native_compiled_edges", 0) == 0
     assert ingestion.counters["encoded_buffer_count"] == 0
@@ -11443,8 +11728,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
-            "SubClassOf(:B :C) ClassAssertion(:D :i) "
-            "SubObjectPropertyOf(:p :q)",
+            "SubClassOf(:B :C) ClassAssertion(:D :i) SubObjectPropertyOf(:p :q)",
             "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
@@ -11459,8 +11743,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "the same named object property",
         ),
         (
-            'ObjectPropertyDomain(Annotation(:label "x") :p :A) '
-            "ObjectPropertyRange(:p :B)",
+            'ObjectPropertyDomain(Annotation(:label "x") :p :A) ObjectPropertyRange(:p :B)',
             "bounded local-overlay ObjectPropertyDomain root must be unannotated",
         ),
         (
@@ -11474,8 +11757,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "complete direct projection",
         ),
         (
-            'EquivalentClasses(Annotation(:label "x") :A '
-            "ObjectComplementOf(:B))",
+            'EquivalentClasses(Annotation(:label "x") :A ObjectComplementOf(:B))',
             "bounded local-overlay EquivalentClasses root must be unannotated",
         ),
         (
@@ -11490,13 +11772,11 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "binary or ternary ignored class-expression set",
         ),
         (
-            'ObjectPropertyDomain(Annotation(:label "x") '
-            "ObjectInverseOf(:p) :A)",
+            'ObjectPropertyDomain(Annotation(:label "x") ObjectInverseOf(:p) :A)',
             "bounded local-overlay ObjectPropertyDomain root must be unannotated",
         ),
         (
-            'ObjectPropertyRange(Annotation(:label "x") :p '
-            "ObjectComplementOf(:A))",
+            'ObjectPropertyRange(Annotation(:label "x") :p ObjectComplementOf(:A))',
             "bounded local-overlay ObjectPropertyRange root must be unannotated",
         ),
         (
@@ -11510,8 +11790,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "anonymous individuals or local scope remap",
         ),
         (
-            'SubObjectPropertyOf(Annotation(:label "x") '
-            "ObjectPropertyChain(:p :q) :r)",
+            'SubObjectPropertyOf(Annotation(:label "x") ObjectPropertyChain(:p :q) :r)',
             "bounded local-overlay SubObjectPropertyOf root must be unannotated",
         ),
         (
@@ -11523,8 +11802,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "bounded local-overlay InverseObjectProperties root must be unannotated",
         ),
         (
-            'AnnotationAssertion(Annotation(:label "x") '
-            '<urn:meta> <urn:subject> "value")',
+            'AnnotationAssertion(Annotation(:label "x") <urn:meta> <urn:subject> "value")',
             "bounded local-overlay AnnotationAssertion root must be unannotated",
         ),
         (
@@ -11543,8 +11821,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "individuals or local scope remap",
         ),
         (
-            'ClassAssertion(Annotation(:label "x") '
-            "ObjectSomeValuesFrom(:p :B) :i)",
+            'ClassAssertion(Annotation(:label "x") ObjectSomeValuesFrom(:p :B) :i)',
             "bounded local-overlay ClassAssertion root must be unannotated",
         ),
         (
@@ -11554,13 +11831,11 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
         ),
         (
             'NegativeObjectPropertyAssertion(Annotation(:label "x") :p :i :j)',
-            "bounded local-overlay NegativeObjectPropertyAssertion root must be "
-            "unannotated",
+            "bounded local-overlay NegativeObjectPropertyAssertion root must be unannotated",
         ),
         (
             "NegativeObjectPropertyAssertion(:p _:anonymous :j)",
-            "bounded local-overlay NegativeObjectPropertyAssertion root requires "
-            "named individuals",
+            "bounded local-overlay NegativeObjectPropertyAssertion root requires named individuals",
         ),
         (
             'DataPropertyAssertion(Annotation(:label "x") :dp :i "value")',
@@ -11568,18 +11843,15 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
         ),
         (
             'DataPropertyAssertion(:dp _:anonymous "value")',
-            "bounded local-overlay DataPropertyAssertion root requires a named "
-            "individual",
+            "bounded local-overlay DataPropertyAssertion root requires a named individual",
         ),
         (
             'NegativeDataPropertyAssertion(Annotation(:label "x") :dp :i "blocked")',
-            "bounded local-overlay NegativeDataPropertyAssertion root must be "
-            "unannotated",
+            "bounded local-overlay NegativeDataPropertyAssertion root must be unannotated",
         ),
         (
             'NegativeDataPropertyAssertion(:dp _:anonymous "blocked")',
-            "bounded local-overlay NegativeDataPropertyAssertion root requires a named "
-            "individual",
+            "bounded local-overlay NegativeDataPropertyAssertion root requires a named individual",
         ),
         (
             'SubDataPropertyOf(Annotation(:label "x") :dp :dq)',
@@ -11598,7 +11870,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "bounded local-overlay DataPropertyDomain root must be unannotated",
         ),
         (
-            "DataPropertyRange(Annotation(:label \"x\") :dp "
+            'DataPropertyRange(Annotation(:label "x") :dp '
             "<http://www.w3.org/2001/XMLSchema#string>)",
             "bounded local-overlay DataPropertyRange root must be unannotated",
         ),
@@ -11607,7 +11879,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "bounded local-overlay FunctionalDataProperty root must be unannotated",
         ),
         (
-            "DatatypeDefinition(Annotation(:label \"x\") :custom "
+            'DatatypeDefinition(Annotation(:label "x") :custom '
             "<http://www.w3.org/2001/XMLSchema#string>)",
             "bounded local-overlay DatatypeDefinition root must be unannotated",
         ),
@@ -11834,8 +12106,7 @@ def test_hidden_iterator_keeps_adjacent_local_overlay_shapes_on_whole_call_fallb
     [
         (
             'Annotation(Annotation(<urn:nested> "x") <urn:meta> "value")',
-            "bounded local-overlay ontology Annotation root must have no nested "
-            "annotations",
+            "bounded local-overlay ontology Annotation root must have no nested annotations",
         ),
         (
             "Annotation(<urn:meta> _:anonymous)",
@@ -11851,9 +12122,7 @@ def test_hidden_iterator_keeps_unsupported_local_ontology_annotation_on_fallback
 ) -> None:
     base = cast(
         pyowl_core.OntologyView,
-        _snapshot(
-            "Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"
-        ),
+        _snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"),
     )
     addition_source = cast(pyowl_core.OntologyView, _snapshot(local_body))
     annotations = set(cast(Any, addition_source).ontology_annotations())
@@ -12208,9 +12477,7 @@ def test_recursive_empty_overlay_owners_live_until_cursor_close() -> None:
     ]:
         base = cast(
             pyowl_core.OntologyView,
-            _snapshot(
-                "SubClassOf(:A :Top) SubClassOf(:B :Top) SubClassOf(:C :Top)"
-            ),
+            _snapshot("SubClassOf(:A :Top) SubClassOf(:B :Top) SubClassOf(:C :Top)"),
         )
         direct_selection = select_private_direct_ingestion(
             base,
@@ -12460,9 +12727,7 @@ def test_hidden_iterator_compiles_one_excluding_overlay_without_flattening(
         ),
     )
     removed = {
-        axiom
-        for axiom in base.iter_axioms()
-        if type(axiom).__name__ in removed_constructors
+        axiom for axiom in base.iter_axioms() if type(axiom).__name__ in removed_constructors
     }
     assert {type(axiom).__name__ for axiom in removed} == removed_constructors
     overlay = pyowl_core.apply_delta(
@@ -12568,8 +12833,7 @@ def test_excluding_overlay_recomputes_anonymous_ids_from_retained_roots(
     base = cast(
         pyowl_core.OntologyView,
         _snapshot(
-            "ObjectPropertyAssertion(:p _:removed :x) "
-            "ObjectPropertyAssertion(:p _:retained :y)",
+            "ObjectPropertyAssertion(:p _:removed :x) ObjectPropertyAssertion(:p _:retained :y)",
             backend=provider_backend,
         ),
     )
@@ -12610,8 +12874,7 @@ def test_excluding_overlay_recomputes_anonymous_ids_from_retained_roots(
     assert ingestion.counters["encoded_staging_copy_bytes"] == 0
 
 
-def test_hidden_iterator_compiles_terminal_adjacent_exclusion_through_recursive_aliases(
-) -> None:
+def test_hidden_iterator_compiles_terminal_adjacent_exclusion_through_recursive_aliases() -> None:
     exclusion_level = 0
     base = cast(
         pyowl_core.OntologyView,
@@ -12620,9 +12883,7 @@ def test_hidden_iterator_compiles_terminal_adjacent_exclusion_through_recursive_
             "SubClassOf(:A :B) SubClassOf(:B :C)"
         ),
     )
-    removed = {
-        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
-    }
+    removed = {next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")}
     semantic_view = pyowl_core.apply_delta(
         base,
         pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
@@ -12711,9 +12972,7 @@ def test_hidden_iterator_keeps_nonterminal_exclusion_on_whole_call_fallback() ->
             "SubClassOf(:A :B) SubClassOf(:B :C)"
         ),
     )
-    removed = {
-        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
-    }
+    removed = {next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")}
     semantic_view = pyowl_core.apply_delta(
         base,
         pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
@@ -12765,9 +13024,7 @@ def test_private_selection_rejects_nonterminal_exclusion_during_real_validation(
             "SubClassOf(:A :B) SubClassOf(:B :C)"
         ),
     )
-    removed = {
-        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
-    }
+    removed = {next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")}
     top_lease, _chain, _direct = _recursive_overlay_lease_with_exclusions(
         base,
         depth=3,
@@ -12803,9 +13060,7 @@ def test_hidden_iterator_keeps_multiple_exclusion_layers_on_whole_call_fallback(
             "SubClassOf(:A :B) SubClassOf(:B :C)"
         ),
     )
-    removed = {
-        next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")
-    }
+    removed = {next(axiom for axiom in base.iter_axioms() if type(axiom).__name__ == "SubClassOf")}
     semantic_view = pyowl_core.apply_delta(
         base,
         pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),

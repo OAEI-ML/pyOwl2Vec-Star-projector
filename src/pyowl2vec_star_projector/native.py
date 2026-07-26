@@ -16,6 +16,7 @@ from .diagnostics import ProjectionDiagnostic
 from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
+    _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
     _resolve_private_overlay_aliases,
     _resolve_private_single_overlay_delta,
@@ -34,7 +35,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 87
+ENCODED_DIRECT_KERNEL_VERSION = 88
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -382,6 +383,7 @@ class NativeEncodedDirectCompiler:
     lease: EncodedStructuralLease
     local_delta_lease: EncodedStructuralLease | None
     third_member_lease: EncodedStructuralLease | None
+    fourth_member_lease: EncodedStructuralLease | None
     nested_member_lease: EncodedStructuralLease | None
     merge_manifest_lease: EncodedStructuralLease | None
     root_annotation_lease: EncodedStructuralLease | None
@@ -389,6 +391,7 @@ class NativeEncodedDirectCompiler:
     excluded_root_ids: memoryview | None
     right_excluded_root_ids: memoryview | None
     third_excluded_root_ids: memoryview | None
+    fourth_excluded_root_ids: memoryview | None
     _kernel: Any
     _module: Any
 
@@ -481,14 +484,23 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
-        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values()) + (
-            0
-            if self.local_delta_lease is None
-            else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
-        ) + (
-            0
-            if self.third_member_lease is None
-            else sum(buffer.nbytes for buffer in self.third_member_lease.buffers.values())
+        expected_buffer_bytes = (
+            sum(buffer.nbytes for buffer in self.lease.buffers.values())
+            + (
+                0
+                if self.local_delta_lease is None
+                else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
+            )
+            + (
+                0
+                if self.third_member_lease is None
+                else sum(buffer.nbytes for buffer in self.third_member_lease.buffers.values())
+            )
+            + (
+                0
+                if self.fourth_member_lease is None
+                else sum(buffer.nbytes for buffer in self.fourth_member_lease.buffers.values())
+            )
         )
         expected_root_bytes = (
             0
@@ -564,14 +576,23 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
-        expected_buffer_bytes = sum(buffer.nbytes for buffer in self.lease.buffers.values()) + (
-            0
-            if self.local_delta_lease is None
-            else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
-        ) + (
-            0
-            if self.third_member_lease is None
-            else sum(buffer.nbytes for buffer in self.third_member_lease.buffers.values())
+        expected_buffer_bytes = (
+            sum(buffer.nbytes for buffer in self.lease.buffers.values())
+            + (
+                0
+                if self.local_delta_lease is None
+                else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
+            )
+            + (
+                0
+                if self.third_member_lease is None
+                else sum(buffer.nbytes for buffer in self.third_member_lease.buffers.values())
+            )
+            + (
+                0
+                if self.fourth_member_lease is None
+                else sum(buffer.nbytes for buffer in self.fourth_member_lease.buffers.values())
+            )
         )
         expected_root_bytes = (
             0
@@ -885,11 +906,13 @@ class NativeEncodedDirectCompilation:
     container_leases: tuple[EncodedStructuralLease, ...]
     local_delta_lease: EncodedStructuralLease | None
     third_member_lease: EncodedStructuralLease | None
+    fourth_member_lease: EncodedStructuralLease | None
     nested_member_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
     excluded_root_ids: memoryview | None
     right_excluded_root_ids: memoryview | None
     third_excluded_root_ids: memoryview | None
+    fourth_excluded_root_ids: memoryview | None
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
@@ -952,11 +975,13 @@ class NativeEncodedDirectCompilation:
             len(self.lease.buffers)
             + (0 if self.local_delta_lease is None else len(self.local_delta_lease.buffers))
             + (0 if self.third_member_lease is None else len(self.third_member_lease.buffers))
+            + (0 if self.fourth_member_lease is None else len(self.fourth_member_lease.buffers))
             + (0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers))
             + int(self.included_root_ids is not None)
             + int(self.excluded_root_ids is not None)
             + int(self.right_excluded_root_ids is not None)
             + int(self.third_excluded_root_ids is not None)
+            + int(self.fourth_excluded_root_ids is not None)
         )
         retained_buffer_bytes = sum(
             buffer.nbytes for lease in retained_leases for buffer in lease.buffers.values()
@@ -1039,6 +1064,7 @@ def prepare_native_encoded_compilation(
     container_leases: tuple[EncodedStructuralLease, ...] = ()
     local_delta_lease: EncodedStructuralLease | None = None
     third_member_lease: EncodedStructuralLease | None = None
+    fourth_member_lease: EncodedStructuralLease | None = None
     nested_member_lease: EncodedStructuralLease | None = None
     merge_manifest_lease: EncodedStructuralLease | None = None
     canonical_work_limit: int | None = None
@@ -1047,6 +1073,7 @@ def prepare_native_encoded_compilation(
     excluded_root_ids: memoryview | None = None
     right_excluded_root_ids: memoryview | None = None
     third_excluded_root_ids: memoryview | None = None
+    fourth_excluded_root_ids: memoryview | None = None
     resolved_aliases = _resolve_private_overlay_aliases(lease)
     if resolved_aliases is not None:
         lease, container_leases, excluded_root_ids = resolved_aliases
@@ -1158,6 +1185,40 @@ def prepare_native_encoded_compilation(
                             local_delta_lease,
                             third_member_lease,
                         )
+                    else:
+                        resolved_four_table_nested = _resolve_private_four_table_nested_composite(
+                            lease
+                        )
+                        if resolved_four_table_nested is not None:
+                            if options.include_literals:
+                                return (
+                                    None,
+                                    "private native four-table nested composite slice does not "
+                                    "support literal projection",
+                                )
+                            if role_state is not None:
+                                return (
+                                    None,
+                                    "private native four-table nested composite slice does not "
+                                    "bind Scala-instance state",
+                                )
+                            merge_manifest_lease = lease
+                            (
+                                lease,
+                                local_delta_lease,
+                                third_member_lease,
+                                fourth_member_lease,
+                                excluded_root_ids,
+                                canonical_work_limit,
+                                canonical_workspace_limit,
+                            ) = resolved_four_table_nested
+                            nested_member_lease = local_delta_lease
+                            container_leases = (
+                                merge_manifest_lease,
+                                local_delta_lease,
+                                third_member_lease,
+                                fourth_member_lease,
+                            )
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
         if container_leases:
@@ -1176,6 +1237,7 @@ def prepare_native_encoded_compilation(
         lease,
         local_delta_lease=local_delta_lease,
         third_member_lease=third_member_lease,
+        fourth_member_lease=fourth_member_lease,
         nested_member_lease=nested_member_lease,
         canonical_work_limit=canonical_work_limit,
         canonical_workspace_limit=canonical_workspace_limit,
@@ -1184,6 +1246,7 @@ def prepare_native_encoded_compilation(
         excluded_root_ids=excluded_root_ids,
         right_excluded_root_ids=right_excluded_root_ids,
         third_excluded_root_ids=third_excluded_root_ids,
+        fourth_excluded_root_ids=fourth_excluded_root_ids,
         merge_manifest_lease=merge_manifest_lease,
     )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
@@ -1292,11 +1355,13 @@ def prepare_native_encoded_compilation(
                 container_leases=container_leases,
                 local_delta_lease=local_delta_lease,
                 third_member_lease=third_member_lease,
+                fourth_member_lease=fourth_member_lease,
                 nested_member_lease=nested_member_lease,
                 included_root_ids=included_root_ids,
                 excluded_root_ids=excluded_root_ids,
                 right_excluded_root_ids=right_excluded_root_ids,
                 third_excluded_root_ids=third_excluded_root_ids,
+                fourth_excluded_root_ids=fourth_excluded_root_ids,
                 root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,
@@ -1428,6 +1493,7 @@ def prepare_native_encoded_direct(
     *,
     local_delta_lease: EncodedStructuralLease | None = None,
     third_member_lease: EncodedStructuralLease | None = None,
+    fourth_member_lease: EncodedStructuralLease | None = None,
     nested_member_lease: EncodedStructuralLease | None = None,
     merge_manifest_lease: EncodedStructuralLease | None = None,
     canonical_work_limit: int | None = None,
@@ -1437,6 +1503,7 @@ def prepare_native_encoded_direct(
     excluded_root_ids: memoryview | None = None,
     right_excluded_root_ids: memoryview | None = None,
     third_excluded_root_ids: memoryview | None = None,
+    fourth_excluded_root_ids: memoryview | None = None,
 ) -> NativeEncodedDirectCompiler:
     """Bind validated public leases to the unadvertised Rust foundation.
 
@@ -1448,14 +1515,15 @@ def prepare_native_encoded_direct(
     retained and scanned in place by the native root cursor. One bounded top-local overlay
     table may be retained for the canonical merge, including with an EXCLUDE base posting.  One
     exact two- or three-member composite manifest may instead bind the corresponding canonical
-    merger and retain an EXCLUDE selection for each member. One exact two-member composite may
-    expand a one-layer overlay member into the same three-table pass. The independent provenance
-    table remains mutually exclusive with every merge form.
+    merger and retain an EXCLUDE selection for each member. One exact composite may expand a
+    one-layer overlay member with one or two direct siblings into the same three- or four-table
+    pass. The independent provenance table remains mutually exclusive with every merge form.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
     local_delta_descriptor_sha256: bytes | None = None
     third_member_descriptor_sha256: bytes | None = None
+    fourth_member_descriptor_sha256: bytes | None = None
     merge_manifest_descriptor_sha256: bytes | None = None
     if local_delta_lease is not None:
         local_delta_descriptor_sha256 = _validated_direct_descriptor_digest(local_delta_lease)
@@ -1464,8 +1532,10 @@ def prepare_native_encoded_direct(
                 merge_manifest_lease
             )
         if third_member_lease is not None:
-            third_member_descriptor_sha256 = _validated_direct_descriptor_digest(
-                third_member_lease
+            third_member_descriptor_sha256 = _validated_direct_descriptor_digest(third_member_lease)
+        if fourth_member_lease is not None:
+            fourth_member_descriptor_sha256 = _validated_direct_descriptor_digest(
+                fourth_member_lease
             )
         if root_annotation_lease is not None:
             raise NativeEncodedDirectUnsupported(
@@ -1488,7 +1558,9 @@ def prepare_native_encoded_direct(
         canonical_workspace_limit = min(canonical_workspace_limit, sys.maxsize)
     elif (
         third_member_lease is not None
+        or fourth_member_lease is not None
         or third_excluded_root_ids is not None
+        or fourth_excluded_root_ids is not None
         or merge_manifest_lease is not None
         or canonical_work_limit is not None
         or canonical_workspace_limit is not None
@@ -1496,6 +1568,10 @@ def prepare_native_encoded_direct(
         raise ValueError("canonical merge limits require a local delta lease")
     if third_member_lease is not None and merge_manifest_lease is None:
         raise ValueError("third composite member requires a composite manifest lease")
+    if fourth_member_lease is not None and (
+        nested_member_lease is None or third_member_lease is None or merge_manifest_lease is None
+    ):
+        raise ValueError("fourth composite member requires an exact nested composite")
     if nested_member_lease is not None and nested_member_lease is not local_delta_lease:
         raise ValueError("nested composite member must be the retained local delta lease")
     if nested_member_lease is not None and (
@@ -1504,10 +1580,13 @@ def prepare_native_encoded_direct(
         raise ValueError("nested composite member requires three retained merge tables")
     if third_member_lease is None and third_excluded_root_ids is not None:
         raise ValueError("third EXCLUDE root selection requires a third composite member")
+    if fourth_member_lease is None and fourth_excluded_root_ids is not None:
+        raise ValueError("fourth EXCLUDE root selection requires a fourth composite member")
     if nested_member_lease is not None and (
         included_root_ids is not None
         or right_excluded_root_ids is not None
         or third_excluded_root_ids is not None
+        or fourth_excluded_root_ids is not None
     ):
         raise ValueError("nested composite member requires outer ALL root selection")
     if included_root_ids is not None and merge_manifest_lease is None:
@@ -1517,7 +1596,9 @@ def prepare_native_encoded_direct(
     if included_root_ids is not None and excluded_root_ids is not None:
         raise ValueError("root selection cannot combine INCLUDE and EXCLUDE postings")
     if included_root_ids is not None and (
-        right_excluded_root_ids is not None or third_excluded_root_ids is not None
+        right_excluded_root_ids is not None
+        or third_excluded_root_ids is not None
+        or fourth_excluded_root_ids is not None
     ):
         raise ValueError("composite root selection cannot mix INCLUDE and EXCLUDE postings")
     root_descriptor_sha256: bytes | None = None
@@ -1581,6 +1662,14 @@ def prepare_native_encoded_direct(
                 ),
                 third_member_descriptor_sha256=third_member_descriptor_sha256,
                 third_excluded_root_ids=third_excluded_root_ids,
+                fourth_member_view=(
+                    None if fourth_member_lease is None else fourth_member_lease.encoded_view
+                ),
+                fourth_member_owner=(
+                    None if fourth_member_lease is None else fourth_member_lease.owner
+                ),
+                fourth_member_descriptor_sha256=fourth_member_descriptor_sha256,
+                fourth_excluded_root_ids=fourth_excluded_root_ids,
                 nested_member_view=(
                     None if nested_member_lease is None else nested_member_lease.encoded_view
                 ),
@@ -1632,6 +1721,7 @@ def prepare_native_encoded_direct(
         lease,
         local_delta_lease,
         third_member_lease,
+        fourth_member_lease,
         nested_member_lease,
         merge_manifest_lease,
         root_annotation_lease,
@@ -1639,6 +1729,7 @@ def prepare_native_encoded_direct(
         excluded_root_ids,
         right_excluded_root_ids,
         third_excluded_root_ids,
+        fourth_excluded_root_ids,
         kernel,
         module,
     )
