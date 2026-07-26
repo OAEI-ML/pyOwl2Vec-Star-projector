@@ -12,6 +12,8 @@ import pytest
 
 import pyowl2vec_star_projector.api as api_module
 import pyowl2vec_star_projector.encoded as encoded_module
+import pyowl2vec_star_projector.encoded_compiler as encoded_compiler_module
+import pyowl2vec_star_projector.native as native_module
 from pyowl2vec_star_projector import (
     BATCH_SINK_PROTOCOL_VERSION,
     Edge,
@@ -34,14 +36,19 @@ pytestmark = pytest.mark.skipif(
 def _snapshot(
     *,
     backend: pyowl_core.BackendPreference,
+    body: bytes | None = None,
 ) -> object:
-    source = (
-        b"Prefix(:=<urn:public-direct#>) Ontology(<urn:public-direct> "
-        b"SubClassOf(:A :B) "
-        b'SubClassOf(Annotation(<urn:meta> "duplicate") :A :B) '
-        b"SubClassOf(:C :A) "
-        b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "caf\xc3\xa9"))'
+    ontology_body = (
+        body
+        if body is not None
+        else (
+            b"SubClassOf(:A :B) "
+            b'SubClassOf(Annotation(<urn:meta> "duplicate") :A :B) '
+            b"SubClassOf(:C :A) "
+            b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "caf\xc3\xa9")'
+        )
     )
+    source = b"Prefix(:=<urn:public-direct#>) Ontology(<urn:public-direct> " + ontology_body + b")"
     return pyowl_core.load_snapshot(
         source,
         options=pyowl_core.LoadOptions(
@@ -315,7 +322,7 @@ def test_public_direct_decline_keeps_the_broad_encoded_compiler_authoritative() 
         selected_backend="native",
     ).lease
     assert lease is not None
-    broad_compiler = api_module.prepare_encoded_subset_compilation
+    broad_compiler = encoded_compiler_module.prepare_encoded_subset_compilation
 
     with (
         patch.object(api_module, "select_backend", return_value=selection),
@@ -352,3 +359,82 @@ def test_public_direct_decline_keeps_the_broad_encoded_compiler_authoritative() 
     report = projector.last_report
     assert report is not None
     assert report.provenance.ingestion.path == "encoded-native"
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_public_asserted_taxonomy_binds_the_advertised_direct_session(
+    provider_backend: pyowl_core.BackendPreference,
+    tmp_path: Any,
+) -> None:
+    view = _snapshot(
+        backend=provider_backend,
+        body=(
+            b"SubClassOf(:A :B) "
+            b"EquivalentClasses(:A :C :D) "
+            b"ClassAssertion(:A :i) "
+            b"ObjectPropertyAssertion(:p :i :j) "
+            b"SubClassOf(:C ObjectSomeValuesFrom(:p :D))"
+        ),
+    )
+    expected = Projector().project_taxonomy(
+        view,
+        bidirectional=True,
+        duplicates="unique",
+        order="canonical",
+        backend="python",
+        buffer_edges=1,
+        temp_directory=tmp_path,
+    )
+    captured: list[Any] = []
+    direct_preparation = native_module.prepare_native_encoded_compilation
+
+    def capture_preparation(*args: Any, **kwargs: Any) -> Any:
+        result = direct_preparation(*args, **kwargs)
+        captured.append((args, kwargs, result))
+        return result
+
+    with (
+        _advertised_public_direct_session(),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_preparation,
+        ),
+    ):
+        projector = Projector()
+        actual = projector.project_taxonomy(
+            view,
+            bidirectional=True,
+            duplicates="unique",
+            order="canonical",
+            backend="native",
+            buffer_edges=1,
+            temp_directory=tmp_path,
+        )
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert projector.last_view is view
+    assert projector.last_encoded_counters is None
+    assert len(captured) == 1
+    _args, kwargs, result = captured[0]
+    assert kwargs["asserted_taxonomy_only"] is True
+    compilation, fallback_reason = result
+    assert fallback_reason is None
+    assert compilation is not None
+    assert compilation.batches.state == "exhausted"
+    counters = compilation.ingestion_counters
+    assert counters["native_compiled_edges"] == 2
+    assert counters["native_edge_batches"] == 2
+    assert counters["native_boundary_calls"] == 3
+    assert counters["native_peak_buffered_edges"] == 1
+    assert counters["materialized_scalar_rows"] == 0
+    assert counters["per_row_ffi_calls"] == 0
+    assert list(tmp_path.iterdir()) == []

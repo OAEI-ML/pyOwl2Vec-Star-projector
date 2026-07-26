@@ -433,33 +433,66 @@ class Projector:
             native_features=native_features,
             backend_fallback_reason=selection.fallback_reason,
         )
-        encoded_compilation, ingestion, encoded_counters = prepare_encoded_subset_compilation(
-            checked,
-            ProjectionOptions(
-                bidirectional_taxonomy=bidirectional,
-                only_taxonomy=True,
-                duplicates="preserve",
-                order="encounter",
-                backend=backend,
-            ),
-            ingestion,
-            batch_edges=buffer_edges,
-            asserted_taxonomy_only=True,
+        options = ProjectionOptions(
+            bidirectional_taxonomy=bidirectional,
+            only_taxonomy=True,
+            duplicates="preserve",
+            order="encounter",
+            backend=backend,
         )
+        limits = _streaming_limits(streaming_limits)
+        native_encoded_compilation: NativeEncodedDirectCompilation | None = None
+        if ingestion.path == "encoded-native":
+            lease = ingestion.lease
+            if lease is None:  # pragma: no cover - guarded by negotiation
+                raise SnapshotCompatibilityError(
+                    "native asserted-taxonomy ingestion lost its validated lease"
+                )
+            try:
+                native_encoded_compilation, _direct_fallback_reason = (
+                    prepare_native_encoded_compilation(
+                        checked,
+                        lease,
+                        options,
+                        batch_edges=buffer_edges,
+                        max_total_edges=limits.max_total_edges,
+                        cancellation_token=cancellation_token,
+                        asserted_taxonomy_only=True,
+                    )
+                )
+            except (
+                NativeBackendUnavailableError,
+                NativeEncodedDirectUnsupported,
+            ):
+                native_encoded_compilation = None
+        if native_encoded_compilation is None:
+            encoded_compilation, ingestion, encoded_counters = prepare_encoded_subset_compilation(
+                checked,
+                options,
+                ingestion,
+                batch_edges=buffer_edges,
+                asserted_taxonomy_only=True,
+            )
+        else:
+            encoded_compilation = None
+            encoded_counters = None
         with self._metadata_lock:
-            self._last_view = checked
+            self._last_view = (
+                checked if native_encoded_compilation is None else native_encoded_compilation.view
+            )
             self._last_encoded_counters = encoded_counters
-        raw = (
-            self._iter_encoded_raw(encoded_compilation)
-            if encoded_compilation is not None
-            else iter_asserted_taxonomy(
+        if native_encoded_compilation is not None:
+            raw = native_encoded_compilation.iter_raw_edges(cancellation_token)
+        elif encoded_compilation is not None:
+            raw = self._iter_encoded_raw(encoded_compilation)
+        else:
+            raw = iter_asserted_taxonomy(
                 checked,
                 bidirectional=bidirectional,
                 duplicates="preserve",
                 order="encounter",
             )
-        )
-        if selection.selected == "native":
+        if selection.selected == "native" and native_encoded_compilation is None:
             raw = iter_native_passthrough(raw, batch_edges=buffer_edges)
         return iter_edge_policy(
             raw,
@@ -467,7 +500,12 @@ class Projector:
             order=order,
             buffer_edges=buffer_edges,
             temp_directory=temp_directory,
-            limits=_streaming_limits(streaming_limits),
+            limits=limits,
+            statistics=(
+                None
+                if native_encoded_compilation is None
+                else native_encoded_compilation.statistics
+            ),
             cancellation_token=cancellation_token,
             metrics_sink=self._remember_spill_metrics,
         )
@@ -608,11 +646,7 @@ class Projector:
                 else:
                     encoded_compilation = None
                     encoded_counters = None
-                compilation: (
-                    Compilation
-                    | EncodedSubsetCompilation
-                    | NativeEncodedDirectCompilation
-                )
+                compilation: Compilation | EncodedSubsetCompilation | NativeEncodedDirectCompilation
                 if native_encoded_compilation is not None:
                     compilation = native_encoded_compilation
                 elif encoded_compilation is None:

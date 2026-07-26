@@ -998,9 +998,12 @@ def prepare_native_encoded_compilation(
     max_total_edges: int | None,
     cancellation_token: CancellationTokenLike | None,
     role_state: NativeEncodedDirectRoleState | None = None,
+    asserted_taxonomy_only: bool = False,
 ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
     """Prepare the hidden exact named-edge seam or request whole-call fallback."""
 
+    if type(asserted_taxonomy_only) is not bool:
+        raise TypeError("asserted_taxonomy_only must be bool")
     if options.compatibility_state == "scala-instance" and role_state is None:
         return None, "private native direct batches do not bind Scala-instance state"
     if options.compatibility_state == "isolated" and role_state is not None:
@@ -1064,6 +1067,7 @@ def prepare_native_encoded_compilation(
         max_edges=maximum_edges,
         max_iri_bytes=sys.maxsize,
         batch_edges=batch_edges,
+        asserted_taxonomy_only=asserted_taxonomy_only,
         only_taxonomy=options.only_taxonomy,
         include_literals=options.include_literals,
         role_state=role_state,
@@ -1076,17 +1080,30 @@ def prepare_native_encoded_compilation(
             native_statistics.restriction_subclasses + native_statistics.ignored_subclasses
         )
         taxonomy_edges = direct_subclasses * (2 if options.bidirectional_taxonomy else 1)
-        restriction_edges = 0 if options.only_taxonomy else native_statistics.restriction_subclasses
+        restriction_edges = (
+            0
+            if asserted_taxonomy_only or options.only_taxonomy
+            else native_statistics.restriction_subclasses
+        )
         expected_annotation_edges = native_statistics.annotation_edges
-        skipped_roots = sum(
+        silent_roots = sum(
             count for _constructor, count in _native_skipped_counts(native_statistics)
+        )
+        expected_skipped_axioms = 0 if asserted_taxonomy_only else silent_roots
+        class_assertion_edges = (
+            0
+            if asserted_taxonomy_only
+            else (native_statistics.class_assertions - native_statistics.ignored_class_assertions)
+        )
+        object_assertion_edges = (
+            0 if asserted_taxonomy_only else native_statistics.object_property_assertions
         )
         expected_edges = (
             taxonomy_edges
             + restriction_edges
             + native_statistics.equivalent_base_edges
-            + (native_statistics.class_assertions - native_statistics.ignored_class_assertions)
-            + native_statistics.object_property_assertions
+            + class_assertion_edges
+            + object_assertion_edges
             + native_statistics.domain_range_edges
             + native_statistics.role_expansion_edges
             + expected_annotation_edges
@@ -1104,7 +1121,7 @@ def prepare_native_encoded_compilation(
             + native_statistics.annotation_assertions
             + native_statistics.ontology_annotations
             + native_statistics.swrl_rules
-            + skipped_roots
+            + silent_roots
         )
         exact_named_edges = (
             native_statistics.roots == admitted_roots
@@ -1134,7 +1151,7 @@ def prepare_native_encoded_compilation(
                 - native_statistics.ignored_object_property_ranges
             )
             and native_statistics.edges == expected_edges
-            and native_statistics.skipped_axioms == skipped_roots
+            and native_statistics.skipped_axioms == expected_skipped_axioms
         )
         if not exact_named_edges:
             batches.close()
@@ -1155,14 +1172,18 @@ def prepare_native_encoded_compilation(
                 batches=batches,
                 native_statistics=native_statistics,
                 statistics=CompileStatistics(
-                    ignored_shapes=sum(
-                        count
-                        for _constructor, count in _native_ignored_counts(
-                            native_statistics,
-                            options,
+                    ignored_shapes=(
+                        0
+                        if asserted_taxonomy_only
+                        else sum(
+                            count
+                            for _constructor, count in _native_ignored_counts(
+                                native_statistics,
+                                options,
+                            )
                         )
-                    )
-                    + native_statistics.object_property_chains,
+                        + native_statistics.object_property_chains
+                    ),
                     skipped_axioms=native_statistics.skipped_axioms,
                 ),
                 role_state=role_state,
