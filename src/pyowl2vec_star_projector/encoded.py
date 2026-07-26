@@ -65,6 +65,7 @@ _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_SUB_CLASS_OF = 61
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
+_TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION = 114
 _DEFAULT_MAX_SEGMENTS = 1_025
 
 
@@ -641,7 +642,11 @@ def _single_scope_mapped_construct_scope(
 ) -> tuple[memoryview, int] | None:
     """Return the sole source scope for one narrow remappable direct table."""
 
-    if construct_tag not in {_TAG_CLASS_ASSERTION, _TAG_OBJECT_PROPERTY_ASSERTION}:
+    if construct_tag not in {
+        _TAG_CLASS_ASSERTION,
+        _TAG_OBJECT_PROPERTY_ASSERTION,
+        _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
+    }:
         return None
     buffers = lease.buffers
     anonymous_node_id: int | None = None
@@ -889,6 +894,27 @@ def _resolve_private_scope_mapped_object_property_assertion_composite(
     return _resolve_private_scope_mapped_composite(
         lease,
         construct_tag=_TAG_OBJECT_PROPERTY_ASSERTION,
+    )
+
+
+def _resolve_private_scope_mapped_negative_object_property_assertion_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact skipped NegativeObjectPropertyAssertion scope remap."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=_TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
     )
 
 
