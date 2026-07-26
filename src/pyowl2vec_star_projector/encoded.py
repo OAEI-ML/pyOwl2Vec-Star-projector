@@ -342,13 +342,11 @@ def _resolve_private_single_overlay_delta(
     """Resolve the bounded local overlay slice without general segment traversal.
 
     The private native seam admits only one direct ``ALL`` or ``EXCLUDE``
-    source and either one local ``ALL`` delta root, an exact two-root named
-    ``SubClassOf`` or ``ClassAssertion`` envelope, or the exact two-root
-    ObjectPropertyDomain/ObjectPropertyRange envelope. Rust still validates the
+    source and one nonempty local ``ALL`` delta segment. Rust validates the
     complete source and local tables, their exact cross-table canonical order,
     the optional source posting table, and every local constructor before
-    output. Every other valid segmented form remains a whole-operation scalar
-    fallback.
+    choosing the bounded emitting or domain/range plan. Every other valid
+    segmented form remains a whole-operation scalar fallback.
     """
 
     if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:
@@ -395,7 +393,7 @@ def _resolve_private_single_overlay_delta(
         or type(delta_scope_map) is not memoryview
         or delta_scope_map.nbytes
         or delta_member_token is not None
-        or lease.buffers["root_kinds"].nbytes not in {1, 2}
+        or lease.buffers["root_kinds"].nbytes < 1
         or lease.buffers["root_ids"].nbytes != 4 * lease.buffers["root_kinds"].nbytes
     ):
         return None

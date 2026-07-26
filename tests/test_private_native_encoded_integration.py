@@ -8814,73 +8814,302 @@ def test_one_root_local_overlay_requires_exact_base_posting_identity() -> None:
         )
 
 
-def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback() -> None:
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    ("removed_indices", "only_taxonomy", "bidirectional"),
+    [
+        ((), False, False),
+        ((1, 3, 4), False, False),
+        ((), True, False),
+        ((), False, True),
+    ],
+    ids=["base-all", "base-exclude-gaps", "only-taxonomy", "bidirectional"],
+)
+def test_hidden_iterator_projects_nonempty_multi_root_emitting_overlay(
+    provider_backend: pyowl_core.BackendPreference,
+    removed_indices: tuple[int, ...],
+    only_taxonomy: bool,
+    bidirectional: bool,
+) -> None:
     base = cast(
         pyowl_core.OntologyView,
-        _snapshot("SubClassOf(:A :Top) SubClassOf(:C :Top)"),
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:Z :Top) "
+            "ClassAssertion(:A :a) ClassAssertion(:Z :z) "
+            "ObjectPropertyAssertion(:p :a :z)",
+            backend=provider_backend,
+        ),
     )
-    removed = {
-        next(
-            axiom
-            for axiom in base.iter_axioms()
-            if cast(Any, axiom).sub_class.iri.value.endswith("#A")
-        )
-    }
+    base_axioms = tuple(base.iter_axioms())
+    assert len(base_axioms) == 5
+    removed = {base_axioms[index] for index in removed_indices}
     addition_source = cast(
         pyowl_core.OntologyView,
-        _snapshot("SubClassOf(:D :Top) ClassAssertion(:E :i)"),
+        _snapshot(
+            "SubClassOf(:B :Top) "
+            "SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
+            "SubClassOf(:Y :Top) ClassAssertion(:B :b) "
+            "ObjectPropertyAssertion(:q :z :a)",
+            backend=provider_backend,
+        ),
+    )
+    added = set(addition_source.iter_axioms())
+    assert len(added) == 5
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, added),
+            remove_axioms=cast(Any, removed),
+        ),
+    )
+    top_encoded = overlay.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
+    assert top_encoded.buffers["root_kinds"].nbytes == 5
+    assert top_encoded.buffers["root_ids"].nbytes == 20
+    base_segment = cast(Any, top_encoded.segments[0])
+    delta_segment = cast(Any, top_encoded.segments[1])
+    assert base_segment.posting_mode == (2 if removed else 0)
+    assert base_segment.root_ids.nbytes == 4 * len(removed)
+    assert delta_segment.posting_mode == 0
+    assert delta_segment.root_ids.nbytes == 0
+    assert delta_segment.anonymous_scope_map.nbytes == 0
+    source_encoded = base_segment.source
+    assert source_encoded is not None
+    expected_buffer_bytes = sum(
+        value.nbytes for value in top_encoded.buffers.values()
+    ) + sum(value.nbytes for value in source_encoded.buffers.values())
+
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        only_taxonomy=only_taxonomy,
+        bidirectional_taxonomy=bidirectional,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "nonempty multi-root emitting overlay reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.view is overlay
+    assert compilation.lease.owner is base
+    assert compilation.local_delta_lease is compilation.container_leases[0]
+    assert compilation.local_delta_lease is not None
+    assert compilation.local_delta_lease.owner is overlay
+    assert compilation.excluded_root_ids is (
+        base_segment.root_ids if removed else None
+    )
+    statistics = compilation.native_statistics
+    assert statistics.roots == 10 - len(removed)
+    assert statistics.subclasses == 5 - sum(
+        index in removed_indices for index in (0, 1)
+    )
+    assert statistics.restriction_subclasses == 1
+    assert statistics.class_assertions == 3 - sum(
+        index in removed_indices for index in (2, 3)
+    )
+    assert statistics.object_property_assertions == 2 - int(4 in removed_indices)
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == len(expected)
+    assert len(captured_compilers) == 1
+    assert captured_compilers[0].retained_buffer_count == 22 + int(bool(removed))
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 22
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22 + int(bool(removed))
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 22
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["encoded_segment_count"] == 3
+    assert ingestion.counters["encoded_posting_bytes"] == 4 * len(removed)
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_nonempty_multi_root_emitting_overlay_fails_preoutput_and_retries(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:Z :Top) "
+            "ClassAssertion(:A :a) ClassAssertion(:Z :z) "
+            "ObjectPropertyAssertion(:p :a :z)",
+            backend=provider_backend,
+        ),
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:B :Top) "
+            "SubClassOf(:C ObjectSomeValuesFrom(:p :D)) "
+            "SubClassOf(:Y :Top) ClassAssertion(:B :b) "
+            "ObjectPropertyAssertion(:q :z :a)",
+            backend=provider_backend,
+        ),
     )
     overlay = pyowl_core.apply_delta(
         base,
         pyowl_core.OntologyDelta(
             add_axioms=cast(Any, set(addition_source.iter_axioms())),
-            remove_axioms=cast(Any, removed),
         ),
     )
-    python_options = ProjectionOptions(backend="python", order="encounter")
-    expected = Projector().project(overlay, options=python_options)
-
-    projector = Projector()
-    actual = list(
-        projector._iter_native_encoded_edges(
-            overlay,
-            options=replace(python_options, backend="native"),
-            buffer_edges=1,
-        )
+    negotiation = select_private_direct_ingestion(
+        overlay,
+        selected_backend="native",
     )
-    report = _completed_report(projector)
+    top_lease = negotiation.lease
+    assert top_lease is not None
+    resolved = _resolve_private_single_overlay_delta(top_lease)
+    assert resolved is not None
+    base_lease, excluded_root_ids, max_work, max_workspace = resolved
+    assert excluded_root_ids is None
 
-    assert actual == expected
-    assert report.provenance.ingestion.path == "scalar-native"
-    assert report.provenance.ingestion.reason is not None
-    assert report.provenance.ingestion.counters.get("native_compiled_edges", 0) == 0
-    assert report.provenance.ingestion.counters["encoded_buffer_count"] == 0
+    failing = prepare_native_encoded_direct(
+        base_lease,
+        local_delta_lease=top_lease,
+        canonical_work_limit=max_work,
+        canonical_workspace_limit=max_workspace,
+    )
+    with pytest.raises(ProjectionResourceError, match="configured edge resources"):
+        failing.compile_batch(
+            bidirectional=False,
+            max_edges=9,
+            max_iri_bytes=1024,
+        )
+    assert failing.state == "failed"
+    assert failing.retained_buffer_count == 22
+    assert failing.cancel() is False
+
+    retry = prepare_native_encoded_direct(
+        base_lease,
+        local_delta_lease=top_lease,
+        canonical_work_limit=max_work,
+        canonical_workspace_limit=max_workspace,
+    )
+    edges, statistics = retry.compile_batch(
+        bidirectional=False,
+        max_edges=10,
+        max_iri_bytes=1024,
+    )
+    assert len(edges) == 10
+    assert statistics.roots == 10
+    assert statistics.subclasses == 5
+    assert statistics.restriction_subclasses == 1
+    assert statistics.class_assertions == 3
+    assert statistics.object_property_assertions == 2
+    assert statistics.edges == 10
+    assert retry.state == "finished"
+
+    asserted = prepare_native_encoded_direct(
+        base_lease,
+        local_delta_lease=top_lease,
+        canonical_work_limit=max_work,
+        canonical_workspace_limit=max_workspace,
+    )
+    asserted_edges, asserted_statistics = asserted.compile_batch(
+        bidirectional=False,
+        asserted_taxonomy_only=True,
+        max_edges=4,
+        max_iri_bytes=1024,
+    )
+    assert [edge.as_tuple() for edge in asserted_edges] == [
+        (
+            f"urn:native-integration#{source}",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        for source in ("A", "B", "Y", "Z")
+    ]
+    assert asserted_statistics.roots == 10
+    assert asserted_statistics.subclasses == 5
+    assert asserted_statistics.restriction_subclasses == 1
+    assert asserted_statistics.class_assertions == 3
+    assert asserted_statistics.object_property_assertions == 2
+    assert asserted_statistics.edges == 4
+    assert asserted.state == "finished"
 
 
 @pytest.mark.parametrize(
     ("local_body", "reason"),
     [
         (
-            "SubClassOf(:B :C) "
-            "SubClassOf(:D ObjectSomeValuesFrom(:p :E))",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
-        ),
-        (
-            "SubClassOf(:B ObjectSomeValuesFrom(:p :C)) "
-            "SubClassOf(:D ObjectSomeValuesFrom(:p :E))",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
-        ),
-        (
             "SubClassOf(:B :C) SubClassOf(ObjectUnionOf(:D :E) :F)",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
-        ),
-        (
-            "SubClassOf(:B :C) ClassAssertion(:D :i)",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
+            "bounded local-overlay emitting segment requires only named unannotated "
+            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             'SubClassOf(Annotation(:label "x") :B :C) SubClassOf(:D :E)',
@@ -8888,27 +9117,46 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         ),
         (
             "ClassAssertion(:B :i) ClassAssertion(ObjectSomeValuesFrom(:p :C) :j)",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
+            "bounded local-overlay emitting segment requires only named unannotated "
+            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ClassAssertion(:B :i) ClassAssertion(:C _:anonymous)",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
+            "bounded local-overlay emitting segment requires only named unannotated "
+            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             'ClassAssertion(Annotation(:label "x") :B :i) ClassAssertion(:C :j)',
             "bounded local-overlay ClassAssertion root must be unannotated",
         ),
         (
-            "ObjectPropertyAssertion(:p :i :j) ObjectPropertyAssertion(:q :j :k)",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
+            "SubClassOf(:B :C) ClassAssertion(:D :i) Declaration(Class(:E))",
+            "bounded local-overlay emitting segment requires only named unannotated "
+            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+        ),
+        (
+            "SubClassOf(:B :C) "
+            "ClassAssertion(ObjectSomeValuesFrom(:p :E) :i) "
+            "ObjectPropertyAssertion(:q :i :j)",
+            "bounded local-overlay emitting segment requires only named unannotated "
+            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+        ),
+        (
+            "SubClassOf(:B :C) "
+            'ClassAssertion(Annotation(:label "x") :D :i) '
+            "ObjectPropertyAssertion(:q :i :j)",
+            "bounded local-overlay ClassAssertion root must be unannotated",
+        ),
+        (
+            "SubClassOf(:B :C) ClassAssertion(:D :i) "
+            "SubObjectPropertyOf(:p :q)",
+            "bounded local-overlay emitting segment requires only named unannotated "
+            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ObjectPropertyDomain(:p :A) ObjectPropertyDomain(:p :B)",
-            "bounded two-root local overlay requires exactly two named unannotated "
-            "SubClassOf roots or exactly one named ObjectPropertyDomain",
+            "bounded local-overlay emitting segment requires only named unannotated "
+            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:q :B)",
@@ -9192,15 +9440,15 @@ def test_hidden_iterator_keeps_multi_root_mixed_overlay_on_whole_call_fallback()
         ),
     ],
     ids=[
-        "taxonomy-restriction-local-subclasses",
-        "two-restriction-local-subclasses",
         "ignored-taxonomy-local-subclasses",
-        "mixed-local-root-tags",
         "annotated-local-subclass-pair",
         "named-and-complex-local-class-assertions",
         "named-and-anonymous-local-class-assertions",
         "annotated-local-class-assertion-pair",
-        "two-local-object-property-assertions",
+        "three-roots-with-declaration",
+        "three-roots-with-complex-class-assertion",
+        "three-roots-with-annotated-class-assertion",
+        "three-roots-with-state-mutating-role",
         "two-local-domains",
         "two-local-properties",
         "annotated-local-domain-range-pair",

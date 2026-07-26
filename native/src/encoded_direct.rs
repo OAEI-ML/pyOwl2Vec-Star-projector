@@ -215,7 +215,7 @@ impl KernelError {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DirectEdge {
     pub(crate) source: String,
     pub(crate) relation: String,
@@ -1663,7 +1663,7 @@ impl<'a> RoleState<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 enum EmissionPhase {
     #[default]
     Subclasses,
@@ -1712,7 +1712,7 @@ struct EquivalentAggregateCursor {
 pub(crate) struct DirectEmissionCursor {
     phase: EmissionPhase,
     scan_index: usize,
-    overlay_deltas_emitted: [bool; 2],
+    overlay_delta_index: usize,
     pending: Option<PendingExpansion>,
     aggregate: Option<EquivalentAggregateCursor>,
     previous_property: Option<String>,
@@ -1745,23 +1745,12 @@ enum OwnedOverlayDeltaProjection {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OverlayDeltaProjectionKind {
-    Taxonomy,
-    Restriction,
-    ClassAssertion,
-    ObjectPropertyAssertion,
-}
-
 impl OwnedOverlayDeltaProjection {
-    fn kind(&self) -> OverlayDeltaProjectionKind {
+    fn phase(&self) -> EmissionPhase {
         match self {
-            Self::Taxonomy { .. } => OverlayDeltaProjectionKind::Taxonomy,
-            Self::Restriction { .. } => OverlayDeltaProjectionKind::Restriction,
-            Self::ClassAssertion { .. } => OverlayDeltaProjectionKind::ClassAssertion,
-            Self::ObjectPropertyAssertion { .. } => {
-                OverlayDeltaProjectionKind::ObjectPropertyAssertion
-            }
+            Self::Taxonomy { .. } | Self::Restriction { .. } => EmissionPhase::Subclasses,
+            Self::ClassAssertion { .. } => EmissionPhase::ClassAssertions,
+            Self::ObjectPropertyAssertion { .. } => EmissionPhase::ObjectAssertions,
         }
     }
 
@@ -1807,7 +1796,18 @@ impl OwnedOverlayDeltaProjection {
 #[derive(Debug, Eq, PartialEq)]
 struct OwnedOverlayDelta {
     projection: OwnedOverlayDeltaProjection,
-    insertion_position: usize,
+    insertion_scan_index: usize,
+    local_canonical_index: usize,
+}
+
+fn canonicalize_overlay_delta_plan(plan: &mut [OwnedOverlayDelta]) {
+    plan.sort_unstable_by_key(|delta| {
+        (
+            delta.projection.phase(),
+            delta.insertion_scan_index,
+            delta.local_canonical_index,
+        )
+    });
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1823,7 +1823,7 @@ struct DirectPreparation {
     role_state: OwnedRoleState,
     anonymous_ids: AnonymousIds,
     selected_annotation_nodes: Option<Vec<usize>>,
-    overlay_deltas: [Option<OwnedOverlayDelta>; 2],
+    overlay_deltas: Vec<OwnedOverlayDelta>,
     local_object_property_classes: [Option<OwnedLocalObjectPropertyClass>; 2],
     options: DirectCompileOptions,
     statistics: DirectCompileStats,
@@ -7051,7 +7051,7 @@ impl DirectEmissionCursor {
         Ok(Self {
             phase: self.phase,
             scan_index: self.scan_index,
-            overlay_deltas_emitted: self.overlay_deltas_emitted,
+            overlay_delta_index: self.overlay_delta_index,
             pending: self
                 .pending
                 .as_ref()
@@ -7113,26 +7113,20 @@ impl DirectEmissionCursor {
         &self,
         preparation: &DirectPreparation,
     ) -> Result<Option<usize>, KernelError> {
-        let emitted = self
-            .overlay_deltas_emitted
-            .iter()
-            .filter(|&&was_emitted| was_emitted)
-            .count();
-        let merged_position = self
-            .scan_index
-            .checked_add(emitted)
-            .ok_or_else(|| KernelError::resource("encoded local-overlay cursor overflow"))?;
-        Ok(preparation
-            .overlay_deltas
-            .iter()
-            .enumerate()
-            .find(|(index, delta)| {
-                !self.overlay_deltas_emitted[*index]
-                    && delta
-                        .as_ref()
-                        .is_some_and(|delta| delta.insertion_position == merged_position)
-            })
-            .map(|(index, _delta)| index))
+        let Some(delta) = preparation.overlay_deltas.get(self.overlay_delta_index) else {
+            return Ok(None);
+        };
+        let phase = delta.projection.phase();
+        if phase < self.phase || phase == self.phase && delta.insertion_scan_index < self.scan_index
+        {
+            return Err(KernelError::malformed(
+                "encoded local-overlay plan is behind its emission cursor",
+            ));
+        }
+        Ok(
+            (phase == self.phase && delta.insertion_scan_index == self.scan_index)
+                .then_some(self.overlay_delta_index),
+        )
     }
 
     fn publish(
@@ -7172,19 +7166,18 @@ impl DirectEmissionCursor {
             match self.phase {
                 EmissionPhase::Subclasses => {
                     if let Some(delta_index) = self.next_overlay_delta_index(preparation)? {
-                        let delta = preparation.overlay_deltas[delta_index]
-                            .as_ref()
-                            .ok_or_else(|| {
-                                KernelError::malformed(
-                                    "encoded local-overlay cursor lost its pending root",
-                                )
-                            })?;
+                        let delta = &preparation.overlay_deltas[delta_index];
                         let handled = match &delta.projection {
                             OwnedOverlayDeltaProjection::Taxonomy {
                                 source,
                                 destination,
                             } => {
-                                self.overlay_deltas_emitted[delta_index] = true;
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
                                 self.set_taxonomy(
                                     source,
                                     destination,
@@ -7199,12 +7192,22 @@ impl DirectEmissionCursor {
                             } if !preparation.options.asserted_taxonomy_only
                                 && !preparation.options.only_taxonomy =>
                             {
-                                self.overlay_deltas_emitted[delta_index] = true;
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
                                 self.set_role(source, relation, destination)?;
                                 true
                             }
                             OwnedOverlayDeltaProjection::Restriction { .. } => {
-                                self.overlay_deltas_emitted[delta_index] = true;
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
                                 true
                             }
                             OwnedOverlayDeltaProjection::ClassAssertion { .. }
@@ -7429,17 +7432,14 @@ impl DirectEmissionCursor {
                 }
                 EmissionPhase::ClassAssertions => {
                     if let Some(delta_index) = self.next_overlay_delta_index(preparation)? {
-                        let delta = preparation.overlay_deltas[delta_index]
-                            .as_ref()
-                            .ok_or_else(|| {
-                                KernelError::malformed(
-                                    "encoded local-overlay cursor lost its pending root",
-                                )
-                            })?;
+                        let delta = &preparation.overlay_deltas[delta_index];
                         if let OwnedOverlayDeltaProjection::ClassAssertion { individual, class } =
                             &delta.projection
                         {
-                            self.overlay_deltas_emitted[delta_index] = true;
+                            self.overlay_delta_index =
+                                self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource("encoded local-overlay cursor overflow")
+                                })?;
                             return self.publish(
                                 DirectEdge {
                                     source: clone_text(individual)?,
@@ -7480,20 +7480,17 @@ impl DirectEmissionCursor {
                 }
                 EmissionPhase::ObjectAssertions => {
                     if let Some(delta_index) = self.next_overlay_delta_index(preparation)? {
-                        let delta = preparation.overlay_deltas[delta_index]
-                            .as_ref()
-                            .ok_or_else(|| {
-                                KernelError::malformed(
-                                    "encoded local-overlay cursor lost its pending root",
-                                )
-                            })?;
+                        let delta = &preparation.overlay_deltas[delta_index];
                         if let OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
                             source,
                             relation,
                             destination,
                         } = &delta.projection
                         {
-                            self.overlay_deltas_emitted[delta_index] = true;
+                            self.overlay_delta_index =
+                                self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource("encoded local-overlay cursor overflow")
+                                })?;
                             return self.publish(
                                 DirectEdge {
                                     source: clone_text(source)?,
@@ -7897,7 +7894,7 @@ fn prepare_direct<'a>(
         role_state: role_state.to_owned()?,
         anonymous_ids,
         selected_annotation_nodes,
-        overlay_deltas: [None, None],
+        overlay_deltas: Vec::new(),
         local_object_property_classes: [None, None],
         options,
         statistics: stats,
@@ -7953,6 +7950,7 @@ fn own_local_subclass_projection(
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
+    workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     if columns.node_tag(root)? != TAG_SUB_CLASS_OF {
         return Err(KernelError::unsupported(
@@ -7971,19 +7969,21 @@ fn own_local_subclass_projection(
             source,
             destination,
         } => Ok(OwnedOverlayDeltaProjection::Taxonomy {
-            source: clone_text(source)?,
-            destination: clone_text(destination)?,
+            source: workspace.clone_text(source)?,
+            destination: workspace.clone_text(destination)?,
         }),
         SubclassProjection::Restriction {
             source,
             relation,
             destination,
         } => Ok(OwnedOverlayDeltaProjection::Restriction {
-            source: clone_text(source)?,
-            relation: clone_text(relation)?,
-            destination: clone_text(destination)?,
+            source: workspace.clone_text(source)?,
+            relation: workspace.clone_text(relation)?,
+            destination: workspace.clone_text(destination)?,
         }),
-        SubclassProjection::Ignored => Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT)),
+        SubclassProjection::Ignored => {
+            Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT))
+        }
     }
 }
 
@@ -7991,6 +7991,7 @@ fn own_local_class_assertion_projection(
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
+    workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     if columns.node_tag(root)? != TAG_CLASS_ASSERTION {
         return Err(KernelError::unsupported(
@@ -8007,13 +8008,42 @@ fn own_local_class_assertion_projection(
     match columns.class_assertion_projection(root, max_iri_bytes)? {
         ClassAssertionProjection::Edge { individual, class } => {
             Ok(OwnedOverlayDeltaProjection::ClassAssertion {
-                individual: clone_text(individual)?,
-                class: clone_text(class)?,
+                individual: workspace.clone_text(individual)?,
+                class: workspace.clone_text(class)?,
             })
         }
         ClassAssertionProjection::Ignored => {
-            Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT))
+            Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT))
         }
+    }
+}
+
+fn own_local_object_property_assertion_projection(
+    columns: DirectColumns<'_>,
+    root: usize,
+    max_iri_bytes: usize,
+    workspace: &mut LocalOverlayWorkspace,
+) -> Result<OwnedOverlayDeltaProjection, KernelError> {
+    let field_start = columns.exact_fields(root, 4)?;
+    let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
+    if annotation_count != 0 {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay ObjectPropertyAssertion root must be unannotated",
+        ));
+    }
+    let (source, relation, destination) =
+        columns.object_property_assertion_parts(root, max_iri_bytes)?;
+    match (source, destination) {
+        (IndividualValue::Named(source), IndividualValue::Named(destination)) => {
+            Ok(OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
+                source: workspace.clone_text(source)?,
+                relation: workspace.clone_text(relation)?,
+                destination: workspace.clone_text(destination)?,
+            })
+        }
+        _ => Err(KernelError::unsupported(
+            "bounded local-overlay ObjectPropertyAssertion root requires a named property and named individuals",
+        )),
     }
 }
 
@@ -8021,15 +8051,93 @@ fn own_local_emitting_projection(
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
+    workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     match columns.node_tag(root)? {
-        TAG_SUB_CLASS_OF => own_local_subclass_projection(columns, root, max_iri_bytes),
-        TAG_CLASS_ASSERTION => own_local_class_assertion_projection(columns, root, max_iri_bytes),
-        _ => Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT)),
+        TAG_SUB_CLASS_OF => own_local_subclass_projection(columns, root, max_iri_bytes, workspace),
+        TAG_CLASS_ASSERTION => {
+            own_local_class_assertion_projection(columns, root, max_iri_bytes, workspace)
+        }
+        TAG_OBJECT_PROPERTY_ASSERTION => {
+            own_local_object_property_assertion_projection(columns, root, max_iri_bytes, workspace)
+        }
+        _ => Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT)),
     }
 }
 
-const TWO_ROOT_OVERLAY_REQUIREMENT: &str = "bounded two-root local overlay requires exactly two named unannotated SubClassOf roots or exactly one named ObjectPropertyDomain and one named ObjectPropertyRange or exactly two named unannotated ClassAssertion roots";
+const LOCAL_EMITTING_OVERLAY_REQUIREMENT: &str = "bounded local-overlay emitting segment requires only named unannotated SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots";
+
+#[derive(Debug)]
+struct LocalOverlayWorkspace {
+    limit: usize,
+    claimed: usize,
+}
+
+impl LocalOverlayWorkspace {
+    fn new(limit: usize) -> Result<Self, KernelError> {
+        if limit == 0 {
+            return Err(KernelError::resource(
+                "encoded local-overlay workspace limit must be positive",
+            ));
+        }
+        Ok(Self { limit, claimed: 0 })
+    }
+
+    fn claim(&mut self, amount: usize) -> Result<(), KernelError> {
+        let next = self
+            .claimed
+            .checked_add(amount)
+            .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
+        if next > self.limit {
+            return Err(KernelError::resource(format!(
+                "encoded local-overlay ownership requires more than {} workspace bytes",
+                self.limit
+            )));
+        }
+        self.claimed = next;
+        Ok(())
+    }
+
+    fn clone_text(&mut self, value: &str) -> Result<String, KernelError> {
+        self.claim(value.len())?;
+        let owned = clone_text(value)?;
+        self.claim(owned.capacity().saturating_sub(value.len()))?;
+        Ok(owned)
+    }
+
+    fn reserve_overlay_deltas(
+        &mut self,
+        root_count: usize,
+    ) -> Result<Vec<OwnedOverlayDelta>, KernelError> {
+        use std::mem::size_of;
+
+        let requested = root_count
+            .checked_mul(size_of::<OwnedOverlayDelta>())
+            .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
+        self.claim(requested)?;
+        let mut deltas = Vec::new();
+        deltas.try_reserve_exact(root_count).map_err(|_| {
+            KernelError::resource("encoded local-overlay projection allocation failed")
+        })?;
+        let actual = deltas
+            .capacity()
+            .checked_mul(size_of::<OwnedOverlayDelta>())
+            .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
+        self.claim(actual.saturating_sub(requested))?;
+        Ok(deltas)
+    }
+
+    fn remaining_for_canonical_merge(&self) -> Result<usize, KernelError> {
+        let remaining = self.limit.saturating_sub(self.claimed);
+        if remaining == 0 {
+            return Err(KernelError::resource(format!(
+                "encoded local-overlay ownership requires more than {} workspace bytes",
+                self.limit
+            )));
+        }
+        Ok(remaining)
+    }
+}
 
 pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     base_columns: DirectColumns<'_>,
@@ -8051,9 +8159,9 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         ));
     }
     let delta_root_count = delta_columns.root_count();
-    if !(1..=2).contains(&delta_root_count) {
+    if delta_root_count == 0 {
         return Err(KernelError::unsupported(
-            "bounded local-overlay compilation requires exactly one local root, one canonical named SubClassOf pair, one canonical named ClassAssertion pair, or one canonical ObjectPropertyDomain/ObjectPropertyRange pair",
+            "bounded local-overlay compilation requires a nonempty local root segment",
         ));
     }
 
@@ -8067,11 +8175,38 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 object_property_ranges: 1,
                 ..RootCounts::default()
             });
-    let paired_emitting_delta = delta_root_count == 2 && !paired_object_property_class;
-    let paired_delta = paired_object_property_class || paired_emitting_delta;
     let delta_root = delta_columns.root_id(0)?;
     let delta_root_kind = delta_columns.root_kind(0)?;
     let delta_tag = delta_columns.node_tag(delta_root)?;
+    let singular_emitting_delta = delta_root_count == 1
+        && delta_root_kind == ROOT_AXIOM
+        && (matches!(delta_tag, TAG_SUB_CLASS_OF)
+            && (delta_counts
+                == (RootCounts {
+                    subclasses: 1,
+                    ..RootCounts::default()
+                })
+                || delta_counts
+                    == (RootCounts {
+                        subclasses: 1,
+                        restriction_subclasses: 1,
+                        ..RootCounts::default()
+                    }))
+            || delta_tag == TAG_CLASS_ASSERTION
+                && delta_counts
+                    == (RootCounts {
+                        class_assertions: 1,
+                        ..RootCounts::default()
+                    })
+            || delta_tag == TAG_OBJECT_PROPERTY_ASSERTION
+                && delta_counts
+                    == (RootCounts {
+                        object_property_assertions: 1,
+                        ..RootCounts::default()
+                    }));
+    let emitting_delta =
+        !paired_object_property_class && (delta_root_count > 1 || singular_emitting_delta);
+    let aggregate_or_emitting_delta = paired_object_property_class || emitting_delta;
     let local_rule_context = LocalRuleContext::new(options, false);
     let local_annotation_rule = LocalAnnotationRulePlan::classify(
         delta_counts,
@@ -8079,7 +8214,10 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         delta_tag,
         local_rule_context,
     );
-    if !paired_delta && delta_root_kind != ROOT_AXIOM && local_annotation_rule.is_none() {
+    if !aggregate_or_emitting_delta
+        && delta_root_kind != ROOT_AXIOM
+        && local_annotation_rule.is_none()
+    {
         return Err(KernelError::unsupported(
             "bounded local-overlay root must be one supported axiom or ontology annotation",
         ));
@@ -8097,7 +8235,12 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let local_role_rule = LocalRoleRulePlan::classify(delta_counts, delta_tag, local_rule_context);
     let mut object_property_class_rules = [object_property_class_rule, None];
     let mut local_object_property_classes = [None, None];
-    let mut paired_overlay_projections = [None, None];
+    let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
+    let mut overlay_deltas = if emitting_delta {
+        local_workspace.reserve_overlay_deltas(delta_root_count)?
+    } else {
+        Vec::new()
+    };
     if paired_object_property_class {
         for root_index in 0..delta_root_count {
             check_cancel(state, root_index)?;
@@ -8149,57 +8292,34 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             ));
         }
     }
-    if paired_emitting_delta {
-        let mut projection_kind = None;
-        for (root_index, projection) in paired_overlay_projections
-            .iter_mut()
-            .enumerate()
-            .take(delta_root_count)
-        {
+    if emitting_delta {
+        for root_index in 0..delta_root_count {
             check_cancel(state, root_index)?;
             let root = delta_columns.root_id(root_index)?;
             if delta_columns.root_kind(root_index)? != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
-                    "bounded two-root emitting overlay requires axiom roots",
+                    "bounded local-overlay emitting segment requires axiom roots",
                 ));
             }
-            let owned = own_local_emitting_projection(delta_columns, root, options.max_iri_bytes)?;
-            let owned_kind = owned.kind();
-            if !matches!(
-                owned_kind,
-                OverlayDeltaProjectionKind::Taxonomy | OverlayDeltaProjectionKind::ClassAssertion
-            ) || projection_kind.is_some_and(|kind| kind != owned_kind)
-            {
-                return Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT));
-            }
-            projection_kind = Some(owned_kind);
-            *projection = Some(owned);
+            let projection = own_local_emitting_projection(
+                delta_columns,
+                root,
+                options.max_iri_bytes,
+                &mut local_workspace,
+            )?;
+            overlay_deltas.push(OwnedOverlayDelta {
+                projection,
+                insertion_scan_index: usize::MAX,
+                local_canonical_index: root_index,
+            });
         }
     }
     let mut local_role_state_axiom = None;
-    let projection = if paired_delta {
+    let _non_emitting_plan: Option<()> = if aggregate_or_emitting_delta {
         None
     } else if let Some(rule) = local_annotation_rule {
         rule.validate(delta_columns, delta_root, local_rule_context, state)?;
         None
-    } else if delta_tag == TAG_SUB_CLASS_OF
-        && (delta_counts
-            == (RootCounts {
-                subclasses: 1,
-                ..RootCounts::default()
-            })
-            || delta_counts
-                == (RootCounts {
-                    subclasses: 1,
-                    restriction_subclasses: 1,
-                    ..RootCounts::default()
-                }))
-    {
-        Some(own_local_emitting_projection(
-            delta_columns,
-            delta_root,
-            options.max_iri_bytes,
-        )?)
     } else if delta_counts
         == (RootCounts {
             declarations: 1,
@@ -8219,18 +8339,6 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             ));
         }
         None
-    } else if delta_counts
-        == (RootCounts {
-            class_assertions: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_CLASS_ASSERTION
-    {
-        Some(own_local_emitting_projection(
-            delta_columns,
-            delta_root,
-            options.max_iri_bytes,
-        )?)
     } else if let Some(kind) = silent_ignored_class_root {
         let constructor = kind.constructor();
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
@@ -8323,37 +8431,6 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         local_role_state_axiom =
             rule.validate(delta_columns, delta_root, local_rule_context, state)?;
         None
-    } else if delta_counts
-        == (RootCounts {
-            object_property_assertions: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_OBJECT_PROPERTY_ASSERTION
-    {
-        let field_start = delta_columns.exact_fields(delta_root, 4)?;
-        let (_annotation_start, annotation_count) =
-            delta_columns.node_set_range(field_start + 3, 0)?;
-        if annotation_count != 0 {
-            return Err(KernelError::unsupported(
-                "bounded local-overlay ObjectPropertyAssertion root must be unannotated",
-            ));
-        }
-        let (source, relation, destination) =
-            delta_columns.object_property_assertion_parts(delta_root, options.max_iri_bytes)?;
-        match (source, destination) {
-            (IndividualValue::Named(source), IndividualValue::Named(destination)) => {
-                Some(OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
-                    source: clone_text(source)?,
-                    relation: clone_text(relation)?,
-                    destination: clone_text(destination)?,
-                })
-            }
-            _ => {
-                return Err(KernelError::unsupported(
-                    "bounded local-overlay ObjectPropertyAssertion root requires a named property and named individuals",
-                ));
-            }
-        }
     } else if delta_counts
         == (RootCounts {
             negative_object_property_assertions: 1,
@@ -8781,18 +8858,37 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     };
 
     use canonical_merge::MergedCanonicalRoot;
+    let local_sort_work = if emitting_delta {
+        let sort_levels =
+            usize::BITS as usize - delta_root_count.saturating_sub(1).leading_zeros() as usize;
+        delta_root_count
+            .checked_mul(sort_levels)
+            .and_then(|work| work.checked_add(delta_root_count))
+            .ok_or_else(|| KernelError::resource("encoded local-overlay work counter overflow"))?
+    } else {
+        0
+    };
+    let canonical_work = max_canonical_work
+        .checked_sub(local_sort_work)
+        .filter(|remaining| *remaining != 0)
+        .ok_or_else(|| {
+            KernelError::resource(format!(
+                "encoded canonical comparison requires more than {max_canonical_work} work units"
+            ))
+        })?;
     let mut merger = canonical_merge::CanonicalRootMerger::new(
         base_columns,
         delta_columns,
         canonical_merge::CanonicalMergeLimits {
-            max_work: max_canonical_work,
-            max_workspace_bytes: max_canonical_workspace_bytes,
+            max_work: canonical_work,
+            max_workspace_bytes: local_workspace.remaining_for_canonical_merge()?,
         },
         state,
     )?;
     let mut left_roots = 0_usize;
     let mut right_roots = 0_usize;
     let mut next_insertion_scan = 0_usize;
+    let mut next_base_scan_index = 0_usize;
     let mut insertion_positions = [None, None];
     while let Some(root) = merger.next(state)? {
         match root {
@@ -8807,17 +8903,34 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| {
                         KernelError::resource("encoded local-overlay root position overflow")
                     })?;
+                next_base_scan_index = root.index.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local-overlay root position overflow")
+                })?;
             }
             MergedCanonicalRoot::Right(root) => {
-                let Some(position) = insertion_positions.get_mut(root.index) else {
-                    return Err(KernelError::malformed(
-                        "encoded local-overlay merge produced an inconsistent local root",
-                    ));
-                };
-                if position.replace(next_insertion_scan).is_some() {
-                    return Err(KernelError::malformed(
-                        "encoded local-overlay merge produced a duplicate local root",
-                    ));
+                if emitting_delta {
+                    let Some(delta) = overlay_deltas.get_mut(root.index) else {
+                        return Err(KernelError::malformed(
+                            "encoded local-overlay merge produced an inconsistent local root",
+                        ));
+                    };
+                    if delta.insertion_scan_index != usize::MAX {
+                        return Err(KernelError::malformed(
+                            "encoded local-overlay merge produced a duplicate local root",
+                        ));
+                    }
+                    delta.insertion_scan_index = next_base_scan_index;
+                } else {
+                    let Some(position) = insertion_positions.get_mut(root.index) else {
+                        return Err(KernelError::malformed(
+                            "encoded local-overlay merge produced an inconsistent local root",
+                        ));
+                    };
+                    if position.replace(next_insertion_scan).is_some() {
+                        return Err(KernelError::malformed(
+                            "encoded local-overlay merge produced a duplicate local root",
+                        ));
+                    }
                 }
                 right_roots = right_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root counter overflow")
@@ -8833,21 +8946,26 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             }
         }
     }
-    if right_roots != delta_root_count
-        || insertion_positions[..delta_root_count]
+    let lost_local_root = if emitting_delta {
+        overlay_deltas
+            .iter()
+            .any(|delta| delta.insertion_scan_index == usize::MAX)
+    } else {
+        insertion_positions[..delta_root_count]
             .iter()
             .any(Option::is_none)
-    {
+    };
+    if right_roots != delta_root_count || lost_local_root {
         return Err(KernelError::malformed(
             "encoded local-overlay merge lost a local root",
         ));
     }
-    let insertion_position = insertion_positions[0]
-        .ok_or_else(|| KernelError::malformed("encoded local-overlay merge lost its local root"))?;
+    let insertion_position = insertion_positions[0].unwrap_or(0);
     let selected_base_roots = base_columns.selected_root_count()?;
+    let merge_report = merger.report();
     if left_roots != selected_base_roots
-        || merger.report().deduplicated_roots != 0
-        || merger.report().roots_emitted
+        || merge_report.deduplicated_roots != 0
+        || merge_report.roots_emitted
             != selected_base_roots
                 .checked_add(delta_root_count)
                 .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?
@@ -8856,6 +8974,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             "encoded local-overlay merge produced inconsistent root counts",
         ));
     }
+    drop(merger);
+    canonicalize_overlay_delta_plan(&mut overlay_deltas);
 
     if let Some(axiom) = local_role_state_axiom.as_mut() {
         axiom.canonical_order = insertion_position;
@@ -8881,10 +9001,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
 
     let mut projection_edges = 0_usize;
     let mut projection_role_expansion_edges = 0_usize;
-    for local_projection in projection
-        .iter()
-        .chain(paired_overlay_projections.iter().flatten())
-    {
+    for local_delta in &overlay_deltas {
+        let local_projection = &local_delta.projection;
         let (edges, role_expansion_edges) = match local_projection {
             OwnedOverlayDeltaProjection::Taxonomy { .. } => (
                 1_usize
@@ -8959,29 +9077,26 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         .nodes
         .checked_add(delta_columns.node_count())
         .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
-    for local_projection in projection
-        .iter()
-        .chain(paired_overlay_projections.iter().flatten())
-    {
-        local_projection.apply_statistics(statistics)?;
+    for local_delta in &overlay_deltas {
+        local_delta.projection.apply_statistics(statistics)?;
     }
     statistics.role_expansion_edges = statistics
         .role_expansion_edges
         .checked_add(projection_role_expansion_edges)
         .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
-    match &projection {
-        Some(_) => {}
-        None if paired_emitting_delta => {}
-        None if local_annotation_rule.is_some() => {
+    match emitting_delta {
+        true => {}
+        false if local_annotation_rule.is_some() => {
             let Some(rule) = local_annotation_rule else {
                 unreachable!("matched local annotation rule remains available");
             };
             rule.apply_statistics(statistics)?;
         }
-        None if matches!(
-            silent_ignored_class_root,
-            Some(SilentIgnoredClassRoot::Subclass)
-        ) =>
+        false
+            if matches!(
+                silent_ignored_class_root,
+                Some(SilentIgnoredClassRoot::Subclass)
+            ) =>
         {
             statistics.subclasses = statistics
                 .subclasses
@@ -8992,10 +9107,11 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded ignored-subclass count overflow"))?;
         }
-        None if matches!(
-            silent_ignored_class_root,
-            Some(SilentIgnoredClassRoot::Assertion)
-        ) =>
+        false
+            if matches!(
+                silent_ignored_class_root,
+                Some(SilentIgnoredClassRoot::Assertion)
+            ) =>
         {
             statistics.class_assertions = statistics
                 .class_assertions
@@ -9008,7 +9124,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     KernelError::resource("encoded ignored-class-assertion count overflow")
                 })?;
         }
-        None if silent_ignored_equivalent_root.is_some() => {
+        false if silent_ignored_equivalent_root.is_some() => {
             statistics.equivalents = statistics
                 .equivalents
                 .checked_add(1)
@@ -9022,24 +9138,24 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     })?;
             }
         }
-        None if object_property_class_rules.iter().any(Option::is_some) => {
+        false if object_property_class_rules.iter().any(Option::is_some) => {
             for rule in object_property_class_rules.iter().flatten().copied() {
                 rule.apply_statistics(statistics)?;
             }
         }
-        None if local_role_rule.is_some() => {
+        false if local_role_rule.is_some() => {
             let Some(rule) = local_role_rule else {
                 unreachable!("matched local role rule remains available");
             };
             rule.apply_statistics(statistics)?;
         }
-        None if delta_tag == TAG_DECLARATION => {
+        false if delta_tag == TAG_DECLARATION => {
             statistics.declarations = statistics
                 .declarations
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded declaration-count overflow"))?;
         }
-        None if delta_tag == TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
+        false if delta_tag == TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
             statistics.negative_object_property_assertions = statistics
                 .negative_object_property_assertions
                 .checked_add(1)
@@ -9055,7 +9171,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_DATA_PROPERTY_ASSERTION => {
+        false if delta_tag == TAG_DATA_PROPERTY_ASSERTION => {
             statistics.data_property_assertions = statistics
                 .data_property_assertions
                 .checked_add(1)
@@ -9069,7 +9185,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
+        false if delta_tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
             statistics.negative_data_property_assertions = statistics
                 .negative_data_property_assertions
                 .checked_add(1)
@@ -9083,7 +9199,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_SUB_DATA_PROPERTY_OF => {
+        false if delta_tag == TAG_SUB_DATA_PROPERTY_OF => {
             statistics.sub_data_properties = statistics
                 .sub_data_properties
                 .checked_add(1)
@@ -9095,7 +9211,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_EQUIVALENT_DATA_PROPERTIES => {
+        false if delta_tag == TAG_EQUIVALENT_DATA_PROPERTIES => {
             statistics.equivalent_data_properties = statistics
                 .equivalent_data_properties
                 .checked_add(1)
@@ -9109,7 +9225,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_DISJOINT_DATA_PROPERTIES => {
+        false if delta_tag == TAG_DISJOINT_DATA_PROPERTIES => {
             statistics.disjoint_data_properties = statistics
                 .disjoint_data_properties
                 .checked_add(1)
@@ -9123,7 +9239,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_DATA_PROPERTY_DOMAIN => {
+        false if delta_tag == TAG_DATA_PROPERTY_DOMAIN => {
             statistics.data_property_domains = statistics
                 .data_property_domains
                 .checked_add(1)
@@ -9137,7 +9253,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_DATA_PROPERTY_RANGE => {
+        false if delta_tag == TAG_DATA_PROPERTY_RANGE => {
             statistics.data_property_ranges = statistics
                 .data_property_ranges
                 .checked_add(1)
@@ -9151,7 +9267,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_FUNCTIONAL_DATA_PROPERTY => {
+        false if delta_tag == TAG_FUNCTIONAL_DATA_PROPERTY => {
             statistics.functional_data_properties = statistics
                 .functional_data_properties
                 .checked_add(1)
@@ -9165,7 +9281,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_DATATYPE_DEFINITION => {
+        false if delta_tag == TAG_DATATYPE_DEFINITION => {
             statistics.datatype_definitions = statistics
                 .datatype_definitions
                 .checked_add(1)
@@ -9179,7 +9295,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_HAS_KEY => {
+        false if delta_tag == TAG_HAS_KEY => {
             statistics.has_keys = statistics
                 .has_keys
                 .checked_add(1)
@@ -9191,7 +9307,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if silent_object_property_root.is_some() => {
+        false if silent_object_property_root.is_some() => {
             let kind = silent_object_property_root.ok_or_else(|| {
                 KernelError::malformed(
                     "encoded local-overlay object-property root lost its constructor",
@@ -9212,7 +9328,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if silent_annotation_property_root.is_some() => {
+        false if silent_annotation_property_root.is_some() => {
             let kind = silent_annotation_property_root.ok_or_else(|| {
                 KernelError::malformed(
                     "encoded local-overlay annotation-property root lost its constructor",
@@ -9233,7 +9349,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if silent_class_disjointness_root.is_some() => {
+        false if silent_class_disjointness_root.is_some() => {
             let kind = silent_class_disjointness_root.ok_or_else(|| {
                 KernelError::malformed(
                     "encoded local-overlay class-disjointness root lost its constructor",
@@ -9254,7 +9370,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_SAME_INDIVIDUAL => {
+        false if delta_tag == TAG_SAME_INDIVIDUAL => {
             statistics.same_individuals = statistics
                 .same_individuals
                 .checked_add(1)
@@ -9266,7 +9382,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None if delta_tag == TAG_DIFFERENT_INDIVIDUALS => {
+        false if delta_tag == TAG_DIFFERENT_INDIVIDUALS => {
             statistics.different_individuals = statistics
                 .different_individuals
                 .checked_add(1)
@@ -9280,7 +9396,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
             }
         }
-        None => {
+        false => {
             return Err(KernelError::malformed(
                 "encoded local-overlay silent root lost its constructor",
             ));
@@ -9299,28 +9415,6 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         .buffer_bytes
         .checked_add(delta_columns.buffer_bytes()?)
         .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
-    let mut overlay_deltas = [None, None];
-    if paired_emitting_delta {
-        for (root_index, projection) in paired_overlay_projections.into_iter().enumerate() {
-            let projection = projection.ok_or_else(|| {
-                KernelError::malformed("encoded paired emitting overlay lost its projection")
-            })?;
-            let insertion_position = insertion_positions[root_index].ok_or_else(|| {
-                KernelError::malformed(
-                    "encoded paired emitting overlay lost its insertion position",
-                )
-            })?;
-            overlay_deltas[root_index] = Some(OwnedOverlayDelta {
-                projection,
-                insertion_position,
-            });
-        }
-    } else if let Some(projection) = projection {
-        overlay_deltas[0] = Some(OwnedOverlayDelta {
-            projection,
-            insertion_position,
-        });
-    }
     prepared.preparation.overlay_deltas = overlay_deltas;
     Ok(prepared)
 }
@@ -9872,7 +9966,6 @@ mod tests {
     #[derive(Clone, Copy)]
     enum SubclassPairShape {
         Taxonomy,
-        Restriction,
         Ignored,
     }
 
@@ -10011,16 +10104,7 @@ mod tests {
                     fixture.finish_node(TAG_OBJECT_UNION_OF);
                     fixture.node_tags.len() as u64 / 2
                 }
-                SubclassPairShape::Taxonomy | SubclassPairShape::Restriction => source,
-            };
-            let destination = match shape {
-                SubclassPairShape::Restriction => {
-                    fixture.push_node_ref(10);
-                    fixture.push_node_ref(destination);
-                    fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM);
-                    fixture.node_tags.len() as u64 / 2
-                }
-                SubclassPairShape::Taxonomy | SubclassPairShape::Ignored => destination,
+                SubclassPairShape::Taxonomy => source,
             };
             fixture.push_node_ref(source);
             fixture.push_node_ref(destination);
@@ -10345,32 +10429,116 @@ mod tests {
         fixture
     }
 
-    fn mixed_emitting_pair_delta_fixture() -> Fixture {
+    fn mixed_emitting_delta_fixture() -> Fixture {
         let mut fixture = Fixture::default();
-        for iri in [b"urn:B".as_slice(), b"urn:C", b"urn:D", b"urn:i"] {
+        for iri in [
+            b"urn:B".as_slice(),
+            b"urn:C",
+            b"urn:D",
+            b"urn:Y",
+            b"urn:Top",
+            b"urn:b",
+            b"urn:z",
+            b"urn:a",
+            b"urn:p",
+            b"urn:q",
+        ] {
             fixture.push_scalar(COMPONENT_TEXT, iri);
-            fixture.finish_node(TAG_IRI); // 1..=4
+            fixture.finish_node(TAG_IRI); // 1..=10
         }
-        for iri_id in [1_u64, 2, 3] {
+        for iri_id in 1_u64..=5 {
             fixture.push_scalar(COMPONENT_ENUM, b"class");
             fixture.push_node_ref(iri_id);
-            fixture.finish_node(TAG_ENTITY); // 5..=7
+            fixture.finish_node(TAG_ENTITY); // 11..=15
         }
-        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
-        fixture.push_node_ref(4);
-        fixture.finish_node(TAG_ENTITY); // 8
-        fixture.push_node_ref(5);
-        fixture.push_node_ref(6);
+        for iri_id in 6_u64..=8 {
+            fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 16..=18
+        }
+        for iri_id in 9_u64..=10 {
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 19..=20
+        }
+        fixture.push_node_ref(19);
+        fixture.push_node_ref(13);
+        fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM); // 21
+
+        fixture.push_node_ref(11);
+        fixture.push_node_ref(15);
         fixture.push_empty_set();
-        fixture.finish_node(TAG_SUB_CLASS_OF); // 9
-        fixture.push_node_ref(7);
-        fixture.push_node_ref(8);
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 22
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(21);
         fixture.push_empty_set();
-        fixture.finish_node(TAG_CLASS_ASSERTION); // 10
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 23
+        fixture.push_node_ref(14);
+        fixture.push_node_ref(15);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 24
+        fixture.push_node_ref(11);
+        fixture.push_node_ref(16);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 25
+        fixture.push_node_ref(20);
+        fixture.push_node_ref(17);
+        fixture.push_node_ref(18);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_OBJECT_PROPERTY_ASSERTION); // 26
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 5]);
+        for root_id in 22_u32..=26 {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
+        }
         fixture
-            .root_kinds
-            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
-        for root_id in [9_u32, 10] {
+    }
+
+    fn mixed_emitting_base_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:A".as_slice(),
+            b"urn:Z",
+            b"urn:Top",
+            b"urn:a",
+            b"urn:z",
+            b"urn:p",
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=6
+        }
+        for iri_id in 1_u64..=3 {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 7..=9
+        }
+        for iri_id in 4_u64..=5 {
+            fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 10..=11
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(6);
+        fixture.finish_node(TAG_ENTITY); // 12
+
+        for source in [7_u64, 8] {
+            fixture.push_node_ref(source);
+            fixture.push_node_ref(9);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_SUB_CLASS_OF); // 13..=14
+        }
+        for (class, individual) in [(7_u64, 10_u64), (8, 11)] {
+            fixture.push_node_ref(class);
+            fixture.push_node_ref(individual);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_CLASS_ASSERTION); // 15..=16
+        }
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(10);
+        fixture.push_node_ref(11);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_OBJECT_PROPERTY_ASSERTION); // 17
+        fixture.root_kinds.extend_from_slice(&[ROOT_AXIOM; 5]);
+        for root_id in 13_u32..=17 {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
@@ -12833,10 +13001,7 @@ mod tests {
                 base.columns().buffer_bytes().unwrap() + delta.columns().buffer_bytes().unwrap()
             );
             assert_eq!(prepared.emission_attempts(), 0);
-            assert_eq!(
-                prepared.preparation.overlay_deltas.iter().flatten().count(),
-                2
-            );
+            assert_eq!(prepared.preparation.overlay_deltas.len(), 2);
 
             let (preview, cursor) = prepared
                 .prepare_next_batch(base.columns(), &running_state(), 1)
@@ -13028,25 +13193,12 @@ mod tests {
             ));
         }
 
-        let taxonomy_restriction = hostile_subclass_pair_delta_fixture(
-            SubclassPairShape::Taxonomy,
-            SubclassPairShape::Restriction,
-        );
-        let two_restrictions = hostile_subclass_pair_delta_fixture(
-            SubclassPairShape::Restriction,
-            SubclassPairShape::Restriction,
-        );
         let taxonomy_ignored = hostile_subclass_pair_delta_fixture(
             SubclassPairShape::Taxonomy,
             SubclassPairShape::Ignored,
         );
         let mixed_tags = named_subclass_fixture();
-        for hostile in [
-            &taxonomy_restriction,
-            &two_restrictions,
-            &taxonomy_ignored,
-            &mixed_tags,
-        ] {
+        for hostile in [&taxonomy_ignored, &mixed_tags] {
             assert!(matches!(
                 prepare_single_overlay_delta_batches_uncommitted(
                     base.columns(),
@@ -13058,7 +13210,7 @@ mod tests {
                     canonical_limits().max_workspace_bytes,
                 ),
                 Err(KernelError::Unsupported(message))
-                    if message.contains("two named unannotated SubClassOf roots")
+                    if message.contains(LOCAL_EMITTING_OVERLAY_REQUIREMENT)
             ));
             assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
             assert_eq!(retry.remaining_edges(), remaining);
@@ -13195,10 +13347,9 @@ mod tests {
                     .preparation
                     .overlay_deltas
                     .iter()
-                    .flatten()
-                    .map(|delta| delta.insertion_position)
+                    .map(|delta| delta.insertion_scan_index)
                     .collect::<Vec<_>>(),
-                vec![1, 3]
+                vec![1, 2]
             );
             assert_eq!(prepared.emission_attempts(), 0);
 
@@ -13303,7 +13454,7 @@ mod tests {
                 named_class_assertion_pair_delta_fixture(
                     b"urn:B", b"urn:j", b"urn:C", b"urn:k", false,
                 ),
-                vec![1, 2],
+                vec![1, 1],
             ),
             (
                 named_class_assertions_fixture(
@@ -13316,7 +13467,7 @@ mod tests {
                 named_class_assertion_pair_delta_fixture(
                     b"urn:C", b"urn:k", b"urn:D", b"urn:l", false,
                 ),
-                vec![2, 3],
+                vec![2, 2],
             ),
         ];
         let options = DirectCompileOptions {
@@ -13344,8 +13495,7 @@ mod tests {
                     .preparation
                     .overlay_deltas
                     .iter()
-                    .flatten()
-                    .map(|delta| delta.insertion_position)
+                    .map(|delta| delta.insertion_scan_index)
                     .collect::<Vec<_>>(),
                 expected_positions
             );
@@ -13461,9 +13611,7 @@ mod tests {
 
         let anonymous = ignored_class_assertion_pair_delta_fixture(true);
         let complex = ignored_class_assertion_pair_delta_fixture(false);
-        let mixed = mixed_emitting_pair_delta_fixture();
-        let wrong_pair = named_object_property_assertion_base_fixture();
-        for hostile in [&anonymous, &complex, &mixed, &wrong_pair] {
+        for hostile in [&anonymous, &complex] {
             assert!(matches!(
                 prepare_single_overlay_delta_batches_uncommitted(
                     base.columns(),
@@ -13475,7 +13623,7 @@ mod tests {
                     canonical_limits().max_workspace_bytes,
                 ),
                 Err(KernelError::Unsupported(message))
-                    if message.contains("two named unannotated ClassAssertion roots")
+                    if message.contains(LOCAL_EMITTING_OVERLAY_REQUIREMENT)
             ));
             assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
             assert_eq!(retry.remaining_edges(), remaining);
@@ -13532,6 +13680,446 @@ mod tests {
             Err(KernelError::Malformed(message)) if message.contains("canonical")
         ));
         assert_eq!(retry.remaining_edges(), remaining);
+    }
+
+    #[test]
+    fn multi_root_emitting_overlay_shares_one_plan_across_phases_modes_and_exclusions() {
+        let base = mixed_emitting_base_fixture();
+        let delta = mixed_emitting_delta_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 14,
+            max_iri_bytes: 1024,
+        };
+        let direct = vec![
+            DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            },
+            DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            },
+            DirectEdge {
+                source: "urn:C".into(),
+                relation: "urn:p".into(),
+                destination: "urn:D".into(),
+            },
+            DirectEdge {
+                source: "urn:Y".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            },
+            DirectEdge {
+                source: "urn:Z".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            },
+            DirectEdge {
+                source: "urn:a".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:A".into(),
+            },
+            DirectEdge {
+                source: "urn:b".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:B".into(),
+            },
+            DirectEdge {
+                source: "urn:z".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:Z".into(),
+            },
+            DirectEdge {
+                source: "urn:a".into(),
+                relation: "urn:p".into(),
+                destination: "urn:z".into(),
+            },
+            DirectEdge {
+                source: "urn:z".into(),
+                relation: "urn:q".into(),
+                destination: "urn:a".into(),
+            },
+        ];
+        let bidirectional = direct
+            .iter()
+            .flat_map(|edge| {
+                let mut expanded = vec![edge.clone()];
+                if edge.relation == SUBCLASS_OF {
+                    expanded.push(DirectEdge {
+                        source: edge.destination.clone(),
+                        relation: SUPERCLASS_OF.into(),
+                        destination: edge.source.clone(),
+                    });
+                }
+                expanded
+            })
+            .collect::<Vec<_>>();
+
+        for (variant, expected) in [
+            (options, direct.clone()),
+            (
+                DirectCompileOptions {
+                    bidirectional: true,
+                    ..options
+                },
+                bidirectional,
+            ),
+            (
+                DirectCompileOptions {
+                    only_taxonomy: true,
+                    ..options
+                },
+                direct
+                    .iter()
+                    .filter(|edge| {
+                        !(edge.source == "urn:C"
+                            && edge.relation == "urn:p"
+                            && edge.destination == "urn:D")
+                    })
+                    .cloned()
+                    .collect(),
+            ),
+            (
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                direct
+                    .iter()
+                    .filter(|edge| edge.relation == SUBCLASS_OF)
+                    .cloned()
+                    .collect(),
+            ),
+        ] {
+            let state = running_state();
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                variant,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.preparation.overlay_deltas.len(), 5);
+            assert_eq!(
+                prepared
+                    .preparation
+                    .overlay_deltas
+                    .iter()
+                    .map(|delta| (delta.projection.phase(), delta.insertion_scan_index))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (EmissionPhase::Subclasses, 1),
+                    (EmissionPhase::Subclasses, 1),
+                    (EmissionPhase::Subclasses, 1),
+                    (EmissionPhase::ClassAssertions, 3),
+                    (EmissionPhase::ObjectAssertions, 5),
+                ]
+            );
+            assert_eq!(prepared.statistics().roots, 10);
+            assert_eq!(prepared.statistics().subclasses, 5);
+            assert_eq!(prepared.statistics().restriction_subclasses, 1);
+            assert_eq!(prepared.statistics().class_assertions, 3);
+            assert_eq!(prepared.statistics().object_property_assertions, 2);
+            assert_eq!(prepared.statistics().edges, expected.len());
+            let mut actual = Vec::new();
+            while prepared.remaining_edges() != 0 {
+                let (batch, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &state, 1)
+                    .unwrap();
+                actual.extend(batch);
+                prepared.commit_cursor(cursor);
+            }
+            assert_eq!(actual, expected);
+        }
+
+        let mut excluded = Vec::new();
+        for root_position in [2_u32, 4, 5] {
+            excluded.extend_from_slice(&root_position.to_le_bytes());
+        }
+        let selected_base = base.columns().with_excluded_root_ids(&excluded);
+        let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+            selected_base,
+            delta.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(prepared.statistics().roots, 7);
+        assert_eq!(prepared.statistics().edges, 7);
+        let mut actual = Vec::new();
+        while prepared.remaining_edges() != 0 {
+            let (batch, cursor) = prepared
+                .prepare_next_batch(selected_base, &running_state(), 1)
+                .unwrap();
+            actual.extend(batch);
+            prepared.commit_cursor(cursor);
+        }
+        assert_eq!(
+            actual,
+            direct
+                .iter()
+                .filter(|edge| {
+                    !(edge.source == "urn:Z"
+                        || edge.source == "urn:z" && edge.destination == "urn:Z"
+                        || edge.source == "urn:a"
+                            && edge.relation == "urn:p"
+                            && edge.destination == "urn:z")
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn multi_root_emitting_overlay_bounds_resources_and_preserves_retry_state() {
+        let base = mixed_emitting_base_fixture();
+        let delta = mixed_emitting_delta_fixture();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 10,
+            max_iri_bytes: 1024,
+        };
+        let retained = OwnedRoleState {
+            subroles: vec![("urn:p".into(), vec!["urn:child".into()])],
+            inverses: vec![
+                ("urn:p".into(), "urn:pinv".into()),
+                ("urn:pinv".into(), "urn:p".into()),
+            ],
+        };
+        let retained_snapshot = retained.snapshot().unwrap();
+        let state = AtomicU8::new(STATE_RUNNING);
+        let prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            DirectCompileOptions {
+                max_edges: 12,
+                ..options
+            },
+            &state,
+            Some(&retained),
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let remaining = prepared.remaining_edges();
+        let (preview, _) = prepared
+            .prepare_next_batch(base.columns(), &state, 1)
+            .unwrap();
+        state.store(STATE_CANCELLED, Ordering::Release);
+        assert!(matches!(
+            prepared.prepare_next_batch(base.columns(), &state, 1),
+            Err(KernelError::Cancelled)
+        ));
+        assert_eq!(prepared.remaining_edges(), remaining);
+        state.store(STATE_RUNNING, Ordering::Release);
+        let (retry, _) = prepared
+            .prepare_next_batch(base.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(retry, preview);
+        assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
+
+        fn succeeds(
+            base: &Fixture,
+            delta: &Fixture,
+            options: DirectCompileOptions,
+            work: usize,
+            workspace: usize,
+        ) -> bool {
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                work,
+                workspace,
+            )
+            .is_ok()
+        }
+        fn minimum_successful(
+            mut low: usize,
+            mut high: usize,
+            mut succeeds: impl FnMut(usize) -> bool,
+        ) -> usize {
+            assert!(succeeds(high));
+            while low < high {
+                let middle = low + (high - low) / 2;
+                if succeeds(middle) {
+                    high = middle;
+                } else {
+                    low = middle + 1;
+                }
+            }
+            low
+        }
+
+        let minimum_work = minimum_successful(1, canonical_limits().max_work, |work| {
+            succeeds(
+                &base,
+                &delta,
+                options,
+                work,
+                canonical_limits().max_workspace_bytes,
+            )
+        });
+        assert!(minimum_work > 1);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                minimum_work - 1,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("work")
+        ));
+
+        let minimum_workspace =
+            minimum_successful(1, canonical_limits().max_workspace_bytes, |workspace| {
+                succeeds(
+                    &base,
+                    &delta,
+                    options,
+                    canonical_limits().max_work,
+                    workspace,
+                )
+            });
+        assert!(minimum_workspace > 1);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                minimum_workspace - 1,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("workspace")
+        ));
+
+        let mut duplicate = mixed_emitting_delta_fixture();
+        duplicate.root_ids[16..20].copy_from_slice(&25_u32.to_le_bytes());
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                duplicate.columns(),
+                options,
+                &running_state(),
+                Some(&retained),
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Malformed(message)) if message.contains("canonical and unique")
+        ));
+        assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
+
+        let mut reversed = mixed_emitting_delta_fixture();
+        reversed.root_ids[..4].copy_from_slice(&23_u32.to_le_bytes());
+        reversed.root_ids[4..8].copy_from_slice(&22_u32.to_le_bytes());
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                reversed.columns(),
+                options,
+                &running_state(),
+                Some(&retained),
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Malformed(message)) if message.contains("canonical")
+        ));
+        assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
+        assert_eq!(prepared.remaining_edges(), remaining);
+    }
+
+    #[test]
+    fn multi_root_emitting_overlay_canonicalizes_an_artificial_cross_phase_plan() {
+        let mut plan = vec![
+            OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
+                    source: "urn:z".into(),
+                    relation: "urn:q".into(),
+                    destination: "urn:a".into(),
+                },
+                insertion_scan_index: 0,
+                local_canonical_index: 4,
+            },
+            OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::Taxonomy {
+                    source: "urn:Y".into(),
+                    destination: "urn:Top".into(),
+                },
+                insertion_scan_index: 3,
+                local_canonical_index: 1,
+            },
+            OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::ClassAssertion {
+                    individual: "urn:b".into(),
+                    class: "urn:B".into(),
+                },
+                insertion_scan_index: 0,
+                local_canonical_index: 3,
+            },
+            OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::Restriction {
+                    source: "urn:C".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:D".into(),
+                },
+                insertion_scan_index: 1,
+                local_canonical_index: 2,
+            },
+            OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::Taxonomy {
+                    source: "urn:B".into(),
+                    destination: "urn:Top".into(),
+                },
+                insertion_scan_index: 1,
+                local_canonical_index: 0,
+            },
+        ];
+
+        canonicalize_overlay_delta_plan(&mut plan);
+
+        assert_eq!(
+            plan.iter()
+                .map(|delta| {
+                    (
+                        delta.projection.phase(),
+                        delta.insertion_scan_index,
+                        delta.local_canonical_index,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (EmissionPhase::Subclasses, 1, 0),
+                (EmissionPhase::Subclasses, 1, 2),
+                (EmissionPhase::Subclasses, 3, 1),
+                (EmissionPhase::ClassAssertions, 0, 3),
+                (EmissionPhase::ObjectAssertions, 0, 4),
+            ]
+        );
+        let cursor = DirectEmissionCursor::default();
+        assert_eq!(cursor.overlay_delta_index, 0);
+        assert_eq!(cursor.try_clone().unwrap().overlay_delta_index, 0);
     }
 
     #[test]
@@ -15973,11 +16561,7 @@ mod tests {
                 assert_eq!(statistics.skipped_axioms, 0);
                 assert_eq!(statistics.edges, 1);
                 assert_eq!(prepared.emission_attempts(), 0);
-                assert!(prepared
-                    .preparation
-                    .overlay_deltas
-                    .iter()
-                    .all(Option::is_none));
+                assert!(prepared.preparation.overlay_deltas.is_empty());
                 assert_eq!(
                     kind.constructor(),
                     if root_tag == TAG_SUB_CLASS_OF {
@@ -16032,11 +16616,7 @@ mod tests {
                     assert_eq!(statistics.skipped_axioms, 0);
                     assert_eq!(statistics.edges, 1);
                     assert_eq!(prepared.emission_attempts(), 0);
-                    assert!(prepared
-                        .preparation
-                        .overlay_deltas
-                        .iter()
-                        .all(Option::is_none));
+                    assert!(prepared.preparation.overlay_deltas.is_empty());
                 }
             }
         }
@@ -16059,11 +16639,7 @@ mod tests {
             assert_eq!(prepared.statistics().edges, 0);
             assert_eq!(prepared.statistics().skipped_axioms, 0);
             assert_eq!(prepared.emission_attempts(), 0);
-            assert!(prepared
-                .preparation
-                .overlay_deltas
-                .iter()
-                .all(Option::is_none));
+            assert!(prepared.preparation.overlay_deltas.is_empty());
             assert!(prepared.is_exhausted());
 
             let duplicate_base = ignored_class_axiom_delta_fixture(root_tag, false, false, false);
@@ -16165,11 +16741,7 @@ mod tests {
                 assert_eq!(statistics.skipped_axioms, 0);
                 assert_eq!(statistics.edges, 1);
                 assert_eq!(prepared.emission_attempts(), 0);
-                assert!(prepared
-                    .preparation
-                    .overlay_deltas
-                    .iter()
-                    .all(Option::is_none));
+                assert!(prepared.preparation.overlay_deltas.is_empty());
                 let (edges, cursor) = prepared
                     .prepare_next_batch(base.columns(), &running_state(), 1)
                     .unwrap();
@@ -16203,11 +16775,7 @@ mod tests {
                 assert_eq!(only_taxonomy.statistics().skipped_axioms, 0);
                 assert_eq!(only_taxonomy.statistics().edges, 1);
                 assert_eq!(only_taxonomy.emission_attempts(), 0);
-                assert!(only_taxonomy
-                    .preparation
-                    .overlay_deltas
-                    .iter()
-                    .all(Option::is_none));
+                assert!(only_taxonomy.preparation.overlay_deltas.is_empty());
 
                 let asserted = prepare_single_overlay_delta_batches_uncommitted(
                     base.columns(),
@@ -16228,11 +16796,7 @@ mod tests {
                 assert_eq!(asserted.statistics().skipped_axioms, 0);
                 assert_eq!(asserted.statistics().edges, 1);
                 assert_eq!(asserted.emission_attempts(), 0);
-                assert!(asserted
-                    .preparation
-                    .overlay_deltas
-                    .iter()
-                    .all(Option::is_none));
+                assert!(asserted.preparation.overlay_deltas.is_empty());
             }
         }
 
@@ -16255,11 +16819,7 @@ mod tests {
         assert_eq!(silent.statistics().skipped_axioms, 0);
         assert_eq!(silent.statistics().edges, 0);
         assert_eq!(silent.emission_attempts(), 0);
-        assert!(silent
-            .preparation
-            .overlay_deltas
-            .iter()
-            .all(Option::is_none));
+        assert!(silent.preparation.overlay_deltas.is_empty());
         assert!(silent.is_exhausted());
 
         let duplicate_base = ignored_equivalent_classes_delta_fixture(2, false, false, false);
@@ -16465,11 +17025,7 @@ mod tests {
                     assert_eq!(statistics.skipped_axioms, 0);
                     assert_eq!(statistics.edges, 1);
                     assert_eq!(prepared.emission_attempts(), 0);
-                    assert!(prepared
-                        .preparation
-                        .overlay_deltas
-                        .iter()
-                        .all(Option::is_none));
+                    assert!(prepared.preparation.overlay_deltas.is_empty());
                     let (edges, cursor) = prepared
                         .prepare_next_batch(base.columns(), &running_state(), 1)
                         .unwrap();
@@ -16504,11 +17060,7 @@ mod tests {
             assert_eq!(silent.statistics().edges, 0);
             assert_eq!(silent.statistics().skipped_axioms, 0);
             assert_eq!(silent.emission_attempts(), 0);
-            assert!(silent
-                .preparation
-                .overlay_deltas
-                .iter()
-                .all(Option::is_none));
+            assert!(silent.preparation.overlay_deltas.is_empty());
             assert!(silent.is_exhausted());
 
             let duplicate_base =
@@ -16731,11 +17283,7 @@ mod tests {
                 assert_eq!(statistics.skipped_axioms, 0);
                 assert_eq!(statistics.edges, if projects { 6 } else { 0 });
                 assert_eq!(prepared.emission_attempts(), 0);
-                assert!(prepared
-                    .preparation
-                    .overlay_deltas
-                    .iter()
-                    .all(Option::is_none));
+                assert!(prepared.preparation.overlay_deltas.is_empty());
                 assert_eq!(
                     prepared
                         .preparation
@@ -16924,11 +17472,7 @@ mod tests {
             );
             assert_eq!(statistics.edges, if projects { 3 } else { 0 });
             assert_eq!(prepared.emission_attempts(), 0);
-            assert!(prepared
-                .preparation
-                .overlay_deltas
-                .iter()
-                .all(Option::is_none));
+            assert!(prepared.preparation.overlay_deltas.is_empty());
             assert_eq!(
                 prepared
                     .preparation
@@ -17138,7 +17682,7 @@ mod tests {
                     true,
                     false,
                 ),
-                "exactly one named ObjectPropertyDomain",
+                LOCAL_EMITTING_OVERLAY_REQUIREMENT,
             ),
             (
                 local_object_property_class_pair_delta_fixture(
@@ -17242,11 +17786,7 @@ mod tests {
                     assert_eq!(statistics.skipped_axioms, 0);
                     assert_eq!(statistics.edges, 1);
                     assert_eq!(prepared.emission_attempts(), 0);
-                    assert!(prepared
-                        .preparation
-                        .overlay_deltas
-                        .iter()
-                        .all(Option::is_none));
+                    assert!(prepared.preparation.overlay_deltas.is_empty());
                     let (edges, cursor) = prepared
                         .prepare_next_batch(base.columns(), &running_state(), 1)
                         .unwrap();
@@ -17283,11 +17823,7 @@ mod tests {
         assert_eq!(silent.statistics().edges, 0);
         assert_eq!(silent.statistics().skipped_axioms, 0);
         assert_eq!(silent.emission_attempts(), 0);
-        assert!(silent
-            .preparation
-            .overlay_deltas
-            .iter()
-            .all(Option::is_none));
+        assert!(silent.preparation.overlay_deltas.is_empty());
         assert!(silent.is_exhausted());
 
         let duplicate_base = local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 2, true, false);
@@ -17398,11 +17934,7 @@ mod tests {
                 assert_eq!(statistics.skipped_axioms, 0);
                 assert_eq!(statistics.edges, if projects_roles { 3 } else { 1 });
                 assert_eq!(prepared.emission_attempts(), 0);
-                assert!(prepared
-                    .preparation
-                    .overlay_deltas
-                    .iter()
-                    .all(Option::is_none));
+                assert!(prepared.preparation.overlay_deltas.is_empty());
 
                 let mut edges = Vec::new();
                 while prepared.remaining_edges() != 0 {
@@ -17595,11 +18127,7 @@ mod tests {
                     assert_eq!(statistics.skipped_axioms, 0);
                     assert_eq!(statistics.edges, 1);
                     assert_eq!(prepared.emission_attempts(), 0);
-                    assert!(prepared
-                        .preparation
-                        .overlay_deltas
-                        .iter()
-                        .all(Option::is_none));
+                    assert!(prepared.preparation.overlay_deltas.is_empty());
                     let (edges, cursor) = prepared
                         .prepare_next_batch(base.columns(), &running_state(), 1)
                         .unwrap();
@@ -17633,11 +18161,7 @@ mod tests {
             assert_eq!(silent.statistics().edges, 0);
             assert_eq!(silent.statistics().skipped_axioms, 0);
             assert_eq!(silent.emission_attempts(), 0);
-            assert!(silent
-                .preparation
-                .overlay_deltas
-                .iter()
-                .all(Option::is_none));
+            assert!(silent.preparation.overlay_deltas.is_empty());
             assert!(silent.is_exhausted());
 
             let duplicate_base = local_annotation_delta_fixture(kind, false, false, false);
@@ -18441,7 +18965,7 @@ mod tests {
                 canonical_limits().max_workspace_bytes,
             ),
             Err(KernelError::Unsupported(message))
-                if message.contains("exactly one named ObjectPropertyDomain")
+                if message.contains(LOCAL_EMITTING_OVERLAY_REQUIREMENT)
         ));
         let duplicate = named_subclass_delta_fixture(b"urn:A", b"urn:B");
         assert!(matches!(
