@@ -343,12 +343,12 @@ def _resolve_private_single_overlay_delta(
 
     The private native seam admits only one direct ``ALL`` or ``EXCLUDE``
     source and either one local ``ALL`` delta root, an exact two-root named
-    ``SubClassOf`` envelope, or the exact two-root
-    ObjectPropertyDomain/ObjectPropertyRange envelope. Rust still validates
-    the complete source and local tables, their exact cross-table canonical
-    order, the optional source posting table, and every local constructor
-    before output. Every other valid segmented form remains a whole-operation
-    scalar fallback.
+    ``SubClassOf`` or ``ClassAssertion`` envelope, or the exact two-root
+    ObjectPropertyDomain/ObjectPropertyRange envelope. Rust still validates the
+    complete source and local tables, their exact cross-table canonical order,
+    the optional source posting table, and every local constructor before
+    output. Every other valid segmented form remains a whole-operation scalar
+    fallback.
     """
 
     if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:

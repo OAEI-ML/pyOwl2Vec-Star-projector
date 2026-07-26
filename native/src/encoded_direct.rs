@@ -1745,6 +1745,65 @@ enum OwnedOverlayDeltaProjection {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OverlayDeltaProjectionKind {
+    Taxonomy,
+    Restriction,
+    ClassAssertion,
+    ObjectPropertyAssertion,
+}
+
+impl OwnedOverlayDeltaProjection {
+    fn kind(&self) -> OverlayDeltaProjectionKind {
+        match self {
+            Self::Taxonomy { .. } => OverlayDeltaProjectionKind::Taxonomy,
+            Self::Restriction { .. } => OverlayDeltaProjectionKind::Restriction,
+            Self::ClassAssertion { .. } => OverlayDeltaProjectionKind::ClassAssertion,
+            Self::ObjectPropertyAssertion { .. } => {
+                OverlayDeltaProjectionKind::ObjectPropertyAssertion
+            }
+        }
+    }
+
+    fn apply_statistics(&self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
+        match self {
+            Self::Taxonomy { .. } => {
+                statistics.subclasses = statistics
+                    .subclasses
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+            }
+            Self::Restriction { .. } => {
+                statistics.subclasses = statistics
+                    .subclasses
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+                statistics.restriction_subclasses = statistics
+                    .restriction_subclasses
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded restriction-subclass count overflow")
+                    })?;
+            }
+            Self::ClassAssertion { .. } => {
+                statistics.class_assertions =
+                    statistics.class_assertions.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded class-assertion count overflow")
+                    })?;
+            }
+            Self::ObjectPropertyAssertion { .. } => {
+                statistics.object_property_assertions = statistics
+                    .object_property_assertions
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded object-property-assertion count overflow")
+                    })?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 struct OwnedOverlayDelta {
     projection: OwnedOverlayDeltaProjection,
@@ -7924,11 +7983,53 @@ fn own_local_subclass_projection(
             relation: clone_text(relation)?,
             destination: clone_text(destination)?,
         }),
-        SubclassProjection::Ignored => Err(KernelError::unsupported(
-            "bounded local-overlay SubClassOf root requires named taxonomy or a named role restriction",
-        )),
+        SubclassProjection::Ignored => Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT)),
     }
 }
+
+fn own_local_class_assertion_projection(
+    columns: DirectColumns<'_>,
+    root: usize,
+    max_iri_bytes: usize,
+) -> Result<OwnedOverlayDeltaProjection, KernelError> {
+    if columns.node_tag(root)? != TAG_CLASS_ASSERTION {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay class-assertion envelope requires ClassAssertion roots",
+        ));
+    }
+    let field_start = columns.exact_fields(root, 3)?;
+    let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
+    if annotation_count != 0 {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay ClassAssertion root must be unannotated",
+        ));
+    }
+    match columns.class_assertion_projection(root, max_iri_bytes)? {
+        ClassAssertionProjection::Edge { individual, class } => {
+            Ok(OwnedOverlayDeltaProjection::ClassAssertion {
+                individual: clone_text(individual)?,
+                class: clone_text(class)?,
+            })
+        }
+        ClassAssertionProjection::Ignored => {
+            Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT))
+        }
+    }
+}
+
+fn own_local_emitting_projection(
+    columns: DirectColumns<'_>,
+    root: usize,
+    max_iri_bytes: usize,
+) -> Result<OwnedOverlayDeltaProjection, KernelError> {
+    match columns.node_tag(root)? {
+        TAG_SUB_CLASS_OF => own_local_subclass_projection(columns, root, max_iri_bytes),
+        TAG_CLASS_ASSERTION => own_local_class_assertion_projection(columns, root, max_iri_bytes),
+        _ => Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT)),
+    }
+}
+
+const TWO_ROOT_OVERLAY_REQUIREMENT: &str = "bounded two-root local overlay requires exactly two named unannotated SubClassOf roots or exactly one named ObjectPropertyDomain and one named ObjectPropertyRange or exactly two named unannotated ClassAssertion roots";
 
 pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     base_columns: DirectColumns<'_>,
@@ -7952,7 +8053,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let delta_root_count = delta_columns.root_count();
     if !(1..=2).contains(&delta_root_count) {
         return Err(KernelError::unsupported(
-            "bounded local-overlay compilation requires exactly one local root, one canonical named SubClassOf pair, or one canonical ObjectPropertyDomain/ObjectPropertyRange pair",
+            "bounded local-overlay compilation requires exactly one local root, one canonical named SubClassOf pair, one canonical named ClassAssertion pair, or one canonical ObjectPropertyDomain/ObjectPropertyRange pair",
         ));
     }
 
@@ -7966,18 +8067,8 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 object_property_ranges: 1,
                 ..RootCounts::default()
             });
-    let paired_named_subclasses = delta_root_count == 2
-        && delta_counts
-            == (RootCounts {
-                subclasses: 2,
-                ..RootCounts::default()
-            });
-    let paired_delta = paired_object_property_class || paired_named_subclasses;
-    if delta_root_count == 2 && !paired_delta {
-        return Err(KernelError::unsupported(
-            "bounded two-root local overlay requires exactly two named unannotated SubClassOf roots or exactly one named ObjectPropertyDomain and one named ObjectPropertyRange",
-        ));
-    }
+    let paired_emitting_delta = delta_root_count == 2 && !paired_object_property_class;
+    let paired_delta = paired_object_property_class || paired_emitting_delta;
     let delta_root = delta_columns.root_id(0)?;
     let delta_root_kind = delta_columns.root_kind(0)?;
     let delta_tag = delta_columns.node_tag(delta_root)?;
@@ -8006,7 +8097,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let local_role_rule = LocalRoleRulePlan::classify(delta_counts, delta_tag, local_rule_context);
     let mut object_property_class_rules = [object_property_class_rule, None];
     let mut local_object_property_classes = [None, None];
-    let mut paired_subclass_projections = [None, None];
+    let mut paired_overlay_projections = [None, None];
     if paired_object_property_class {
         for root_index in 0..delta_root_count {
             check_cancel(state, root_index)?;
@@ -8058,8 +8149,9 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             ));
         }
     }
-    if paired_named_subclasses {
-        for (root_index, projection) in paired_subclass_projections
+    if paired_emitting_delta {
+        let mut projection_kind = None;
+        for (root_index, projection) in paired_overlay_projections
             .iter_mut()
             .enumerate()
             .take(delta_root_count)
@@ -8068,15 +8160,19 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
             let root = delta_columns.root_id(root_index)?;
             if delta_columns.root_kind(root_index)? != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
-                    "bounded two-root SubClassOf overlay requires axiom roots",
+                    "bounded two-root emitting overlay requires axiom roots",
                 ));
             }
-            let owned = own_local_subclass_projection(delta_columns, root, options.max_iri_bytes)?;
-            if !matches!(owned, OwnedOverlayDeltaProjection::Taxonomy { .. }) {
-                return Err(KernelError::unsupported(
-                    "bounded two-root SubClassOf overlay requires named class operands",
-                ));
+            let owned = own_local_emitting_projection(delta_columns, root, options.max_iri_bytes)?;
+            let owned_kind = owned.kind();
+            if !matches!(
+                owned_kind,
+                OverlayDeltaProjectionKind::Taxonomy | OverlayDeltaProjectionKind::ClassAssertion
+            ) || projection_kind.is_some_and(|kind| kind != owned_kind)
+            {
+                return Err(KernelError::unsupported(TWO_ROOT_OVERLAY_REQUIREMENT));
             }
+            projection_kind = Some(owned_kind);
             *projection = Some(owned);
         }
     }
@@ -8099,7 +8195,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                     ..RootCounts::default()
                 }))
     {
-        Some(own_local_subclass_projection(
+        Some(own_local_emitting_projection(
             delta_columns,
             delta_root,
             options.max_iri_bytes,
@@ -8130,27 +8226,11 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         })
         && delta_tag == TAG_CLASS_ASSERTION
     {
-        let field_start = delta_columns.exact_fields(delta_root, 3)?;
-        let (_annotation_start, annotation_count) =
-            delta_columns.node_set_range(field_start + 2, 0)?;
-        if annotation_count != 0 {
-            return Err(KernelError::unsupported(
-                "bounded local-overlay ClassAssertion root must be unannotated",
-            ));
-        }
-        match delta_columns.class_assertion_projection(delta_root, options.max_iri_bytes)? {
-            ClassAssertionProjection::Edge { individual, class } => {
-                Some(OwnedOverlayDeltaProjection::ClassAssertion {
-                    individual: clone_text(individual)?,
-                    class: clone_text(class)?,
-                })
-            }
-            ClassAssertionProjection::Ignored => {
-                return Err(KernelError::unsupported(
-                    "bounded local-overlay ClassAssertion root requires a named class and named individual",
-                ));
-            }
-        }
+        Some(own_local_emitting_projection(
+            delta_columns,
+            delta_root,
+            options.max_iri_bytes,
+        )?)
     } else if let Some(kind) = silent_ignored_class_root {
         let constructor = kind.constructor();
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
@@ -8803,7 +8883,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     let mut projection_role_expansion_edges = 0_usize;
     for local_projection in projection
         .iter()
-        .chain(paired_subclass_projections.iter().flatten())
+        .chain(paired_overlay_projections.iter().flatten())
     {
         let (edges, role_expansion_edges) = match local_projection {
             OwnedOverlayDeltaProjection::Taxonomy { .. } => (
@@ -8879,51 +8959,19 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         .nodes
         .checked_add(delta_columns.node_count())
         .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
+    for local_projection in projection
+        .iter()
+        .chain(paired_overlay_projections.iter().flatten())
+    {
+        local_projection.apply_statistics(statistics)?;
+    }
+    statistics.role_expansion_edges = statistics
+        .role_expansion_edges
+        .checked_add(projection_role_expansion_edges)
+        .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
     match &projection {
-        Some(OwnedOverlayDeltaProjection::Taxonomy { .. }) => {
-            statistics.subclasses = statistics
-                .subclasses
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
-        }
-        Some(OwnedOverlayDeltaProjection::Restriction { .. }) => {
-            statistics.subclasses = statistics
-                .subclasses
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
-            statistics.restriction_subclasses = statistics
-                .restriction_subclasses
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded restriction-subclass count overflow")
-                })?;
-            statistics.role_expansion_edges = statistics
-                .role_expansion_edges
-                .checked_add(projection_role_expansion_edges)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded role-expansion edge-count overflow")
-                })?;
-        }
-        Some(OwnedOverlayDeltaProjection::ClassAssertion { .. }) => {
-            statistics.class_assertions = statistics
-                .class_assertions
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded class-assertion count overflow"))?;
-        }
-        Some(OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }) => {
-            statistics.object_property_assertions = statistics
-                .object_property_assertions
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded object-property-assertion count overflow")
-                })?;
-        }
-        None if paired_named_subclasses => {
-            statistics.subclasses = statistics
-                .subclasses
-                .checked_add(delta_root_count)
-                .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
-        }
+        Some(_) => {}
+        None if paired_emitting_delta => {}
         None if local_annotation_rule.is_some() => {
             let Some(rule) = local_annotation_rule else {
                 unreachable!("matched local annotation rule remains available");
@@ -9252,14 +9300,14 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
         .checked_add(delta_columns.buffer_bytes()?)
         .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
     let mut overlay_deltas = [None, None];
-    if paired_named_subclasses {
-        for (root_index, projection) in paired_subclass_projections.into_iter().enumerate() {
+    if paired_emitting_delta {
+        for (root_index, projection) in paired_overlay_projections.into_iter().enumerate() {
             let projection = projection.ok_or_else(|| {
-                KernelError::malformed("encoded two-root SubClassOf overlay lost its projection")
+                KernelError::malformed("encoded paired emitting overlay lost its projection")
             })?;
             let insertion_position = insertion_positions[root_index].ok_or_else(|| {
                 KernelError::malformed(
-                    "encoded two-root SubClassOf overlay lost its insertion position",
+                    "encoded paired emitting overlay lost its insertion position",
                 )
             })?;
             overlay_deltas[root_index] = Some(OwnedOverlayDelta {
@@ -10154,70 +10202,171 @@ mod tests {
         fixture
     }
 
+    fn named_class_assertions_fixture(
+        assertions: &[(&[u8], &[u8])],
+        annotate_first: bool,
+    ) -> Fixture {
+        assert!(!assertions.is_empty());
+        let mut fixture = Fixture::default();
+        for (class_iri, _individual_iri) in assertions {
+            fixture.push_scalar(COMPONENT_TEXT, class_iri);
+            fixture.finish_node(TAG_IRI);
+        }
+        for (_class_iri, individual_iri) in assertions {
+            fixture.push_scalar(COMPONENT_TEXT, individual_iri);
+            fixture.finish_node(TAG_IRI);
+        }
+        let assertion_count = assertions.len() as u64;
+        for iri_id in 1..=assertion_count {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY);
+        }
+        for iri_id in assertion_count + 1..=assertion_count * 2 {
+            fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY);
+        }
+
+        let annotation_id = if annotate_first {
+            fixture.push_scalar(COMPONENT_TEXT, b"urn:label");
+            fixture.finish_node(TAG_IRI);
+            let label_iri = fixture.node_tags.len() as u64 / 2;
+            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
+            fixture.push_node_ref(label_iri);
+            fixture.finish_node(TAG_ENTITY);
+            let annotation_property = fixture.node_tags.len() as u64 / 2;
+            fixture.push_node_ref(annotation_property);
+            fixture.push_node_ref(1);
+            fixture.push_empty_set();
+            fixture.finish_node(TAG_ANNOTATION);
+            Some(fixture.node_tags.len() as u64 / 2)
+        } else {
+            None
+        };
+        for index in 0..assertions.len() {
+            fixture.push_node_ref(assertion_count * 2 + index as u64 + 1);
+            fixture.push_node_ref(assertion_count * 3 + index as u64 + 1);
+            let annotation_ids = if index == 0 {
+                annotation_id.into_iter().collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            fixture.push_node_set(&annotation_ids);
+            fixture.finish_node(TAG_CLASS_ASSERTION);
+            fixture.root_kinds.push(ROOT_AXIOM);
+            fixture
+                .root_ids
+                .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        }
+        fixture
+    }
+
     fn named_class_assertion_delta_fixture(
         class_iri: &[u8],
         individual_iri: &[u8],
         annotated: bool,
     ) -> Fixture {
-        let mut fixture = Fixture::default();
-        fixture.push_scalar(COMPONENT_TEXT, class_iri);
-        fixture.finish_node(TAG_IRI); // 1
-        fixture.push_scalar(COMPONENT_TEXT, individual_iri);
-        fixture.finish_node(TAG_IRI); // 2
-        fixture.push_scalar(COMPONENT_ENUM, b"class");
-        fixture.push_node_ref(1);
-        fixture.finish_node(TAG_ENTITY); // 3
-        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
-        fixture.push_node_ref(2);
-        fixture.finish_node(TAG_ENTITY); // 4
+        named_class_assertions_fixture(&[(class_iri, individual_iri)], annotated)
+    }
 
-        let annotation_ids = if annotated {
-            fixture.push_scalar(COMPONENT_TEXT, b"urn:label");
-            fixture.finish_node(TAG_IRI); // 5
-            fixture.push_scalar(COMPONENT_ENUM, b"annotation_property");
-            fixture.push_node_ref(5);
-            fixture.finish_node(TAG_ENTITY); // 6
-            fixture.push_node_ref(6);
-            fixture.push_node_ref(1);
-            fixture.push_empty_set();
-            fixture.finish_node(TAG_ANNOTATION); // 7
-            vec![7]
-        } else {
-            Vec::new()
-        };
-        fixture.push_node_ref(3);
-        fixture.push_node_ref(4);
-        fixture.push_node_set(&annotation_ids);
-        fixture.finish_node(TAG_CLASS_ASSERTION);
-        fixture.root_kinds.push(ROOT_AXIOM);
-        fixture
-            .root_ids
-            .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
-        fixture
+    fn named_class_assertion_pair_delta_fixture(
+        first_class: &[u8],
+        first_individual: &[u8],
+        second_class: &[u8],
+        second_individual: &[u8],
+        annotated: bool,
+    ) -> Fixture {
+        named_class_assertions_fixture(
+            &[
+                (first_class, first_individual),
+                (second_class, second_individual),
+            ],
+            annotated,
+        )
     }
 
     fn named_class_assertion_base_fixture() -> Fixture {
+        named_class_assertions_fixture(
+            &[
+                (b"urn:A".as_slice(), b"urn:i".as_slice()),
+                (b"urn:C".as_slice(), b"urn:k".as_slice()),
+            ],
+            false,
+        )
+    }
+
+    fn ignored_class_assertion_pair_delta_fixture(anonymous: bool) -> Fixture {
         let mut fixture = Fixture::default();
-        for iri in [b"urn:A".as_slice(), b"urn:C", b"urn:i", b"urn:k"] {
+        for iri in [b"urn:B".as_slice(), b"urn:D", b"urn:j", b"urn:l", b"urn:p"] {
             fixture.push_scalar(COMPONENT_TEXT, iri);
-            fixture.finish_node(TAG_IRI); // 1..=4
+            fixture.finish_node(TAG_IRI); // 1..=5
         }
         for iri_id in [1_u64, 2] {
             fixture.push_scalar(COMPONENT_ENUM, b"class");
             fixture.push_node_ref(iri_id);
-            fixture.finish_node(TAG_ENTITY); // 5..=6
+            fixture.finish_node(TAG_ENTITY); // 6..=7
         }
         for iri_id in [3_u64, 4] {
             fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
             fixture.push_node_ref(iri_id);
-            fixture.finish_node(TAG_ENTITY); // 7..=8
+            fixture.finish_node(TAG_ENTITY); // 8..=9
         }
-        for (class, individual) in [(5_u64, 7_u64), (6, 8)] {
-            fixture.push_node_ref(class);
-            fixture.push_node_ref(individual);
-            fixture.push_empty_set();
-            fixture.finish_node(TAG_CLASS_ASSERTION); // 9..=10
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_ENTITY); // 10
+
+        fixture.push_node_ref(6);
+        fixture.push_node_ref(8);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 11
+
+        let (class, individual) = if anonymous {
+            fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+            fixture.push_scalar(COMPONENT_BYTES, b"local");
+            fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 12
+            (7, 12)
+        } else {
+            fixture.push_node_ref(10);
+            fixture.push_node_ref(7);
+            fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM); // 12
+            (12, 9)
+        };
+        fixture.push_node_ref(class);
+        fixture.push_node_ref(individual);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 13
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        for root_id in [11_u32, 13] {
+            fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
+        fixture
+    }
+
+    fn mixed_emitting_pair_delta_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:B".as_slice(), b"urn:C", b"urn:D", b"urn:i"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=4
+        }
+        for iri_id in [1_u64, 2, 3] {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 5..=7
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"named_individual");
+        fixture.push_node_ref(4);
+        fixture.finish_node(TAG_ENTITY); // 8
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 9
+        fixture.push_node_ref(7);
+        fixture.push_node_ref(8);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 10
         fixture
             .root_kinds
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
@@ -12965,6 +13114,424 @@ mod tests {
             ),
             Err(KernelError::Malformed(message)) if message.contains("canonical")
         ));
+    }
+
+    #[test]
+    fn two_root_class_assertion_overlay_merges_across_modes_and_exclusions() {
+        let base = named_class_assertions_fixture(
+            &[
+                (b"urn:A".as_slice(), b"urn:i".as_slice()),
+                (b"urn:C".as_slice(), b"urn:k".as_slice()),
+                (b"urn:E".as_slice(), b"urn:m".as_slice()),
+            ],
+            false,
+        );
+        let delta =
+            named_class_assertion_pair_delta_fixture(b"urn:B", b"urn:j", b"urn:D", b"urn:l", false);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 5,
+            max_iri_bytes: 1024,
+        };
+        let expected = vec![
+            DirectEdge {
+                source: "urn:i".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:A".into(),
+            },
+            DirectEdge {
+                source: "urn:j".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:B".into(),
+            },
+            DirectEdge {
+                source: "urn:k".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:C".into(),
+            },
+            DirectEdge {
+                source: "urn:l".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:D".into(),
+            },
+            DirectEdge {
+                source: "urn:m".into(),
+                relation: RDF_TYPE.into(),
+                destination: "urn:E".into(),
+            },
+        ];
+
+        for variant in [
+            options,
+            DirectCompileOptions {
+                bidirectional: true,
+                ..options
+            },
+            DirectCompileOptions {
+                only_taxonomy: true,
+                ..options
+            },
+        ] {
+            let state = running_state();
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                variant,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, 5);
+            assert_eq!(prepared.statistics().class_assertions, 5);
+            assert_eq!(prepared.statistics().ignored_class_assertions, 0);
+            assert_eq!(prepared.statistics().edges, 5);
+            assert_eq!(
+                prepared
+                    .preparation
+                    .overlay_deltas
+                    .iter()
+                    .flatten()
+                    .map(|delta| delta.insertion_position)
+                    .collect::<Vec<_>>(),
+                vec![1, 3]
+            );
+            assert_eq!(prepared.emission_attempts(), 0);
+
+            let (preview, cursor) = prepared
+                .prepare_next_batch(base.columns(), &state, 1)
+                .unwrap();
+            let (retry, _) = prepared
+                .prepare_next_batch(base.columns(), &state, 1)
+                .unwrap();
+            assert_eq!(preview, retry);
+            assert_eq!(preview, expected[..1]);
+            assert_eq!(prepared.remaining_edges(), 5);
+            prepared.commit_cursor(cursor);
+            let mut edges = preview;
+            while prepared.remaining_edges() != 0 {
+                let (batch, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &state, 1)
+                    .unwrap();
+                edges.extend(batch);
+                prepared.commit_cursor(cursor);
+            }
+            assert_eq!(edges, expected);
+            assert!(prepared.is_exhausted());
+        }
+
+        let asserted = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            DirectCompileOptions {
+                asserted_taxonomy_only: true,
+                ..options
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(asserted.statistics().roots, 5);
+        assert_eq!(asserted.statistics().class_assertions, 5);
+        assert_eq!(asserted.statistics().edges, 0);
+        assert_eq!(asserted.emission_attempts(), 0);
+        assert!(asserted.is_exhausted());
+
+        let excluded_middle = 2_u32.to_le_bytes();
+        let mut excluded_all = Vec::new();
+        for root_id in 1_u32..=3 {
+            excluded_all.extend_from_slice(&root_id.to_le_bytes());
+        }
+        for (excluded, expected_sources) in [
+            (
+                excluded_middle.as_slice(),
+                vec!["urn:i", "urn:j", "urn:l", "urn:m"],
+            ),
+            (excluded_all.as_slice(), vec!["urn:j", "urn:l"]),
+        ] {
+            let selected_base = base.columns().with_excluded_root_ids(excluded);
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                selected_base,
+                delta.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, expected_sources.len());
+            assert_eq!(
+                prepared.statistics().class_assertions,
+                expected_sources.len()
+            );
+            let mut edges = Vec::new();
+            while prepared.remaining_edges() != 0 {
+                let (batch, cursor) = prepared
+                    .prepare_next_batch(selected_base, &running_state(), 1)
+                    .unwrap();
+                edges.extend(batch);
+                prepared.commit_cursor(cursor);
+            }
+            assert_eq!(
+                edges
+                    .iter()
+                    .map(|edge| edge.source.as_str())
+                    .collect::<Vec<_>>(),
+                expected_sources
+            );
+        }
+    }
+
+    #[test]
+    fn two_root_class_assertion_overlay_preserves_delayed_consecutive_and_end_positions() {
+        let cases = [
+            (
+                named_class_assertions_fixture(
+                    &[
+                        (b"urn:A".as_slice(), b"urn:i".as_slice()),
+                        (b"urn:D".as_slice(), b"urn:l".as_slice()),
+                    ],
+                    false,
+                ),
+                named_class_assertion_pair_delta_fixture(
+                    b"urn:B", b"urn:j", b"urn:C", b"urn:k", false,
+                ),
+                vec![1, 2],
+            ),
+            (
+                named_class_assertions_fixture(
+                    &[
+                        (b"urn:A".as_slice(), b"urn:i".as_slice()),
+                        (b"urn:B".as_slice(), b"urn:j".as_slice()),
+                    ],
+                    false,
+                ),
+                named_class_assertion_pair_delta_fixture(
+                    b"urn:C", b"urn:k", b"urn:D", b"urn:l", false,
+                ),
+                vec![2, 3],
+            ),
+        ];
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 4,
+            max_iri_bytes: 1024,
+        };
+        for (base, delta, expected_positions) in cases {
+            let state = AtomicU8::new(STATE_RUNNING);
+            let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(
+                prepared
+                    .preparation
+                    .overlay_deltas
+                    .iter()
+                    .flatten()
+                    .map(|delta| delta.insertion_position)
+                    .collect::<Vec<_>>(),
+                expected_positions
+            );
+            let remaining = prepared.remaining_edges();
+            let (preview, cursor) = prepared
+                .prepare_next_batch(base.columns(), &state, 1)
+                .unwrap();
+            state.store(STATE_CANCELLED, Ordering::Release);
+            assert!(matches!(
+                prepared.prepare_next_batch(base.columns(), &state, 1),
+                Err(KernelError::Cancelled)
+            ));
+            assert_eq!(prepared.remaining_edges(), remaining);
+            state.store(STATE_RUNNING, Ordering::Release);
+            let (retry, _) = prepared
+                .prepare_next_batch(base.columns(), &state, 1)
+                .unwrap();
+            assert_eq!(preview, retry);
+            prepared.commit_cursor(cursor);
+            let mut edges = preview;
+            while prepared.remaining_edges() != 0 {
+                let (batch, cursor) = prepared
+                    .prepare_next_batch(base.columns(), &state, 1)
+                    .unwrap();
+                edges.extend(batch);
+                prepared.commit_cursor(cursor);
+            }
+            assert_eq!(
+                edges
+                    .iter()
+                    .map(|edge| edge.source.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["urn:i", "urn:j", "urn:k", "urn:l"]
+            );
+        }
+    }
+
+    #[test]
+    fn two_root_class_assertion_overlay_rejects_hostile_envelopes_preoutput() {
+        let base = named_class_assertions_fixture(
+            &[
+                (b"urn:A".as_slice(), b"urn:i".as_slice()),
+                (b"urn:C".as_slice(), b"urn:k".as_slice()),
+                (b"urn:E".as_slice(), b"urn:m".as_slice()),
+            ],
+            false,
+        );
+        let delta =
+            named_class_assertion_pair_delta_fixture(b"urn:B", b"urn:j", b"urn:D", b"urn:l", false);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 5,
+            max_iri_bytes: 1024,
+        };
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                delta.columns(),
+                DirectCompileOptions {
+                    max_edges: 4,
+                    ..options
+                },
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("requires 5 edges")
+        ));
+        for (work, workspace, expected) in [
+            (1, canonical_limits().max_workspace_bytes, "work"),
+            (canonical_limits().max_work, 1, "workspace"),
+        ] {
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    delta.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    work,
+                    workspace,
+                ),
+                Err(KernelError::Resource(message)) if message.contains(expected)
+            ));
+        }
+
+        let retained = OwnedRoleState {
+            subroles: vec![("urn:p".into(), vec!["urn:child".into()])],
+            inverses: vec![
+                ("urn:p".into(), "urn:pinv".into()),
+                ("urn:pinv".into(), "urn:p".into()),
+            ],
+        };
+        let retained_snapshot = retained.snapshot().unwrap();
+        let retry = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            options,
+            &running_state(),
+            Some(&retained),
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let remaining = retry.remaining_edges();
+        let (preview, _) = retry
+            .prepare_next_batch(base.columns(), &running_state(), 1)
+            .unwrap();
+
+        let anonymous = ignored_class_assertion_pair_delta_fixture(true);
+        let complex = ignored_class_assertion_pair_delta_fixture(false);
+        let mixed = mixed_emitting_pair_delta_fixture();
+        let wrong_pair = named_object_property_assertion_base_fixture();
+        for hostile in [&anonymous, &complex, &mixed, &wrong_pair] {
+            assert!(matches!(
+                prepare_single_overlay_delta_batches_uncommitted(
+                    base.columns(),
+                    hostile.columns(),
+                    options,
+                    &running_state(),
+                    Some(&retained),
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message))
+                    if message.contains("two named unannotated ClassAssertion roots")
+            ));
+            assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
+            assert_eq!(retry.remaining_edges(), remaining);
+            let (after_failure, _) = retry
+                .prepare_next_batch(base.columns(), &running_state(), 1)
+                .unwrap();
+            assert_eq!(after_failure, preview);
+        }
+
+        let annotated =
+            named_class_assertion_pair_delta_fixture(b"urn:B", b"urn:j", b"urn:D", b"urn:l", true);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                Some(&retained),
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+        ));
+        assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
+
+        let duplicate =
+            named_class_assertion_pair_delta_fixture(b"urn:A", b"urn:i", b"urn:B", b"urn:j", false);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                duplicate.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message)) if message.contains("duplicates")
+        ));
+
+        let mut reversed =
+            named_class_assertion_pair_delta_fixture(b"urn:B", b"urn:j", b"urn:D", b"urn:l", false);
+        reversed.root_ids.rotate_left(4);
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                reversed.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Malformed(message)) if message.contains("canonical")
+        ));
+        assert_eq!(retry.remaining_edges(), remaining);
     }
 
     #[test]
