@@ -7950,6 +7950,7 @@ fn own_local_subclass_projection(
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
+    state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     if columns.node_tag(root)? != TAG_SUB_CLASS_OF {
@@ -7958,12 +7959,7 @@ fn own_local_subclass_projection(
         ));
     }
     let field_start = columns.exact_fields(root, 3)?;
-    let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
-    if annotation_count != 0 {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay SubClassOf root must be unannotated",
-        ));
-    }
+    validate_local_emitting_annotation_scope(columns, root, field_start + 2, "SubClassOf", state)?;
     match columns.subclass_projection(root, max_iri_bytes)? {
         SubclassProjection::Taxonomy {
             source,
@@ -7991,6 +7987,7 @@ fn own_local_class_assertion_projection(
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
+    state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     if columns.node_tag(root)? != TAG_CLASS_ASSERTION {
@@ -7999,12 +7996,13 @@ fn own_local_class_assertion_projection(
         ));
     }
     let field_start = columns.exact_fields(root, 3)?;
-    let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
-    if annotation_count != 0 {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay ClassAssertion root must be unannotated",
-        ));
-    }
+    validate_local_emitting_annotation_scope(
+        columns,
+        root,
+        field_start + 2,
+        "ClassAssertion",
+        state,
+    )?;
     match columns.class_assertion_projection(root, max_iri_bytes)? {
         ClassAssertionProjection::Edge { individual, class } => {
             Ok(OwnedOverlayDeltaProjection::ClassAssertion {
@@ -8022,15 +8020,17 @@ fn own_local_object_property_assertion_projection(
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
+    state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     let field_start = columns.exact_fields(root, 4)?;
-    let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
-    if annotation_count != 0 {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay ObjectPropertyAssertion root must be unannotated",
-        ));
-    }
+    validate_local_emitting_annotation_scope(
+        columns,
+        root,
+        field_start + 3,
+        "ObjectPropertyAssertion",
+        state,
+    )?;
     let (source, relation, destination) =
         columns.object_property_assertion_parts(root, max_iri_bytes)?;
     match (source, destination) {
@@ -8047,25 +8047,48 @@ fn own_local_object_property_assertion_projection(
     }
 }
 
+fn validate_local_emitting_annotation_scope(
+    columns: DirectColumns<'_>,
+    root: usize,
+    annotation_field: usize,
+    constructor: &str,
+    state: &AtomicU8,
+) -> Result<(), KernelError> {
+    let (_annotation_start, annotation_count) = columns.node_set_range(annotation_field, 0)?;
+    if annotation_count != 0 && columns.root_contains_anonymous_individual(root, state)? {
+        return Err(KernelError::unsupported(format!(
+            "bounded local-overlay {constructor} root annotations require no anonymous individuals or local scope remap",
+        )));
+    }
+    Ok(())
+}
+
 fn own_local_emitting_projection(
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
+    state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     match columns.node_tag(root)? {
-        TAG_SUB_CLASS_OF => own_local_subclass_projection(columns, root, max_iri_bytes, workspace),
+        TAG_SUB_CLASS_OF => {
+            own_local_subclass_projection(columns, root, max_iri_bytes, state, workspace)
+        }
         TAG_CLASS_ASSERTION => {
-            own_local_class_assertion_projection(columns, root, max_iri_bytes, workspace)
+            own_local_class_assertion_projection(columns, root, max_iri_bytes, state, workspace)
         }
-        TAG_OBJECT_PROPERTY_ASSERTION => {
-            own_local_object_property_assertion_projection(columns, root, max_iri_bytes, workspace)
-        }
+        TAG_OBJECT_PROPERTY_ASSERTION => own_local_object_property_assertion_projection(
+            columns,
+            root,
+            max_iri_bytes,
+            state,
+            workspace,
+        ),
         _ => Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT)),
     }
 }
 
-const LOCAL_EMITTING_OVERLAY_REQUIREMENT: &str = "bounded local-overlay emitting segment requires only named unannotated SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots";
+const LOCAL_EMITTING_OVERLAY_REQUIREMENT: &str = "bounded local-overlay emitting segment requires only named SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots";
 
 #[derive(Debug)]
 struct LocalOverlayWorkspace {
@@ -8305,6 +8328,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
                 delta_columns,
                 root,
                 options.max_iri_bytes,
+                state,
                 &mut local_workspace,
             )?;
             overlay_deltas.push(OwnedOverlayDelta {
@@ -11036,6 +11060,21 @@ mod tests {
         fixture
     }
 
+    fn anonymous_annotated_object_property_assertion_delta_fixture() -> Fixture {
+        let mut fixture =
+            named_object_property_assertion_delta_fixture(b"urn:p", b"urn:j", b"urn:B", true);
+        fixture.push_scalar(COMPONENT_BYTES, &[7_u8; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"annotation-local");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 11
+
+        let annotation_start =
+            read_usize(&fixture.node_field_offsets, 8, "annotation offset").unwrap();
+        let value_field = annotation_start + 1;
+        fixture.field_values[value_field * 8..value_field * 8 + 8]
+            .copy_from_slice(&11_u64.to_le_bytes());
+        fixture
+    }
+
     fn named_object_property_assertion_base_fixture() -> Fixture {
         let mut fixture = Fixture::default();
         for iri in [b"urn:p".as_slice(), b"urn:i", b"urn:A", b"urn:k", b"urn:C"] {
@@ -13223,18 +13262,20 @@ mod tests {
 
         let annotated =
             named_subclass_pair_delta_fixture(b"urn:0", b"urn:1", b"urn:B", b"urn:C", true);
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                annotated.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
-        ));
+        let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated_prepared.statistics().roots, 4);
+        assert_eq!(annotated_prepared.statistics().subclasses, 3);
+        assert_eq!(annotated_prepared.statistics().edges, 3);
+        assert_eq!(annotated_prepared.emission_attempts(), 0);
 
         let duplicate_base =
             named_subclass_pair_delta_fixture(b"urn:A", b"urn:B", b"urn:C", b"urn:D", false);
@@ -13635,18 +13676,20 @@ mod tests {
 
         let annotated =
             named_class_assertion_pair_delta_fixture(b"urn:B", b"urn:j", b"urn:D", b"urn:l", true);
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                annotated.columns(),
-                options,
-                &running_state(),
-                Some(&retained),
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
-        ));
+        let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            Some(&retained),
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated_prepared.statistics().roots, 5);
+        assert_eq!(annotated_prepared.statistics().class_assertions, 5);
+        assert_eq!(annotated_prepared.statistics().edges, 5);
+        assert_eq!(annotated_prepared.emission_attempts(), 0);
         assert_eq!(retained.snapshot().unwrap(), retained_snapshot);
 
         let duplicate =
@@ -14375,18 +14418,21 @@ mod tests {
 
         let annotated =
             named_restriction_delta_fixture(TAG_OBJECT_SOME_VALUES_FROM, false, false, true);
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                annotated.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
-        ));
+        let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated_prepared.statistics().roots, 3);
+        assert_eq!(annotated_prepared.statistics().subclasses, 1);
+        assert_eq!(annotated_prepared.statistics().restriction_subclasses, 1);
+        assert_eq!(annotated_prepared.statistics().edges, 3);
+        assert_eq!(annotated_prepared.emission_attempts(), 0);
     }
 
     #[test]
@@ -14586,18 +14632,20 @@ mod tests {
         ));
 
         let annotated = named_class_assertion_delta_fixture(b"urn:B", b"urn:j", true);
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                annotated.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
-        ));
+        let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated_prepared.statistics().roots, 3);
+        assert_eq!(annotated_prepared.statistics().class_assertions, 3);
+        assert_eq!(annotated_prepared.statistics().edges, 3);
+        assert_eq!(annotated_prepared.emission_attempts(), 0);
     }
 
     #[test]
@@ -14800,17 +14848,39 @@ mod tests {
 
         let annotated =
             named_object_property_assertion_delta_fixture(b"urn:p", b"urn:j", b"urn:B", true);
+        let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated_prepared.statistics().roots, 3);
+        assert_eq!(
+            annotated_prepared.statistics().object_property_assertions,
+            3
+        );
+        assert_eq!(annotated_prepared.statistics().edges, 3);
+        assert_eq!(annotated_prepared.emission_attempts(), 0);
+
+        let anonymous_annotated = anonymous_annotated_object_property_assertion_delta_fixture();
         assert!(matches!(
             prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
-                annotated.columns(),
+                anonymous_annotated.columns(),
                 options,
                 &running_state(),
                 None,
                 canonical_limits().max_work,
                 canonical_limits().max_workspace_bytes,
             ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            Err(KernelError::Unsupported(message))
+                if message.contains(
+                    "ObjectPropertyAssertion root annotations require no anonymous individuals or local scope remap"
+                )
         ));
 
         let inverse = inverse_object_property_assertion_delta_fixture();

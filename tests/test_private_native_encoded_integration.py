@@ -9104,58 +9104,246 @@ def test_nonempty_multi_root_emitting_overlay_fails_preoutput_and_retries(
 
 
 @pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    ("local_body", "expected_statistics"),
+    [
+        (
+            'SubClassOf(Annotation(Annotation(:nested "y") :label "x") :B :C)',
+            (2, 2, 0, 0, 0, 2),
+        ),
+        (
+            'SubClassOf(Annotation(:label "x") :B '
+            "ObjectSomeValuesFrom(:p :C))",
+            (2, 2, 1, 0, 0, 2),
+        ),
+        (
+            'ClassAssertion(Annotation(:label "x") :B :i)',
+            (2, 1, 0, 1, 0, 2),
+        ),
+        (
+            'ObjectPropertyAssertion(Annotation(:label "x") :p :i :j)',
+            (2, 1, 0, 0, 1, 2),
+        ),
+        (
+            'SubClassOf(Annotation(:label "taxonomy") :B :C) '
+            'ClassAssertion(Annotation(:label "type") :D :i) '
+            'ObjectPropertyAssertion(Annotation(:label "relation") :q :i :j)',
+            (4, 2, 0, 1, 1, 4),
+        ),
+    ],
+    ids=[
+        "nested-metadata-taxonomy",
+        "metadata-restriction",
+        "metadata-class-assertion",
+        "metadata-object-assertion",
+        "metadata-cross-phase",
+    ],
+)
+def test_hidden_iterator_compiles_metadata_annotated_local_projection_roots(
+    provider_backend: pyowl_core.BackendPreference,
+    local_body: str,
+    expected_statistics: tuple[int, int, int, int, int, int],
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :B)", backend=provider_backend),
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(local_body, backend=provider_backend),
+    )
+    added = set(addition_source.iter_axioms())
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(add_axioms=cast(Any, added)),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "metadata-annotated local projection reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics
+    assert len(captured) == 1
+    statistics = captured[0].native_statistics
+    assert (
+        statistics.roots,
+        statistics.subclasses,
+        statistics.restriction_subclasses,
+        statistics.class_assertions,
+        statistics.object_property_assertions,
+        statistics.edges,
+    ) == expected_statistics
+    assert statistics.skipped_axioms == 0
+    assert captured[0].batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    ("local_body", "constructor"),
+    [
+        (
+            "SubClassOf(Annotation(:label _:metadata) :B :C)",
+            "SubClassOf",
+        ),
+        (
+            "ClassAssertion(Annotation(:label _:metadata) :B :i)",
+            "ClassAssertion",
+        ),
+        (
+            "ObjectPropertyAssertion(Annotation(:label _:metadata) :p :i :j)",
+            "ObjectPropertyAssertion",
+        ),
+    ],
+    ids=["taxonomy", "class-assertion", "object-assertion"],
+)
+def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
+    provider_backend: pyowl_core.BackendPreference,
+    local_body: str,
+    constructor: str,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :B)", backend=provider_backend),
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(local_body, backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = Projector().project(overlay, options=python_options)
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            overlay,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert (
+        f"{constructor} root annotations require no anonymous individuals "
+        "or local scope remap"
+    ) in ingestion.reason
+    assert ingestion.counters.get("native_compiled_edges", 0) == 0
+    assert ingestion.counters["encoded_buffer_count"] == 0
+
+
+@pytest.mark.parametrize(
     ("local_body", "reason"),
     [
         (
             "SubClassOf(:B :C) SubClassOf(ObjectUnionOf(:D :E) :F)",
-            "bounded local-overlay emitting segment requires only named unannotated "
+            "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
-            'SubClassOf(Annotation(:label "x") :B :C) SubClassOf(:D :E)',
-            "bounded local-overlay SubClassOf root must be unannotated",
-        ),
-        (
             "ClassAssertion(:B :i) ClassAssertion(ObjectSomeValuesFrom(:p :C) :j)",
-            "bounded local-overlay emitting segment requires only named unannotated "
+            "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ClassAssertion(:B :i) ClassAssertion(:C _:anonymous)",
-            "bounded local-overlay emitting segment requires only named unannotated "
+            "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
-            'ClassAssertion(Annotation(:label "x") :B :i) ClassAssertion(:C :j)',
-            "bounded local-overlay ClassAssertion root must be unannotated",
-        ),
-        (
             "SubClassOf(:B :C) ClassAssertion(:D :i) Declaration(Class(:E))",
-            "bounded local-overlay emitting segment requires only named unannotated "
+            "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "SubClassOf(:B :C) "
             "ClassAssertion(ObjectSomeValuesFrom(:p :E) :i) "
             "ObjectPropertyAssertion(:q :i :j)",
-            "bounded local-overlay emitting segment requires only named unannotated "
+            "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
-        ),
-        (
-            "SubClassOf(:B :C) "
-            'ClassAssertion(Annotation(:label "x") :D :i) '
-            "ObjectPropertyAssertion(:q :i :j)",
-            "bounded local-overlay ClassAssertion root must be unannotated",
         ),
         (
             "SubClassOf(:B :C) ClassAssertion(:D :i) "
             "SubObjectPropertyOf(:p :q)",
-            "bounded local-overlay emitting segment requires only named unannotated "
+            "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ObjectPropertyDomain(:p :A) ObjectPropertyDomain(:p :B)",
-            "bounded local-overlay emitting segment requires only named unannotated "
+            "bounded local-overlay emitting segment requires only named "
             "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
@@ -9238,17 +9426,9 @@ def test_nonempty_multi_root_emitting_overlay_fails_preoutput_and_retries(
             "individuals or local scope remap",
         ),
         (
-            'SubClassOf(Annotation(:label "x") :B ObjectSomeValuesFrom(:p :C))',
-            "bounded local-overlay SubClassOf root must be unannotated",
-        ),
-        (
             'SubClassOf(Annotation(:label "x") :B ObjectSomeValuesFrom('
             ":p ObjectIntersectionOf(:C :D)))",
             "bounded local-overlay SubClassOf root must be unannotated",
-        ),
-        (
-            'ClassAssertion(Annotation(:label "x") :B :i)',
-            "bounded local-overlay ClassAssertion root must be unannotated",
         ),
         (
             "ClassAssertion(:B _:anonymous)",
@@ -9259,10 +9439,6 @@ def test_nonempty_multi_root_emitting_overlay_fails_preoutput_and_retries(
             'ClassAssertion(Annotation(:label "x") '
             "ObjectSomeValuesFrom(:p :B) :i)",
             "bounded local-overlay ClassAssertion root must be unannotated",
-        ),
-        (
-            'ObjectPropertyAssertion(Annotation(:label "x") :p :i :j)',
-            "bounded local-overlay ObjectPropertyAssertion root must be unannotated",
         ),
         (
             "ObjectPropertyAssertion(:p _:anonymous :j)",
@@ -9441,13 +9617,10 @@ def test_nonempty_multi_root_emitting_overlay_fails_preoutput_and_retries(
     ],
     ids=[
         "ignored-taxonomy-local-subclasses",
-        "annotated-local-subclass-pair",
         "named-and-complex-local-class-assertions",
         "named-and-anonymous-local-class-assertions",
-        "annotated-local-class-assertion-pair",
         "three-roots-with-declaration",
         "three-roots-with-complex-class-assertion",
-        "three-roots-with-annotated-class-assertion",
         "three-roots-with-state-mutating-role",
         "two-local-domains",
         "two-local-properties",
@@ -9466,12 +9639,9 @@ def test_nonempty_multi_root_emitting_overlay_fails_preoutput_and_retries(
         "annotated-local-inverse-object-properties",
         "annotated-local-annotation-assertion",
         "anonymous-local-annotation-assertion",
-        "annotated-local-restriction",
         "annotated-complex-local-restriction-filler",
-        "annotated-local-class-assertion",
         "anonymous-local-class-assertion",
         "annotated-complex-local-class-assertion",
-        "annotated-local-object-property-assertion",
         "anonymous-local-object-property-assertion",
         "annotated-local-negative-object-property-assertion",
         "anonymous-local-negative-object-property-assertion",
