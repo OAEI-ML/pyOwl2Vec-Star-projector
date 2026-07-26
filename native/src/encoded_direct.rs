@@ -1307,7 +1307,6 @@ struct LocalAnnotationRule {
     constructor: &'static str,
     field_count: usize,
     annotation_field_offset: usize,
-    annotation_error: &'static str,
     retain_counter_by_mode: [bool; 3],
     supports_literal_projection: bool,
     scope_policy: LocalAnonymousScopePolicy,
@@ -1321,7 +1320,6 @@ const LOCAL_ANNOTATION_RULES: [LocalAnnotationRule; 2] = [
         constructor: "ontology Annotation",
         field_count: 3,
         annotation_field_offset: 2,
-        annotation_error: "must have no nested annotations",
         retain_counter_by_mode: [true, true, true],
         supports_literal_projection: false,
         scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
@@ -1333,7 +1331,6 @@ const LOCAL_ANNOTATION_RULES: [LocalAnnotationRule; 2] = [
         constructor: "AnnotationAssertion",
         field_count: 4,
         annotation_field_offset: 3,
-        annotation_error: "must be unannotated",
         retain_counter_by_mode: [true, true, true],
         supports_literal_projection: false,
         scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
@@ -1386,13 +1383,7 @@ impl LocalAnnotationRulePlan {
             .ok_or_else(|| {
                 KernelError::resource("encoded local annotation field offset overflow")
             })?;
-        let (_annotation_start, annotation_count) = columns.node_set_range(annotation_field, 0)?;
-        if annotation_count != 0 {
-            return Err(KernelError::unsupported(format!(
-                "bounded local-overlay {} root {}",
-                self.rule.constructor, self.rule.annotation_error,
-            )));
-        }
+        columns.node_set_range(annotation_field, 0)?;
         self.rule
             .scope_policy
             .validate(columns, root, context, self.rule.constructor, state)
@@ -20775,8 +20766,10 @@ mod tests {
             LocalAnnotationRuleKind::OntologyAnnotation,
             LocalAnnotationRuleKind::Assertion,
         ] {
-            for literal_value in [false, true] {
-                let delta = local_annotation_delta_fixture(kind, literal_value, false, false);
+            for (literal_value, annotated) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let delta = local_annotation_delta_fixture(kind, literal_value, annotated, false);
                 let counts = delta
                     .columns()
                     .classify_roots(options.max_iri_bytes, &running_state())
@@ -20814,7 +20807,9 @@ mod tests {
                         canonical_limits().max_workspace_bytes,
                     )
                     .unwrap_or_else(|error| {
-                        panic!("local annotation kind={kind:?} literal={literal_value}: {error:?}")
+                        panic!(
+                            "local annotation kind={kind:?} literal={literal_value} annotated={annotated}: {error:?}"
+                        )
                     });
                     let statistics = prepared.statistics();
                     assert_eq!(statistics.roots, 3);
@@ -20886,45 +20881,26 @@ mod tests {
                 Err(KernelError::Unsupported(message)) if message.contains("duplicates")
             ));
 
-            let annotated = local_annotation_delta_fixture(kind, false, true, false);
-            assert!(matches!(
-                prepare_single_overlay_delta_batches_uncommitted(
+            for annotated in [false, true] {
+                let anonymous = local_annotation_delta_fixture(kind, false, annotated, true);
+                let anonymous_result = prepare_single_overlay_delta_batches_uncommitted(
                     base.columns(),
-                    annotated.columns(),
+                    anonymous.columns(),
                     options,
                     &running_state(),
                     None,
                     canonical_limits().max_work,
                     canonical_limits().max_workspace_bytes,
-                ),
-                Err(KernelError::Unsupported(message))
-                    if message.contains(
-                        if kind == LocalAnnotationRuleKind::OntologyAnnotation {
-                            "must have no nested annotations"
-                        } else {
-                            "must be unannotated"
-                        }
-                    )
-            ));
-
-            let anonymous = local_annotation_delta_fixture(kind, false, false, true);
-            let anonymous_result = prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                anonymous.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            );
-            assert!(
-                matches!(
-                    &anonymous_result,
-                    Err(KernelError::Unsupported(message))
-                        if message.contains("no anonymous individuals or local scope remap")
-                ),
-                "{anonymous_result:?}",
-            );
+                );
+                assert!(
+                    matches!(
+                        &anonymous_result,
+                        Err(KernelError::Unsupported(message))
+                            if message.contains("no anonymous individuals or local scope remap")
+                    ),
+                    "{anonymous_result:?}",
+                );
+            }
         }
     }
 

@@ -4763,12 +4763,22 @@ def test_private_overlay_stateful_role_axiom_preserves_asserted_taxonomy(
             "AnnotationAssertion(<urn:meta> <urn:subject> <urn:value>)",
             "annotation-assertion",
         ),
+        (
+            'Annotation(Annotation(<urn:nested> "x") <urn:meta> "value")',
+            "ontology-annotation",
+        ),
+        (
+            'AnnotationAssertion(Annotation(<urn:nested> "x") <urn:meta> <urn:subject> "value")',
+            "annotation-assertion",
+        ),
     ],
     ids=[
         "ontology-literal",
         "ontology-iri",
         "assertion-literal",
         "assertion-iri",
+        "annotated-ontology-literal",
+        "annotated-assertion-literal",
     ],
 )
 @pytest.mark.parametrize(
@@ -14989,10 +14999,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "bounded local-overlay InverseObjectProperties root must be unannotated",
         ),
         (
-            'AnnotationAssertion(Annotation(:label "x") <urn:meta> <urn:subject> "value")',
-            "bounded local-overlay AnnotationAssertion root must be unannotated",
-        ),
-        (
             'AnnotationAssertion(<urn:meta> _:anonymous "value")',
             "bounded local-overlay AnnotationAssertion root requires no anonymous "
             "individuals or local scope remap",
@@ -15203,7 +15209,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
         "annotated-local-object-property-chain",
         "annotated-local-sub-object-property",
         "annotated-local-inverse-object-properties",
-        "annotated-local-annotation-assertion",
         "anonymous-local-annotation-assertion",
         "annotated-complex-local-restriction-filler",
         "anonymous-local-class-assertion",
@@ -15292,16 +15297,12 @@ def test_hidden_iterator_keeps_adjacent_local_overlay_shapes_on_whole_call_fallb
     ("local_body", "reason"),
     [
         (
-            'Annotation(Annotation(<urn:nested> "x") <urn:meta> "value")',
-            "bounded local-overlay ontology Annotation root must have no nested annotations",
-        ),
-        (
             "Annotation(<urn:meta> _:anonymous)",
             "bounded local-overlay ontology Annotation root requires no anonymous "
             "individuals or local scope remap",
         ),
     ],
-    ids=["nested-ontology-annotation", "anonymous-ontology-annotation"],
+    ids=["anonymous-ontology-annotation"],
 )
 def test_hidden_iterator_keeps_unsupported_local_ontology_annotation_on_fallback(
     local_body: str,
