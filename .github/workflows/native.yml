@@ -19,8 +19,8 @@ jobs:
   rust-gates:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: "1.83.0"
           components: rustfmt, clippy
@@ -51,19 +51,19 @@ jobs:
             artifact: windows-x86_64
             cibw-arch: AMD64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
           ref: 6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e
           path: .deps/pyowl-core
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: "1.83.0"
-      - uses: pypa/cibuildwheel@v3.1.4
+      - uses: pypa/cibuildwheel@65b8265957fd86372d9689a0acdfd55813970d5d # v3.1.4
         env:
           CIBW_ARCHS: ${{ matrix.cibw-arch }}
           CIBW_BUILD: cp310-*
@@ -78,7 +78,7 @@ jobs:
       - if: runner.os == 'Windows'
         run: python -m pip install delvewheel==1.11.2 && delvewheel show wheelhouse/*.whl
       - run: python tools/audit_release.py wheelhouse
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: native-${{ matrix.artifact }}
           path: wheelhouse/*.whl
@@ -105,16 +105,16 @@ jobs:
           - os: windows-latest
             artifact: windows-x86_64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
           ref: 6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e
           path: .deps/pyowl-core
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: native-${{ matrix.artifact }}
           path: wheelhouse
@@ -133,8 +133,8 @@ jobs:
       RUSTFLAGS: -Zsanitizer=address
       RUSTDOCFLAGS: -Zsanitizer=address
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
         with:
           components: rust-src
       - run: cargo test --manifest-path native/Cargo.toml --locked --no-default-features --target x86_64-unknown-linux-gnu

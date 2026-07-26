@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import tarfile
 import warnings
 import zipfile
@@ -18,6 +19,7 @@ from tools.release_gate import local_checks
 from tools.release_support import read_toml
 
 ROOT = Path(__file__).resolve().parents[1]
+ACTION = re.compile(r"(?m)^\s*-?\s*uses:\s+([^\s#]+)")
 
 
 def test_conditional_build_requirement_never_leaks_to_fallback(
@@ -67,6 +69,21 @@ def test_external_release_gates_are_never_silently_presented_as_passed() -> None
     workflow = (ROOT / ".github/workflows/release-candidate.yml").read_text(encoding="utf-8")
     assert "pypi" not in workflow.lower()
     assert "twine upload" not in workflow.lower()
+
+
+def test_external_workflow_actions_are_pinned_to_exact_commits() -> None:
+    observed: list[str] = []
+    for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for action in ACTION.findall(workflow.read_text(encoding="utf-8")):
+            if action.startswith("./"):
+                continue
+            observed.append(action)
+            name, separator, revision = action.rpartition("@")
+            assert separator and name
+            assert re.fullmatch(r"[0-9a-f]{40}", revision), (
+                f"{workflow.relative_to(ROOT)} has mutable external action {action}"
+            )
+    assert observed
 
 
 def test_hash_manifest_detects_tampering(tmp_path: Path) -> None:

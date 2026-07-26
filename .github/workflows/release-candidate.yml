@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: release-candidate
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
           cache: pip
@@ -30,10 +30,10 @@ jobs:
       - run: python tools/audit_release.py dist --report dist/release-audit.json
       - run: python tools/hash_artifacts.py dist --output dist/SHA256SUMS
       - run: python tools/release_gate.py --artifacts dist --report dist/release-gate.json
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: attested-release-candidate
           path: |
