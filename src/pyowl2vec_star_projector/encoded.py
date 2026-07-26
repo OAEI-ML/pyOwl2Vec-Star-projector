@@ -675,6 +675,52 @@ def _is_exact_singleton_anonymous_nominal(
     )
 
 
+def _is_exact_anonymous_has_value(
+    buffers: Mapping[str, memoryview],
+    expression_id: int,
+    anonymous_node_id: int,
+) -> bool:
+    """Return whether one expression is exactly ``ObjectHasValue(:p _:scope)``."""
+
+    if (
+        _read_uint(buffers["node_tags"], expression_id - 1, 2)
+        != _TAG_OBJECT_HAS_VALUE
+    ):
+        return False
+    start = _read_uint(buffers["node_field_offsets"], expression_id - 1, 8)
+    end = _read_uint(buffers["node_field_offsets"], expression_id, 8)
+    if end - start != 2 or any(
+        _read_uint(buffers["field_kinds"], start + offset, 1)
+        != _COMPONENT_NODE
+        for offset in (0, 1)
+    ):
+        return False
+    property_id = _read_uint(buffers["field_values"], start, 8)
+    value_id = _read_uint(buffers["field_values"], start + 1, 8)
+    return (
+        _read_uint(buffers["node_tags"], property_id - 1, 2) == _TAG_ENTITY
+        and value_id == anonymous_node_id
+    )
+
+
+def _is_exact_anonymous_individual_class_expression(
+    buffers: Mapping[str, memoryview],
+    expression_id: int,
+    anonymous_node_id: int,
+) -> bool:
+    """Return whether one class expression has exactly one remappable individual."""
+
+    return _is_exact_singleton_anonymous_nominal(
+        buffers,
+        expression_id,
+        anonymous_node_id,
+    ) or _is_exact_anonymous_has_value(
+        buffers,
+        expression_id,
+        anonymous_node_id,
+    )
+
+
 def _single_scope_mapped_construct_scope(
     lease: EncodedStructuralLease,
     *,
@@ -759,7 +805,7 @@ def _single_scope_mapped_construct_scope(
                 or not (
                     (
                         subclass_tag == _TAG_ENTITY
-                        and _is_exact_singleton_anonymous_nominal(
+                        and _is_exact_anonymous_individual_class_expression(
                             buffers,
                             superclass_id,
                             anonymous_node_id,
@@ -767,7 +813,7 @@ def _single_scope_mapped_construct_scope(
                     )
                     or (
                         superclass_tag == _TAG_ENTITY
-                        and _is_exact_singleton_anonymous_nominal(
+                        and _is_exact_anonymous_individual_class_expression(
                             buffers,
                             subclass_id,
                             anonymous_node_id,
@@ -820,7 +866,7 @@ def _single_scope_mapped_construct_scope(
             if (
                 _read_uint(buffers["node_tags"], property_id - 1, 2)
                 != _TAG_ENTITY
-                or not _is_exact_singleton_anonymous_nominal(
+                or not _is_exact_anonymous_individual_class_expression(
                     buffers,
                     class_id,
                     anonymous_node_id,
@@ -849,61 +895,16 @@ def _single_scope_mapped_construct_scope(
             )
             anonymous_class_expression_over_named = False
             if (
-                class_tag == _TAG_OBJECT_ONE_OF
+                class_tag in {_TAG_OBJECT_ONE_OF, _TAG_OBJECT_HAS_VALUE}
                 and individual_tag == _TAG_ENTITY
             ):
                 anonymous_class_expression_over_named = (
-                    _is_exact_singleton_anonymous_nominal(
+                    _is_exact_anonymous_individual_class_expression(
                         buffers,
                         class_id,
                         anonymous_node_id,
                     )
                 )
-            elif (
-                class_tag == _TAG_OBJECT_HAS_VALUE
-                and individual_tag == _TAG_ENTITY
-            ):
-                expression_start = _read_uint(
-                    buffers["node_field_offsets"],
-                    class_id - 1,
-                    8,
-                )
-                expression_end = _read_uint(
-                    buffers["node_field_offsets"],
-                    class_id,
-                    8,
-                )
-                if (
-                    expression_end - expression_start == 2
-                    and all(
-                        _read_uint(
-                            buffers["field_kinds"],
-                            expression_start + offset,
-                            1,
-                        )
-                        == _COMPONENT_NODE
-                        for offset in (0, 1)
-                    )
-                ):
-                    property_id = _read_uint(
-                        buffers["field_values"],
-                        expression_start,
-                        8,
-                    )
-                    value_id = _read_uint(
-                        buffers["field_values"],
-                        expression_start + 1,
-                        8,
-                    )
-                    anonymous_class_expression_over_named = (
-                        _read_uint(
-                            buffers["node_tags"],
-                            property_id - 1,
-                            2,
-                        )
-                        == _TAG_ENTITY
-                        and value_id == anonymous_node_id
-                    )
             if (
                 not (
                     named_class_over_anonymous

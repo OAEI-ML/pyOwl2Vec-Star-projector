@@ -2550,6 +2550,23 @@ impl<'a> DirectColumns<'a> {
         Ok((self.node_tag(member)? == TAG_ANONYMOUS_INDIVIDUAL).then_some(member))
     }
 
+    fn anonymous_individual_class_expression_member(
+        self,
+        expression: usize,
+        maximum_iri: usize,
+    ) -> Result<Option<usize>, KernelError> {
+        match self.node_tag(expression)? {
+            TAG_OBJECT_ONE_OF => self.singleton_anonymous_nominal_member(expression),
+            TAG_OBJECT_HAS_VALUE => {
+                let start = self.exact_fields(expression, 2)?;
+                self.named_object_property_iri(self.field_node(start)?, maximum_iri)?;
+                let value = self.field_node(start + 1)?;
+                Ok((self.node_tag(value)? == TAG_ANONYMOUS_INDIVIDUAL).then_some(value))
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn is_scope_mapped_ignored_subclass(
         self,
         root: usize,
@@ -2569,10 +2586,12 @@ impl<'a> DirectColumns<'a> {
         let subclass = self.field_node(start)?;
         let superclass = self.field_node(start + 1)?;
         let candidate = match (self.node_tag(subclass)?, self.node_tag(superclass)?) {
-            (TAG_ENTITY, TAG_OBJECT_ONE_OF) => {
-                self.singleton_anonymous_nominal_member(superclass)?
+            (TAG_ENTITY, _) => {
+                self.anonymous_individual_class_expression_member(superclass, maximum_iri)?
             }
-            (TAG_OBJECT_ONE_OF, TAG_ENTITY) => self.singleton_anonymous_nominal_member(subclass)?,
+            (_, TAG_ENTITY) => {
+                self.anonymous_individual_class_expression_member(subclass, maximum_iri)?
+            }
             _ => None,
         };
         Ok(candidate
@@ -2594,7 +2613,7 @@ impl<'a> DirectColumns<'a> {
         let property = self.field_node(start)?;
         self.named_object_property_iri(property, maximum_iri)?;
         let class = self.field_node(start + 1)?;
-        let candidate = self.singleton_anonymous_nominal_member(class)?;
+        let candidate = self.anonymous_individual_class_expression_member(class, maximum_iri)?;
         Ok(self.node_tag(root)? == expected_tag
             && candidate.is_some_and(|candidate| {
                 anonymous_node.is_none_or(|expected| candidate == expected)
@@ -2623,16 +2642,10 @@ impl<'a> DirectColumns<'a> {
             TAG_ENTITY if self.node_tag(individual)? == TAG_ANONYMOUS_INDIVIDUAL => {
                 Some(individual)
             }
-            TAG_OBJECT_ONE_OF if self.node_tag(individual)? == TAG_ENTITY => {
-                self.singleton_anonymous_nominal_member(class)?
-            }
-            TAG_OBJECT_HAS_VALUE if self.node_tag(individual)? == TAG_ENTITY => {
-                let expression_start = self.exact_fields(class, 2)?;
-                let property = self.field_node(expression_start)?;
-                let value = self.field_node(expression_start + 1)?;
-                (self.node_tag(property)? == TAG_ENTITY
-                    && self.node_tag(value)? == TAG_ANONYMOUS_INDIVIDUAL)
-                    .then_some(value)
+            TAG_OBJECT_ONE_OF | TAG_OBJECT_HAS_VALUE
+                if self.node_tag(individual)? == TAG_ENTITY =>
+            {
+                self.anonymous_individual_class_expression_member(class, maximum_iri)?
             }
             _ => None,
         };
@@ -2701,7 +2714,7 @@ impl<'a> DirectColumns<'a> {
                     }
                     SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
                         return Err(KernelError::unsupported(
-                                "bounded anonymous-scope composite supports named SubClassOf siblings and one unannotated ignored SubClassOf pairing a named class with a singleton anonymous nominal",
+                                "bounded anonymous-scope composite supports named SubClassOf siblings and one unannotated ignored SubClassOf pairing a named class with a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
                             ));
                     }
                 },
@@ -2719,7 +2732,7 @@ impl<'a> DirectColumns<'a> {
                         maximum_iri,
                     )? {
                         return Err(KernelError::unsupported(
-                            "bounded anonymous-scope composite requires one unannotated ObjectPropertyDomain or ObjectPropertyRange with a named property and singleton anonymous nominal",
+                            "bounded anonymous-scope composite requires one unannotated ObjectPropertyDomain or ObjectPropertyRange with a named outer property and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
                         ));
                     }
                     construct_kind = Some(if tag == TAG_OBJECT_PROPERTY_DOMAIN {
@@ -9287,7 +9300,7 @@ fn own_composite_tail_projection(
             SubclassProjection::Taxonomy { .. } => {}
             SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
                 return Err(KernelError::unsupported(
-                    "bounded anonymous-scope SubClassOf requires one named class and one singleton anonymous nominal",
+                    "bounded anonymous-scope SubClassOf requires one named class and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
                 ));
             }
         }
@@ -9312,7 +9325,7 @@ fn own_composite_tail_projection(
                 max_iri_bytes,
             )? {
                 return Err(KernelError::unsupported(
-                    "bounded anonymous-scope object-property domain/range requires a named property and singleton anonymous nominal",
+                    "bounded anonymous-scope object-property domain/range requires a named outer property and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
                 ));
             }
             return Ok(OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass {
@@ -12151,6 +12164,67 @@ mod tests {
         fixture.finish_node(root_tag); // 5
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_has_value_subclass_fixture(has_value_superclass: bool) -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:B".as_slice(), b"urn:p"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=2
+        }
+        for (kind, iri_id) in [
+            (b"class".as_slice(), 1_u64),
+            (b"object_property".as_slice(), 2),
+        ] {
+            fixture.push_scalar(COMPONENT_ENUM, kind);
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 3..=4
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 5
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_OBJECT_HAS_VALUE); // 6
+        if has_value_superclass {
+            fixture.push_node_ref(3);
+            fixture.push_node_ref(6);
+        } else {
+            fixture.push_node_ref(6);
+            fixture.push_node_ref(3);
+        }
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 7
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&7_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_has_value_object_property_class_fixture(root_tag: u16) -> Fixture {
+        assert!([TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&root_tag));
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:outer".as_slice(), b"urn:inner"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=2
+        }
+        for iri_id in 1_u64..=2 {
+            fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 3..=4
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 5
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(5);
+        fixture.finish_node(TAG_OBJECT_HAS_VALUE); // 6
+        fixture.push_node_ref(3);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(root_tag); // 7
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&7_u32.to_le_bytes());
         fixture
     }
 
@@ -21600,6 +21674,76 @@ mod tests {
     }
 
     #[test]
+    fn two_member_composite_remaps_has_value_class_carrier_scopes() {
+        for carrier in 0_u8..4 {
+            let fixture = || match carrier {
+                0 => scope_mapped_has_value_subclass_fixture(false),
+                1 => scope_mapped_has_value_subclass_fixture(true),
+                2 => {
+                    scope_mapped_has_value_object_property_class_fixture(TAG_OBJECT_PROPERTY_DOMAIN)
+                }
+                3 => {
+                    scope_mapped_has_value_object_property_class_fixture(TAG_OBJECT_PROPERTY_RANGE)
+                }
+                _ => unreachable!(),
+            };
+            let left = fixture();
+            let right = fixture();
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(8);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(9);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let prepared = prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right_columns,
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 2);
+            assert_eq!(statistics.subclasses, usize::from(carrier < 2) * 2);
+            assert_eq!(statistics.ignored_subclasses, usize::from(carrier < 2) * 2);
+            assert_eq!(
+                statistics.object_property_domains,
+                usize::from(carrier == 2) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_domains,
+                usize::from(carrier == 2) * 2
+            );
+            assert_eq!(
+                statistics.object_property_ranges,
+                usize::from(carrier == 3) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_ranges,
+                usize::from(carrier == 3) * 2
+            );
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.edges, 0);
+            assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
+            assert!(prepared.is_exhausted());
+        }
+    }
+
+    #[test]
     fn two_member_composite_remaps_anonymous_class_assertion_scopes() {
         let left = scope_mapped_class_assertion_fixture();
         let right = scope_mapped_class_assertion_fixture();
@@ -22288,6 +22432,88 @@ mod tests {
                     }
                 )
             }));
+
+            let (edges, cursor) = prepared
+                .prepare_next_batch(left_columns, &state, 1)
+                .unwrap();
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                }]
+            );
+            prepared.commit_cursor(cursor);
+            assert!(prepared.is_exhausted());
+        }
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_has_value_class_carrier_scopes() {
+        for carrier in 0_u8..4 {
+            let fixture = || match carrier {
+                0 => scope_mapped_has_value_subclass_fixture(false),
+                1 => scope_mapped_has_value_subclass_fixture(true),
+                2 => {
+                    scope_mapped_has_value_object_property_class_fixture(TAG_OBJECT_PROPERTY_DOMAIN)
+                }
+                3 => {
+                    scope_mapped_has_value_object_property_class_fixture(TAG_OBJECT_PROPERTY_RANGE)
+                }
+                _ => unreachable!(),
+            };
+            let left = fixture();
+            let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+            let right = fixture();
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(9);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(8);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let mut prepared = prepare_three_member_composite_batches_uncommitted(
+                [left_columns, neutral.columns(), right_columns],
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 3);
+            assert_eq!(statistics.subclasses, 1 + usize::from(carrier < 2) * 2);
+            assert_eq!(statistics.ignored_subclasses, usize::from(carrier < 2) * 2);
+            assert_eq!(
+                statistics.object_property_domains,
+                usize::from(carrier == 2) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_domains,
+                usize::from(carrier == 2) * 2
+            );
+            assert_eq!(
+                statistics.object_property_ranges,
+                usize::from(carrier == 3) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_ranges,
+                usize::from(carrier == 3) * 2
+            );
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.edges, 1);
 
             let (edges, cursor) = prepared
                 .prepare_next_batch(left_columns, &state, 1)
