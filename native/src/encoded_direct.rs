@@ -21470,6 +21470,125 @@ mod tests {
     }
 
     #[test]
+    fn nested_member_composite_remaps_skipped_families_across_one_neutral_table() {
+        for construct_tag in [
+            TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
+            TAG_DATA_PROPERTY_ASSERTION,
+            TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+            TAG_SAME_INDIVIDUAL,
+            TAG_DIFFERENT_INDIVIDUALS,
+        ] {
+            let left = match construct_tag {
+                TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
+                    scope_mapped_negative_object_property_assertion_fixture()
+                }
+                TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
+                    scope_mapped_data_property_assertion_fixture(construct_tag)
+                }
+                TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS => {
+                    scope_mapped_individual_set_fixture(construct_tag)
+                }
+                _ => unreachable!("bounded scoped-family fixture tag is exhaustive"),
+            };
+            let right = match construct_tag {
+                TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
+                    scope_mapped_negative_object_property_assertion_fixture()
+                }
+                TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
+                    scope_mapped_data_property_assertion_fixture(construct_tag)
+                }
+                TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS => {
+                    scope_mapped_individual_set_fixture(construct_tag)
+                }
+                _ => unreachable!("bounded scoped-family fixture tag is exhaustive"),
+            };
+            let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(8);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(9);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let mut prepared = prepare_three_member_composite_batches_uncommitted(
+                [left_columns, neutral.columns(), right_columns],
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 3);
+            assert_eq!(statistics.subclasses, 1);
+            assert_eq!(
+                statistics.negative_object_property_assertions,
+                usize::from(construct_tag == TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION) * 2
+            );
+            assert_eq!(
+                statistics.data_property_assertions,
+                usize::from(construct_tag == TAG_DATA_PROPERTY_ASSERTION) * 2
+            );
+            assert_eq!(
+                statistics.negative_data_property_assertions,
+                usize::from(construct_tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION) * 2
+            );
+            assert_eq!(
+                statistics.same_individuals,
+                usize::from(construct_tag == TAG_SAME_INDIVIDUAL) * 2
+            );
+            assert_eq!(
+                statistics.different_individuals,
+                usize::from(construct_tag == TAG_DIFFERENT_INDIVIDUALS) * 2
+            );
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.skipped_axioms, 2);
+            assert_eq!(statistics.edges, 1);
+            assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
+
+            let (edges, cursor) = prepared
+                .prepare_next_batch(left_columns, &state, 1)
+                .unwrap();
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                }]
+            );
+            prepared.commit_cursor(cursor);
+            assert!(prepared.is_exhausted());
+
+            let asserted = prepare_three_member_composite_batches_uncommitted(
+                [left_columns, neutral.columns(), right_columns],
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(asserted.statistics().skipped_axioms, 0);
+            assert_eq!(asserted.statistics().edges, 1);
+        }
+    }
+
+    #[test]
     fn two_member_composite_selects_both_exclude_tables_by_source_root_id() {
         let left = named_subclass_fixture();
         let right = named_subclass_fixture();
