@@ -5844,25 +5844,26 @@ pub(crate) mod canonical_merge {
             Ok(())
         }
 
-        fn record_root(&mut self, deduplicated: bool) -> Result<(), KernelError> {
+        fn record_root_duplicates(&mut self, duplicate_count: usize) -> Result<(), KernelError> {
             let roots_emitted = self
                 .report
                 .roots_emitted
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded merged-root counter overflow"))?;
-            let deduplicated_roots = if deduplicated {
-                self.report
-                    .deduplicated_roots
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        KernelError::resource("encoded deduplicated-root counter overflow")
-                    })?
-            } else {
-                self.report.deduplicated_roots
-            };
+            let deduplicated_roots = self
+                .report
+                .deduplicated_roots
+                .checked_add(duplicate_count)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded deduplicated-root counter overflow")
+                })?;
             self.report.roots_emitted = roots_emitted;
             self.report.deduplicated_roots = deduplicated_roots;
             Ok(())
+        }
+
+        fn record_root(&mut self, deduplicated: bool) -> Result<(), KernelError> {
+            self.record_root_duplicates(usize::from(deduplicated))
         }
     }
 
@@ -6989,6 +6990,307 @@ pub(crate) mod canonical_merge {
 
         pub(crate) fn report(&self) -> CanonicalMergeReport {
             self.comparator.report()
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) struct CanonicalThreeRootGroup {
+        pub(crate) roots: [Option<CanonicalRootRef>; 3],
+    }
+
+    /// One bounded table-driven canonical pass over exactly three direct members.
+    pub(crate) struct CanonicalThreeRootMerger<'a> {
+        tables: [CanonicalTable<'a>; 3],
+        positions: [usize; 3],
+        posting_positions: [usize; 3],
+        left_cursor: CanonicalByteCursor<'a>,
+        right_cursor: CanonicalByteCursor<'a>,
+        budget: CanonicalBudget,
+    }
+
+    impl<'a> CanonicalThreeRootMerger<'a> {
+        pub(crate) fn new(
+            columns: [DirectColumns<'a>; 3],
+            limits: CanonicalMergeLimits,
+            state: &AtomicU8,
+        ) -> Result<Self, KernelError> {
+            let mut budget = CanonicalBudget::new(limits)?;
+            let first = CanonicalTable::build(columns[0], &mut budget, state)?;
+            let second = CanonicalTable::build(columns[1], &mut budget, state)?;
+            let third = CanonicalTable::build(columns[2], &mut budget, state)?;
+            let mut result = Self {
+                tables: [first, second, third],
+                positions: [0; 3],
+                posting_positions: [0; 3],
+                left_cursor: CanonicalByteCursor::new(),
+                right_cursor: CanonicalByteCursor::new(),
+                budget,
+            };
+            for table in 0..3 {
+                result.validate_table(table, state)?;
+            }
+            Ok(result)
+        }
+
+        fn validate_table(&mut self, table: usize, state: &AtomicU8) -> Result<(), KernelError> {
+            let columns = self.tables[table].columns;
+            for field_index in 0..columns.field_count() {
+                self.budget.consume(1, state)?;
+                if columns.field_kind(field_index)? != COMPONENT_SET {
+                    continue;
+                }
+                let CanonicalComponent::Collection {
+                    kind,
+                    start,
+                    length,
+                } = canonical_component(columns, field_index, false, &mut self.budget, state)?
+                else {
+                    return Err(KernelError::malformed(
+                        "encoded canonical set field changed after length preflight",
+                    ));
+                };
+                if kind != COMPONENT_SET {
+                    return Err(KernelError::malformed(
+                        "encoded canonical set field changed after length preflight",
+                    ));
+                }
+                for offset in 1..length {
+                    self.budget.consume(1, state)?;
+                    let CanonicalComponent::Node(previous) = canonical_component(
+                        columns,
+                        start + offset - 1,
+                        true,
+                        &mut self.budget,
+                        state,
+                    )?
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set contains a scalar",
+                        ));
+                    };
+                    let CanonicalComponent::Node(current) = canonical_component(
+                        columns,
+                        start + offset,
+                        true,
+                        &mut self.budget,
+                        state,
+                    )?
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set contains a scalar",
+                        ));
+                    };
+                    if self.compare_nodes(table, previous, table, current, state)?
+                        != CanonicalOrdering::Less
+                    {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set items are not strictly sorted and unique",
+                        ));
+                    }
+                }
+            }
+
+            let mut previous = None;
+            for index in 0..columns.root_count() {
+                self.budget.consume(1, state)?;
+                let current = CanonicalRootRef {
+                    index,
+                    kind: columns.root_kind(index)?,
+                    node_id: columns.root_id(index)?,
+                };
+                if let Some(previous) = previous {
+                    if self.compare_roots(table, previous, table, current, state)?
+                        != CanonicalOrdering::Less
+                    {
+                        return Err(KernelError::malformed(
+                            "encoded canonical root group is not strictly sorted and unique",
+                        ));
+                    }
+                }
+                previous = Some(current);
+            }
+            Ok(())
+        }
+
+        fn compare_nodes(
+            &mut self,
+            left_table: usize,
+            left_node: usize,
+            right_table: usize,
+            right_node: usize,
+            state: &AtomicU8,
+        ) -> Result<CanonicalOrdering, KernelError> {
+            let left = &self.tables[left_table];
+            let right = &self.tables[right_table];
+            left.columns.checked_node_id(left_node)?;
+            right.columns.checked_node_id(right_node)?;
+            if left_table == right_table && left_node == right_node {
+                return Ok(CanonicalOrdering::Equal);
+            }
+            self.left_cursor.reset(left_node, &mut self.budget)?;
+            self.right_cursor.reset(right_node, &mut self.budget)?;
+            loop {
+                let left_byte = self.left_cursor.next_byte(
+                    left.columns,
+                    &left.lengths,
+                    &mut self.budget,
+                    state,
+                )?;
+                let right_byte = self.right_cursor.next_byte(
+                    right.columns,
+                    &right.lengths,
+                    &mut self.budget,
+                    state,
+                )?;
+                match (left_byte, right_byte) {
+                    (Some(left_byte), Some(right_byte)) => {
+                        self.budget.record_comparison_byte()?;
+                        let ordering = left_byte.cmp(&right_byte);
+                        if ordering != CanonicalOrdering::Equal {
+                            return Ok(ordering);
+                        }
+                    }
+                    (None, None) => return Ok(CanonicalOrdering::Equal),
+                    (None, Some(_)) => return Ok(CanonicalOrdering::Less),
+                    (Some(_), None) => return Ok(CanonicalOrdering::Greater),
+                }
+            }
+        }
+
+        fn compare_roots(
+            &mut self,
+            left_table: usize,
+            left: CanonicalRootRef,
+            right_table: usize,
+            right: CanonicalRootRef,
+            state: &AtomicU8,
+        ) -> Result<CanonicalOrdering, KernelError> {
+            self.budget.consume(1, state)?;
+            let kind_order = left.kind.cmp(&right.kind);
+            if kind_order != CanonicalOrdering::Equal {
+                return Ok(kind_order);
+            }
+            self.compare_nodes(left_table, left.node_id, right_table, right.node_id, state)
+        }
+
+        fn selected_root(
+            &mut self,
+            table: usize,
+            state: &AtomicU8,
+        ) -> Result<Option<CanonicalRootRef>, KernelError> {
+            let columns = self.tables[table].columns;
+            let mut position = self.positions[table];
+            let mut posting_position = self.posting_positions[table];
+            let included = !columns.included_root_ids.is_empty();
+            let posting_count = if included {
+                columns.included_root_ids.len() / 4
+            } else {
+                columns.excluded_root_ids.len() / 4
+            };
+            while position < columns.root_count() {
+                self.budget.consume(1, state)?;
+                let root_position = position.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded canonical root position overflow")
+                })?;
+                let mut matched = false;
+                while posting_position < posting_count {
+                    self.budget.consume(1, state)?;
+                    let candidate = if included {
+                        columns.included_root_position(posting_position)?
+                    } else {
+                        columns.excluded_root_position(posting_position)?
+                    };
+                    if candidate < root_position {
+                        posting_position += 1;
+                        continue;
+                    }
+                    if candidate == root_position {
+                        if !included {
+                            posting_position += 1;
+                        }
+                        matched = true;
+                    }
+                    break;
+                }
+                let selected = if included { matched } else { !matched };
+                if !selected {
+                    position += 1;
+                    continue;
+                }
+                self.positions[table] = position;
+                self.posting_positions[table] = posting_position;
+                return Ok(Some(CanonicalRootRef {
+                    index: position,
+                    kind: columns.root_kind(position)?,
+                    node_id: columns.root_id(position)?,
+                }));
+            }
+            self.positions[table] = position;
+            self.posting_positions[table] = posting_position;
+            Ok(None)
+        }
+
+        pub(crate) fn next(
+            &mut self,
+            state: &AtomicU8,
+        ) -> Result<Option<CanonicalThreeRootGroup>, KernelError> {
+            let mut candidates = [None; 3];
+            for (table, candidate) in candidates.iter_mut().enumerate() {
+                *candidate = self.selected_root(table, state)?;
+            }
+            let mut minimum_table = None;
+            for table in 0..3 {
+                let Some(candidate) = candidates[table] else {
+                    continue;
+                };
+                let Some(current_minimum) = minimum_table else {
+                    minimum_table = Some(table);
+                    continue;
+                };
+                let minimum = candidates[current_minimum].ok_or_else(|| {
+                    KernelError::malformed("encoded three-table merge lost its minimum root")
+                })?;
+                if self.compare_roots(table, candidate, current_minimum, minimum, state)?
+                    == CanonicalOrdering::Less
+                {
+                    minimum_table = Some(table);
+                }
+            }
+            let Some(minimum_table) = minimum_table else {
+                return Ok(None);
+            };
+            let minimum = candidates[minimum_table].ok_or_else(|| {
+                KernelError::malformed("encoded three-table merge lost its minimum root")
+            })?;
+            let mut roots = [None; 3];
+            let mut root_count = 0_usize;
+            for table in 0..3 {
+                let Some(candidate) = candidates[table] else {
+                    continue;
+                };
+                let equal = table == minimum_table
+                    || self.compare_roots(table, candidate, minimum_table, minimum, state)?
+                        == CanonicalOrdering::Equal;
+                if !equal {
+                    continue;
+                }
+                roots[table] = Some(candidate);
+                self.positions[table] = self.positions[table].checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded canonical root position overflow")
+                })?;
+                root_count = root_count
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded merged-root counter overflow"))?;
+            }
+            let duplicate_count = root_count.checked_sub(1).ok_or_else(|| {
+                KernelError::malformed("encoded three-table merge emitted an empty root group")
+            })?;
+            self.budget.record_root_duplicates(duplicate_count)?;
+            Ok(Some(CanonicalThreeRootGroup { roots }))
+        }
+
+        pub(crate) fn report(&self) -> CanonicalMergeReport {
+            self.budget.report
         }
     }
 }
@@ -8273,6 +8575,258 @@ pub(crate) fn prepare_two_member_composite_batches_uncommitted(
         max_canonical_workspace_bytes,
         CrossTableDuplicatePolicy::Deduplicate,
     )
+}
+
+#[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
+pub(crate) fn prepare_three_member_composite_batches_uncommitted(
+    columns: [DirectColumns<'_>; 3],
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&OwnedRoleState>,
+    max_canonical_work: usize,
+    max_canonical_workspace_bytes: usize,
+) -> Result<PreparedDirectBatches, KernelError> {
+    if options.include_literals {
+        return Err(KernelError::unsupported(
+            "bounded three-member composite does not support literal projection",
+        ));
+    }
+    let mut selected_counts = [0_usize; 3];
+    let mut selected_total = 0_usize;
+    for table in 0..3 {
+        columns[table].validate_generic(state)?;
+        columns[table].validate_supported_nodes(options.max_iri_bytes, state)?;
+        selected_counts[table] = columns[table].selected_root_count()?;
+        selected_total = selected_total
+            .checked_add(selected_counts[table])
+            .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
+    }
+    if selected_total == 0 {
+        return Err(KernelError::unsupported(
+            "bounded three-member composite requires at least one selected root",
+        ));
+    }
+
+    let tail_root_count = selected_counts[1]
+        .checked_add(selected_counts[2])
+        .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
+    let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
+    let mut overlay_deltas = local_workspace.reserve_overlay_deltas(tail_root_count)?;
+    let mut tail_offsets = [0_usize; 3];
+    tail_offsets[2] = selected_counts[1];
+    for tail_columns in columns.iter().skip(1) {
+        for root_index in 0..tail_columns.root_count() {
+            check_cancel(state, root_index)?;
+            if !tail_columns.root_is_selected(root_index)? {
+                continue;
+            }
+            let root = tail_columns.root_id(root_index)?;
+            if tail_columns.root_kind(root_index)? != ROOT_AXIOM {
+                return Err(KernelError::unsupported(
+                    "bounded three-member composite tail requires projecting axiom roots",
+                ));
+            }
+            let projection = own_local_emitting_projection(
+                *tail_columns,
+                root,
+                options.max_iri_bytes,
+                state,
+                &mut local_workspace,
+            )?;
+            overlay_deltas.push(OwnedOverlayDelta {
+                projection,
+                insertion_scan_index: usize::MAX,
+                local_canonical_index: root_index,
+            });
+        }
+    }
+    if overlay_deltas.len() != tail_root_count {
+        return Err(KernelError::malformed(
+            "encoded three-member selection lost a tail root",
+        ));
+    }
+
+    let sort_levels =
+        usize::BITS as usize - tail_root_count.saturating_sub(1).leading_zeros() as usize;
+    let local_sort_work = tail_root_count
+        .checked_mul(sort_levels)
+        .and_then(|work| work.checked_add(tail_root_count))
+        .ok_or_else(|| KernelError::resource("encoded composite sort-work counter overflow"))?;
+    let canonical_work = max_canonical_work
+        .checked_sub(local_sort_work)
+        .filter(|remaining| *remaining != 0)
+        .ok_or_else(|| {
+            KernelError::resource(format!(
+                "encoded canonical comparison requires more than {max_canonical_work} work units"
+            ))
+        })?;
+    let mut merger = canonical_merge::CanonicalThreeRootMerger::new(
+        columns,
+        canonical_merge::CanonicalMergeLimits {
+            max_work: canonical_work,
+            max_workspace_bytes: local_workspace.remaining_for_canonical_merge()?,
+        },
+        state,
+    )?;
+    let mut consumed = [0_usize; 3];
+    let mut selected_base_roots = 0_usize;
+    let mut unique_tail_roots = 0_usize;
+    let mut deduplicated_tail_roots = 0_usize;
+    let mut next_base_scan_index = 0_usize;
+    let mut merged_canonical_index = 0_usize;
+    while let Some(group) = merger.next(state)? {
+        let base_root = group.roots[0];
+        if let Some(root) = base_root {
+            selected_base_roots = selected_base_roots
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded composite root counter overflow"))?;
+            next_base_scan_index = root
+                .index
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded composite scan-position overflow"))?;
+            consumed[0] = consumed[0]
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded selected-root counter overflow"))?;
+        }
+        let mut retained_tail = base_root.is_some();
+        for table in 1..3 {
+            let Some(root) = group.roots[table] else {
+                continue;
+            };
+            let plan_index = tail_offsets[table]
+                .checked_add(consumed[table])
+                .ok_or_else(|| KernelError::resource("encoded composite plan-index overflow"))?;
+            let delta = overlay_deltas.get_mut(plan_index).ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded three-member merge produced an inconsistent tail root",
+                )
+            })?;
+            if delta.local_canonical_index != root.index {
+                return Err(KernelError::malformed(
+                    "encoded three-member merge reordered one source-local root group",
+                ));
+            }
+            if retained_tail {
+                delta.insertion_scan_index = DEDUPLICATED_OVERLAY_SCAN_INDEX;
+                deduplicated_tail_roots =
+                    deduplicated_tail_roots.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded deduplicated-root counter overflow")
+                    })?;
+            } else {
+                delta.insertion_scan_index = next_base_scan_index;
+                delta.local_canonical_index = merged_canonical_index;
+                unique_tail_roots = unique_tail_roots.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded composite root counter overflow")
+                })?;
+                retained_tail = true;
+            }
+            consumed[table] = consumed[table]
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded selected-root counter overflow"))?;
+        }
+        merged_canonical_index = merged_canonical_index
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded canonical root-position overflow"))?;
+    }
+    let report = merger.report();
+    if consumed != selected_counts
+        || selected_base_roots != selected_counts[0]
+        || report.deduplicated_roots != deduplicated_tail_roots
+        || report.roots_emitted
+            != selected_base_roots
+                .checked_add(unique_tail_roots)
+                .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?
+    {
+        return Err(KernelError::malformed(
+            "encoded three-member merge produced inconsistent root counts",
+        ));
+    }
+    drop(merger);
+    overlay_deltas.retain(|delta| delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX);
+    canonicalize_overlay_delta_plan(&mut overlay_deltas);
+
+    let mut prepared = prepare_direct_batches_with_local_role_uncommitted(
+        columns[0], None, options, state, retained, None,
+    )?;
+    let mut projection_edges = 0_usize;
+    let mut projection_role_expansion_edges = 0_usize;
+    for local_delta in &overlay_deltas {
+        let (edges, role_expansion_edges) = match &local_delta.projection {
+            OwnedOverlayDeltaProjection::Taxonomy { .. } => (
+                1_usize
+                    .checked_add(usize::from(options.bidirectional))
+                    .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?,
+                0,
+            ),
+            OwnedOverlayDeltaProjection::Restriction { relation, .. }
+                if !options.asserted_taxonomy_only && !options.only_taxonomy =>
+            {
+                let edges = prepared.preparation.role_state.edge_count(relation)?;
+                (
+                    edges,
+                    edges.checked_sub(1).ok_or_else(|| {
+                        KernelError::malformed(
+                            "encoded composite restriction edge count is inconsistent",
+                        )
+                    })?,
+                )
+            }
+            OwnedOverlayDeltaProjection::ClassAssertion { .. }
+            | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
+                if !options.asserted_taxonomy_only =>
+            {
+                (1, 0)
+            }
+            OwnedOverlayDeltaProjection::Restriction { .. }
+            | OwnedOverlayDeltaProjection::ClassAssertion { .. }
+            | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. } => (0, 0),
+        };
+        projection_edges = projection_edges
+            .checked_add(edges)
+            .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+        projection_role_expansion_edges = projection_role_expansion_edges
+            .checked_add(role_expansion_edges)
+            .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
+    }
+    let projected = prepared
+        .preparation
+        .statistics
+        .edges
+        .checked_add(projection_edges)
+        .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+    if projected > options.max_edges {
+        return Err(KernelError::resource(format!(
+            "encoded three-member composite requires {projected} edges; configured limit is {}",
+            options.max_edges,
+        )));
+    }
+    let statistics = &mut prepared.preparation.statistics;
+    statistics.roots = statistics
+        .roots
+        .checked_add(unique_tail_roots)
+        .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?;
+    statistics.nodes = statistics
+        .nodes
+        .checked_add(columns[1].node_count())
+        .and_then(|nodes| nodes.checked_add(columns[2].node_count()))
+        .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
+    for local_delta in &overlay_deltas {
+        local_delta.projection.apply_statistics(statistics)?;
+    }
+    statistics.role_expansion_edges = statistics
+        .role_expansion_edges
+        .checked_add(projection_role_expansion_edges)
+        .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
+    statistics.edges = projected;
+    let second_buffer_bytes = columns[1].buffer_bytes()?;
+    let third_buffer_bytes = columns[2].buffer_bytes()?;
+    statistics.buffer_bytes = statistics
+        .buffer_bytes
+        .checked_add(second_buffer_bytes)
+        .and_then(|bytes| bytes.checked_add(third_buffer_bytes))
+        .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
+    prepared.preparation.overlay_deltas = overlay_deltas;
+    Ok(prepared)
 }
 
 #[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
@@ -19425,6 +19979,60 @@ mod tests {
     }
 
     #[test]
+    fn three_member_composite_deduplicates_all_selected_source_roots() {
+        let first = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let second = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let third = named_subclass_delta_fixture(b"urn:A", b"urn:B");
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_three_member_composite_batches_uncommitted(
+            [first.columns(), second.columns(), third.columns()],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 1);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(
+            statistics.buffer_bytes,
+            first.columns().buffer_bytes().unwrap()
+                + second.columns().buffer_bytes().unwrap()
+                + third.columns().buffer_bytes().unwrap()
+        );
+        assert!(prepared.preparation.overlay_deltas.is_empty());
+
+        let (first_batch, first_cursor) = prepared
+            .prepare_next_batch(first.columns(), &state, 1)
+            .unwrap();
+        let (retry_batch, _) = prepared
+            .prepare_next_batch(first.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(first_batch, retry_batch);
+        assert_eq!(
+            first_batch,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        prepared.commit_cursor(first_cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
     fn excluded_root_postings_filter_counts_and_emission_without_flattening() {
         let fixture = named_subclass_fixture();
         let excluded_declaration = 1_u32.to_le_bytes();
@@ -21089,6 +21697,49 @@ mod tests {
         assert_eq!(included_left.next(&running_state()).unwrap(), None);
         assert_eq!(included_left.report().roots_emitted, 2);
         assert_eq!(included_left.report().deduplicated_roots, 1);
+    }
+
+    #[test]
+    fn canonical_three_root_cursor_merges_in_one_selected_k_way_pass() {
+        let first = canonical_text_roots(&[b"a", b"d"]);
+        let second = canonical_text_roots(&[b"b", b"d"]);
+        let third = canonical_text_roots(&[b"c", b"d"]);
+        let excluded_first = 1_u32.to_le_bytes();
+        let mut merger = canonical_merge::CanonicalThreeRootMerger::new(
+            [
+                first.columns().with_excluded_root_ids(&excluded_first),
+                second.columns(),
+                third.columns(),
+            ],
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+
+        let first_group = merger.next(&running_state()).unwrap().unwrap();
+        assert_eq!(
+            first_group.roots.map(|root| root.map(|value| value.index)),
+            [None, Some(0), None]
+        );
+        let second_group = merger.next(&running_state()).unwrap().unwrap();
+        assert_eq!(
+            second_group.roots.map(|root| root.map(|value| value.index)),
+            [None, None, Some(0)]
+        );
+        let duplicate_group = merger.next(&running_state()).unwrap().unwrap();
+        assert_eq!(
+            duplicate_group
+                .roots
+                .map(|root| root.map(|value| value.index)),
+            [Some(1), Some(1), Some(1)]
+        );
+        assert_eq!(merger.next(&running_state()).unwrap(), None);
+        let report = merger.report();
+        assert_eq!(report.roots_emitted, 3);
+        assert_eq!(report.deduplicated_roots, 2);
+        assert!(report.work > 0);
+        assert!(report.workspace_bytes > 0);
+        assert!(report.canonical_bytes_compared > 0);
     }
 
     #[test]

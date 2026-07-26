@@ -441,32 +441,26 @@ def _resolve_private_single_overlay_delta(
     )
 
 
-def _resolve_private_two_member_composite(
+def _resolve_private_direct_composite_rows(
     lease: EncodedStructuralLease,
-) -> (
+    *,
+    member_count: int,
+) -> tuple[
     tuple[
         EncodedStructuralLease,
-        EncodedStructuralLease,
         memoryview | None,
         memoryview | None,
-        memoryview | None,
-        int | None,
-        int | None,
-    ]
-    | None
-):
-    """Resolve one exact two-table composite without flattening either member.
+    ],
+    ...,
+] | None:
+    """Validate one exact direct-member composite without flattening."""
 
-    This first native composite slice admits exactly two direct members, no
-    bridge roots or anonymous-scope remapping, and either one nonempty
-    ``INCLUDE`` table or up to two nonempty ``EXCLUDE`` tables.  A lone
-    selected member becomes the left merge table so its source-local posting
-    cursor remains authoritative.  Mixed or duplicate INCLUDE selectors,
-    nested sources, bridges, and every other composite form stay on
-    whole-operation fallback.
-    """
-
-    if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:
+    if (
+        type(member_count) is not int
+        or member_count < 2
+        or type(lease) is not EncodedStructuralLease
+        or len(lease.segments) != member_count
+    ):
         return None
     offsets = lease.buffers["node_field_offsets"]
     if offsets.nbytes != 8 or any(offsets):
@@ -482,8 +476,6 @@ def _resolve_private_two_member_composite(
         ]
     ] = []
     previous_token: bytes | None = None
-    include_count = 0
-    exclude_count = 0
     for raw_segment in lease.segments:
         segment = cast(Any, raw_segment)
         try:
@@ -496,7 +488,7 @@ def _resolve_private_two_member_composite(
             member_token = segment.member_token
         except Exception as error:
             raise SnapshotCompatibilityError(
-                "core encoded two-member composite metadata is not readable"
+                "core encoded direct composite metadata is not readable"
             ) from error
         if (
             type(role) is not int
@@ -521,16 +513,10 @@ def _resolve_private_two_member_composite(
         elif posting_mode == _POSTINGS_INCLUDE:
             if not root_ids.nbytes:
                 return None
-            include_count += 1
-            if include_count > 1:
-                return None
             included_root_ids = root_ids
             excluded_root_ids = None
         elif posting_mode == _POSTINGS_EXCLUDE:
             if not root_ids.nbytes:
-                return None
-            exclude_count += 1
-            if exclude_count > 2:
                 return None
             included_root_ids = None
             excluded_root_ids = root_ids
@@ -555,8 +541,46 @@ def _resolve_private_two_member_composite(
             ) from error
         if type(source_role) is not int or source_role != _SEGMENT_DIRECT:
             return None
+        if any(
+            source_lease.encoded_view is prior.encoded_view or source_lease.owner is prior.owner
+            for prior, _included, _excluded in rows
+        ):
+            return None
         rows.append((source_lease, included_root_ids, excluded_root_ids))
 
+    return tuple(rows) if len(rows) == member_count else None
+
+
+def _resolve_private_two_member_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview | None,
+        memoryview | None,
+        memoryview | None,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact two-table composite without flattening either member.
+
+    This slice admits exactly two direct members, no bridge roots or
+    anonymous-scope remapping, and either one nonempty ``INCLUDE`` table or up
+    to two nonempty ``EXCLUDE`` tables. A lone selected member becomes the
+    left merge table so its source-local posting cursor remains authoritative.
+    Mixed or duplicate INCLUDE selectors, nested sources, bridges, and every
+    other composite form stay on whole-operation fallback.
+    """
+
+    resolved_rows = _resolve_private_direct_composite_rows(lease, member_count=2)
+    if resolved_rows is None:
+        return None
+    rows = list(resolved_rows)
+    include_count = sum(included is not None for _lease, included, _excluded in rows)
+    exclude_count = sum(excluded is not None for _lease, _included, excluded in rows)
     if len(rows) != 2:
         return None
     if include_count and exclude_count:
@@ -582,6 +606,48 @@ def _resolve_private_two_member_composite(
         included_root_ids,
         excluded_root_ids,
         right_excluded_root_ids,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _resolve_private_three_member_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview | None,
+        memoryview | None,
+        memoryview | None,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve three exact direct members with source-local ALL/EXCLUDE selection."""
+
+    rows = _resolve_private_direct_composite_rows(lease, member_count=3)
+    if rows is None or any(included is not None for _source, included, _excluded in rows):
+        return None
+    first, _first_include, first_excluded = rows[0]
+    second, _second_include, second_excluded = rows[1]
+    third, _third_include, third_excluded = rows[2]
+    validation_work = (
+        _private_encoded_lease_validation_work(lease)
+        + _private_encoded_lease_validation_work(first)
+        + _private_encoded_lease_validation_work(second)
+        + _private_encoded_lease_validation_work(third)
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        first,
+        second,
+        third,
+        first_excluded,
+        second_excluded,
+        third_excluded,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
     )

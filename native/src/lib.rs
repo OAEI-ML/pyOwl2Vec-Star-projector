@@ -24,6 +24,7 @@ use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
     prepare_single_overlay_delta_batches_uncommitted,
+    prepare_three_member_composite_batches_uncommitted,
     prepare_two_member_composite_batches_uncommitted, DirectColumns, DirectCompileOptions,
     DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState,
     PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED,
@@ -41,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 85;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 86;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -598,12 +599,16 @@ struct EncodedDirectCompiler {
     _overlay_delta_view: Option<Py<PyAny>>,
     _overlay_delta_owner: Option<Py<PyAny>>,
     overlay_delta_buffers: Option<Vec<RetainedDirectBuffer>>,
+    _third_member_view: Option<Py<PyAny>>,
+    _third_member_owner: Option<Py<PyAny>>,
+    third_member_buffers: Option<Vec<RetainedDirectBuffer>>,
     _merge_manifest_view: Option<Py<PyAny>>,
     _merge_manifest_owner: Option<Py<PyAny>>,
     canonical_merge_limits: Option<(usize, usize)>,
     included_root_ids: Option<RetainedDirectBuffer>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
     right_excluded_root_ids: Option<RetainedDirectBuffer>,
+    third_excluded_root_ids: Option<RetainedDirectBuffer>,
     _root_annotation_view: Option<Py<PyAny>>,
     _root_annotation_owner: Option<Py<PyAny>>,
     root_annotation_buffers: Option<Vec<RetainedDirectBuffer>>,
@@ -704,6 +709,15 @@ impl EncodedDirectCompiler {
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
             DirectColumns::from_ordered(slices).with_excluded_root_ids(right_excluded_root_ids)
         });
+        let third_member_columns = self.third_member_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            let third_excluded_root_ids = self
+                .third_excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices).with_excluded_root_ids(third_excluded_root_ids)
+        });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -731,15 +745,26 @@ impl EncodedDirectCompiler {
                             )
                         })?;
                     if self._merge_manifest_view.is_some() {
-                        prepare_two_member_composite_batches_uncommitted(
-                            columns,
-                            delta_columns,
-                            options,
-                            &self.state,
-                            None,
-                            max_work,
-                            max_workspace_bytes,
-                        )
+                        if let Some(third_columns) = third_member_columns {
+                            prepare_three_member_composite_batches_uncommitted(
+                                [columns, delta_columns, third_columns],
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        } else {
+                            prepare_two_member_composite_batches_uncommitted(
+                                columns,
+                                delta_columns,
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        }
                     } else {
                         prepare_single_overlay_delta_batches_uncommitted(
                             columns,
@@ -813,6 +838,10 @@ impl EncodedDirectCompiler {
         merge_manifest_descriptor_sha256=None,
         included_root_ids=None,
         right_excluded_root_ids=None,
+        third_member_view=None,
+        third_member_owner=None,
+        third_member_descriptor_sha256=None,
+        third_excluded_root_ids=None,
     ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
@@ -832,6 +861,10 @@ impl EncodedDirectCompiler {
         merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
         included_root_ids: Option<&Bound<'_, PyAny>>,
         right_excluded_root_ids: Option<&Bound<'_, PyAny>>,
+        third_member_view: Option<&Bound<'_, PyAny>>,
+        third_member_owner: Option<&Bound<'_, PyAny>>,
+        third_member_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        third_excluded_root_ids: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
         let included_root_ids_view = included_root_ids;
@@ -845,6 +878,10 @@ impl EncodedDirectCompiler {
         let right_excluded_root_ids_view = right_excluded_root_ids;
         let right_excluded_root_ids = right_excluded_root_ids_view
             .map(|value| retained_exact_bytes_buffer(value, "right_excluded_root_ids"))
+            .transpose()?;
+        let third_excluded_root_ids_view = third_excluded_root_ids;
+        let third_excluded_root_ids = third_excluded_root_ids_view
+            .map(|value| retained_exact_bytes_buffer(value, "third_excluded_root_ids"))
             .transpose()?;
         if included_root_ids.is_some() && excluded_root_ids.is_some() {
             return Err(encoded_buffer_error(
@@ -879,6 +916,22 @@ impl EncodedDirectCompiler {
                 ));
             }
         };
+        let third_member = match (
+            third_member_view,
+            third_member_owner,
+            third_member_descriptor_sha256,
+        ) {
+            (None, None, None) => None,
+            (Some(view), Some(owner), Some(digest)) => Some((view, owner, digest)),
+            _ => {
+                return Err(encoded_buffer_error(
+                    "encoded third member view, owner, and descriptor digest must be supplied together",
+                ));
+            }
+        };
+        let third_member_buffers = third_member
+            .map(|(view, owner, digest)| retained_direct_buffers(view, owner, digest))
+            .transpose()?;
         let (overlay_delta_buffers, canonical_merge_limits) = match (
             overlay_delta_view,
             overlay_delta_owner,
@@ -901,18 +954,31 @@ impl EncodedDirectCompiler {
                 let buffers =
                     if let Some((manifest, manifest_owner, manifest_digest)) = merge_manifest {
                         let buffers = retained_direct_buffers(view, owner, digest)?;
-                        validate_two_member_composite_manifest(
-                            manifest,
-                            manifest_owner,
-                            manifest_digest,
-                            encoded_view,
-                            expected_owner,
-                            view,
-                            owner,
-                            included_root_ids_view,
-                            excluded_root_ids_view,
-                            right_excluded_root_ids_view,
-                        )?;
+                        if let Some((third_view, third_owner, _)) = third_member {
+                            validate_three_member_composite_manifest(
+                                manifest,
+                                manifest_owner,
+                                manifest_digest,
+                                [
+                                    (encoded_view, expected_owner, excluded_root_ids_view),
+                                    (view, owner, right_excluded_root_ids_view),
+                                    (third_view, third_owner, third_excluded_root_ids_view),
+                                ],
+                            )?;
+                        } else {
+                            validate_two_member_composite_manifest(
+                                manifest,
+                                manifest_owner,
+                                manifest_digest,
+                                encoded_view,
+                                expected_owner,
+                                view,
+                                owner,
+                                included_root_ids_view,
+                                excluded_root_ids_view,
+                                right_excluded_root_ids_view,
+                            )?;
+                        }
                         buffers
                     } else {
                         retained_overlay_delta_buffers(
@@ -937,6 +1003,16 @@ impl EncodedDirectCompiler {
                 "encoded composite manifest requires two retained merge tables",
             ));
         }
+        if third_member.is_some() && merge_manifest.is_none() {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded third composite member requires an exact composite manifest",
+            ));
+        }
+        if third_member.is_none() && third_excluded_root_ids.is_some() {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded third EXCLUDE selection requires an exact third composite member",
+            ));
+        }
         if included_root_ids.is_some() && merge_manifest.is_none() {
             return Err(EncodedDirectUnsupportedError::new_err(
                 "encoded INCLUDE selection requires an exact composite manifest",
@@ -947,7 +1023,9 @@ impl EncodedDirectCompiler {
                 "encoded right EXCLUDE selection requires an exact composite manifest",
             ));
         }
-        if included_root_ids.is_some() && right_excluded_root_ids.is_some() {
+        if included_root_ids.is_some()
+            && (right_excluded_root_ids.is_some() || third_excluded_root_ids.is_some())
+        {
             return Err(encoded_buffer_error(
                 "encoded composite root selection cannot mix INCLUDE and EXCLUDE postings",
             ));
@@ -959,12 +1037,16 @@ impl EncodedDirectCompiler {
             _overlay_delta_view: overlay_delta_view.map(|value| value.clone().unbind()),
             _overlay_delta_owner: overlay_delta_owner.map(|value| value.clone().unbind()),
             overlay_delta_buffers,
+            _third_member_view: third_member_view.map(|value| value.clone().unbind()),
+            _third_member_owner: third_member_owner.map(|value| value.clone().unbind()),
+            third_member_buffers,
             _merge_manifest_view: merge_manifest_view.map(|value| value.clone().unbind()),
             _merge_manifest_owner: merge_manifest_owner.map(|value| value.clone().unbind()),
             canonical_merge_limits,
             included_root_ids,
             excluded_root_ids,
             right_excluded_root_ids,
+            third_excluded_root_ids,
             _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
             root_annotation_buffers,
@@ -1047,6 +1129,15 @@ impl EncodedDirectCompiler {
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
             DirectColumns::from_ordered(slices).with_excluded_root_ids(right_excluded_root_ids)
         });
+        let third_member_columns = self.third_member_buffers.as_ref().map(|buffers| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| buffers[index].as_slice());
+            let third_excluded_root_ids = self
+                .third_excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices).with_excluded_root_ids(third_excluded_root_ids)
+        });
         let root_annotation_columns = self.root_annotation_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -1094,15 +1185,26 @@ impl EncodedDirectCompiler {
                             )
                         })?;
                     if self._merge_manifest_view.is_some() {
-                        prepare_two_member_composite_batches_uncommitted(
-                            columns,
-                            delta_columns,
-                            options,
-                            &self.state,
-                            None,
-                            max_work,
-                            max_workspace_bytes,
-                        )
+                        if let Some(third_columns) = third_member_columns {
+                            prepare_three_member_composite_batches_uncommitted(
+                                [columns, delta_columns, third_columns],
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        } else {
+                            prepare_two_member_composite_batches_uncommitted(
+                                columns,
+                                delta_columns,
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        }
                     } else {
                         prepare_single_overlay_delta_batches_uncommitted(
                             columns,
@@ -1751,10 +1853,12 @@ impl EncodedDirectCompiler {
     fn retained_buffer_count(&self) -> usize {
         self.buffers.len()
             + self.overlay_delta_buffers.as_ref().map_or(0, Vec::len)
+            + self.third_member_buffers.as_ref().map_or(0, Vec::len)
             + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
             + usize::from(self.included_root_ids.is_some())
             + usize::from(self.excluded_root_ids.is_some())
             + usize::from(self.right_excluded_root_ids.is_some())
+            + usize::from(self.third_excluded_root_ids.is_some())
     }
 
     /// Deterministic test hook proving another Python thread can cancel while
@@ -2511,6 +2615,155 @@ fn validate_two_member_composite_manifest(
     if !matched_left || !matched_right {
         return Err(encoded_buffer_error(
             "encoded composite did not retain both merge tables",
+        ));
+    }
+    Ok(())
+}
+
+type CompositeMemberBinding<'a, 'py> = (
+    &'a Bound<'py, PyAny>,
+    &'a Bound<'py, PyAny>,
+    Option<&'a Bound<'py, PyAny>>,
+);
+
+fn validate_three_member_composite_manifest(
+    encoded_view: &Bound<'_, PyAny>,
+    expected_owner: &Bound<'_, PyAny>,
+    descriptor_sha256: &Bound<'_, PyAny>,
+    members: [CompositeMemberBinding<'_, '_>; 3],
+) -> PyResult<()> {
+    validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
+    for left in 0..3 {
+        for right in left + 1..3 {
+            if members[left].0.is(members[right].0) || members[left].1.is(members[right].1) {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "bounded three-member composite requires distinct direct members",
+                ));
+            }
+        }
+    }
+
+    let local_buffers = retained_structural_buffers(encoded_view)?;
+    for (name, buffer) in BUFFER_NAMES.into_iter().zip(&local_buffers) {
+        let bytes = buffer.as_slice();
+        if name == "node_field_offsets" {
+            if bytes != [0_u8; 8] {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "bounded three-member composite requires empty local columns",
+                ));
+            }
+        } else if !bytes.is_empty() {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "bounded three-member composite does not support bridge roots",
+            ));
+        }
+    }
+
+    let raw_segments = required_attribute(encoded_view, "segments")?;
+    if !raw_segments.is_exact_instance_of::<PyTuple>() {
+        return Err(encoded_buffer_error(
+            "encoded composite segment manifest must be an exact tuple",
+        ));
+    }
+    let segments = raw_segments
+        .cast::<PyTuple>()
+        .map_err(|_| encoded_buffer_error("encoded composite manifest is inaccessible"))?;
+    if segments.len() != 3 {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "bounded three-member composite requires exactly three member segments",
+        ));
+    }
+
+    let mut matched = [false; 3];
+    let mut previous_token: Option<[u8; 32]> = None;
+    for index in 0..3 {
+        let segment = segments
+            .get_item(index)
+            .map_err(|_| encoded_buffer_error("encoded composite member is inaccessible"))?;
+        if exact_nonnegative_integer(&required_attribute(&segment, "role")?, "segment role")?
+            != COMPOSITE_MEMBER_SEGMENT
+        {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "bounded three-member composite requires member-only segments",
+            ));
+        }
+        let source = required_attribute(&segment, "source")?;
+        let member_index = members
+            .iter()
+            .position(|(view, _, _)| source.is(*view))
+            .ok_or_else(|| {
+                encoded_buffer_error("encoded composite member lost its retained source identity")
+            })?;
+        if matched[member_index] {
+            return Err(encoded_buffer_error(
+                "encoded composite repeats one retained source identity",
+            ));
+        }
+        matched[member_index] = true;
+        let (_, member_owner, expected_exclude) = members[member_index];
+        if !required_attribute(&segment, "owner")?.is(member_owner) {
+            return Err(encoded_buffer_error(
+                "encoded composite member lost its retained owner identity",
+            ));
+        }
+
+        let posting_mode = exact_nonnegative_integer(
+            &required_attribute(&segment, "posting_mode")?,
+            "segment posting_mode",
+        )?;
+        let root_ids = required_attribute(&segment, "root_ids")?;
+        let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
+        match expected_exclude {
+            None => {
+                if posting_mode != POSTINGS_ALL || root_id_bytes != 0 {
+                    return Err(EncodedDirectUnsupportedError::new_err(
+                        "bounded three-member composite requires ALL selection on every unposted member",
+                    ));
+                }
+            }
+            Some(expected) => {
+                if posting_mode != POSTINGS_EXCLUDE || root_id_bytes == 0 {
+                    return Err(EncodedDirectUnsupportedError::new_err(
+                        "bounded three-member composite requires nonempty EXCLUDE tables",
+                    ));
+                }
+                if !root_ids.is(expected) {
+                    return Err(encoded_buffer_error(
+                        "encoded composite member lost its exact EXCLUDE table",
+                    ));
+                }
+            }
+        }
+        let scope_map = required_attribute(&segment, "anonymous_scope_map")?;
+        if checked_memoryview_length(&scope_map, "anonymous_scope_map")? != 0 {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "bounded three-member composite does not support anonymous scope remapping",
+            ));
+        }
+
+        let token = required_attribute(&segment, "member_token")?;
+        if !token.is_exact_instance_of::<PyBytes>() {
+            return Err(encoded_buffer_error(
+                "encoded composite member token must be exact immutable bytes",
+            ));
+        }
+        let token = token
+            .cast::<PyBytes>()
+            .map_err(|_| encoded_buffer_error("encoded composite member token is inaccessible"))?
+            .as_bytes();
+        let token: [u8; 32] = token.try_into().map_err(|_| {
+            encoded_buffer_error("encoded composite member token must contain exactly 32 bytes")
+        })?;
+        if previous_token.is_some_and(|previous| previous >= token) {
+            return Err(encoded_buffer_error(
+                "encoded composite member tokens are not sorted unique",
+            ));
+        }
+        previous_token = Some(token);
+    }
+    if matched != [true; 3] {
+        return Err(encoded_buffer_error(
+            "encoded composite did not retain all three merge tables",
         ));
     }
     Ok(())
