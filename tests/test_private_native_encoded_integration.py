@@ -4064,12 +4064,14 @@ def test_hidden_iterator_projects_one_local_object_property_class_axiom(
         "SubObjectPropertyOf("
         "ObjectPropertyChain(ObjectInverseOf(:left) :right) "
         "ObjectInverseOf(:p))",
+        'SubObjectPropertyOf(Annotation(:label "chain") ObjectPropertyChain(:left :right) :p)',
     ],
     ids=[
         "binary-named",
         "ternary-named",
         "binary-inverse-member",
         "binary-inverse-member-and-super",
+        "annotated-binary-named",
     ],
 )
 @pytest.mark.parametrize(
@@ -4310,12 +4312,19 @@ def test_private_overlay_property_chain_preserves_asserted_taxonomy() -> None:
             "InverseObjectProperties(ObjectInverseOf(:p) ObjectInverseOf(:super))",
             "inverse-properties",
         ),
+        ('SubObjectPropertyOf(Annotation(:label "sub") :p :super)', "sub-property"),
+        (
+            'InverseObjectProperties(Annotation(:label "inverse") :p :super)',
+            "inverse-properties",
+        ),
     ],
     ids=[
         "named-sub-property",
         "inverse-expression-sub-property",
         "named-inverse-properties",
         "inverse-expression-inverse-properties",
+        "annotated-sub-property",
+        "annotated-inverse-properties",
     ],
 )
 @pytest.mark.parametrize(
@@ -14987,18 +14996,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "anonymous individuals or local scope remap",
         ),
         (
-            'SubObjectPropertyOf(Annotation(:label "x") ObjectPropertyChain(:p :q) :r)',
-            "bounded local-overlay SubObjectPropertyOf root must be unannotated",
-        ),
-        (
-            'SubObjectPropertyOf(Annotation(:label "x") :p :q)',
-            "bounded local-overlay SubObjectPropertyOf root must be unannotated",
-        ),
-        (
-            'InverseObjectProperties(Annotation(:label "x") :p :q)',
-            "bounded local-overlay InverseObjectProperties root must be unannotated",
-        ),
-        (
             'AnnotationAssertion(<urn:meta> _:anonymous "value")',
             "bounded local-overlay AnnotationAssertion root requires no anonymous "
             "individuals or local scope remap",
@@ -15206,9 +15203,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
         "annotated-ignored-local-object-property-range",
         "anonymous-ignored-local-object-property-domain",
         "anonymous-ignored-local-object-property-range",
-        "annotated-local-object-property-chain",
-        "annotated-local-sub-object-property",
-        "annotated-local-inverse-object-properties",
         "anonymous-local-annotation-assertion",
         "annotated-complex-local-restriction-filler",
         "anonymous-local-class-assertion",

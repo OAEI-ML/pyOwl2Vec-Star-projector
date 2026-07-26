@@ -1219,13 +1219,13 @@ impl LocalRoleRulePlan {
         state: &AtomicU8,
     ) -> Result<Option<RoleAxiom<'a>>, KernelError> {
         let field_start = columns.exact_fields(root, 3)?;
-        let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
-        if annotation_count != 0 {
-            return Err(KernelError::unsupported(format!(
-                "bounded local-overlay {} root must be unannotated",
-                self.rule.constructor,
-            )));
-        }
+        validate_local_annotation_scope(
+            columns,
+            root,
+            field_start + 2,
+            self.rule.constructor,
+            state,
+        )?;
         self.rule
             .scope_policy
             .validate(columns, root, context, self.rule.constructor, state)?;
@@ -9201,7 +9201,7 @@ fn own_local_subclass_projection(
         ));
     }
     let field_start = columns.exact_fields(root, 3)?;
-    validate_local_emitting_annotation_scope(columns, root, field_start + 2, "SubClassOf", state)?;
+    validate_local_annotation_scope(columns, root, field_start + 2, "SubClassOf", state)?;
     match columns.subclass_projection(root, max_iri_bytes)? {
         SubclassProjection::Taxonomy {
             source,
@@ -9238,13 +9238,7 @@ fn own_local_class_assertion_projection(
         ));
     }
     let field_start = columns.exact_fields(root, 3)?;
-    validate_local_emitting_annotation_scope(
-        columns,
-        root,
-        field_start + 2,
-        "ClassAssertion",
-        state,
-    )?;
+    validate_local_annotation_scope(columns, root, field_start + 2, "ClassAssertion", state)?;
     match columns.class_assertion_projection(root, max_iri_bytes)? {
         ClassAssertionProjection::Edge { individual, class } => {
             Ok(OwnedOverlayDeltaProjection::ClassAssertion {
@@ -9266,7 +9260,7 @@ fn own_local_object_property_assertion_projection(
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     let field_start = columns.exact_fields(root, 4)?;
-    validate_local_emitting_annotation_scope(
+    validate_local_annotation_scope(
         columns,
         root,
         field_start + 3,
@@ -9290,7 +9284,7 @@ fn own_local_object_property_assertion_projection(
     }
 }
 
-fn validate_local_emitting_annotation_scope(
+fn validate_local_annotation_scope(
     columns: DirectColumns<'_>,
     root: usize,
     annotation_field: usize,
@@ -13490,6 +13484,20 @@ mod tests {
         fixture
             .root_ids
             .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn anonymous_annotated_local_role_delta_fixture() -> Fixture {
+        let mut fixture = local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 2, false, true);
+        fixture.push_scalar(COMPONENT_BYTES, &[17; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"local-role-annotation");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 15
+
+        let annotation_start =
+            read_usize(&fixture.node_field_offsets, 12, "annotation offset").unwrap();
+        let value_field = annotation_start + 1;
+        fixture.field_values[value_field * 8..value_field * 8 + 8]
+            .copy_from_slice(&15_u64.to_le_bytes());
         fixture
     }
 
@@ -20540,17 +20548,35 @@ mod tests {
         ));
 
         let annotated = local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 2, false, true);
+        let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated_prepared.statistics().roots, 3);
+        assert_eq!(annotated_prepared.statistics().sub_object_properties, 1);
+        assert_eq!(annotated_prepared.statistics().object_property_chains, 1);
+        assert_eq!(annotated_prepared.statistics().edges, 1);
+        assert_eq!(annotated_prepared.emission_attempts(), 0);
+
+        let anonymous_annotation = anonymous_annotated_local_role_delta_fixture();
         assert!(matches!(
             prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
-                annotated.columns(),
+                anonymous_annotation.columns(),
                 options,
                 &running_state(),
                 None,
                 canonical_limits().max_work,
                 canonical_limits().max_workspace_bytes,
             ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            Err(KernelError::Unsupported(message))
+                if message.contains("annotations require no anonymous individuals or local scope remap")
         ));
     }
 
@@ -20719,18 +20745,27 @@ mod tests {
             ));
 
             let annotated = local_role_delta_fixture(root_tag, 0, false, true);
-            assert!(matches!(
-                prepare_single_overlay_delta_batches_uncommitted(
-                    base.columns(),
-                    annotated.columns(),
-                    options,
-                    &running_state(),
-                    None,
-                    canonical_limits().max_work,
-                    canonical_limits().max_workspace_bytes,
-                ),
-                Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
-            ));
+            let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(annotated_prepared.statistics().roots, 3);
+            assert_eq!(
+                annotated_prepared.statistics().sub_object_properties,
+                usize::from(kind == LocalRoleRuleKind::SimpleSubProperty)
+            );
+            assert_eq!(
+                annotated_prepared.statistics().inverse_object_properties,
+                usize::from(kind == LocalRoleRuleKind::InverseProperties)
+            );
+            assert_eq!(annotated_prepared.statistics().edges, 3);
+            assert_eq!(annotated_prepared.emission_attempts(), 0);
 
             assert!(matches!(
                 prepare_single_overlay_delta_batches_uncommitted(
