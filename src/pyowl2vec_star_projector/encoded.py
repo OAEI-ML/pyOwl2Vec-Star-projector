@@ -64,6 +64,7 @@ _TAG_IRI = 1
 _TAG_ENTITY = 2
 _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_LITERAL = 4
+_TAG_OBJECT_ONE_OF = 33
 _TAG_SUB_CLASS_OF = 61
 _TAG_SAME_INDIVIDUAL = 110
 _TAG_DIFFERENT_INDIVIDUALS = 111
@@ -728,9 +729,59 @@ def _single_scope_mapped_construct_scope(
                 return None
             class_id = _read_uint(buffers["field_values"], start, 8)
             individual_id = _read_uint(buffers["field_values"], start + 1, 8)
+            class_tag = _read_uint(buffers["node_tags"], class_id - 1, 2)
+            individual_tag = _read_uint(
+                buffers["node_tags"],
+                individual_id - 1,
+                2,
+            )
+            named_class_over_anonymous = (
+                class_tag == _TAG_ENTITY and individual_id == anonymous_node_id
+            )
+            singleton_nominal_over_named = False
             if (
-                _read_uint(buffers["node_tags"], class_id - 1, 2) != _TAG_ENTITY
-                or individual_id != anonymous_node_id
+                class_tag == _TAG_OBJECT_ONE_OF
+                and individual_tag == _TAG_ENTITY
+            ):
+                nominal_start = _read_uint(
+                    buffers["node_field_offsets"],
+                    class_id - 1,
+                    8,
+                )
+                nominal_end = _read_uint(
+                    buffers["node_field_offsets"],
+                    class_id,
+                    8,
+                )
+                if (
+                    nominal_end - nominal_start == 1
+                    and _read_uint(
+                        buffers["field_kinds"],
+                        nominal_start,
+                        1,
+                    )
+                    == _COMPONENT_SET
+                    and _read_uint(
+                        buffers["field_lengths"],
+                        nominal_start,
+                        8,
+                    )
+                    == 1
+                ):
+                    item_start = _read_uint(
+                        buffers["field_values"],
+                        nominal_start,
+                        8,
+                    )
+                    singleton_nominal_over_named = (
+                        _read_uint(buffers["item_kinds"], item_start, 1)
+                        == _COMPONENT_NODE
+                        and _read_uint(buffers["item_lengths"], item_start, 8) == 0
+                        and _read_uint(buffers["item_values"], item_start, 8)
+                        == anonymous_node_id
+                    )
+            if (
+                not (named_class_over_anonymous or singleton_nominal_over_named)
                 or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
                 or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
             ):

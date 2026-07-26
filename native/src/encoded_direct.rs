@@ -2470,6 +2470,43 @@ impl<'a> DirectColumns<'a> {
         Ok(left_key.cmp(right_key))
     }
 
+    fn is_scope_mapped_ignored_class_assertion(
+        self,
+        root: usize,
+        anonymous_node: Option<usize>,
+        maximum_iri: usize,
+    ) -> Result<bool, KernelError> {
+        let start = self.exact_fields(root, 3)?;
+        let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
+        if annotation_count != 0
+            || !matches!(
+                self.class_assertion_projection(root, maximum_iri)?,
+                ClassAssertionProjection::Ignored
+            )
+        {
+            return Ok(false);
+        }
+        let class = self.field_node(start)?;
+        let individual = self.field_node(start + 1)?;
+        let candidate = match self.node_tag(class)? {
+            TAG_ENTITY if self.node_tag(individual)? == TAG_ANONYMOUS_INDIVIDUAL => {
+                Some(individual)
+            }
+            TAG_OBJECT_ONE_OF if self.node_tag(individual)? == TAG_ENTITY => {
+                let nominal_start = self.exact_fields(class, 1)?;
+                let (item_start, item_count) = self.node_set_range(nominal_start, 1)?;
+                if item_count != 1 {
+                    return Ok(false);
+                }
+                let member = self.item_node(item_start)?;
+                (self.node_tag(member)? == TAG_ANONYMOUS_INDIVIDUAL).then_some(member)
+            }
+            _ => None,
+        };
+        Ok(candidate
+            .is_some_and(|candidate| anonymous_node.is_none_or(|expected| candidate == expected)))
+    }
+
     fn validate_scope_mapped_composite_table(
         self,
         maximum_iri: usize,
@@ -2533,19 +2570,13 @@ impl<'a> DirectColumns<'a> {
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
                         ));
                     }
-                    let start = self.exact_fields(root, 3)?;
-                    let (_annotation_start, annotation_count) =
-                        self.node_set_range(start + 2, 0)?;
-                    if annotation_count != 0
-                        || self.node_tag(self.field_node(start)?)? != TAG_ENTITY
-                        || self.field_node(start + 1)? != anonymous_node
-                        || !matches!(
-                            self.class_assertion_projection(root, maximum_iri)?,
-                            ClassAssertionProjection::Ignored
-                        )
-                    {
+                    if !self.is_scope_mapped_ignored_class_assertion(
+                        root,
+                        Some(anonymous_node),
+                        maximum_iri,
+                    )? {
                         return Err(KernelError::unsupported(
-                            "bounded anonymous-scope composite requires one unannotated named-class assertion over its anonymous individual",
+                            "bounded anonymous-scope composite requires one unannotated named-class assertion over its anonymous individual or singleton anonymous nominal over a named individual",
                         ));
                     }
                     construct_kind = Some(ScopeMappedCompositeKind::IgnoredClass);
@@ -9239,7 +9270,8 @@ fn own_composite_tail_projection(
             "bounded anonymous-scope ClassAssertion requires an empty annotation set",
         ));
     }
-    match columns.class_assertion_projection(root, max_iri_bytes)? {
+    let projection = columns.class_assertion_projection(root, max_iri_bytes)?;
+    match projection {
         ClassAssertionProjection::Edge { individual, class } => {
             Ok(OwnedOverlayDeltaProjection::ClassAssertion {
                 individual: workspace.clone_text(individual)?,
@@ -9247,16 +9279,18 @@ fn own_composite_tail_projection(
             })
         }
         ClassAssertionProjection::Ignored
-            if columns.node_tag(columns.field_node(field_start)?)? == TAG_ENTITY
-                && columns.node_tag(columns.field_node(field_start + 1)?)?
-                    == TAG_ANONYMOUS_INDIVIDUAL =>
+            if columns.is_scope_mapped_ignored_class_assertion(
+                root,
+                None,
+                max_iri_bytes,
+            )? =>
         {
             Ok(OwnedOverlayDeltaProjection::IgnoredClassAssertion {
                 anonymous_individuals: 1,
             })
         }
         ClassAssertionProjection::Ignored => Err(KernelError::unsupported(
-            "bounded anonymous-scope composite supports only named-class assertions over one anonymous individual",
+            "bounded anonymous-scope composite supports only named-class assertions over one anonymous individual or singleton anonymous nominals over a named individual",
         )),
     }
 }
@@ -11804,6 +11838,42 @@ mod tests {
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
         fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_nominal_class_assertion_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:B".as_slice(), b"urn:Top", b"urn:i"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        for (kind, iri_id) in [
+            (b"class".as_slice(), 1_u64),
+            (b"class".as_slice(), 2),
+            (b"named_individual".as_slice(), 3),
+        ] {
+            fixture.push_scalar(COMPONENT_ENUM, kind);
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 4..=6
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 7
+        fixture.push_node_set(&[7]);
+        fixture.finish_node(TAG_OBJECT_ONE_OF); // 8
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(5);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 9
+        fixture.push_node_ref(8);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 10
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
+        fixture.root_ids.extend_from_slice(&10_u32.to_le_bytes());
         fixture
     }
 
@@ -21172,6 +21242,66 @@ mod tests {
     }
 
     #[test]
+    fn two_member_composite_remaps_singleton_nominal_class_assertion_scopes() {
+        let left = scope_mapped_nominal_class_assertion_fixture();
+        let right = scope_mapped_nominal_class_assertion_fixture();
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(8);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(9);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_two_member_composite_batches_uncommitted(
+            left_columns,
+            right_columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.class_assertions, 2);
+        assert_eq!(statistics.ignored_class_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 1);
+        assert!(matches!(
+            prepared.preparation.overlay_deltas[0].projection,
+            OwnedOverlayDeltaProjection::IgnoredClassAssertion {
+                anonymous_individuals: 1
+            }
+        ));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
     fn two_member_composite_remaps_emitting_object_assertion_scopes() {
         let left = scope_mapped_object_property_assertion_fixture();
         let right = scope_mapped_object_property_assertion_fixture();
@@ -21661,6 +21791,66 @@ mod tests {
                     destination: "urn:j".into(),
                 },
             ]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_singleton_nominal_scopes_across_one_neutral_table() {
+        let left = scope_mapped_nominal_class_assertion_fixture();
+        let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let right = scope_mapped_nominal_class_assertion_fixture();
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_three_member_composite_batches_uncommitted(
+            [left_columns, neutral.columns(), right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.class_assertions, 2);
+        assert_eq!(statistics.ignored_class_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 1);
+        assert!(matches!(
+            prepared.preparation.overlay_deltas[0].projection,
+            OwnedOverlayDeltaProjection::IgnoredClassAssertion {
+                anonymous_individuals: 1
+            }
+        ));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
         );
         prepared.commit_cursor(cursor);
         assert!(prepared.is_exhausted());

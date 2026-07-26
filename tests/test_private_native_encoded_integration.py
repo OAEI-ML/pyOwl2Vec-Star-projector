@@ -9044,12 +9044,19 @@ def _two_member_duplicate_subclass_composite(
 
 def _scope_mapped_class_assertion_composite(
     provider_backend: pyowl_core.BackendPreference,
+    *,
+    nominal: bool = False,
 ) -> pyowl_core.OntologyView:
+    assertion = (
+        "ClassAssertion(ObjectOneOf(_:same) :i)"
+        if nominal
+        else "ClassAssertion(:A _:same)"
+    )
     members = [
         cast(
             pyowl_core.OntologyView,
             _snapshot(
-                "SubClassOf(:B :Top) ClassAssertion(:A _:same)",
+                f"SubClassOf(:B :Top) {assertion}",
                 backend=provider_backend,
             ),
         )
@@ -9878,10 +9885,19 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize(
+    "nominal",
+    [False, True],
+    ids=["anonymous-individual", "singleton-anonymous-nominal"],
+)
 def test_hidden_iterator_remaps_anonymous_class_assertion_scopes_in_one_native_pass(
     provider_backend: pyowl_core.BackendPreference,
+    nominal: bool,
 ) -> None:
-    composite = _scope_mapped_class_assertion_composite(provider_backend)
+    composite = _scope_mapped_class_assertion_composite(
+        provider_backend,
+        nominal=nominal,
+    )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
         schema_version=1,
@@ -10638,10 +10654,19 @@ def test_hidden_iterator_remaps_negative_object_assertion_scopes_in_one_native_p
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize(
+    "nominal",
+    [False, True],
+    ids=["anonymous-individual", "singleton-anonymous-nominal"],
+)
 def test_scope_mapped_composite_preserves_identity_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
+    nominal: bool,
 ) -> None:
-    composite = _scope_mapped_class_assertion_composite(provider_backend)
+    composite = _scope_mapped_class_assertion_composite(
+        provider_backend,
+        nominal=nominal,
+    )
     top_lease = select_private_direct_ingestion(
         composite,
         selected_backend="native",
@@ -12487,17 +12512,27 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    "object_assertion",
-    [False, True],
-    ids=["ignored-class-assertion", "object-assertion"],
+    ("assertion", "object_assertion"),
+    [
+        (None, False),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", False),
+        (None, True),
+    ],
+    ids=[
+        "ignored-class-assertion",
+        "ignored-singleton-nominal",
+        "object-assertion",
+    ],
 )
 def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     provider_backend: pyowl_core.BackendPreference,
+    assertion: str | None,
     object_assertion: bool,
 ) -> None:
     composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
         object_assertion=object_assertion,
+        assertion=assertion,
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
@@ -12948,10 +12983,23 @@ def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize(
+    "nominal",
+    [False, True],
+    ids=["anonymous-individual", "singleton-anonymous-nominal"],
+)
 def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
+    nominal: bool,
 ) -> None:
-    composite = _scope_mapped_nested_overlay_composite(provider_backend)
+    composite = _scope_mapped_nested_overlay_composite(
+        provider_backend,
+        assertion=(
+            "ClassAssertion(ObjectOneOf(_:same) :i)"
+            if nominal
+            else "ClassAssertion(:A _:same)"
+        ),
+    )
     top_lease = select_private_direct_ingestion(
         composite,
         selected_backend="native",
@@ -13645,6 +13693,8 @@ def test_nested_overlay_member_preserves_identity_cancel_limits_and_retry(
         "multi-anonymous-scope-remap",
         "annotated-scoped-family",
         "annotated-scoped-annotation",
+        "annotated-nominal-scope-remap",
+        "broad-nominal-scope-remap",
         "empty-overlay",
         "silent-local",
     ],
@@ -13672,6 +13722,18 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         scoped = (
             "AnnotationAssertion(Annotation(:label \"x\") "
             "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)"
+        )
+        base = direct(scoped)
+        addition = direct("SubClassOf(:B :Top)")
+        sibling = direct(scoped)
+    elif shape in {
+        "annotated-nominal-scope-remap",
+        "broad-nominal-scope-remap",
+    }:
+        scoped = (
+            'ClassAssertion(Annotation(:label "x") ObjectOneOf(_:same) :i)'
+            if shape == "annotated-nominal-scope-remap"
+            else "ClassAssertion(ObjectOneOf(_:same :j) :i)"
         )
         base = direct(scoped)
         addition = direct("SubClassOf(:B :Top)")
@@ -13774,6 +13836,8 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         "annotated-individual-set",
         "annotated-annotation-assertion",
         "double-anonymous-annotation",
+        "annotated-nominal-class-assertion",
+        "broad-nominal-class-assertion",
         "bridge",
     ],
 )
@@ -13863,6 +13927,24 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
         assertion = (
             "AnnotationAssertion("
             "<http://www.w3.org/2000/01/rdf-schema#label> _:same _:same)"
+        )
+        left = cast(
+            pyowl_core.OntologyView,
+            _snapshot(assertion, backend=provider_backend),
+        )
+        right = cast(
+            pyowl_core.OntologyView,
+            _snapshot(assertion, backend=provider_backend),
+        )
+        composite = pyowl_core.compose_views(left, right)
+    elif shape in {
+        "annotated-nominal-class-assertion",
+        "broad-nominal-class-assertion",
+    }:
+        assertion = (
+            'ClassAssertion(Annotation(:label "x") ObjectOneOf(_:same) :i)'
+            if shape == "annotated-nominal-class-assertion"
+            else "ClassAssertion(ObjectOneOf(_:same :j) :i)"
         )
         left = cast(
             pyowl_core.OntologyView,
