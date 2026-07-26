@@ -374,6 +374,8 @@ enum ScopeMappedCompositeKind {
     IgnoredClass,
     PositiveObject,
     NegativeObject,
+    PositiveData,
+    NegativeData,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1771,6 +1773,10 @@ enum OwnedOverlayDeltaProjection {
     IgnoredNegativeObjectPropertyAssertion {
         anonymous_individuals: usize,
     },
+    IgnoredDataPropertyAssertion {
+        anonymous_individuals: usize,
+        negative: bool,
+    },
 }
 
 impl OwnedOverlayDeltaProjection {
@@ -1781,9 +1787,8 @@ impl OwnedOverlayDeltaProjection {
                 EmissionPhase::ClassAssertions
             }
             Self::ObjectPropertyAssertion { .. }
-            | Self::IgnoredNegativeObjectPropertyAssertion { .. } => {
-                EmissionPhase::ObjectAssertions
-            }
+            | Self::IgnoredNegativeObjectPropertyAssertion { .. }
+            | Self::IgnoredDataPropertyAssertion { .. } => EmissionPhase::ObjectAssertions,
         }
     }
 
@@ -1865,6 +1870,35 @@ impl OwnedOverlayDeltaProjection {
                             "encoded negative-object-property-assertion count overflow",
                         )
                     })?;
+                statistics.anonymous_individuals = statistics
+                    .anonymous_individuals
+                    .checked_add(*anonymous_individuals)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded anonymous-individual count overflow")
+                    })?;
+                if !asserted_taxonomy_only {
+                    statistics.skipped_axioms =
+                        statistics.skipped_axioms.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded skipped-axiom count overflow")
+                        })?;
+                }
+            }
+            Self::IgnoredDataPropertyAssertion {
+                anonymous_individuals,
+                negative,
+            } => {
+                let counter = if *negative {
+                    &mut statistics.negative_data_property_assertions
+                } else {
+                    &mut statistics.data_property_assertions
+                };
+                *counter = counter.checked_add(1).ok_or_else(|| {
+                    KernelError::resource(if *negative {
+                        "encoded negative-data-property-assertion count overflow"
+                    } else {
+                        "encoded data-property-assertion count overflow"
+                    })
+                })?;
                 statistics.anonymous_individuals = statistics
                     .anonymous_individuals
                     .checked_add(*anonymous_individuals)
@@ -2518,6 +2552,35 @@ impl<'a> DirectColumns<'a> {
                         ));
                     }
                     construct_kind = Some(ScopeMappedCompositeKind::NegativeObject);
+                }
+                TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
+                    if construct_kind.is_some() {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                        ));
+                    }
+                    let tag = self.node_tag(root)?;
+                    let start = self.exact_fields(root, 4)?;
+                    let (_annotation_start, annotation_count) =
+                        self.node_set_range(start + 3, 0)?;
+                    self.named_data_property_iri(self.field_node(start)?, maximum_iri)?;
+                    let source = self.individual_value(self.field_node(start + 1)?, maximum_iri)?;
+                    self.validate_literal(self.field_node(start + 2)?, maximum_iri)?;
+                    if annotation_count != 0
+                        || !matches!(
+                            source,
+                            IndividualValue::Anonymous(node) if node == anonymous_node
+                        )
+                    {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires one unannotated data-property assertion over its anonymous individual",
+                        ));
+                    }
+                    construct_kind = Some(if tag == TAG_DATA_PROPERTY_ASSERTION {
+                        ScopeMappedCompositeKind::PositiveData
+                    } else {
+                        ScopeMappedCompositeKind::NegativeData
+                    });
                 }
                 _ => {
                     return Err(KernelError::unsupported(
@@ -7953,6 +8016,9 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
                             | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion {
                                 ..
+                            }
+                            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
+                                ..
                             } => false,
                         };
                         if handled {
@@ -8258,6 +8324,9 @@ impl DirectEmissionCursor {
                                 );
                             }
                             OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion {
+                                ..
+                            }
+                            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
                                 ..
                             } => {
                                 self.overlay_delta_index =
@@ -8943,6 +9012,37 @@ fn own_composite_tail_projection(
             },
         );
     }
+    if matches!(
+        scope_mapped_construct,
+        Some((
+            ScopeMappedCompositeKind::PositiveData | ScopeMappedCompositeKind::NegativeData,
+            _
+        ))
+    ) && matches!(
+        tag,
+        TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION
+    ) {
+        let field_start = columns.exact_fields(root, 4)?;
+        let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope data-property assertion requires an empty annotation set",
+            ));
+        }
+        columns.named_data_property_iri(columns.field_node(field_start)?, max_iri_bytes)?;
+        let source =
+            columns.individual_value(columns.field_node(field_start + 1)?, max_iri_bytes)?;
+        columns.validate_literal(columns.field_node(field_start + 2)?, max_iri_bytes)?;
+        if !matches!(source, IndividualValue::Anonymous(_)) {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope data-property assertion requires an anonymous source",
+            ));
+        }
+        return Ok(OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
+            anonymous_individuals: 1,
+            negative: tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+        });
+    }
     if !matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::IgnoredClass, _))
@@ -9438,7 +9538,8 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. } => (0, 0),
+            | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
+            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. } => (0, 0),
         };
         projection_edges = projection_edges
             .checked_add(edges)
@@ -10501,7 +10602,8 @@ fn prepare_two_table_batches_uncommitted(
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. } => (0, 0),
+            | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
+            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. } => (0, 0),
         };
         projection_edges = projection_edges
             .checked_add(edges)
@@ -11565,6 +11667,55 @@ mod tests {
 
     fn scope_mapped_negative_object_property_assertion_fixture() -> Fixture {
         scope_mapped_property_assertion_fixture(TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION)
+    }
+
+    fn scope_mapped_data_property_assertion_fixture(assertion_tag: u16) -> Fixture {
+        assert!(matches!(
+            assertion_tag,
+            TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION
+        ));
+        let mut fixture = Fixture::default();
+        for iri in [
+            b"urn:B".as_slice(),
+            b"urn:Top",
+            b"urn:dp",
+            XSD_STRING.as_bytes(),
+        ] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=4
+        }
+        for (kind, iri_id) in [
+            (b"class".as_slice(), 1_u64),
+            (b"class".as_slice(), 2),
+            (b"data_property".as_slice(), 3),
+            (b"datatype".as_slice(), 4),
+        ] {
+            fixture.push_scalar(COMPONENT_ENUM, kind);
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 5..=8
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 9
+        fixture.push_scalar(COMPONENT_TEXT, b"value");
+        fixture.push_node_ref(8);
+        fixture.push_none();
+        fixture.finish_node(TAG_LITERAL); // 10
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 11
+        fixture.push_node_ref(7);
+        fixture.push_node_ref(9);
+        fixture.push_node_ref(10);
+        fixture.push_empty_set();
+        fixture.finish_node(assertion_tag); // 12
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        fixture.root_ids.extend_from_slice(&11_u32.to_le_bytes());
+        fixture.root_ids.extend_from_slice(&12_u32.to_le_bytes());
+        fixture
     }
 
     fn named_subclass_pair_delta_fixture(
@@ -20902,6 +21053,103 @@ mod tests {
         assert_eq!(asserted.statistics().negative_object_property_assertions, 2);
         assert_eq!(asserted.statistics().skipped_axioms, 0);
         assert_eq!(asserted.statistics().edges, 1);
+    }
+
+    #[test]
+    fn two_member_composite_remaps_skipped_data_assertion_scopes() {
+        for (assertion_tag, negative) in [
+            (TAG_DATA_PROPERTY_ASSERTION, false),
+            (TAG_NEGATIVE_DATA_PROPERTY_ASSERTION, true),
+        ] {
+            let left = scope_mapped_data_property_assertion_fixture(assertion_tag);
+            let right = scope_mapped_data_property_assertion_fixture(assertion_tag);
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(8);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(9);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let mut prepared = prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right_columns,
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 3);
+            assert_eq!(statistics.subclasses, 1);
+            assert_eq!(
+                statistics.data_property_assertions,
+                usize::from(!negative) * 2
+            );
+            assert_eq!(
+                statistics.negative_data_property_assertions,
+                usize::from(negative) * 2
+            );
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.skipped_axioms, 2);
+            assert_eq!(statistics.edges, 1);
+            assert!(matches!(
+                prepared.preparation.overlay_deltas[0].projection,
+                OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
+                    anonymous_individuals: 1,
+                    negative: actual_negative,
+                } if actual_negative == negative
+            ));
+
+            let (edges, cursor) = prepared
+                .prepare_next_batch(left_columns, &state, 1)
+                .unwrap();
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                }]
+            );
+            prepared.commit_cursor(cursor);
+            assert!(prepared.is_exhausted());
+
+            let asserted = prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right_columns,
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(
+                asserted.statistics().data_property_assertions,
+                usize::from(!negative) * 2
+            );
+            assert_eq!(
+                asserted.statistics().negative_data_property_assertions,
+                usize::from(negative) * 2
+            );
+            assert_eq!(asserted.statistics().skipped_axioms, 0);
+            assert_eq!(asserted.statistics().edges, 1);
+        }
     }
 
     #[test]
