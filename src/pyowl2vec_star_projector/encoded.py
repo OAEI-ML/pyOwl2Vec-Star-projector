@@ -644,6 +644,35 @@ def _resolve_private_two_member_composite(
     )
 
 
+def _is_exact_singleton_anonymous_nominal(
+    buffers: Mapping[str, memoryview],
+    expression_id: int,
+    anonymous_node_id: int,
+) -> bool:
+    """Return whether one expression is exactly ``ObjectOneOf(_:scope)``."""
+
+    if (
+        _read_uint(buffers["node_tags"], expression_id - 1, 2)
+        != _TAG_OBJECT_ONE_OF
+    ):
+        return False
+    start = _read_uint(buffers["node_field_offsets"], expression_id - 1, 8)
+    end = _read_uint(buffers["node_field_offsets"], expression_id, 8)
+    if (
+        end - start != 1
+        or _read_uint(buffers["field_kinds"], start, 1) != _COMPONENT_SET
+        or _read_uint(buffers["field_lengths"], start, 8) != 1
+    ):
+        return False
+    item_start = _read_uint(buffers["field_values"], start, 8)
+    return (
+        _read_uint(buffers["item_kinds"], item_start, 1) == _COMPONENT_NODE
+        and _read_uint(buffers["item_lengths"], item_start, 8) == 0
+        and _read_uint(buffers["item_values"], item_start, 8)
+        == anonymous_node_id
+    )
+
+
 def _single_scope_mapped_construct_scope(
     lease: EncodedStructuralLease,
     *,
@@ -652,6 +681,7 @@ def _single_scope_mapped_construct_scope(
     """Return the sole source scope for one narrow remappable direct table."""
 
     if construct_tag not in {
+        _TAG_SUB_CLASS_OF,
         _TAG_CLASS_ASSERTION,
         _TAG_SAME_INDIVIDUAL,
         _TAG_DIFFERENT_INDIVIDUALS,
@@ -694,6 +724,55 @@ def _single_scope_mapped_construct_scope(
         root_id = _read_uint(buffers["root_ids"], root_index, 4)
         root_tag = _read_uint(buffers["node_tags"], root_id - 1, 2)
         if root_tag == _TAG_SUB_CLASS_OF:
+            if construct_tag != _TAG_SUB_CLASS_OF:
+                continue
+            start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
+            end = _read_uint(buffers["node_field_offsets"], root_id, 8)
+            if end - start != 3 or any(
+                _read_uint(buffers["field_kinds"], start + offset, 1)
+                != _COMPONENT_NODE
+                for offset in (0, 1)
+            ):
+                return None
+            subclass_id = _read_uint(buffers["field_values"], start, 8)
+            superclass_id = _read_uint(buffers["field_values"], start + 1, 8)
+            subclass_tag = _read_uint(
+                buffers["node_tags"],
+                subclass_id - 1,
+                2,
+            )
+            superclass_tag = _read_uint(
+                buffers["node_tags"],
+                superclass_id - 1,
+                2,
+            )
+            if subclass_tag == superclass_tag == _TAG_ENTITY:
+                continue
+            if (
+                _read_uint(buffers["field_kinds"], start + 2, 1)
+                != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
+                or not (
+                    (
+                        subclass_tag == _TAG_ENTITY
+                        and _is_exact_singleton_anonymous_nominal(
+                            buffers,
+                            superclass_id,
+                            anonymous_node_id,
+                        )
+                    )
+                    or (
+                        superclass_tag == _TAG_ENTITY
+                        and _is_exact_singleton_anonymous_nominal(
+                            buffers,
+                            subclass_id,
+                            anonymous_node_id,
+                        )
+                    )
+                )
+            ):
+                return None
+            construct_roots += 1
             continue
         if root_tag != construct_tag:
             return None
@@ -744,43 +823,13 @@ def _single_scope_mapped_construct_scope(
                 class_tag == _TAG_OBJECT_ONE_OF
                 and individual_tag == _TAG_ENTITY
             ):
-                nominal_start = _read_uint(
-                    buffers["node_field_offsets"],
-                    class_id - 1,
-                    8,
+                anonymous_class_expression_over_named = (
+                    _is_exact_singleton_anonymous_nominal(
+                        buffers,
+                        class_id,
+                        anonymous_node_id,
+                    )
                 )
-                nominal_end = _read_uint(
-                    buffers["node_field_offsets"],
-                    class_id,
-                    8,
-                )
-                if (
-                    nominal_end - nominal_start == 1
-                    and _read_uint(
-                        buffers["field_kinds"],
-                        nominal_start,
-                        1,
-                    )
-                    == _COMPONENT_SET
-                    and _read_uint(
-                        buffers["field_lengths"],
-                        nominal_start,
-                        8,
-                    )
-                    == 1
-                ):
-                    item_start = _read_uint(
-                        buffers["field_values"],
-                        nominal_start,
-                        8,
-                    )
-                    anonymous_class_expression_over_named = (
-                        _read_uint(buffers["item_kinds"], item_start, 1)
-                        == _COMPONENT_NODE
-                        and _read_uint(buffers["item_lengths"], item_start, 8) == 0
-                        and _read_uint(buffers["item_values"], item_start, 8)
-                        == anonymous_node_id
-                    )
             elif (
                 class_tag == _TAG_OBJECT_HAS_VALUE
                 and individual_tag == _TAG_ENTITY
@@ -1035,6 +1084,27 @@ def _resolve_private_scope_mapped_composite(
         right_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _resolve_private_scope_mapped_subclass_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact ignored-SubClassOf scope-remap composite."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=_TAG_SUB_CLASS_OF,
     )
 
 
@@ -1312,6 +1382,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
                 construct_tag=construct_tag,
             )
             for construct_tag in (
+                _TAG_SUB_CLASS_OF,
                 _TAG_CLASS_ASSERTION,
                 _TAG_OBJECT_PROPERTY_ASSERTION,
                 _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,

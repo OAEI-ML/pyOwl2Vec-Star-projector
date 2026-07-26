@@ -28,6 +28,7 @@ from .encoded import (
     _resolve_private_scope_mapped_nested_overlay_composite,
     _resolve_private_scope_mapped_object_property_assertion_composite,
     _resolve_private_scope_mapped_same_individual_composite,
+    _resolve_private_scope_mapped_subclass_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
     _resolve_private_two_member_composite,
@@ -44,7 +45,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 99
+ENCODED_DIRECT_KERNEL_VERSION = 100
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1116,7 +1117,11 @@ def prepare_native_encoded_compilation(
             ) = resolved_delta
             container_leases = (local_delta_lease,)
         else:
-            resolved_scope_mapped = _resolve_private_scope_mapped_class_assertion_composite(lease)
+            resolved_scope_mapped = _resolve_private_scope_mapped_subclass_composite(lease)
+            if resolved_scope_mapped is None:
+                resolved_scope_mapped = (
+                    _resolve_private_scope_mapped_class_assertion_composite(lease)
+                )
             if resolved_scope_mapped is None:
                 resolved_scope_mapped = (
                     _resolve_private_scope_mapped_object_property_assertion_composite(lease)

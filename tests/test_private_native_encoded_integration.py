@@ -45,6 +45,7 @@ from pyowl2vec_star_projector.encoded import (
     _resolve_private_scope_mapped_nested_overlay_composite,
     _resolve_private_scope_mapped_object_property_assertion_composite,
     _resolve_private_scope_mapped_same_individual_composite,
+    _resolve_private_scope_mapped_subclass_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
     _resolve_private_two_member_composite,
@@ -9042,6 +9043,29 @@ def _two_member_duplicate_subclass_composite(
     )
 
 
+def _scope_mapped_subclass_composite(
+    provider_backend: pyowl_core.BackendPreference,
+    *,
+    nominal_superclass: bool,
+) -> pyowl_core.OntologyView:
+    ignored = (
+        "SubClassOf(:B ObjectOneOf(_:same))"
+        if nominal_superclass
+        else "SubClassOf(ObjectOneOf(_:same) :Top)"
+    )
+    members = [
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                f"SubClassOf(:B :Top) {ignored}",
+                backend=provider_backend,
+            ),
+        )
+        for _ in range(2)
+    ]
+    return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+
+
 def _scope_mapped_class_assertion_composite(
     provider_backend: pyowl_core.BackendPreference,
     *,
@@ -9881,25 +9905,37 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    "assertion",
+    ("assertion", "nominal_superclass"),
     [
-        "ClassAssertion(:A _:same)",
-        "ClassAssertion(ObjectOneOf(_:same) :i)",
-        "ClassAssertion(ObjectHasValue(:p _:same) :i)",
+        ("ClassAssertion(:A _:same)", None),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", None),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", None),
+        (None, False),
+        (None, True),
     ],
     ids=[
         "anonymous-individual",
         "singleton-anonymous-nominal",
         "anonymous-has-value",
+        "nominal-subclass",
+        "nominal-superclass",
     ],
 )
-def test_hidden_iterator_remaps_anonymous_class_assertion_scopes_in_one_native_pass(
+def test_hidden_iterator_remaps_anonymous_class_scopes_in_one_native_pass(
     provider_backend: pyowl_core.BackendPreference,
-    assertion: str,
+    assertion: str | None,
+    nominal_superclass: bool | None,
 ) -> None:
-    composite = _scope_mapped_class_assertion_composite(
-        provider_backend,
-        assertion=assertion,
+    composite = (
+        _scope_mapped_class_assertion_composite(
+            provider_backend,
+            assertion=assertion,
+        )
+        if assertion is not None
+        else _scope_mapped_subclass_composite(
+            provider_backend,
+            nominal_superclass=cast(bool, nominal_superclass),
+        )
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
@@ -9972,7 +10008,11 @@ def test_hidden_iterator_remaps_anonymous_class_assertion_scopes_in_one_native_p
     )
     _assert_semantic_report_parity(expected_report, report)
     assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
-        ("MOWL_IGNORED_SHAPE", "ClassAssertion", 2),
+        (
+            "MOWL_IGNORED_SHAPE",
+            "ClassAssertion" if assertion is not None else "SubClassOf",
+            2,
+        ),
     )
     assert len(captured) == 1
     compilation = captured[0]
@@ -9980,9 +10020,10 @@ def test_hidden_iterator_remaps_anonymous_class_assertion_scopes_in_one_native_p
     assert compilation.right_anonymous_scope_map is top_encoded.segments[1].anonymous_scope_map
     statistics = compilation.native_statistics
     assert statistics.roots == 3
-    assert statistics.subclasses == 1
-    assert statistics.class_assertions == 2
-    assert statistics.ignored_class_assertions == 2
+    assert statistics.subclasses == (1 if assertion is not None else 3)
+    assert statistics.ignored_subclasses == (0 if assertion is not None else 2)
+    assert statistics.class_assertions == (2 if assertion is not None else 0)
+    assert statistics.ignored_class_assertions == (2 if assertion is not None else 0)
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == 1
 
@@ -10658,32 +10699,49 @@ def test_hidden_iterator_remaps_negative_object_assertion_scopes_in_one_native_p
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    "assertion",
+    ("assertion", "nominal_superclass"),
     [
-        "ClassAssertion(:A _:same)",
-        "ClassAssertion(ObjectOneOf(_:same) :i)",
-        "ClassAssertion(ObjectHasValue(:p _:same) :i)",
+        ("ClassAssertion(:A _:same)", None),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", None),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", None),
+        (None, False),
+        (None, True),
     ],
     ids=[
         "anonymous-individual",
         "singleton-anonymous-nominal",
         "anonymous-has-value",
+        "nominal-subclass",
+        "nominal-superclass",
     ],
 )
 def test_scope_mapped_composite_preserves_identity_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
-    assertion: str,
+    assertion: str | None,
+    nominal_superclass: bool | None,
 ) -> None:
-    composite = _scope_mapped_class_assertion_composite(
-        provider_backend,
-        assertion=assertion,
+    composite = (
+        _scope_mapped_class_assertion_composite(
+            provider_backend,
+            assertion=assertion,
+        )
+        if assertion is not None
+        else _scope_mapped_subclass_composite(
+            provider_backend,
+            nominal_superclass=cast(bool, nominal_superclass),
+        )
     )
     top_lease = select_private_direct_ingestion(
         composite,
         selected_backend="native",
     ).lease
     assert top_lease is not None
-    resolved = _resolve_private_scope_mapped_class_assertion_composite(top_lease)
+    resolver = (
+        _resolve_private_scope_mapped_class_assertion_composite
+        if assertion is not None
+        else _resolve_private_scope_mapped_subclass_composite
+    )
+    resolved = resolver(top_lease)
     assert resolved is not None
     left, right, left_scope_map, right_scope_map, max_work, max_workspace = resolved
     assert max_work is not None
@@ -10745,8 +10803,10 @@ def test_scope_mapped_composite_preserves_identity_limits_and_retry(
     )
     assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["B"]
     assert statistics.roots == 3
-    assert statistics.subclasses == 1
-    assert statistics.class_assertions == statistics.ignored_class_assertions == 2
+    assert statistics.subclasses == (1 if assertion is not None else 3)
+    assert statistics.ignored_subclasses == (0 if assertion is not None else 2)
+    assert statistics.class_assertions == (2 if assertion is not None else 0)
+    assert statistics.ignored_class_assertions == (2 if assertion is not None else 0)
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == 1
     assert retry.state == "finished"
@@ -10802,7 +10862,7 @@ def test_scope_mapped_composite_preserves_identity_limits_and_retry(
 
     identity_scope_map = memoryview(bytes(left_scope_map[:32]) + bytes(left_scope_map[:32]))
     identity_lease = forged_manifest(left_scope_map, identity_scope_map)
-    assert _resolve_private_scope_mapped_class_assertion_composite(identity_lease) is None
+    assert resolver(identity_lease) is None
     identity = compiler(
         left_map=identity_scope_map,
         manifest=identity_lease,
@@ -10820,7 +10880,7 @@ def test_scope_mapped_composite_preserves_identity_limits_and_retry(
 
     colliding_scope_map = memoryview(bytes(right_scope_map[:32]) + bytes(left_scope_map[32:]))
     forged_lease = forged_manifest(right_scope_map, colliding_scope_map)
-    assert _resolve_private_scope_mapped_class_assertion_composite(forged_lease) is None
+    assert resolver(forged_lease) is None
     colliding = compiler(
         right_map=colliding_scope_map,
         manifest=forged_lease,
@@ -12523,24 +12583,29 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    ("assertion", "object_assertion"),
+    ("assertion", "object_assertion", "ignored_subclass"),
     [
-        (None, False),
-        ("ClassAssertion(ObjectOneOf(_:same) :i)", False),
-        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", False),
-        (None, True),
+        (None, False, False),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", False, False),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", False, False),
+        (None, True, False),
+        ("SubClassOf(ObjectOneOf(_:same) :Top)", False, True),
+        ("SubClassOf(:B ObjectOneOf(_:same))", False, True),
     ],
     ids=[
         "ignored-class-assertion",
         "ignored-singleton-nominal",
         "ignored-anonymous-has-value",
         "object-assertion",
+        "nominal-subclass",
+        "nominal-superclass",
     ],
 )
 def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     provider_backend: pyowl_core.BackendPreference,
     assertion: str | None,
     object_assertion: bool,
+    ignored_subclass: bool,
 ) -> None:
     composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
@@ -12651,9 +12716,14 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     assert compilation.right_anonymous_scope_map is direct_segment.anonymous_scope_map
     statistics = compilation.native_statistics
     assert statistics.roots == 3
-    assert statistics.subclasses == 1
-    assert statistics.class_assertions == (0 if object_assertion else 2)
-    assert statistics.ignored_class_assertions == (0 if object_assertion else 2)
+    assert statistics.subclasses == (3 if ignored_subclass else 1)
+    assert statistics.ignored_subclasses == (2 if ignored_subclass else 0)
+    assert statistics.class_assertions == (
+        2 if not object_assertion and not ignored_subclass else 0
+    )
+    assert statistics.ignored_class_assertions == (
+        2 if not object_assertion and not ignored_subclass else 0
+    )
     assert statistics.object_property_assertions == (2 if object_assertion else 0)
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == (3 if object_assertion else 1)
@@ -12997,21 +13067,26 @@ def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    "assertion",
+    ("assertion", "ignored_subclass"),
     [
-        "ClassAssertion(:A _:same)",
-        "ClassAssertion(ObjectOneOf(_:same) :i)",
-        "ClassAssertion(ObjectHasValue(:p _:same) :i)",
+        ("ClassAssertion(:A _:same)", False),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", False),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", False),
+        ("SubClassOf(ObjectOneOf(_:same) :Top)", True),
+        ("SubClassOf(:B ObjectOneOf(_:same))", True),
     ],
     ids=[
         "anonymous-individual",
         "singleton-anonymous-nominal",
         "anonymous-has-value",
+        "nominal-subclass",
+        "nominal-superclass",
     ],
 )
 def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
     assertion: str,
+    ignored_subclass: bool,
 ) -> None:
     composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
@@ -13099,8 +13174,10 @@ def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
         )
     ]
     assert statistics.roots == 3
-    assert statistics.subclasses == 1
-    assert statistics.class_assertions == statistics.ignored_class_assertions == 2
+    assert statistics.subclasses == (3 if ignored_subclass else 1)
+    assert statistics.ignored_subclasses == (2 if ignored_subclass else 0)
+    assert statistics.class_assertions == (0 if ignored_subclass else 2)
+    assert statistics.ignored_class_assertions == (0 if ignored_subclass else 2)
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == 1
     assert retry.state == "finished"
@@ -13714,6 +13791,8 @@ def test_nested_overlay_member_preserves_identity_cancel_limits_and_retry(
         "broad-nominal-scope-remap",
         "annotated-has-value-scope-remap",
         "inverse-has-value-scope-remap",
+        "annotated-nominal-subclass-scope-remap",
+        "broad-nominal-subclass-scope-remap",
         "empty-overlay",
         "silent-local",
     ],
@@ -13750,6 +13829,8 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         "broad-nominal-scope-remap",
         "annotated-has-value-scope-remap",
         "inverse-has-value-scope-remap",
+        "annotated-nominal-subclass-scope-remap",
+        "broad-nominal-subclass-scope-remap",
     }:
         scoped = {
             "annotated-nominal-scope-remap": (
@@ -13764,6 +13845,12 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
             ),
             "inverse-has-value-scope-remap": (
                 "ClassAssertion(ObjectHasValue(ObjectInverseOf(:p) _:same) :i)"
+            ),
+            "annotated-nominal-subclass-scope-remap": (
+                'SubClassOf(Annotation(:label "x") ObjectOneOf(_:same) :Top)'
+            ),
+            "broad-nominal-subclass-scope-remap": (
+                "SubClassOf(ObjectOneOf(_:same :j) :Top)"
             ),
         }[shape]
         base = direct(scoped)
@@ -13871,6 +13958,8 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         "broad-nominal-class-assertion",
         "annotated-has-value-class-assertion",
         "inverse-has-value-class-assertion",
+        "annotated-nominal-subclass",
+        "broad-nominal-subclass",
         "bridge",
     ],
 )
@@ -13975,6 +14064,8 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
         "broad-nominal-class-assertion",
         "annotated-has-value-class-assertion",
         "inverse-has-value-class-assertion",
+        "annotated-nominal-subclass",
+        "broad-nominal-subclass",
     }:
         assertion = {
             "annotated-nominal-class-assertion": (
@@ -13989,6 +14080,12 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
             ),
             "inverse-has-value-class-assertion": (
                 "ClassAssertion(ObjectHasValue(ObjectInverseOf(:p) _:same) :i)"
+            ),
+            "annotated-nominal-subclass": (
+                'SubClassOf(Annotation(:label "x") ObjectOneOf(_:same) :Top)'
+            ),
+            "broad-nominal-subclass": (
+                "SubClassOf(ObjectOneOf(_:same :j) :Top)"
             ),
         }[shape]
         left = cast(

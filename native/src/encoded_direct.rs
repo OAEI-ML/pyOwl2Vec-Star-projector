@@ -371,6 +371,7 @@ fn render_anonymous_identifier(position: usize) -> Result<String, KernelError> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ScopeMappedCompositeKind {
+    IgnoredSubclass,
     IgnoredClass,
     PositiveObject,
     NegativeObject,
@@ -1767,6 +1768,9 @@ enum OwnedOverlayDeltaProjection {
     IgnoredClassAssertion {
         anonymous_individuals: usize,
     },
+    IgnoredSubclass {
+        anonymous_individuals: usize,
+    },
     ObjectPropertyAssertion {
         source: String,
         relation: String,
@@ -1792,7 +1796,9 @@ enum OwnedOverlayDeltaProjection {
 impl OwnedOverlayDeltaProjection {
     fn phase(&self) -> EmissionPhase {
         match self {
-            Self::Taxonomy { .. } | Self::Restriction { .. } => EmissionPhase::Subclasses,
+            Self::Taxonomy { .. } | Self::Restriction { .. } | Self::IgnoredSubclass { .. } => {
+                EmissionPhase::Subclasses
+            }
             Self::ClassAssertion { .. } | Self::IgnoredClassAssertion { .. } => {
                 EmissionPhase::ClassAssertions
             }
@@ -1826,6 +1832,26 @@ impl OwnedOverlayDeltaProjection {
                     .checked_add(1)
                     .ok_or_else(|| {
                         KernelError::resource("encoded restriction-subclass count overflow")
+                    })?;
+            }
+            Self::IgnoredSubclass {
+                anonymous_individuals,
+            } => {
+                statistics.subclasses = statistics
+                    .subclasses
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
+                statistics.ignored_subclasses = statistics
+                    .ignored_subclasses
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded ignored-subclass count overflow")
+                    })?;
+                statistics.anonymous_individuals = statistics
+                    .anonymous_individuals
+                    .checked_add(*anonymous_individuals)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded anonymous-individual count overflow")
                     })?;
             }
             Self::ClassAssertion { .. } => {
@@ -2470,6 +2496,51 @@ impl<'a> DirectColumns<'a> {
         Ok(left_key.cmp(right_key))
     }
 
+    fn singleton_anonymous_nominal_member(
+        self,
+        expression: usize,
+    ) -> Result<Option<usize>, KernelError> {
+        if self.node_tag(expression)? != TAG_OBJECT_ONE_OF {
+            return Ok(None);
+        }
+        let nominal_start = self.exact_fields(expression, 1)?;
+        let (item_start, item_count) = self.node_set_range(nominal_start, 1)?;
+        if item_count != 1 {
+            return Ok(None);
+        }
+        let member = self.item_node(item_start)?;
+        Ok((self.node_tag(member)? == TAG_ANONYMOUS_INDIVIDUAL).then_some(member))
+    }
+
+    fn is_scope_mapped_ignored_subclass(
+        self,
+        root: usize,
+        anonymous_node: Option<usize>,
+        maximum_iri: usize,
+    ) -> Result<bool, KernelError> {
+        let start = self.exact_fields(root, 3)?;
+        let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
+        if annotation_count != 0
+            || !matches!(
+                self.subclass_projection(root, maximum_iri)?,
+                SubclassProjection::Ignored
+            )
+        {
+            return Ok(false);
+        }
+        let subclass = self.field_node(start)?;
+        let superclass = self.field_node(start + 1)?;
+        let candidate = match (self.node_tag(subclass)?, self.node_tag(superclass)?) {
+            (TAG_ENTITY, TAG_OBJECT_ONE_OF) => {
+                self.singleton_anonymous_nominal_member(superclass)?
+            }
+            (TAG_OBJECT_ONE_OF, TAG_ENTITY) => self.singleton_anonymous_nominal_member(subclass)?,
+            _ => None,
+        };
+        Ok(candidate
+            .is_some_and(|candidate| anonymous_node.is_none_or(|expected| candidate == expected)))
+    }
+
     fn is_scope_mapped_ignored_class_assertion(
         self,
         root: usize,
@@ -2493,13 +2564,7 @@ impl<'a> DirectColumns<'a> {
                 Some(individual)
             }
             TAG_OBJECT_ONE_OF if self.node_tag(individual)? == TAG_ENTITY => {
-                let nominal_start = self.exact_fields(class, 1)?;
-                let (item_start, item_count) = self.node_set_range(nominal_start, 1)?;
-                if item_count != 1 {
-                    return Ok(false);
-                }
-                let member = self.item_node(item_start)?;
-                (self.node_tag(member)? == TAG_ANONYMOUS_INDIVIDUAL).then_some(member)
+                self.singleton_anonymous_nominal_member(class)?
             }
             TAG_OBJECT_HAS_VALUE if self.node_tag(individual)? == TAG_ENTITY => {
                 let expression_start = self.exact_fields(class, 2)?;
@@ -2562,16 +2627,24 @@ impl<'a> DirectColumns<'a> {
             }
             let root = self.root_id(root_index)?;
             match self.node_tag(root)? {
-                TAG_SUB_CLASS_OF => {
-                    if !matches!(
-                        self.subclass_projection(root, maximum_iri)?,
-                        SubclassProjection::Taxonomy { .. }
-                    ) {
-                        return Err(KernelError::unsupported(
-                            "bounded anonymous-scope composite supports only named SubClassOf siblings",
-                        ));
+                TAG_SUB_CLASS_OF => match self.subclass_projection(root, maximum_iri)? {
+                    SubclassProjection::Taxonomy { .. } => {}
+                    SubclassProjection::Ignored
+                        if construct_kind.is_none()
+                            && self.is_scope_mapped_ignored_subclass(
+                                root,
+                                Some(anonymous_node),
+                                maximum_iri,
+                            )? =>
+                    {
+                        construct_kind = Some(ScopeMappedCompositeKind::IgnoredSubclass);
                     }
-                }
+                    SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
+                        return Err(KernelError::unsupported(
+                                "bounded anonymous-scope composite supports named SubClassOf siblings and one unannotated ignored SubClassOf pairing a named class with a singleton anonymous nominal",
+                            ));
+                    }
+                },
                 TAG_CLASS_ASSERTION => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
@@ -8167,6 +8240,15 @@ impl DirectEmissionCursor {
                                         KernelError::resource(
                                             "encoded local-overlay cursor overflow",
                                         )
+                                })?;
+                                true
+                            }
+                            OwnedOverlayDeltaProjection::IgnoredSubclass { .. } => {
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
                                     })?;
                                 true
                             }
@@ -9106,6 +9188,27 @@ fn own_composite_tail_projection(
     let tag = columns.node_tag(root)?;
     if matches!(
         scope_mapped_construct,
+        Some((ScopeMappedCompositeKind::IgnoredSubclass, _))
+    ) && tag == TAG_SUB_CLASS_OF
+    {
+        match columns.subclass_projection(root, max_iri_bytes)? {
+            SubclassProjection::Ignored
+                if columns.is_scope_mapped_ignored_subclass(root, None, max_iri_bytes)? =>
+            {
+                return Ok(OwnedOverlayDeltaProjection::IgnoredSubclass {
+                    anonymous_individuals: 1,
+                });
+            }
+            SubclassProjection::Taxonomy { .. } => {}
+            SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope SubClassOf requires one named class and one singleton anonymous nominal",
+                ));
+            }
+        }
+    }
+    if matches!(
+        scope_mapped_construct,
         Some((ScopeMappedCompositeKind::PositiveObject, _))
     ) && tag == TAG_OBJECT_PROPERTY_ASSERTION
     {
@@ -9759,6 +9862,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                 (1, 0)
             }
             OwnedOverlayDeltaProjection::Restriction { .. }
+            | OwnedOverlayDeltaProjection::IgnoredSubclass { .. }
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
@@ -10825,6 +10929,7 @@ fn prepare_two_table_batches_uncommitted(
                 (1, 0)
             }
             OwnedOverlayDeltaProjection::Restriction { .. }
+            | OwnedOverlayDeltaProjection::IgnoredSubclass { .. }
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
@@ -11882,6 +11987,32 @@ mod tests {
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
         fixture.root_ids.extend_from_slice(&10_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_nominal_subclass_fixture(nominal_superclass: bool) -> Fixture {
+        let mut fixture = Fixture::default();
+        fixture.push_scalar(COMPONENT_TEXT, b"urn:B");
+        fixture.finish_node(TAG_IRI); // 1
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 2
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 3
+        fixture.push_node_set(&[3]);
+        fixture.finish_node(TAG_OBJECT_ONE_OF); // 4
+        if nominal_superclass {
+            fixture.push_node_ref(2);
+            fixture.push_node_ref(4);
+        } else {
+            fixture.push_node_ref(4);
+            fixture.push_node_ref(2);
+        }
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 5
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
         fixture
     }
 
@@ -21208,6 +21339,63 @@ mod tests {
     }
 
     #[test]
+    fn two_member_composite_remaps_singleton_nominal_subclass_scopes() {
+        for nominal_superclass in [false, true] {
+            let left = scope_mapped_nominal_subclass_fixture(nominal_superclass);
+            let right = scope_mapped_nominal_subclass_fixture(nominal_superclass);
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(8);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(9);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let mut prepared = prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right_columns,
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 2);
+            assert_eq!(statistics.subclasses, 2);
+            assert_eq!(statistics.ignored_subclasses, 2);
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.edges, 0);
+            assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
+            assert!(prepared.preparation.overlay_deltas.iter().any(|delta| {
+                matches!(
+                    delta.projection,
+                    OwnedOverlayDeltaProjection::IgnoredSubclass {
+                        anonymous_individuals: 1
+                    }
+                )
+            }));
+
+            let (edges, cursor) = prepared
+                .prepare_next_batch(left_columns, &state, 1)
+                .unwrap();
+            assert!(edges.is_empty());
+            prepared.commit_cursor(cursor);
+            assert!(prepared.is_exhausted());
+        }
+    }
+
+    #[test]
     fn two_member_composite_remaps_anonymous_class_assertion_scopes() {
         let left = scope_mapped_class_assertion_fixture();
         let right = scope_mapped_class_assertion_fixture();
@@ -21768,6 +21956,69 @@ mod tests {
                 Err(KernelError::Unsupported(message))
                     if message.contains("does not support literal projection")
             ));
+        }
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_singleton_nominal_subclass_scopes() {
+        for nominal_superclass in [false, true] {
+            let left = scope_mapped_nominal_subclass_fixture(nominal_superclass);
+            let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+            let right = scope_mapped_nominal_subclass_fixture(nominal_superclass);
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(9);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(8);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let mut prepared = prepare_three_member_composite_batches_uncommitted(
+                [left_columns, neutral.columns(), right_columns],
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 3);
+            assert_eq!(statistics.subclasses, 3);
+            assert_eq!(statistics.ignored_subclasses, 2);
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.edges, 1);
+            assert!(prepared.preparation.overlay_deltas.iter().any(|delta| {
+                matches!(
+                    delta.projection,
+                    OwnedOverlayDeltaProjection::IgnoredSubclass {
+                        anonymous_individuals: 1
+                    }
+                )
+            }));
+
+            let (edges, cursor) = prepared
+                .prepare_next_batch(left_columns, &state, 1)
+                .unwrap();
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                }]
+            );
+            prepared.commit_cursor(cursor);
+            assert!(prepared.is_exhausted());
         }
     }
 
