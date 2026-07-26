@@ -44,6 +44,7 @@ from pyowl2vec_star_projector.encoded import (
     _resolve_private_scope_mapped_negative_object_property_assertion_composite,
     _resolve_private_scope_mapped_nested_overlay_composite,
     _resolve_private_scope_mapped_object_property_assertion_composite,
+    _resolve_private_scope_mapped_object_property_class_composite,
     _resolve_private_scope_mapped_same_individual_composite,
     _resolve_private_scope_mapped_subclass_composite,
     _resolve_private_single_overlay_delta,
@@ -9066,6 +9067,26 @@ def _scope_mapped_subclass_composite(
     return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
 
 
+def _scope_mapped_object_property_class_composite(
+    provider_backend: pyowl_core.BackendPreference,
+    *,
+    constructor: str,
+) -> pyowl_core.OntologyView:
+    assert constructor in {"ObjectPropertyDomain", "ObjectPropertyRange"}
+    members = [
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                f"SubClassOf(:B :Top) "
+                f"{constructor}(:p ObjectOneOf(_:same))",
+                backend=provider_backend,
+            ),
+        )
+        for _ in range(2)
+    ]
+    return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+
+
 def _scope_mapped_class_assertion_composite(
     provider_backend: pyowl_core.BackendPreference,
     *,
@@ -9905,13 +9926,15 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    ("assertion", "nominal_superclass"),
+    ("assertion", "nominal_superclass", "property_class_constructor"),
     [
-        ("ClassAssertion(:A _:same)", None),
-        ("ClassAssertion(ObjectOneOf(_:same) :i)", None),
-        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", None),
-        (None, False),
-        (None, True),
+        ("ClassAssertion(:A _:same)", None, None),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", None, None),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", None, None),
+        (None, False, None),
+        (None, True, None),
+        (None, None, "ObjectPropertyDomain"),
+        (None, None, "ObjectPropertyRange"),
     ],
     ids=[
         "anonymous-individual",
@@ -9919,12 +9942,15 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
         "anonymous-has-value",
         "nominal-subclass",
         "nominal-superclass",
+        "nominal-object-property-domain",
+        "nominal-object-property-range",
     ],
 )
-def test_hidden_iterator_remaps_anonymous_class_scopes_in_one_native_pass(
+def test_hidden_iterator_remaps_anonymous_class_carriers_in_one_native_pass(
     provider_backend: pyowl_core.BackendPreference,
     assertion: str | None,
     nominal_superclass: bool | None,
+    property_class_constructor: str | None,
 ) -> None:
     composite = (
         _scope_mapped_class_assertion_composite(
@@ -9935,6 +9961,11 @@ def test_hidden_iterator_remaps_anonymous_class_scopes_in_one_native_pass(
         else _scope_mapped_subclass_composite(
             provider_backend,
             nominal_superclass=cast(bool, nominal_superclass),
+        )
+        if nominal_superclass is not None
+        else _scope_mapped_object_property_class_composite(
+            provider_backend,
+            constructor=cast(str, property_class_constructor),
         )
     )
     top_encoded = composite.view(
@@ -10010,7 +10041,11 @@ def test_hidden_iterator_remaps_anonymous_class_scopes_in_one_native_pass(
     assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
         (
             "MOWL_IGNORED_SHAPE",
-            "ClassAssertion" if assertion is not None else "SubClassOf",
+            (
+                "ClassAssertion"
+                if assertion is not None
+                else property_class_constructor or "SubClassOf"
+            ),
             2,
         ),
     )
@@ -10020,10 +10055,26 @@ def test_hidden_iterator_remaps_anonymous_class_scopes_in_one_native_pass(
     assert compilation.right_anonymous_scope_map is top_encoded.segments[1].anonymous_scope_map
     statistics = compilation.native_statistics
     assert statistics.roots == 3
-    assert statistics.subclasses == (1 if assertion is not None else 3)
-    assert statistics.ignored_subclasses == (0 if assertion is not None else 2)
+    assert statistics.subclasses == (
+        3 if nominal_superclass is not None else 1
+    )
+    assert statistics.ignored_subclasses == (
+        2 if nominal_superclass is not None else 0
+    )
     assert statistics.class_assertions == (2 if assertion is not None else 0)
     assert statistics.ignored_class_assertions == (2 if assertion is not None else 0)
+    assert statistics.object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.ignored_object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
+    assert statistics.ignored_object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == 1
 
@@ -10699,13 +10750,15 @@ def test_hidden_iterator_remaps_negative_object_assertion_scopes_in_one_native_p
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    ("assertion", "nominal_superclass"),
+    ("assertion", "nominal_superclass", "property_class_constructor"),
     [
-        ("ClassAssertion(:A _:same)", None),
-        ("ClassAssertion(ObjectOneOf(_:same) :i)", None),
-        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", None),
-        (None, False),
-        (None, True),
+        ("ClassAssertion(:A _:same)", None, None),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", None, None),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", None, None),
+        (None, False, None),
+        (None, True, None),
+        (None, None, "ObjectPropertyDomain"),
+        (None, None, "ObjectPropertyRange"),
     ],
     ids=[
         "anonymous-individual",
@@ -10713,12 +10766,15 @@ def test_hidden_iterator_remaps_negative_object_assertion_scopes_in_one_native_p
         "anonymous-has-value",
         "nominal-subclass",
         "nominal-superclass",
+        "nominal-object-property-domain",
+        "nominal-object-property-range",
     ],
 )
 def test_scope_mapped_composite_preserves_identity_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
     assertion: str | None,
     nominal_superclass: bool | None,
+    property_class_constructor: str | None,
 ) -> None:
     composite = (
         _scope_mapped_class_assertion_composite(
@@ -10730,17 +10786,23 @@ def test_scope_mapped_composite_preserves_identity_limits_and_retry(
             provider_backend,
             nominal_superclass=cast(bool, nominal_superclass),
         )
+        if nominal_superclass is not None
+        else _scope_mapped_object_property_class_composite(
+            provider_backend,
+            constructor=cast(str, property_class_constructor),
+        )
     )
     top_lease = select_private_direct_ingestion(
         composite,
         selected_backend="native",
     ).lease
     assert top_lease is not None
-    resolver = (
-        _resolve_private_scope_mapped_class_assertion_composite
-        if assertion is not None
-        else _resolve_private_scope_mapped_subclass_composite
-    )
+    if assertion is not None:
+        resolver = _resolve_private_scope_mapped_class_assertion_composite
+    elif nominal_superclass is not None:
+        resolver = _resolve_private_scope_mapped_subclass_composite
+    else:
+        resolver = _resolve_private_scope_mapped_object_property_class_composite
     resolved = resolver(top_lease)
     assert resolved is not None
     left, right, left_scope_map, right_scope_map, max_work, max_workspace = resolved
@@ -10803,10 +10865,26 @@ def test_scope_mapped_composite_preserves_identity_limits_and_retry(
     )
     assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["B"]
     assert statistics.roots == 3
-    assert statistics.subclasses == (1 if assertion is not None else 3)
-    assert statistics.ignored_subclasses == (0 if assertion is not None else 2)
+    assert statistics.subclasses == (
+        3 if nominal_superclass is not None else 1
+    )
+    assert statistics.ignored_subclasses == (
+        2 if nominal_superclass is not None else 0
+    )
     assert statistics.class_assertions == (2 if assertion is not None else 0)
     assert statistics.ignored_class_assertions == (2 if assertion is not None else 0)
+    assert statistics.object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.ignored_object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
+    assert statistics.ignored_object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == 1
     assert retry.state == "finished"
@@ -12583,14 +12661,31 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    ("assertion", "object_assertion", "ignored_subclass"),
+    (
+        "assertion",
+        "object_assertion",
+        "ignored_subclass",
+        "property_class_constructor",
+    ),
     [
-        (None, False, False),
-        ("ClassAssertion(ObjectOneOf(_:same) :i)", False, False),
-        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", False, False),
-        (None, True, False),
-        ("SubClassOf(ObjectOneOf(_:same) :Top)", False, True),
-        ("SubClassOf(:B ObjectOneOf(_:same))", False, True),
+        (None, False, False, None),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", False, False, None),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", False, False, None),
+        (None, True, False, None),
+        ("SubClassOf(ObjectOneOf(_:same) :Top)", False, True, None),
+        ("SubClassOf(:B ObjectOneOf(_:same))", False, True, None),
+        (
+            "ObjectPropertyDomain(:p ObjectOneOf(_:same))",
+            False,
+            False,
+            "ObjectPropertyDomain",
+        ),
+        (
+            "ObjectPropertyRange(:p ObjectOneOf(_:same))",
+            False,
+            False,
+            "ObjectPropertyRange",
+        ),
     ],
     ids=[
         "ignored-class-assertion",
@@ -12599,6 +12694,8 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
         "object-assertion",
         "nominal-subclass",
         "nominal-superclass",
+        "nominal-object-property-domain",
+        "nominal-object-property-range",
     ],
 )
 def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
@@ -12606,6 +12703,7 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     assertion: str | None,
     object_assertion: bool,
     ignored_subclass: bool,
+    property_class_constructor: str | None,
 ) -> None:
     composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
@@ -12719,12 +12817,32 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     assert statistics.subclasses == (3 if ignored_subclass else 1)
     assert statistics.ignored_subclasses == (2 if ignored_subclass else 0)
     assert statistics.class_assertions == (
-        2 if not object_assertion and not ignored_subclass else 0
+        2
+        if not object_assertion
+        and not ignored_subclass
+        and property_class_constructor is None
+        else 0
     )
     assert statistics.ignored_class_assertions == (
-        2 if not object_assertion and not ignored_subclass else 0
+        2
+        if not object_assertion
+        and not ignored_subclass
+        and property_class_constructor is None
+        else 0
     )
     assert statistics.object_property_assertions == (2 if object_assertion else 0)
+    assert statistics.object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.ignored_object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
+    assert statistics.ignored_object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == (3 if object_assertion else 1)
     assert compiler.retained_buffer_count == 35
@@ -13067,13 +13185,23 @@ def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
-    ("assertion", "ignored_subclass"),
+    ("assertion", "ignored_subclass", "property_class_constructor"),
     [
-        ("ClassAssertion(:A _:same)", False),
-        ("ClassAssertion(ObjectOneOf(_:same) :i)", False),
-        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", False),
-        ("SubClassOf(ObjectOneOf(_:same) :Top)", True),
-        ("SubClassOf(:B ObjectOneOf(_:same))", True),
+        ("ClassAssertion(:A _:same)", False, None),
+        ("ClassAssertion(ObjectOneOf(_:same) :i)", False, None),
+        ("ClassAssertion(ObjectHasValue(:p _:same) :i)", False, None),
+        ("SubClassOf(ObjectOneOf(_:same) :Top)", True, None),
+        ("SubClassOf(:B ObjectOneOf(_:same))", True, None),
+        (
+            "ObjectPropertyDomain(:p ObjectOneOf(_:same))",
+            False,
+            "ObjectPropertyDomain",
+        ),
+        (
+            "ObjectPropertyRange(:p ObjectOneOf(_:same))",
+            False,
+            "ObjectPropertyRange",
+        ),
     ],
     ids=[
         "anonymous-individual",
@@ -13081,12 +13209,15 @@ def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
         "anonymous-has-value",
         "nominal-subclass",
         "nominal-superclass",
+        "nominal-object-property-domain",
+        "nominal-object-property-range",
     ],
 )
 def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
     assertion: str,
     ignored_subclass: bool,
+    property_class_constructor: str | None,
 ) -> None:
     composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
@@ -13176,8 +13307,24 @@ def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
     assert statistics.roots == 3
     assert statistics.subclasses == (3 if ignored_subclass else 1)
     assert statistics.ignored_subclasses == (2 if ignored_subclass else 0)
-    assert statistics.class_assertions == (0 if ignored_subclass else 2)
-    assert statistics.ignored_class_assertions == (0 if ignored_subclass else 2)
+    assert statistics.class_assertions == (
+        2 if not ignored_subclass and property_class_constructor is None else 0
+    )
+    assert statistics.ignored_class_assertions == (
+        2 if not ignored_subclass and property_class_constructor is None else 0
+    )
+    assert statistics.object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.ignored_object_property_domains == (
+        2 if property_class_constructor == "ObjectPropertyDomain" else 0
+    )
+    assert statistics.object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
+    assert statistics.ignored_object_property_ranges == (
+        2 if property_class_constructor == "ObjectPropertyRange" else 0
+    )
     assert statistics.anonymous_individuals == 2
     assert statistics.edges == 1
     assert retry.state == "finished"
@@ -13793,6 +13940,12 @@ def test_nested_overlay_member_preserves_identity_cancel_limits_and_retry(
         "inverse-has-value-scope-remap",
         "annotated-nominal-subclass-scope-remap",
         "broad-nominal-subclass-scope-remap",
+        "annotated-nominal-object-property-domain-scope-remap",
+        "broad-nominal-object-property-domain-scope-remap",
+        "annotated-nominal-object-property-range-scope-remap",
+        "broad-nominal-object-property-range-scope-remap",
+        "inverse-nominal-object-property-domain-scope-remap",
+        "mixed-nominal-object-property-class-scope-remap",
         "empty-overlay",
         "silent-local",
     ],
@@ -13824,6 +13977,10 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         base = direct(scoped)
         addition = direct("SubClassOf(:B :Top)")
         sibling = direct(scoped)
+    elif shape == "mixed-nominal-object-property-class-scope-remap":
+        base = direct("ObjectPropertyDomain(:p ObjectOneOf(_:same))")
+        addition = direct("SubClassOf(:B :Top)")
+        sibling = direct("ObjectPropertyRange(:p ObjectOneOf(_:same))")
     elif shape in {
         "annotated-nominal-scope-remap",
         "broad-nominal-scope-remap",
@@ -13831,6 +13988,11 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         "inverse-has-value-scope-remap",
         "annotated-nominal-subclass-scope-remap",
         "broad-nominal-subclass-scope-remap",
+        "annotated-nominal-object-property-domain-scope-remap",
+        "broad-nominal-object-property-domain-scope-remap",
+        "annotated-nominal-object-property-range-scope-remap",
+        "broad-nominal-object-property-range-scope-remap",
+        "inverse-nominal-object-property-domain-scope-remap",
     }:
         scoped = {
             "annotated-nominal-scope-remap": (
@@ -13851,6 +14013,23 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
             ),
             "broad-nominal-subclass-scope-remap": (
                 "SubClassOf(ObjectOneOf(_:same :j) :Top)"
+            ),
+            "annotated-nominal-object-property-domain-scope-remap": (
+                'ObjectPropertyDomain(Annotation(:label "x") '
+                ":p ObjectOneOf(_:same))"
+            ),
+            "broad-nominal-object-property-domain-scope-remap": (
+                "ObjectPropertyDomain(:p ObjectOneOf(_:same :j))"
+            ),
+            "annotated-nominal-object-property-range-scope-remap": (
+                'ObjectPropertyRange(Annotation(:label "x") '
+                ":p ObjectOneOf(_:same))"
+            ),
+            "broad-nominal-object-property-range-scope-remap": (
+                "ObjectPropertyRange(:p ObjectOneOf(_:same :j))"
+            ),
+            "inverse-nominal-object-property-domain-scope-remap": (
+                "ObjectPropertyDomain(ObjectInverseOf(:p) ObjectOneOf(_:same))"
             ),
         }[shape]
         base = direct(scoped)
@@ -13906,7 +14085,10 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
     ).lease
     assert top_lease is not None
     resolved = _resolve_private_nested_overlay_composite(top_lease)
-    if shape == "silent-local":
+    if shape in {
+        "silent-local",
+        "mixed-nominal-object-property-class-scope-remap",
+    }:
         assert resolved is not None
     else:
         assert resolved is None
@@ -13960,6 +14142,12 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         "inverse-has-value-class-assertion",
         "annotated-nominal-subclass",
         "broad-nominal-subclass",
+        "annotated-nominal-object-property-domain",
+        "broad-nominal-object-property-domain",
+        "annotated-nominal-object-property-range",
+        "broad-nominal-object-property-range",
+        "inverse-nominal-object-property-domain",
+        "mixed-nominal-object-property-class",
         "bridge",
     ],
 )
@@ -14059,6 +14247,22 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
             _snapshot(assertion, backend=provider_backend),
         )
         composite = pyowl_core.compose_views(left, right)
+    elif shape == "mixed-nominal-object-property-class":
+        left = cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                "ObjectPropertyDomain(:p ObjectOneOf(_:same))",
+                backend=provider_backend,
+            ),
+        )
+        right = cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                "ObjectPropertyRange(:p ObjectOneOf(_:same))",
+                backend=provider_backend,
+            ),
+        )
+        composite = pyowl_core.compose_views(left, right)
     elif shape in {
         "annotated-nominal-class-assertion",
         "broad-nominal-class-assertion",
@@ -14066,6 +14270,11 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
         "inverse-has-value-class-assertion",
         "annotated-nominal-subclass",
         "broad-nominal-subclass",
+        "annotated-nominal-object-property-domain",
+        "broad-nominal-object-property-domain",
+        "annotated-nominal-object-property-range",
+        "broad-nominal-object-property-range",
+        "inverse-nominal-object-property-domain",
     }:
         assertion = {
             "annotated-nominal-class-assertion": (
@@ -14086,6 +14295,23 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
             ),
             "broad-nominal-subclass": (
                 "SubClassOf(ObjectOneOf(_:same :j) :Top)"
+            ),
+            "annotated-nominal-object-property-domain": (
+                'ObjectPropertyDomain(Annotation(:label "x") '
+                ":p ObjectOneOf(_:same))"
+            ),
+            "broad-nominal-object-property-domain": (
+                "ObjectPropertyDomain(:p ObjectOneOf(_:same :j))"
+            ),
+            "annotated-nominal-object-property-range": (
+                'ObjectPropertyRange(Annotation(:label "x") '
+                ":p ObjectOneOf(_:same))"
+            ),
+            "broad-nominal-object-property-range": (
+                "ObjectPropertyRange(:p ObjectOneOf(_:same :j))"
+            ),
+            "inverse-nominal-object-property-domain": (
+                "ObjectPropertyDomain(ObjectInverseOf(:p) ObjectOneOf(_:same))"
             ),
         }[shape]
         left = cast(

@@ -67,6 +67,8 @@ _TAG_LITERAL = 4
 _TAG_OBJECT_ONE_OF = 33
 _TAG_OBJECT_HAS_VALUE = 36
 _TAG_SUB_CLASS_OF = 61
+_TAG_OBJECT_PROPERTY_DOMAIN = 74
+_TAG_OBJECT_PROPERTY_RANGE = 75
 _TAG_SAME_INDIVIDUAL = 110
 _TAG_DIFFERENT_INDIVIDUALS = 111
 _TAG_CLASS_ASSERTION = 112
@@ -682,6 +684,8 @@ def _single_scope_mapped_construct_scope(
 
     if construct_tag not in {
         _TAG_SUB_CLASS_OF,
+        _TAG_OBJECT_PROPERTY_DOMAIN,
+        _TAG_OBJECT_PROPERTY_RANGE,
         _TAG_CLASS_ASSERTION,
         _TAG_SAME_INDIVIDUAL,
         _TAG_DIFFERENT_INDIVIDUALS,
@@ -799,6 +803,31 @@ def _single_scope_mapped_construct_scope(
                 )
             if sorted(member_tags) != sorted(
                 [_TAG_ENTITY, _TAG_ANONYMOUS_INDIVIDUAL]
+            ):
+                return None
+        elif construct_tag in {
+            _TAG_OBJECT_PROPERTY_DOMAIN,
+            _TAG_OBJECT_PROPERTY_RANGE,
+        }:
+            if end - start != 3 or any(
+                _read_uint(buffers["field_kinds"], start + offset, 1)
+                != _COMPONENT_NODE
+                for offset in (0, 1)
+            ):
+                return None
+            property_id = _read_uint(buffers["field_values"], start, 8)
+            class_id = _read_uint(buffers["field_values"], start + 1, 8)
+            if (
+                _read_uint(buffers["node_tags"], property_id - 1, 2)
+                != _TAG_ENTITY
+                or not _is_exact_singleton_anonymous_nominal(
+                    buffers,
+                    class_id,
+                    anonymous_node_id,
+                )
+                or _read_uint(buffers["field_kinds"], start + 2, 1)
+                != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
             ):
                 return None
         elif construct_tag == _TAG_CLASS_ASSERTION:
@@ -1108,6 +1137,34 @@ def _resolve_private_scope_mapped_subclass_composite(
     )
 
 
+def _resolve_private_scope_mapped_object_property_class_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact ignored object-property domain/range scope remap."""
+
+    for construct_tag in (
+        _TAG_OBJECT_PROPERTY_DOMAIN,
+        _TAG_OBJECT_PROPERTY_RANGE,
+    ):
+        resolved = _resolve_private_scope_mapped_composite(
+            lease,
+            construct_tag=construct_tag,
+        )
+        if resolved is not None:
+            return resolved
+    return None
+
+
 def _resolve_private_scope_mapped_class_assertion_composite(
     lease: EncodedStructuralLease,
 ) -> (
@@ -1383,6 +1440,8 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
             )
             for construct_tag in (
                 _TAG_SUB_CLASS_OF,
+                _TAG_OBJECT_PROPERTY_DOMAIN,
+                _TAG_OBJECT_PROPERTY_RANGE,
                 _TAG_CLASS_ASSERTION,
                 _TAG_OBJECT_PROPERTY_ASSERTION,
                 _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,

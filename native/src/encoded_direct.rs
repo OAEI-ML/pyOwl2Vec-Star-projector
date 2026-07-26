@@ -372,6 +372,8 @@ fn render_anonymous_identifier(position: usize) -> Result<String, KernelError> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ScopeMappedCompositeKind {
     IgnoredSubclass,
+    IgnoredObjectPropertyDomain,
+    IgnoredObjectPropertyRange,
     IgnoredClass,
     PositiveObject,
     NegativeObject,
@@ -1771,6 +1773,10 @@ enum OwnedOverlayDeltaProjection {
     IgnoredSubclass {
         anonymous_individuals: usize,
     },
+    IgnoredObjectPropertyClass {
+        kind: ObjectPropertyClassRuleKind,
+        anonymous_individuals: usize,
+    },
     ObjectPropertyAssertion {
         source: String,
         relation: String,
@@ -1803,6 +1809,7 @@ impl OwnedOverlayDeltaProjection {
                 EmissionPhase::ClassAssertions
             }
             Self::ObjectPropertyAssertion { .. }
+            | Self::IgnoredObjectPropertyClass { .. }
             | Self::IgnoredNegativeObjectPropertyAssertion { .. }
             | Self::IgnoredDataPropertyAssertion { .. }
             | Self::IgnoredIndividualSet { .. }
@@ -1847,6 +1854,37 @@ impl OwnedOverlayDeltaProjection {
                     .ok_or_else(|| {
                         KernelError::resource("encoded ignored-subclass count overflow")
                     })?;
+                statistics.anonymous_individuals = statistics
+                    .anonymous_individuals
+                    .checked_add(*anonymous_individuals)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded anonymous-individual count overflow")
+                    })?;
+            }
+            Self::IgnoredObjectPropertyClass {
+                kind,
+                anonymous_individuals,
+            } => {
+                let (total, ignored, total_overflow, ignored_overflow) = match kind {
+                    ObjectPropertyClassRuleKind::Domain => (
+                        &mut statistics.object_property_domains,
+                        &mut statistics.ignored_object_property_domains,
+                        "encoded object-property-domain count overflow",
+                        "encoded ignored-object-property-domain count overflow",
+                    ),
+                    ObjectPropertyClassRuleKind::Range => (
+                        &mut statistics.object_property_ranges,
+                        &mut statistics.ignored_object_property_ranges,
+                        "encoded object-property-range count overflow",
+                        "encoded ignored-object-property-range count overflow",
+                    ),
+                };
+                *total = total
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource(total_overflow))?;
+                *ignored = ignored
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource(ignored_overflow))?;
                 statistics.anonymous_individuals = statistics
                     .anonymous_individuals
                     .checked_add(*anonymous_individuals)
@@ -2541,6 +2579,28 @@ impl<'a> DirectColumns<'a> {
             .is_some_and(|candidate| anonymous_node.is_none_or(|expected| candidate == expected)))
     }
 
+    fn is_scope_mapped_ignored_object_property_class(
+        self,
+        root: usize,
+        expected_tag: u16,
+        anonymous_node: Option<usize>,
+        maximum_iri: usize,
+    ) -> Result<bool, KernelError> {
+        let start = self.exact_fields(root, 3)?;
+        let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
+        if annotation_count != 0 {
+            return Ok(false);
+        }
+        let property = self.field_node(start)?;
+        self.named_object_property_iri(property, maximum_iri)?;
+        let class = self.field_node(start + 1)?;
+        let candidate = self.singleton_anonymous_nominal_member(class)?;
+        Ok(self.node_tag(root)? == expected_tag
+            && candidate.is_some_and(|candidate| {
+                anonymous_node.is_none_or(|expected| candidate == expected)
+            }))
+    }
+
     fn is_scope_mapped_ignored_class_assertion(
         self,
         root: usize,
@@ -2645,6 +2705,29 @@ impl<'a> DirectColumns<'a> {
                             ));
                     }
                 },
+                TAG_OBJECT_PROPERTY_DOMAIN | TAG_OBJECT_PROPERTY_RANGE => {
+                    if construct_kind.is_some() {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                        ));
+                    }
+                    let tag = self.node_tag(root)?;
+                    if !self.is_scope_mapped_ignored_object_property_class(
+                        root,
+                        tag,
+                        Some(anonymous_node),
+                        maximum_iri,
+                    )? {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires one unannotated ObjectPropertyDomain or ObjectPropertyRange with a named property and singleton anonymous nominal",
+                        ));
+                    }
+                    construct_kind = Some(if tag == TAG_OBJECT_PROPERTY_DOMAIN {
+                        ScopeMappedCompositeKind::IgnoredObjectPropertyDomain
+                    } else {
+                        ScopeMappedCompositeKind::IgnoredObjectPropertyRange
+                    });
+                }
                 TAG_CLASS_ASSERTION => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
@@ -8255,6 +8338,7 @@ impl DirectEmissionCursor {
                             OwnedOverlayDeltaProjection::ClassAssertion { .. }
                             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
                             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
+                            | OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass { .. }
                             | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion {
                                 ..
                             }
@@ -8571,6 +8655,7 @@ impl DirectEmissionCursor {
                             OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion {
                                 ..
                             }
+                            | OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass { .. }
                             | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
                                 ..
                             }
@@ -9205,6 +9290,35 @@ fn own_composite_tail_projection(
                     "bounded anonymous-scope SubClassOf requires one named class and one singleton anonymous nominal",
                 ));
             }
+        }
+    }
+    let ignored_object_property_class = match scope_mapped_construct {
+        Some((ScopeMappedCompositeKind::IgnoredObjectPropertyDomain, _)) => Some((
+            TAG_OBJECT_PROPERTY_DOMAIN,
+            ObjectPropertyClassRuleKind::Domain,
+        )),
+        Some((ScopeMappedCompositeKind::IgnoredObjectPropertyRange, _)) => Some((
+            TAG_OBJECT_PROPERTY_RANGE,
+            ObjectPropertyClassRuleKind::Range,
+        )),
+        _ => None,
+    };
+    if let Some((expected_tag, kind)) = ignored_object_property_class {
+        if tag == expected_tag {
+            if !columns.is_scope_mapped_ignored_object_property_class(
+                root,
+                expected_tag,
+                None,
+                max_iri_bytes,
+            )? {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope object-property domain/range requires a named property and singleton anonymous nominal",
+                ));
+            }
+            return Ok(OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass {
+                kind,
+                anonymous_individuals: 1,
+            });
         }
     }
     if matches!(
@@ -9863,6 +9977,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             }
             OwnedOverlayDeltaProjection::Restriction { .. }
             | OwnedOverlayDeltaProjection::IgnoredSubclass { .. }
+            | OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass { .. }
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
@@ -10930,6 +11045,7 @@ fn prepare_two_table_batches_uncommitted(
             }
             OwnedOverlayDeltaProjection::Restriction { .. }
             | OwnedOverlayDeltaProjection::IgnoredSubclass { .. }
+            | OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass { .. }
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
@@ -12011,6 +12127,28 @@ mod tests {
         }
         fixture.push_empty_set();
         fixture.finish_node(TAG_SUB_CLASS_OF); // 5
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_nominal_object_property_class_fixture(root_tag: u16) -> Fixture {
+        assert!([TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&root_tag));
+        let mut fixture = Fixture::default();
+        fixture.push_scalar(COMPONENT_TEXT, b"urn:p");
+        fixture.finish_node(TAG_IRI); // 1
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 2
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 3
+        fixture.push_node_set(&[3]);
+        fixture.finish_node(TAG_OBJECT_ONE_OF); // 4
+        fixture.push_node_ref(2);
+        fixture.push_node_ref(4);
+        fixture.push_empty_set();
+        fixture.finish_node(root_tag); // 5
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
         fixture
@@ -21396,6 +21534,72 @@ mod tests {
     }
 
     #[test]
+    fn two_member_composite_remaps_singleton_nominal_object_property_class_scopes() {
+        for root_tag in [TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE] {
+            let left = scope_mapped_nominal_object_property_class_fixture(root_tag);
+            let right = scope_mapped_nominal_object_property_class_fixture(root_tag);
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(8);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(9);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let prepared = prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right_columns,
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 2);
+            assert_eq!(
+                statistics.object_property_domains,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_DOMAIN) * 2
+            );
+            assert_eq!(
+                statistics.object_property_ranges,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_RANGE) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_domains,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_DOMAIN) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_ranges,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_RANGE) * 2
+            );
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.edges, 0);
+            assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
+            assert!(prepared.preparation.overlay_deltas.iter().any(|delta| {
+                matches!(
+                    delta.projection,
+                    OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass {
+                        anonymous_individuals: 1,
+                        ..
+                    }
+                )
+            }));
+            assert!(prepared.is_exhausted());
+        }
+    }
+
+    #[test]
     fn two_member_composite_remaps_anonymous_class_assertion_scopes() {
         let left = scope_mapped_class_assertion_fixture();
         let right = scope_mapped_class_assertion_fixture();
@@ -22002,6 +22206,85 @@ mod tests {
                     delta.projection,
                     OwnedOverlayDeltaProjection::IgnoredSubclass {
                         anonymous_individuals: 1
+                    }
+                )
+            }));
+
+            let (edges, cursor) = prepared
+                .prepare_next_batch(left_columns, &state, 1)
+                .unwrap();
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                }]
+            );
+            prepared.commit_cursor(cursor);
+            assert!(prepared.is_exhausted());
+        }
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_singleton_nominal_object_property_class_scopes() {
+        for root_tag in [TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE] {
+            let left = scope_mapped_nominal_object_property_class_fixture(root_tag);
+            let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+            let right = scope_mapped_nominal_object_property_class_fixture(root_tag);
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(9);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(8);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let mut prepared = prepare_three_member_composite_batches_uncommitted(
+                [left_columns, neutral.columns(), right_columns],
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 3);
+            assert_eq!(statistics.subclasses, 1);
+            assert_eq!(
+                statistics.object_property_domains,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_DOMAIN) * 2
+            );
+            assert_eq!(
+                statistics.object_property_ranges,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_RANGE) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_domains,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_DOMAIN) * 2
+            );
+            assert_eq!(
+                statistics.ignored_object_property_ranges,
+                usize::from(root_tag == TAG_OBJECT_PROPERTY_RANGE) * 2
+            );
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.edges, 1);
+            assert!(prepared.preparation.overlay_deltas.iter().any(|delta| {
+                matches!(
+                    delta.projection,
+                    OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass {
+                        anonymous_individuals: 1,
+                        ..
                     }
                 )
             }));
