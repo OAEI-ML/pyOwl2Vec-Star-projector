@@ -18,6 +18,7 @@ from .encoded import (
     _acquire_root_encoded_lease,
     _resolve_private_overlay_aliases,
     _resolve_private_single_overlay_delta,
+    _resolve_private_two_member_composite,
 )
 from .errors import (
     NativeBackendUnavailableError,
@@ -31,7 +32,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 81
+ENCODED_DIRECT_KERNEL_VERSION = 82
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -378,6 +379,7 @@ class NativeEncodedDirectCompiler:
 
     lease: EncodedStructuralLease
     local_delta_lease: EncodedStructuralLease | None
+    merge_manifest_lease: EncodedStructuralLease | None
     root_annotation_lease: EncodedStructuralLease | None
     excluded_root_ids: memoryview | None
     _kernel: Any
@@ -1012,6 +1014,7 @@ def prepare_native_encoded_compilation(
         cancellation_token.check()
     container_leases: tuple[EncodedStructuralLease, ...] = ()
     local_delta_lease: EncodedStructuralLease | None = None
+    merge_manifest_lease: EncodedStructuralLease | None = None
     canonical_work_limit: int | None = None
     canonical_workspace_limit: int | None = None
     excluded_root_ids: memoryview | None = None
@@ -1039,6 +1042,30 @@ def prepare_native_encoded_compilation(
                 canonical_workspace_limit,
             ) = resolved_delta
             container_leases = (local_delta_lease,)
+        else:
+            resolved_composite = _resolve_private_two_member_composite(lease)
+            if resolved_composite is not None:
+                if options.include_literals:
+                    return (
+                        None,
+                        "private native two-member composite slice does not support "
+                        "literal projection",
+                    )
+                if role_state is not None:
+                    return (
+                        None,
+                        "private native two-member composite slice does not bind "
+                        "Scala-instance state",
+                    )
+                merge_manifest_lease = lease
+                (
+                    lease,
+                    local_delta_lease,
+                    excluded_root_ids,
+                    canonical_work_limit,
+                    canonical_workspace_limit,
+                ) = resolved_composite
+                container_leases = (merge_manifest_lease, local_delta_lease)
     root_annotation_lease: EncodedStructuralLease | None = None
     if options.include_literals and _lease_contains_annotation_assertions(lease):
         if container_leases:
@@ -1060,6 +1087,7 @@ def prepare_native_encoded_compilation(
         canonical_workspace_limit=canonical_workspace_limit,
         root_annotation_lease=root_annotation_lease,
         excluded_root_ids=excluded_root_ids,
+        merge_manifest_lease=merge_manifest_lease,
     )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
     batches = compiler.iter_batches(
@@ -1297,6 +1325,7 @@ def prepare_native_encoded_direct(
     lease: EncodedStructuralLease,
     *,
     local_delta_lease: EncodedStructuralLease | None = None,
+    merge_manifest_lease: EncodedStructuralLease | None = None,
     canonical_work_limit: int | None = None,
     canonical_workspace_limit: int | None = None,
     root_annotation_lease: EncodedStructuralLease | None = None,
@@ -1310,14 +1339,20 @@ def prepare_native_encoded_direct(
     abi3-safe design expands.  An optional independent root table is retained for the native
     annotation-provenance join.  One optional sorted EXCLUDE posting table is
     retained and scanned in place by the native root cursor. One bounded top-local overlay
-    table may be retained for the canonical merge, including with that base posting.
-    The independent provenance table remains mutually exclusive with the local overlay.
+    table may be retained for the canonical merge, including with that base posting.  One exact
+    two-member composite manifest may instead bind that same two-table merger.  The independent
+    provenance table remains mutually exclusive with either merge form.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
     local_delta_descriptor_sha256: bytes | None = None
+    merge_manifest_descriptor_sha256: bytes | None = None
     if local_delta_lease is not None:
         local_delta_descriptor_sha256 = _validated_direct_descriptor_digest(local_delta_lease)
+        if merge_manifest_lease is not None:
+            merge_manifest_descriptor_sha256 = _validated_direct_descriptor_digest(
+                merge_manifest_lease
+            )
         if root_annotation_lease is not None:
             raise NativeEncodedDirectUnsupported(
                 "private native local-overlay slice cannot combine root provenance"
@@ -1337,7 +1372,11 @@ def prepare_native_encoded_direct(
             )
         canonical_work_limit = min(canonical_work_limit, sys.maxsize)
         canonical_workspace_limit = min(canonical_workspace_limit, sys.maxsize)
-    elif canonical_work_limit is not None or canonical_workspace_limit is not None:
+    elif (
+        merge_manifest_lease is not None
+        or canonical_work_limit is not None
+        or canonical_workspace_limit is not None
+    ):
         raise ValueError("canonical merge limits require a local delta lease")
     root_descriptor_sha256: bytes | None = None
     if root_annotation_lease is not None:
@@ -1390,6 +1429,15 @@ def prepare_native_encoded_direct(
                 overlay_delta_descriptor_sha256=local_delta_descriptor_sha256,
                 canonical_work_limit=canonical_work_limit,
                 canonical_workspace_limit=canonical_workspace_limit,
+                merge_manifest_view=(
+                    None
+                    if merge_manifest_lease is None
+                    else merge_manifest_lease.encoded_view
+                ),
+                merge_manifest_owner=(
+                    None if merge_manifest_lease is None else merge_manifest_lease.owner
+                ),
+                merge_manifest_descriptor_sha256=merge_manifest_descriptor_sha256,
             )
         elif root_annotation_lease is None and excluded_root_ids is None:
             kernel = compiler(lease.encoded_view, lease.owner, descriptor_sha256)
@@ -1424,6 +1472,7 @@ def prepare_native_encoded_direct(
     return NativeEncodedDirectCompiler(
         lease,
         local_delta_lease,
+        merge_manifest_lease,
         root_annotation_lease,
         excluded_root_ids,
         kernel,

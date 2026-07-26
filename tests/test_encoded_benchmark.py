@@ -106,7 +106,7 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
     native_artifact = result["runtime_binding"]["projector"]["native_extension"]
     assert native_artifact["available"] is True
     assert len(native_artifact["sha256"]) == 64
-    assert native_artifact["encoded_direct_kernel_version"] == 81
+    assert native_artifact["encoded_direct_kernel_version"] == 82
     assert native_artifact["features"] == ["abi3-py310", "bounded-batches"]
 
     samples = result["samples"]

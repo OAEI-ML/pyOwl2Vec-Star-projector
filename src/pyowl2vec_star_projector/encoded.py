@@ -441,6 +441,126 @@ def _resolve_private_single_overlay_delta(
     )
 
 
+def _resolve_private_two_member_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview | None,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact two-table composite without flattening either member.
+
+    This first native composite slice admits exactly two direct members, no
+    bridge roots or anonymous-scope remapping, and at most one nonempty
+    ``EXCLUDE`` posting table.  The excluded member becomes the left merge
+    table so the existing bounded posting cursor remains authoritative.
+    ``INCLUDE``, multiple posting tables, nested sources, bridges, and every
+    other composite form stay on whole-operation fallback.
+    """
+
+    if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:
+        return None
+    offsets = lease.buffers["node_field_offsets"]
+    if offsets.nbytes != 8 or any(offsets):
+        return None
+    if any(value.nbytes for name, value in lease.buffers.items() if name != "node_field_offsets"):
+        return None
+
+    rows: list[tuple[EncodedStructuralLease, memoryview | None]] = []
+    previous_token: bytes | None = None
+    excluded_member_count = 0
+    for raw_segment in lease.segments:
+        segment = cast(Any, raw_segment)
+        try:
+            role = segment.role
+            owner = segment.owner
+            source = segment.source
+            posting_mode = segment.posting_mode
+            root_ids = segment.root_ids
+            scope_map = segment.anonymous_scope_map
+            member_token = segment.member_token
+        except Exception as error:
+            raise SnapshotCompatibilityError(
+                "core encoded two-member composite metadata is not readable"
+            ) from error
+        if (
+            type(role) is not int
+            or role != _SEGMENT_COMPOSITE_MEMBER
+            or source is None
+            or owner is not getattr(source, "owner", _MISSING)
+            or type(posting_mode) is not int
+            or type(root_ids) is not memoryview
+            or type(scope_map) is not memoryview
+            or scope_map.nbytes
+            or type(member_token) is not bytes
+            or len(member_token) != 32
+            or (previous_token is not None and member_token <= previous_token)
+        ):
+            return None
+        previous_token = member_token
+        if posting_mode == _POSTINGS_ALL:
+            if root_ids.nbytes:
+                return None
+            excluded_root_ids = None
+        elif posting_mode == _POSTINGS_EXCLUDE:
+            if not root_ids.nbytes:
+                return None
+            excluded_member_count += 1
+            if excluded_member_count > 1:
+                return None
+            excluded_root_ids = root_ids
+        else:
+            return None
+        source_scope = getattr(source, "scope", _MISSING)
+        if source_scope is not lease.scope:
+            return None
+        source_lease = _validate_encoded_view(
+            owner,
+            source,
+            type(lease.encoded_view),
+            source_scope,
+        )
+        if len(source_lease.segments) != 1:
+            return None
+        try:
+            source_role = cast(Any, source_lease.segments[0]).role
+        except Exception as error:
+            raise SnapshotCompatibilityError(
+                "core encoded composite member role is not readable"
+            ) from error
+        if type(source_role) is not int or source_role != _SEGMENT_DIRECT:
+            return None
+        rows.append((source_lease, excluded_root_ids))
+
+    if len(rows) != 2:
+        return None
+    if rows[1][1] is not None:
+        rows.reverse()
+    left, excluded_root_ids = rows[0]
+    right, right_excluded_root_ids = rows[1]
+    if right_excluded_root_ids is not None:
+        return None
+
+    validation_work = (
+        _private_encoded_lease_validation_work(lease)
+        + _private_encoded_lease_validation_work(left)
+        + _private_encoded_lease_validation_work(right)
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        left,
+        right,
+        excluded_root_ids,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
 def _private_overlay_alias_source(
     lease: EncodedStructuralLease,
 ) -> tuple[object, object, object, memoryview | None] | None:
