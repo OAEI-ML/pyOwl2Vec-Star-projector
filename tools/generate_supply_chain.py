@@ -16,6 +16,24 @@ else:
     from release_support import canonical_json, read_stable_regular_file, write_if_changed
 
 _NAMESPACE = uuid.UUID("2a582b0c-c26a-45a9-8a1f-9a2783ca1fef")
+_PROJECT_NAME = "pyowl2vec-star-projector"
+_PROJECT_LICENSE = "Apache-2.0"
+_RUNTIME_DEPENDENCY = "pyowl-core>=0.1,<0.2"
+_CRATES_IO_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
+_PINNED_REQUIREMENT = re.compile(
+    r"([A-Za-z0-9][A-Za-z0-9._-]*)==([A-Za-z0-9][A-Za-z0-9.!+_-]*)"
+    r"(?:\s*;\s*(.+))?"
+)
+_PYTHON_BUILD_LICENSES = {
+    ("build", "1.5.0"): "MIT",
+    ("packaging", "26.2"): "Apache-2.0 OR BSD-2-Clause",
+    ("pyproject-hooks", "1.2.0"): "MIT",
+    ("tomli", "2.4.1"): "MIT",
+    ("setuptools", "83.0.0"): "MIT",
+    ("wheel", "0.46.3"): "MIT",
+    ("setuptools-rust", "1.13.0"): "MIT",
+    ("semantic-version", "2.10.0"): "BSD-2-Clause",
+}
 _BUILD_INPUT_PATHS = (
     ".github/workflows/native.yml",
     ".github/workflows/packaging.yml",
@@ -106,9 +124,12 @@ def _cargo_licenses(text: str) -> dict[tuple[str, str], str]:
         if not match or match.group(1).strip() == "Crate":
             continue
         name, version, expression = (part.strip() for part in match.groups())
-        if set(version) == {"-"}:
+        if not name.strip("-") and not version.strip("-:"):
             continue
-        result[(name, version)] = expression
+        key = (name, version)
+        if key in result:
+            raise ValueError(f"duplicate Cargo license inventory row {name} {version}")
+        result[key] = expression
     return result
 
 
@@ -166,6 +187,120 @@ def _requirements(payload: bytes, label: str) -> list[str]:
     return lines
 
 
+def _normalize_python_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _pinned_requirements(
+    lines: list[str],
+    *,
+    label: str,
+) -> list[tuple[str, str, str | None]]:
+    parsed: list[tuple[str, str, str | None]] = []
+    seen: set[str] = set()
+    for line in lines:
+        match = _PINNED_REQUIREMENT.fullmatch(line)
+        if match is None:
+            raise ValueError(f"supply chain: {label} has non-exact requirement {line!r}")
+        name = _normalize_python_name(match.group(1))
+        version = match.group(2)
+        marker = match.group(3)
+        if name in seen:
+            raise ValueError(f"supply chain: {label} repeats Python package {name}")
+        seen.add(name)
+        parsed.append((name, version, marker))
+    return parsed
+
+
+def _python_build_requirements(
+    payloads: dict[str, bytes],
+    pyproject: dict[str, Any],
+) -> tuple[list[tuple[str, str, str | None, bool]], list[str], list[str]]:
+    fallback_lines = _requirements(
+        payloads["release/fallback-build-requirements.txt"],
+        "release/fallback-build-requirements.txt",
+    )
+    native_lines = _requirements(
+        payloads["release/native-build-requirements.txt"],
+        "release/native-build-requirements.txt",
+    )
+    expected_include = "-r fallback-build-requirements.txt"
+    if not native_lines or native_lines[0] != expected_include:
+        raise ValueError(
+            f"supply chain: native build requirements must begin with {expected_include!r}"
+        )
+    fallback = _pinned_requirements(
+        fallback_lines,
+        label="fallback build requirements",
+    )
+    native_only = _pinned_requirements(
+        native_lines[1:],
+        label="native build requirements",
+    )
+    combined = [(name, version, marker, False) for name, version, marker in fallback] + [
+        (name, version, marker, True) for name, version, marker in native_only
+    ]
+    keys = {(name, version) for name, version, _, _ in combined}
+    reviewed = set(_PYTHON_BUILD_LICENSES)
+    if keys != reviewed:
+        missing = sorted(reviewed - keys)
+        extra = sorted(keys - reviewed)
+        raise ValueError(
+            f"supply chain: Python build license review differs; missing={missing}, extra={extra}"
+        )
+    names = [name for name, _, _, _ in combined]
+    if len(names) != len(set(names)):
+        raise ValueError("supply chain: Python build requirement names are not unique")
+
+    build_system = pyproject.get("build-system")
+    if not isinstance(build_system, dict) or build_system.get("requires") != [
+        "setuptools==83.0.0",
+        "wheel==0.46.3",
+    ]:
+        raise ValueError("supply chain: pyproject build-system pins differ from reviewed locks")
+    project = pyproject.get("project")
+    optional = project.get("optional-dependencies") if isinstance(project, dict) else None
+    if not isinstance(optional, dict) or optional.get("native-build") != [
+        "setuptools-rust==1.13.0"
+    ]:
+        raise ValueError("supply chain: native-build extra differs from reviewed lock")
+    return combined, fallback_lines, native_lines
+
+
+def _python_build_records(
+    requirements: list[tuple[str, str, str | None, bool]],
+) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
+    components: list[dict[str, object]] = []
+    inventory: list[dict[str, str]] = []
+    for name, version, marker, native_only in requirements:
+        properties: list[dict[str, str]] = []
+        if marker is not None:
+            properties.append({"name": "pyowl-projector:environment-marker", "value": marker})
+        if native_only:
+            properties.append({"name": "pyowl-projector:scope", "value": "explicit-native-only"})
+        license_expression = _PYTHON_BUILD_LICENSES[(name, version)]
+        components.append(
+            _component(
+                name,
+                version,
+                license_expression,
+                f"pkg:pypi/{name}@{version}",
+                properties=properties or None,
+            )
+        )
+        record = {
+            "name": name,
+            "version": version,
+            "license": license_expression,
+        }
+        if marker is not None:
+            record["environment_marker"] = marker
+        if native_only:
+            record["scope"] = "explicit-native-only"
+        inventory.append(record)
+    return components, inventory
+
+
 def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
     pyproject = _load_build_toml(payloads["pyproject.toml"], "pyproject.toml")
     cargo = _load_build_toml(payloads["native/Cargo.toml"], "native/Cargo.toml")
@@ -180,6 +315,10 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
         cargo_package.get("rust-version"), str
     ):
         raise ValueError("build provenance: native/Cargo.toml has no literal rust-version")
+    _, fallback_requirements, native_requirements = _python_build_requirements(
+        payloads,
+        pyproject,
+    )
 
     native_workflow = _decode_build_input(
         payloads[".github/workflows/native.yml"], ".github/workflows/native.yml"
@@ -239,14 +378,8 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
             "rust_sanitizer_toolchain": rust_sanitizer_toolchain,
             "cibuildwheel_action": f"pypa/cibuildwheel@{cibuildwheel_revision}",
             "python_build_system": build_system["requires"],
-            "python_fallback_requirements": _requirements(
-                payloads["release/fallback-build-requirements.txt"],
-                "release/fallback-build-requirements.txt",
-            ),
-            "python_native_requirements": _requirements(
-                payloads["release/native-build-requirements.txt"],
-                "release/native-build-requirements.txt",
-            ),
+            "python_fallback_requirements": fallback_requirements,
+            "python_native_requirements": native_requirements,
         },
         "inputs": inputs,
     }
@@ -259,8 +392,21 @@ def build_provenance(root: Path) -> dict[str, object]:
 
 def generate(root: Path) -> dict[Path, bytes]:
     payloads = _capture_build_inputs(root)
-    project = _load_build_toml(payloads["pyproject.toml"], "pyproject.toml")["project"]
+    pyproject = _load_build_toml(payloads["pyproject.toml"], "pyproject.toml")
+    project = pyproject.get("project")
+    if not isinstance(project, dict):
+        raise ValueError("supply chain: pyproject.toml has no project table")
+    if (
+        project.get("name") != _PROJECT_NAME
+        or project.get("license") != _PROJECT_LICENSE
+        or project.get("dependencies") != [_RUNTIME_DEPENDENCY]
+    ):
+        raise ValueError(
+            "supply chain: project identity, license, or runtime dependency boundary changed"
+        )
     version = str(project["version"])
+    python_requirements, _, _ = _python_build_requirements(payloads, pyproject)
+    build_tools, python_build_inventory = _python_build_records(python_requirements)
     root_ref = f"pkg:pypi/pyowl2vec-star-projector@{version}"
     runtime_root = _component(
         "pyowl2vec-star-projector",
@@ -279,70 +425,77 @@ def generate(root: Path) -> dict[Path, bytes]:
     runtime_bom = _bom(version, "runtime", runtime_root, [core])
 
     cargo_lock = _load_build_toml(payloads["native/Cargo.lock"], "native/Cargo.lock")
+    cargo_manifest = _load_build_toml(
+        payloads["native/Cargo.toml"],
+        "native/Cargo.toml",
+    )
+    cargo_package = cargo_manifest.get("package")
+    if not isinstance(cargo_package, dict):
+        raise ValueError("supply chain: native/Cargo.toml has no package table")
+    locked_packages = cargo_lock.get("package")
+    if not isinstance(locked_packages, list):
+        raise ValueError("supply chain: native/Cargo.lock has no package inventory")
     license_map = _cargo_licenses(
         _decode_build_input(
             payloads["native/THIRD_PARTY_LICENSES.md"],
             "native/THIRD_PARTY_LICENSES.md",
         )
     )
+    root_package_key = (
+        str(cargo_package.get("name")),
+        str(cargo_package.get("version")),
+    )
+    locked_keys: list[tuple[str, str]] = []
+    for package in locked_packages:
+        if not isinstance(package, dict):
+            raise ValueError("supply chain: Cargo.lock package entry is not a table")
+        locked_keys.append((str(package.get("name")), str(package.get("version"))))
+    if len(locked_keys) != len(set(locked_keys)):
+        raise ValueError("supply chain: Cargo.lock contains duplicate package identities")
+    if locked_keys.count(root_package_key) != 1:
+        raise ValueError(
+            f"supply chain: Cargo.lock must contain exact native root {root_package_key!r}"
+        )
+    external_keys = set(locked_keys) - {root_package_key}
+    missing_licenses = sorted(external_keys - license_map.keys())
+    extra_licenses = sorted(license_map.keys() - external_keys)
+    if missing_licenses or extra_licenses:
+        raise ValueError(
+            "supply chain: Cargo license review differs from lock; "
+            f"missing={missing_licenses}, extra={extra_licenses}"
+        )
     native_components: list[dict[str, object]] = []
     native_licenses: list[dict[str, str]] = []
-    for package in sorted(cargo_lock["package"], key=lambda item: (item["name"], item["version"])):
+    for package in sorted(locked_packages, key=lambda item: (item["name"], item["version"])):
         name = str(package["name"])
         crate_version = str(package["version"])
-        if name == "pyowl2vec-star-projector-native":
+        if (name, crate_version) == root_package_key:
             continue
-        expression = license_map.get((name, crate_version))
-        if expression is None:
-            raise ValueError(f"license inventory missing Cargo package {name} {crate_version}")
+        expression = license_map[(name, crate_version)]
+        source = package.get("source")
         checksum = package.get("checksum")
-        hashes = [{"alg": "SHA-256", "content": str(checksum)}] if checksum else None
+        if source != _CRATES_IO_SOURCE:
+            raise ValueError(
+                f"supply chain: Cargo package {name} {crate_version} has unreviewed source "
+                f"{source!r}"
+            )
+        if not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None:
+            raise ValueError(
+                f"supply chain: Cargo package {name} {crate_version} has no exact checksum"
+            )
         native_components.append(
             _component(
                 name,
                 crate_version,
                 expression,
                 f"pkg:cargo/{name}@{crate_version}",
-                hashes=hashes,
+                hashes=[{"alg": "SHA-256", "content": checksum}],
                 properties=[{"name": "pyowl-projector:scope", "value": "native-build-or-linked"}],
             )
         )
         native_licenses.append(
             {"name": name, "version": crate_version, "license": expression, "scope": "native"}
         )
-    build_tools = [
-        _component("build", "1.5.0", "MIT", "pkg:pypi/build@1.5.0"),
-        _component(
-            "packaging",
-            "26.2",
-            "Apache-2.0 OR BSD-2-Clause",
-            "pkg:pypi/packaging@26.2",
-        ),
-        _component("pyproject-hooks", "1.2.0", "MIT", "pkg:pypi/pyproject-hooks@1.2.0"),
-        _component(
-            "tomli",
-            "2.4.1",
-            "MIT",
-            "pkg:pypi/tomli@2.4.1",
-            properties=[{"name": "pyowl-projector:environment", "value": "python<3.11"}],
-        ),
-        _component("setuptools", "83.0.0", "MIT", "pkg:pypi/setuptools@83.0.0"),
-        _component("wheel", "0.46.3", "MIT", "pkg:pypi/wheel@0.46.3"),
-        _component(
-            "setuptools-rust",
-            "1.13.0",
-            "MIT",
-            "pkg:pypi/setuptools-rust@1.13.0",
-            properties=[{"name": "pyowl-projector:scope", "value": "explicit-native-only"}],
-        ),
-        _component(
-            "semantic-version",
-            "2.10.0",
-            "BSD-2-Clause",
-            "pkg:pypi/semantic-version@2.10.0",
-            properties=[{"name": "pyowl-projector:scope", "value": "explicit-native-only"}],
-        ),
-    ]
     build_root = dict(runtime_root)
     build_root["bom-ref"] = f"{root_ref}?scope=native-build"
     native_bom = _bom(version, "native-build", build_root, [*build_tools, *native_components])
@@ -355,35 +508,7 @@ def generate(root: Path) -> dict[Path, bytes]:
             "license": "Apache-2.0",
         },
         "runtime": [{"name": "pyowl-core", "version": ">=0.1,<0.2", "license": "Apache-2.0"}],
-        "python_build": [
-            {"name": "build", "version": "1.5.0", "license": "MIT"},
-            {
-                "name": "packaging",
-                "version": "26.2",
-                "license": "Apache-2.0 OR BSD-2-Clause",
-            },
-            {"name": "pyproject-hooks", "version": "1.2.0", "license": "MIT"},
-            {
-                "name": "tomli",
-                "version": "2.4.1",
-                "license": "MIT",
-                "scope": "python<3.11",
-            },
-            {"name": "setuptools", "version": "83.0.0", "license": "MIT"},
-            {"name": "wheel", "version": "0.46.3", "license": "MIT"},
-            {
-                "name": "setuptools-rust",
-                "version": "1.13.0",
-                "license": "MIT",
-                "scope": "explicit-native-only",
-            },
-            {
-                "name": "semantic-version",
-                "version": "2.10.0",
-                "license": "BSD-2-Clause",
-                "scope": "explicit-native-only",
-            },
-        ],
+        "python_build": python_build_inventory,
         "native": native_licenses,
         "native_license_selection": {
             "dual_license_choice": "Apache-2.0",

@@ -159,6 +159,44 @@ def test_build_provenance_rejects_symlinked_inputs(tmp_path: Path) -> None:
         build_provenance(tmp_path)
 
 
+def test_supply_chain_rejects_unreviewed_python_build_pin(tmp_path: Path) -> None:
+    _copy_build_inputs(tmp_path)
+    requirements = tmp_path / "release" / "fallback-build-requirements.txt"
+    original = requirements.read_text(encoding="utf-8")
+    requirements.write_text(
+        original.replace("build==1.5.0", "build==9.9.9"),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Python build license review differs"):
+        generate(tmp_path)
+
+
+def test_supply_chain_rejects_extra_cargo_license_row(tmp_path: Path) -> None:
+    _copy_build_inputs(tmp_path)
+    inventory = tmp_path / "native" / "THIRD_PARTY_LICENSES.md"
+    inventory.write_text(
+        inventory.read_text(encoding="utf-8") + "\n| unreviewed-crate | 9.9.9 | MIT |\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Cargo license review differs from lock"):
+        generate(tmp_path)
+
+
+def test_supply_chain_requires_exact_cargo_checksums(tmp_path: Path) -> None:
+    _copy_build_inputs(tmp_path)
+    lock = tmp_path / "native" / "Cargo.lock"
+    original = lock.read_text(encoding="utf-8")
+    lock.write_text(
+        original.replace(
+            'checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"\n',
+            "",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"heck 0\.5\.0 has no exact checksum"):
+        generate(tmp_path)
+
+
 def test_stable_build_input_reader_rejects_concurrent_change(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
