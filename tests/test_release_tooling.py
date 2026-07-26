@@ -88,6 +88,7 @@ def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
     assert provenance["tools"] == {
         "cargo_manifest_rust_version": "1.83",
         "rust_toolchain": "1.83.0",
+        "rust_sanitizer_toolchain": "nightly-2025-01-15",
         "cibuildwheel_action": ("pypa/cibuildwheel@65b8265957fd86372d9689a0acdfd55813970d5d"),
         "python_build_system": ["setuptools==83.0.0", "wheel==0.46.3"],
         "python_fallback_requirements": [
@@ -220,6 +221,23 @@ def test_external_workflow_actions_are_pinned_to_exact_commits() -> None:
                 f"{workflow.relative_to(ROOT)} has mutable external action {action}"
             )
     assert observed
+
+
+def test_rust_workflow_toolchains_are_immutable() -> None:
+    workflow = (ROOT / ".github/workflows/native.yml").read_text(encoding="utf-8")
+    steps = workflow.split("- uses: dtolnay/rust-toolchain@")[1:]
+    assert len(steps) == 3
+    observed = []
+    for step in steps:
+        block = step.split("\n      - ", 1)[0]
+        toolchains = re.findall(r'(?m)^\s+toolchain:\s*"([^"]+)"\s*$', block)
+        assert len(toolchains) == 1
+        observed.extend(toolchains)
+    assert observed == ["1.83.0", "1.83.0", "nightly-2025-01-15"]
+    assert all(
+        re.fullmatch(r"(?:[0-9]+\.[0-9]+\.[0-9]+|nightly-[0-9]{4}-[0-9]{2}-[0-9]{2})", item)
+        for item in observed
+    )
 
 
 def test_hash_manifest_detects_tampering(tmp_path: Path) -> None:

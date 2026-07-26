@@ -236,6 +236,11 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
         r'(?m)^\s*toolchain:\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$',
         "Rust release toolchain",
     )
+    rust_sanitizer_toolchain = _workflow_pin(
+        native_workflow,
+        r'(?m)^\s*toolchain:\s*"(nightly-[0-9]{4}-[0-9]{2}-[0-9]{2})"\s*$',
+        "Rust sanitizer toolchain",
+    )
     rust_msrv = str(cargo_package["rust-version"])
     if not rust_toolchain.startswith(f"{rust_msrv}."):
         raise ValueError(
@@ -270,6 +275,7 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
         "tools": {
             "cargo_manifest_rust_version": rust_msrv,
             "rust_toolchain": rust_toolchain,
+            "rust_sanitizer_toolchain": rust_sanitizer_toolchain,
             "cibuildwheel_action": f"pypa/cibuildwheel@{cibuildwheel_revision}",
             "python_build_system": build_system["requires"],
             "python_fallback_requirements": _requirements(
