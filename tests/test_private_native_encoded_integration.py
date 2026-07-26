@@ -18,6 +18,7 @@ import pytest
 from pyowl_core.backends.python import PythonParser
 
 import pyowl2vec_star_projector.api as api_module
+import pyowl2vec_star_projector.encoded as encoded_module
 import pyowl2vec_star_projector.native as native_module
 from pyowl2vec_star_projector import (
     BATCH_SINK_PROTOCOL_VERSION,
@@ -45,6 +46,7 @@ from pyowl2vec_star_projector.encoded import (
     _resolve_private_scope_mapped_nested_overlay_composite,
     _resolve_private_scope_mapped_object_property_assertion_composite,
     _resolve_private_scope_mapped_object_property_class_composite,
+    _resolve_private_scope_mapped_rule_composite,
     _resolve_private_scope_mapped_same_individual_composite,
     _resolve_private_scope_mapped_subclass_composite,
     _resolve_private_single_overlay_delta,
@@ -9147,9 +9149,7 @@ def _scope_mapped_data_property_assertion_composite(
     *,
     negative: bool,
 ) -> pyowl_core.OntologyView:
-    constructor = (
-        "NegativeDataPropertyAssertion" if negative else "DataPropertyAssertion"
-    )
+    constructor = "NegativeDataPropertyAssertion" if negative else "DataPropertyAssertion"
     lexical = "blocked" if negative else "value"
     members = [
         cast(
@@ -9205,6 +9205,99 @@ def _scope_mapped_annotation_assertion_composite(
         for _ in range(2)
     ]
     return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+
+
+def _scope_mapped_swrl_composite(
+    *,
+    nested: bool,
+) -> pyowl_core.OntologyView:
+    rule = "SWRLRule((ClassAtom(:RuleClass _:same)) ())"
+    if not nested:
+        members = [
+            cast(
+                pyowl_core.OntologyView,
+                _swrl_snapshot(f"SubClassOf(:B :Top) {rule}"),
+            )
+            for _ in range(2)
+        ]
+        return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+
+    base = cast(
+        pyowl_core.OntologyView,
+        _swrl_snapshot(rule),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)"),
+    )
+    sibling = cast(
+        pyowl_core.OntologyView,
+        _swrl_snapshot(rule),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(add_axioms=cast(Any, set(addition.iter_axioms()))),
+    )
+    return cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, sibling),
+    )
+
+
+_SCOPE_MAPPED_RULE_BODIES = (
+    pytest.param(
+        "SubClassOf(ObjectOneOf(_:same) :Top)",
+        False,
+        id="subclass",
+    ),
+    pytest.param(
+        "ObjectPropertyDomain(:p ObjectOneOf(_:same))",
+        False,
+        id="object-property-domain",
+    ),
+    pytest.param(
+        "ObjectPropertyRange(:p ObjectOneOf(_:same))",
+        False,
+        id="object-property-range",
+    ),
+    pytest.param("ClassAssertion(:A _:same)", False, id="class-assertion"),
+    pytest.param(
+        "ObjectPropertyAssertion(:p _:same :j)",
+        False,
+        id="object-property-assertion",
+    ),
+    pytest.param(
+        "NegativeObjectPropertyAssertion(:p _:same :j)",
+        False,
+        id="negative-object-property-assertion",
+    ),
+    pytest.param(
+        'DataPropertyAssertion(:dp _:same "value")',
+        False,
+        id="data-property-assertion",
+    ),
+    pytest.param(
+        'NegativeDataPropertyAssertion(:dp _:same "blocked")',
+        False,
+        id="negative-data-property-assertion",
+    ),
+    pytest.param("SameIndividual(_:same :j)", False, id="same-individual"),
+    pytest.param(
+        "DifferentIndividuals(_:same :j)",
+        False,
+        id="different-individuals",
+    ),
+    pytest.param(
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> _:same "value")',
+        False,
+        id="annotation-assertion",
+    ),
+    pytest.param(
+        "SWRLRule((ClassAtom(:RuleClass _:same)) ())",
+        True,
+        id="swrl-rule",
+    ),
+)
 
 
 def _two_member_dual_exclude_subclass_composite(
@@ -9408,15 +9501,13 @@ _SCOPE_MAPPED_NESTED_SILENT_FAMILIES = (
         2,
     ),
     (
-        "AnnotationAssertion("
-        "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)",
+        "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)",
         None,
         "annotation_assertions",
         0,
     ),
     (
-        'AnnotationAssertion('
-        '<http://www.w3.org/2000/01/rdf-schema#label> _:same "value")',
+        'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> _:same "value")',
         None,
         "annotation_assertions",
         0,
@@ -10013,15 +10104,9 @@ def test_hidden_iterator_remaps_anonymous_class_carriers_in_one_native_pass(
     assert compilation.right_anonymous_scope_map is top_encoded.segments[1].anonymous_scope_map
     statistics = compilation.native_statistics
     assert statistics.roots == 3
-    assert statistics.subclasses == (
-        3 if carrier_constructor == "SubClassOf" else 1
-    )
-    assert statistics.ignored_subclasses == (
-        2 if carrier_constructor == "SubClassOf" else 0
-    )
-    assert statistics.class_assertions == (
-        2 if carrier_constructor == "ClassAssertion" else 0
-    )
+    assert statistics.subclasses == (3 if carrier_constructor == "SubClassOf" else 1)
+    assert statistics.ignored_subclasses == (2 if carrier_constructor == "SubClassOf" else 0)
+    assert statistics.class_assertions == (2 if carrier_constructor == "ClassAssertion" else 0)
     assert statistics.ignored_class_assertions == (
         2 if carrier_constructor == "ClassAssertion" else 0
     )
@@ -10049,6 +10134,150 @@ def test_hidden_iterator_remaps_anonymous_class_carriers_in_one_native_pass(
     assert ingestion.counters["encoded_zero_copy_buffers"] == 33
     assert ingestion.counters["encoded_referenced_view_count"] == 2
     assert ingestion.counters["encoded_segment_count"] == 4
+    assert ingestion.counters["encoded_posting_bytes"] == 128
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=1,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("construct_body", "requires_swrl_parser"),
+    _SCOPE_MAPPED_RULE_BODIES,
+)
+def test_scope_mapped_rule_resolver_scans_each_supported_family_once(
+    construct_body: str,
+    requires_swrl_parser: bool,
+) -> None:
+    body = f"SubClassOf(:B :Top) {construct_body}"
+    members = [
+        cast(
+            pyowl_core.OntologyView,
+            _swrl_snapshot(body) if requires_swrl_parser else _snapshot(body),
+        )
+        for _ in range(2)
+    ]
+    composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(*members),
+    )
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+
+    with patch.object(
+        encoded_module,
+        "_single_scope_mapped_construct_scope",
+        wraps=encoded_module._single_scope_mapped_construct_scope,
+    ) as scope_scan:
+        assert _resolve_private_scope_mapped_rule_composite(top_lease) is not None
+
+    assert scope_scan.call_count == 2
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["flat", "nested"])
+def test_hidden_iterator_remaps_silent_swrl_scopes_in_one_native_pass(
+    nested: bool,
+) -> None:
+    composite = _scope_mapped_swrl_composite(nested=nested)
+    top_encoded = composite.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
+    assert all(segment.posting_mode == 0 for segment in top_encoded.segments)
+    assert all(segment.root_ids.nbytes == 0 for segment in top_encoded.segments)
+    assert all(segment.anonymous_scope_map.nbytes == 64 for segment in top_encoded.segments)
+    assert bytes(top_encoded.segments[0].anonymous_scope_map[:32]) == bytes(
+        top_encoded.segments[1].anonymous_scope_map[:32]
+    )
+    assert bytes(top_encoded.segments[0].anonymous_scope_map[32:]) != bytes(
+        top_encoded.segments[1].anonymous_scope_map[32:]
+    )
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = (
+        _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
+        if nested
+        else _resolve_private_scope_mapped_rule_composite(top_lease)
+    )
+    assert resolved is not None
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("scope-mapped silent SWRLRule reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        ]
+    )
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics == ()
+    assert len(captured) == 1
+    statistics = captured[0].native_statistics
+    assert statistics.roots == 3
+    assert statistics.subclasses == 1
+    assert statistics.swrl_rules == 2
+    assert statistics.anonymous_individuals == 0
+    assert statistics.skipped_axioms == 0
+    assert statistics.edges == 1
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
     assert ingestion.counters["encoded_posting_bytes"] == 128
     assert ingestion.counters["base_flattening_bytes"] == 0
     assert ingestion.counters["encoded_staging_copy_bytes"] == 0
@@ -10143,13 +10372,17 @@ def test_hidden_iterator_remaps_silent_annotation_assertion_scopes(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            "urn:native-integration#B",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert report.diagnostics == expected_report.diagnostics == ()
     assert len(captured) == 1
@@ -10252,9 +10485,7 @@ def test_hidden_iterator_remaps_individual_set_scopes_in_one_native_pass(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "scope-mapped individual set reached scalar traversal"
-            ),
+            side_effect=AssertionError("scope-mapped individual set reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -10267,13 +10498,17 @@ def test_hidden_iterator_remaps_individual_set_scopes_in_one_native_pass(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            "urn:native-integration#B",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     constructor = "DifferentIndividuals" if different else "SameIndividual"
     assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
@@ -10380,9 +10615,7 @@ def test_hidden_iterator_remaps_data_assertion_scopes_in_one_native_pass(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "scope-mapped data assertion reached scalar traversal"
-            ),
+            side_effect=AssertionError("scope-mapped data assertion reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -10395,17 +10628,19 @@ def test_hidden_iterator_remaps_data_assertion_scopes_in_one_native_pass(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            "urn:native-integration#B",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-    ]
-    _assert_semantic_report_parity(expected_report, report)
-    constructor = (
-        "NegativeDataPropertyAssertion" if negative else "DataPropertyAssertion"
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        ]
     )
+    _assert_semantic_report_parity(expected_report, report)
+    constructor = "NegativeDataPropertyAssertion" if negative else "DataPropertyAssertion"
     assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
         ("MOWL_SKIPPED_AXIOM", constructor, 2),
     )
@@ -10534,14 +10769,18 @@ def test_hidden_iterator_remaps_anonymous_object_assertion_scopes_in_one_native_
         )
         for identifier in anonymous
     ]
-    assert actual == expected == [
-        Edge(
-            "urn:native-integration#B",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        ),
-        *object_edges,
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            ),
+            *object_edges,
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert report.diagnostics == ()
     assert len(captured) == 1
@@ -10658,13 +10897,17 @@ def test_hidden_iterator_remaps_negative_object_assertion_scopes_in_one_native_p
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            "urn:native-integration#B",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        ]
+    )
     _assert_semantic_report_parity(expected_report, report)
     assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
         ("MOWL_SKIPPED_AXIOM", "NegativeObjectPropertyAssertion", 2),
@@ -10798,15 +11041,9 @@ def test_scope_mapped_composite_preserves_identity_limits_and_retry(
     )
     assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["B"]
     assert statistics.roots == 3
-    assert statistics.subclasses == (
-        3 if carrier_constructor == "SubClassOf" else 1
-    )
-    assert statistics.ignored_subclasses == (
-        2 if carrier_constructor == "SubClassOf" else 0
-    )
-    assert statistics.class_assertions == (
-        2 if carrier_constructor == "ClassAssertion" else 0
-    )
+    assert statistics.subclasses == (3 if carrier_constructor == "SubClassOf" else 1)
+    assert statistics.ignored_subclasses == (2 if carrier_constructor == "SubClassOf" else 0)
+    assert statistics.class_assertions == (2 if carrier_constructor == "ClassAssertion" else 0)
     assert statistics.ignored_class_assertions == (
         2 if carrier_constructor == "ClassAssertion" else 0
     )
@@ -11018,9 +11255,7 @@ def test_scope_mapped_negative_object_assertions_preserve_limits_cancel_and_retr
         selected_backend="native",
     ).lease
     assert top_lease is not None
-    resolved = _resolve_private_scope_mapped_negative_object_property_assertion_composite(
-        top_lease
-    )
+    resolved = _resolve_private_scope_mapped_negative_object_property_assertion_composite(top_lease)
     assert resolved is not None
     left, right, left_scope_map, right_scope_map, max_work, max_workspace = resolved
     assert max_work is not None
@@ -12386,10 +12621,7 @@ def test_scope_mapped_annotation_assertions_keep_literal_projection_fail_closed(
     provider_backend: pyowl_core.BackendPreference,
     nested: bool,
 ) -> None:
-    assertion = (
-        "AnnotationAssertion("
-        "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)"
-    )
+    assertion = "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)"
     composite = (
         _scope_mapped_nested_overlay_composite(
             provider_backend,
@@ -12773,16 +13005,12 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     assert statistics.ignored_subclasses == (2 if ignored_subclass else 0)
     assert statistics.class_assertions == (
         2
-        if not object_assertion
-        and not ignored_subclass
-        and property_class_constructor is None
+        if not object_assertion and not ignored_subclass and property_class_constructor is None
         else 0
     )
     assert statistics.ignored_class_assertions == (
         2
-        if not object_assertion
-        and not ignored_subclass
-        and property_class_constructor is None
+        if not object_assertion and not ignored_subclass and property_class_constructor is None
         else 0
     )
     assert statistics.object_property_assertions == (2 if object_assertion else 0)
@@ -12936,22 +13164,23 @@ def test_hidden_iterator_remaps_nested_silent_scopes_in_one_native_pass(
         )
     report = _completed_report(projector)
 
-    assert actual == expected == [
-        Edge(
-            "urn:native-integration#B",
-            "http://subclassof",
-            "urn:native-integration#Top",
-        )
-    ]
-    _assert_semantic_report_parity(expected_report, report)
-    expected_diagnostics = (
-        ()
-        if constructor is None
-        else (("MOWL_SKIPPED_AXIOM", constructor, 2),)
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        ]
     )
-    assert tuple(
-        (item.code, item.constructor, item.count) for item in report.diagnostics
-    ) == expected_diagnostics
+    _assert_semantic_report_parity(expected_report, report)
+    expected_diagnostics = () if constructor is None else (("MOWL_SKIPPED_AXIOM", constructor, 2),)
+    assert (
+        tuple((item.code, item.constructor, item.count) for item in report.diagnostics)
+        == expected_diagnostics
+    )
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
@@ -13945,7 +14174,7 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
         sibling = direct(scoped)
     elif shape == "annotated-scoped-annotation":
         scoped = (
-            "AnnotationAssertion(Annotation(:label \"x\") "
+            'AnnotationAssertion(Annotation(:label "x") '
             "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)"
         )
         base = direct(scoped)
@@ -13975,12 +14204,9 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
             "annotated-nominal-scope-remap": (
                 'ClassAssertion(Annotation(:label "x") ObjectOneOf(_:same) :i)'
             ),
-            "broad-nominal-scope-remap": (
-                "ClassAssertion(ObjectOneOf(_:same :j) :i)"
-            ),
+            "broad-nominal-scope-remap": ("ClassAssertion(ObjectOneOf(_:same :j) :i)"),
             "annotated-has-value-scope-remap": (
-                'ClassAssertion(Annotation(:label "x") '
-                "ObjectHasValue(:p _:same) :i)"
+                'ClassAssertion(Annotation(:label "x") ObjectHasValue(:p _:same) :i)'
             ),
             "inverse-has-value-scope-remap": (
                 "ClassAssertion(ObjectHasValue(ObjectInverseOf(:p) _:same) :i)"
@@ -13988,19 +14214,15 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
             "annotated-nominal-subclass-scope-remap": (
                 'SubClassOf(Annotation(:label "x") ObjectOneOf(_:same) :Top)'
             ),
-            "broad-nominal-subclass-scope-remap": (
-                "SubClassOf(ObjectOneOf(_:same :j) :Top)"
-            ),
+            "broad-nominal-subclass-scope-remap": ("SubClassOf(ObjectOneOf(_:same :j) :Top)"),
             "annotated-nominal-object-property-domain-scope-remap": (
-                'ObjectPropertyDomain(Annotation(:label "x") '
-                ":p ObjectOneOf(_:same))"
+                'ObjectPropertyDomain(Annotation(:label "x") :p ObjectOneOf(_:same))'
             ),
             "broad-nominal-object-property-domain-scope-remap": (
                 "ObjectPropertyDomain(:p ObjectOneOf(_:same :j))"
             ),
             "annotated-nominal-object-property-range-scope-remap": (
-                'ObjectPropertyRange(Annotation(:label "x") '
-                ":p ObjectOneOf(_:same))"
+                'ObjectPropertyRange(Annotation(:label "x") :p ObjectOneOf(_:same))'
             ),
             "broad-nominal-object-property-range-scope-remap": (
                 "ObjectPropertyRange(:p ObjectOneOf(_:same :j))"
@@ -14012,12 +14234,10 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
                 "SubClassOf(ObjectHasValue(ObjectInverseOf(:p) _:same) :Top)"
             ),
             "inverse-inner-has-value-domain-scope-remap": (
-                "ObjectPropertyDomain(:outer "
-                "ObjectHasValue(ObjectInverseOf(:inner) _:same))"
+                "ObjectPropertyDomain(:outer ObjectHasValue(ObjectInverseOf(:inner) _:same))"
             ),
             "inverse-outer-has-value-range-scope-remap": (
-                "ObjectPropertyRange(ObjectInverseOf(:outer) "
-                "ObjectHasValue(:inner _:same))"
+                "ObjectPropertyRange(ObjectInverseOf(:outer) ObjectHasValue(:inner _:same))"
             ),
         }[shape]
         base = direct(scoped)
@@ -14212,7 +14432,7 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
         composite = pyowl_core.compose_views(left, right)
     elif shape == "annotated-annotation-assertion":
         assertion = (
-            "AnnotationAssertion(Annotation(:label \"x\") "
+            'AnnotationAssertion(Annotation(:label "x") '
             "<http://www.w3.org/2000/01/rdf-schema#label> :B _:same)"
         )
         left = cast(
@@ -14226,8 +14446,7 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
         composite = pyowl_core.compose_views(left, right)
     elif shape == "double-anonymous-annotation":
         assertion = (
-            "AnnotationAssertion("
-            "<http://www.w3.org/2000/01/rdf-schema#label> _:same _:same)"
+            "AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> _:same _:same)"
         )
         left = cast(
             pyowl_core.OntologyView,
@@ -14274,12 +14493,9 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
             "annotated-nominal-class-assertion": (
                 'ClassAssertion(Annotation(:label "x") ObjectOneOf(_:same) :i)'
             ),
-            "broad-nominal-class-assertion": (
-                "ClassAssertion(ObjectOneOf(_:same :j) :i)"
-            ),
+            "broad-nominal-class-assertion": ("ClassAssertion(ObjectOneOf(_:same :j) :i)"),
             "annotated-has-value-class-assertion": (
-                'ClassAssertion(Annotation(:label "x") '
-                "ObjectHasValue(:p _:same) :i)"
+                'ClassAssertion(Annotation(:label "x") ObjectHasValue(:p _:same) :i)'
             ),
             "inverse-has-value-class-assertion": (
                 "ClassAssertion(ObjectHasValue(ObjectInverseOf(:p) _:same) :i)"
@@ -14287,19 +14503,15 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
             "annotated-nominal-subclass": (
                 'SubClassOf(Annotation(:label "x") ObjectOneOf(_:same) :Top)'
             ),
-            "broad-nominal-subclass": (
-                "SubClassOf(ObjectOneOf(_:same :j) :Top)"
-            ),
+            "broad-nominal-subclass": ("SubClassOf(ObjectOneOf(_:same :j) :Top)"),
             "annotated-nominal-object-property-domain": (
-                'ObjectPropertyDomain(Annotation(:label "x") '
-                ":p ObjectOneOf(_:same))"
+                'ObjectPropertyDomain(Annotation(:label "x") :p ObjectOneOf(_:same))'
             ),
             "broad-nominal-object-property-domain": (
                 "ObjectPropertyDomain(:p ObjectOneOf(_:same :j))"
             ),
             "annotated-nominal-object-property-range": (
-                'ObjectPropertyRange(Annotation(:label "x") '
-                ":p ObjectOneOf(_:same))"
+                'ObjectPropertyRange(Annotation(:label "x") :p ObjectOneOf(_:same))'
             ),
             "broad-nominal-object-property-range": (
                 "ObjectPropertyRange(:p ObjectOneOf(_:same :j))"
@@ -14311,12 +14523,10 @@ def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
                 "SubClassOf(ObjectHasValue(ObjectInverseOf(:p) _:same) :Top)"
             ),
             "inverse-inner-has-value-domain": (
-                "ObjectPropertyDomain(:outer "
-                "ObjectHasValue(ObjectInverseOf(:inner) _:same))"
+                "ObjectPropertyDomain(:outer ObjectHasValue(ObjectInverseOf(:inner) _:same))"
             ),
             "inverse-outer-has-value-range": (
-                "ObjectPropertyRange(ObjectInverseOf(:outer) "
-                "ObjectHasValue(:inner _:same))"
+                "ObjectPropertyRange(ObjectInverseOf(:outer) ObjectHasValue(:inner _:same))"
             ),
         }[shape]
         left = cast(

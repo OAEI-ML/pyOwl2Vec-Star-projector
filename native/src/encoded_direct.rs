@@ -382,6 +382,7 @@ enum ScopeMappedCompositeKind {
     SameIndividual,
     DifferentIndividuals,
     SilentAnnotation,
+    SilentSwrl,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1797,6 +1798,7 @@ enum OwnedOverlayDeltaProjection {
     IgnoredAnnotationAssertion {
         anonymous_individuals: usize,
     },
+    SilentSwrl,
 }
 
 impl OwnedOverlayDeltaProjection {
@@ -1813,7 +1815,8 @@ impl OwnedOverlayDeltaProjection {
             | Self::IgnoredNegativeObjectPropertyAssertion { .. }
             | Self::IgnoredDataPropertyAssertion { .. }
             | Self::IgnoredIndividualSet { .. }
-            | Self::IgnoredAnnotationAssertion { .. } => EmissionPhase::ObjectAssertions,
+            | Self::IgnoredAnnotationAssertion { .. }
+            | Self::SilentSwrl => EmissionPhase::ObjectAssertions,
         }
     }
 
@@ -2032,6 +2035,12 @@ impl OwnedOverlayDeltaProjection {
                     .ok_or_else(|| {
                         KernelError::resource("encoded anonymous-individual count overflow")
                     })?;
+            }
+            Self::SilentSwrl => {
+                statistics.swrl_rules = statistics
+                    .swrl_rules
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded SWRL-rule count overflow"))?;
             }
         }
         Ok(())
@@ -2693,13 +2702,35 @@ impl<'a> DirectColumns<'a> {
         let mut construct_kind = None;
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
-            if self.root_kind(root_index)? != ROOT_AXIOM {
+            let root_kind = self.root_kind(root_index)?;
+            let root = self.root_id(root_index)?;
+            let root_tag = self.node_tag(root)?;
+            if root_kind == ROOT_EXTENSION {
+                if root_tag != TAG_SWRL_RULE {
+                    return Err(KernelError::malformed(
+                        "encoded extension root is not a SWRLRule",
+                    ));
+                }
+                if construct_kind.is_some() {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                    ));
+                }
+                self.validate_swrl_rule(root)?;
+                if !self.root_contains_anonymous_individual(root, state)? {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope SWRLRule must carry the member anonymous individual",
+                    ));
+                }
+                construct_kind = Some(ScopeMappedCompositeKind::SilentSwrl);
+                continue;
+            }
+            if root_kind != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
-                    "bounded anonymous-scope composite requires only axiom roots",
+                    "bounded anonymous-scope composite requires axiom roots or one SWRL extension",
                 ));
             }
-            let root = self.root_id(root_index)?;
-            match self.node_tag(root)? {
+            match root_tag {
                 TAG_SUB_CLASS_OF => match self.subclass_projection(root, maximum_iri)? {
                     SubclassProjection::Taxonomy { .. } => {}
                     SubclassProjection::Ignored
@@ -8361,7 +8392,8 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
-                            } => false,
+                            }
+                            | OwnedOverlayDeltaProjection::SilentSwrl => false,
                         };
                         if handled {
                             continue;
@@ -8675,7 +8707,8 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
-                            } => {
+                            }
+                            | OwnedOverlayDeltaProjection::SilentSwrl => {
                                 self.overlay_delta_index =
                                     self.overlay_delta_index.checked_add(1).ok_or_else(|| {
                                         KernelError::resource(
@@ -9286,6 +9319,19 @@ fn own_composite_tail_projection(
     let tag = columns.node_tag(root)?;
     if matches!(
         scope_mapped_construct,
+        Some((ScopeMappedCompositeKind::SilentSwrl, _))
+    ) && tag == TAG_SWRL_RULE
+    {
+        columns.validate_swrl_rule(root)?;
+        if !columns.root_contains_anonymous_individual(root, state)? {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope SWRLRule must carry the member anonymous individual",
+            ));
+        }
+        return Ok(OwnedOverlayDeltaProjection::SilentSwrl);
+    }
+    if matches!(
+        scope_mapped_construct,
         Some((ScopeMappedCompositeKind::IgnoredSubclass, _))
     ) && tag == TAG_SUB_CLASS_OF
     {
@@ -9825,9 +9871,16 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                 continue;
             }
             let root = tail_columns.root_id(root_index)?;
-            if tail_columns.root_kind(root_index)? != ROOT_AXIOM {
+            let root_kind = tail_columns.root_kind(root_index)?;
+            let root_tag = tail_columns.node_tag(root)?;
+            let silent_swrl = matches!(
+                scope_mapped_construct,
+                Some(ScopeMappedCompositeKind::SilentSwrl)
+            ) && root_kind == ROOT_EXTENSION
+                && root_tag == TAG_SWRL_RULE;
+            if root_kind != ROOT_AXIOM && !silent_swrl {
                 return Err(KernelError::unsupported(
-                    "bounded composite tail requires projecting axiom roots",
+                    "bounded composite tail requires axiom roots or its mapped SWRL extension",
                 ));
             }
             let projection = own_composite_tail_projection(
@@ -9997,7 +10050,8 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
-            | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. } => (0, 0),
+            | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. }
+            | OwnedOverlayDeltaProjection::SilentSwrl => (0, 0),
         };
         projection_edges = projection_edges
             .checked_add(edges)
@@ -11065,7 +11119,8 @@ fn prepare_two_table_batches_uncommitted(
             | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
-            | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. } => (0, 0),
+            | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. }
+            | OwnedOverlayDeltaProjection::SilentSwrl => (0, 0),
         };
         projection_edges = projection_edges
             .checked_add(edges)
@@ -12442,6 +12497,43 @@ mod tests {
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         fixture.root_ids.extend_from_slice(&11_u32.to_le_bytes());
         fixture.root_ids.extend_from_slice(&12_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_swrl_fixture(include_taxonomy: bool) -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:RuleClass".as_slice(), b"urn:B", b"urn:Top"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        for iri_id in 1_u64..=3 {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 4..=6
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 7
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(7);
+        fixture.finish_node(TAG_CLASS_ATOM); // 8
+        fixture.push_node_set(&[8]);
+        fixture.push_empty_set();
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SWRL_RULE); // 9
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 10
+        if include_taxonomy {
+            fixture
+                .root_kinds
+                .extend_from_slice(&[ROOT_AXIOM, ROOT_EXTENSION]);
+            fixture.root_ids.extend_from_slice(&10_u32.to_le_bytes());
+        } else {
+            fixture.root_kinds.push(ROOT_EXTENSION);
+        }
+        fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
         fixture
     }
 
@@ -22305,6 +22397,124 @@ mod tests {
                     if message.contains("does not support literal projection")
             ));
         }
+    }
+
+    #[test]
+    fn two_member_composite_remaps_silent_swrl_scopes() {
+        let left = scope_mapped_swrl_fixture(true);
+        let right = scope_mapped_swrl_fixture(true);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(8);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(9);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_two_member_composite_batches_uncommitted(
+            left_columns,
+            right_columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.swrl_rules, 2);
+        assert_eq!(statistics.anonymous_individuals, 0);
+        assert_eq!(statistics.skipped_axioms, 0);
+        assert_eq!(statistics.edges, 1);
+        assert!(prepared
+            .preparation
+            .overlay_deltas
+            .iter()
+            .any(|delta| matches!(delta.projection, OwnedOverlayDeltaProjection::SilentSwrl)));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_silent_swrl_scopes() {
+        let left = scope_mapped_swrl_fixture(false);
+        let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let right = scope_mapped_swrl_fixture(false);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_three_member_composite_batches_uncommitted(
+            [left_columns, neutral.columns(), right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.swrl_rules, 2);
+        assert_eq!(statistics.anonymous_individuals, 0);
+        assert_eq!(statistics.skipped_axioms, 0);
+        assert_eq!(statistics.edges, 1);
+        assert!(prepared
+            .preparation
+            .overlay_deltas
+            .iter()
+            .any(|delta| matches!(delta.projection, OwnedOverlayDeltaProjection::SilentSwrl)));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
     }
 
     #[test]

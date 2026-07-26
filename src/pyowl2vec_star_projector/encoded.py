@@ -77,6 +77,23 @@ _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION = 114
 _TAG_DATA_PROPERTY_ASSERTION = 115
 _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION = 116
 _TAG_ANNOTATION_ASSERTION = 120
+_TAG_SWRL_RULE = 148
+_ROOT_AXIOM = 2
+_ROOT_EXTENSION = 3
+_SCOPE_MAPPED_CONSTRUCT_TAGS = (
+    _TAG_SUB_CLASS_OF,
+    _TAG_OBJECT_PROPERTY_DOMAIN,
+    _TAG_OBJECT_PROPERTY_RANGE,
+    _TAG_CLASS_ASSERTION,
+    _TAG_OBJECT_PROPERTY_ASSERTION,
+    _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
+    _TAG_DATA_PROPERTY_ASSERTION,
+    _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+    _TAG_SAME_INDIVIDUAL,
+    _TAG_DIFFERENT_INDIVIDUALS,
+    _TAG_ANNOTATION_ASSERTION,
+    _TAG_SWRL_RULE,
+)
 _DEFAULT_MAX_SEGMENTS = 1_025
 
 
@@ -653,10 +670,7 @@ def _is_exact_singleton_anonymous_nominal(
 ) -> bool:
     """Return whether one expression is exactly ``ObjectOneOf(_:scope)``."""
 
-    if (
-        _read_uint(buffers["node_tags"], expression_id - 1, 2)
-        != _TAG_OBJECT_ONE_OF
-    ):
+    if _read_uint(buffers["node_tags"], expression_id - 1, 2) != _TAG_OBJECT_ONE_OF:
         return False
     start = _read_uint(buffers["node_field_offsets"], expression_id - 1, 8)
     end = _read_uint(buffers["node_field_offsets"], expression_id, 8)
@@ -670,8 +684,7 @@ def _is_exact_singleton_anonymous_nominal(
     return (
         _read_uint(buffers["item_kinds"], item_start, 1) == _COMPONENT_NODE
         and _read_uint(buffers["item_lengths"], item_start, 8) == 0
-        and _read_uint(buffers["item_values"], item_start, 8)
-        == anonymous_node_id
+        and _read_uint(buffers["item_values"], item_start, 8) == anonymous_node_id
     )
 
 
@@ -682,16 +695,12 @@ def _is_exact_anonymous_has_value(
 ) -> bool:
     """Return whether one expression is exactly ``ObjectHasValue(:p _:scope)``."""
 
-    if (
-        _read_uint(buffers["node_tags"], expression_id - 1, 2)
-        != _TAG_OBJECT_HAS_VALUE
-    ):
+    if _read_uint(buffers["node_tags"], expression_id - 1, 2) != _TAG_OBJECT_HAS_VALUE:
         return False
     start = _read_uint(buffers["node_field_offsets"], expression_id - 1, 8)
     end = _read_uint(buffers["node_field_offsets"], expression_id, 8)
     if end - start != 2 or any(
-        _read_uint(buffers["field_kinds"], start + offset, 1)
-        != _COMPONENT_NODE
+        _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
         for offset in (0, 1)
     ):
         return False
@@ -721,26 +730,84 @@ def _is_exact_anonymous_individual_class_expression(
     )
 
 
+def _encoded_root_reaches_node(
+    buffers: Mapping[str, memoryview],
+    root_id: int,
+    target_id: int,
+) -> bool:
+    """Traverse one validated structural row graph without materializing values."""
+
+    node_count = _row_count(buffers, "node_tags")
+    if not 0 < root_id <= node_count or not 0 < target_id <= node_count:
+        return False
+    visited = bytearray(node_count + 1)
+    stack = [root_id]
+    while stack:
+        node_id = stack.pop()
+        if node_id == target_id:
+            return True
+        if visited[node_id]:
+            continue
+        visited[node_id] = 1
+        start = _read_uint(buffers["node_field_offsets"], node_id - 1, 8)
+        end = _read_uint(buffers["node_field_offsets"], node_id, 8)
+        for field_index in range(start, end):
+            kind = _read_uint(buffers["field_kinds"], field_index, 1)
+            if kind == _COMPONENT_NODE:
+                stack.append(_read_uint(buffers["field_values"], field_index, 8))
+                continue
+            if kind not in {_COMPONENT_SET, _COMPONENT_SEQUENCE}:
+                continue
+            item_start = _read_uint(buffers["field_values"], field_index, 8)
+            item_length = _read_uint(buffers["field_lengths"], field_index, 8)
+            for item_index in range(item_start, item_start + item_length):
+                if _read_uint(buffers["item_kinds"], item_index, 1) == _COMPONENT_NODE:
+                    stack.append(_read_uint(buffers["item_values"], item_index, 8))
+    return False
+
+
+def _is_named_subclass_root(
+    buffers: Mapping[str, memoryview],
+    root_id: int,
+) -> bool:
+    """Return whether one root is a named-taxonomy rule."""
+
+    start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
+    end = _read_uint(buffers["node_field_offsets"], root_id, 8)
+    if end - start != 3 or any(
+        _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
+        for offset in (0, 1)
+    ):
+        return False
+    source_id = _read_uint(buffers["field_values"], start, 8)
+    destination_id = _read_uint(buffers["field_values"], start + 1, 8)
+    return (
+        _read_uint(buffers["node_tags"], source_id - 1, 2) == _TAG_ENTITY
+        and _read_uint(buffers["node_tags"], destination_id - 1, 2) == _TAG_ENTITY
+        and _read_uint(buffers["field_kinds"], start + 2, 1) == _COMPONENT_SET
+    )
+
+
+def _is_exact_named_subclass_root(
+    buffers: Mapping[str, memoryview],
+    root_id: int,
+) -> bool:
+    """Return whether one root is the annotation-free named-taxonomy rule."""
+
+    if not _is_named_subclass_root(buffers, root_id):
+        return False
+    start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
+    return _read_uint(buffers["field_lengths"], start + 2, 8) == 0
+
+
 def _single_scope_mapped_construct_scope(
     lease: EncodedStructuralLease,
     *,
-    construct_tag: int,
-) -> tuple[memoryview, int] | None:
-    """Return the sole source scope for one narrow remappable direct table."""
+    construct_tag: int | None,
+) -> tuple[int, memoryview, int] | None:
+    """Classify and return the sole source scope in one rule-table scan."""
 
-    if construct_tag not in {
-        _TAG_SUB_CLASS_OF,
-        _TAG_OBJECT_PROPERTY_DOMAIN,
-        _TAG_OBJECT_PROPERTY_RANGE,
-        _TAG_CLASS_ASSERTION,
-        _TAG_SAME_INDIVIDUAL,
-        _TAG_DIFFERENT_INDIVIDUALS,
-        _TAG_OBJECT_PROPERTY_ASSERTION,
-        _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
-        _TAG_DATA_PROPERTY_ASSERTION,
-        _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
-        _TAG_ANNOTATION_ASSERTION,
-    }:
+    if construct_tag is not None and construct_tag not in _SCOPE_MAPPED_CONSTRUCT_TAGS:
         return None
     buffers = lease.buffers
     anonymous_node_id: int | None = None
@@ -767,20 +834,41 @@ def _single_scope_mapped_construct_scope(
         return None
     scope_offset = _read_uint(buffers["field_values"], anonymous_start, 8)
 
-    construct_roots = 0
+    resolved_construct_tag: int | None = None
     for root_index in range(_row_count(buffers, "root_kinds")):
-        if _read_uint(buffers["root_kinds"], root_index, 1) != 2:
-            return None
+        root_kind = _read_uint(buffers["root_kinds"], root_index, 1)
         root_id = _read_uint(buffers["root_ids"], root_index, 4)
         root_tag = _read_uint(buffers["node_tags"], root_id - 1, 2)
+        if root_kind == _ROOT_EXTENSION:
+            if (
+                root_tag != _TAG_SWRL_RULE
+                or (construct_tag is not None and construct_tag != _TAG_SWRL_RULE)
+                or resolved_construct_tag is not None
+                or not _encoded_root_reaches_node(
+                    buffers,
+                    root_id,
+                    anonymous_node_id,
+                )
+            ):
+                return None
+            resolved_construct_tag = root_tag
+            continue
+        if root_kind != _ROOT_AXIOM:
+            return None
+        if root_tag == _TAG_SUB_CLASS_OF and _is_named_subclass_root(buffers, root_id):
+            continue
+        if (
+            root_tag not in _SCOPE_MAPPED_CONSTRUCT_TAGS
+            or root_tag == _TAG_SWRL_RULE
+            or (construct_tag is not None and root_tag != construct_tag)
+            or resolved_construct_tag is not None
+        ):
+            return None
         if root_tag == _TAG_SUB_CLASS_OF:
-            if construct_tag != _TAG_SUB_CLASS_OF:
-                continue
             start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
             end = _read_uint(buffers["node_field_offsets"], root_id, 8)
             if end - start != 3 or any(
-                _read_uint(buffers["field_kinds"], start + offset, 1)
-                != _COMPONENT_NODE
+                _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
                 for offset in (0, 1)
             ):
                 return None
@@ -797,10 +885,9 @@ def _single_scope_mapped_construct_scope(
                 2,
             )
             if subclass_tag == superclass_tag == _TAG_ENTITY:
-                continue
+                return None
             if (
-                _read_uint(buffers["field_kinds"], start + 2, 1)
-                != _COMPONENT_SET
+                _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
                 or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
                 or not (
                     (
@@ -822,14 +909,11 @@ def _single_scope_mapped_construct_scope(
                 )
             ):
                 return None
-            construct_roots += 1
+            resolved_construct_tag = root_tag
             continue
-        if root_tag != construct_tag:
-            return None
-        construct_roots += 1
         start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
         end = _read_uint(buffers["node_field_offsets"], root_id, 8)
-        if construct_tag in {_TAG_SAME_INDIVIDUAL, _TAG_DIFFERENT_INDIVIDUALS}:
+        if root_tag in {_TAG_SAME_INDIVIDUAL, _TAG_DIFFERENT_INDIVIDUALS}:
             if (
                 end - start != 2
                 or _read_uint(buffers["field_kinds"], start, 1) != _COMPONENT_SET
@@ -844,39 +928,32 @@ def _single_scope_mapped_construct_scope(
                 if _read_uint(buffers["item_kinds"], item_index, 1) != _COMPONENT_NODE:
                     return None
                 member_id = _read_uint(buffers["item_values"], item_index, 8)
-                member_tags.append(
-                    _read_uint(buffers["node_tags"], member_id - 1, 2)
-                )
-            if sorted(member_tags) != sorted(
-                [_TAG_ENTITY, _TAG_ANONYMOUS_INDIVIDUAL]
-            ):
+                member_tags.append(_read_uint(buffers["node_tags"], member_id - 1, 2))
+            if sorted(member_tags) != sorted([_TAG_ENTITY, _TAG_ANONYMOUS_INDIVIDUAL]):
                 return None
-        elif construct_tag in {
+        elif root_tag in {
             _TAG_OBJECT_PROPERTY_DOMAIN,
             _TAG_OBJECT_PROPERTY_RANGE,
         }:
             if end - start != 3 or any(
-                _read_uint(buffers["field_kinds"], start + offset, 1)
-                != _COMPONENT_NODE
+                _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
                 for offset in (0, 1)
             ):
                 return None
             property_id = _read_uint(buffers["field_values"], start, 8)
             class_id = _read_uint(buffers["field_values"], start + 1, 8)
             if (
-                _read_uint(buffers["node_tags"], property_id - 1, 2)
-                != _TAG_ENTITY
+                _read_uint(buffers["node_tags"], property_id - 1, 2) != _TAG_ENTITY
                 or not _is_exact_anonymous_individual_class_expression(
                     buffers,
                     class_id,
                     anonymous_node_id,
                 )
-                or _read_uint(buffers["field_kinds"], start + 2, 1)
-                != _COMPONENT_SET
+                or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
                 or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
             ):
                 return None
-        elif construct_tag == _TAG_CLASS_ASSERTION:
+        elif root_tag == _TAG_CLASS_ASSERTION:
             if end - start != 3 or any(
                 _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
                 for offset in (0, 1)
@@ -906,15 +983,12 @@ def _single_scope_mapped_construct_scope(
                     )
                 )
             if (
-                not (
-                    named_class_over_anonymous
-                    or anonymous_class_expression_over_named
-                )
+                not (named_class_over_anonymous or anonymous_class_expression_over_named)
                 or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
                 or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
             ):
                 return None
-        elif construct_tag in {
+        elif root_tag in {
             _TAG_OBJECT_PROPERTY_ASSERTION,
             _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
         }:
@@ -935,7 +1009,7 @@ def _single_scope_mapped_construct_scope(
                 or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
             ):
                 return None
-        elif construct_tag in {
+        elif root_tag in {
             _TAG_DATA_PROPERTY_ASSERTION,
             _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
         }:
@@ -955,7 +1029,7 @@ def _single_scope_mapped_construct_scope(
                 or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
             ):
                 return None
-        else:
+        elif root_tag == _TAG_ANNOTATION_ASSERTION:
             if end - start != 4 or any(
                 _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
                 for offset in (0, 1, 2)
@@ -969,21 +1043,18 @@ def _single_scope_mapped_construct_scope(
             if (
                 _read_uint(buffers["node_tags"], property_id - 1, 2) != _TAG_ENTITY
                 or (subject_id == anonymous_node_id) == (value_id == anonymous_node_id)
-                or (
-                    subject_id != anonymous_node_id
-                    and subject_tag != _TAG_IRI
-                )
-                or (
-                    value_id != anonymous_node_id
-                    and value_tag not in {_TAG_IRI, _TAG_LITERAL}
-                )
+                or (subject_id != anonymous_node_id and subject_tag != _TAG_IRI)
+                or (value_id != anonymous_node_id and value_tag not in {_TAG_IRI, _TAG_LITERAL})
                 or _read_uint(buffers["field_kinds"], start + 3, 1) != _COMPONENT_SET
                 or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
             ):
                 return None
-    if construct_roots != 1:
+        else:  # pragma: no cover - the rule-table membership check is exhaustive.
+            return None
+        resolved_construct_tag = root_tag
+    if resolved_construct_tag is None:
         return None
-    return buffers["scalar_bytes"], scope_offset
+    return resolved_construct_tag, buffers["scalar_bytes"], scope_offset
 
 
 def _scope_maps_bind_constructs(
@@ -992,9 +1063,9 @@ def _scope_maps_bind_constructs(
     left_scope_map: memoryview,
     right_scope_map: memoryview,
     *,
-    construct_tag: int,
+    construct_tag: int | None,
 ) -> bool:
-    """Check two exact bytes32 remaps against their sole anonymous constructs."""
+    """Check two exact bytes32 remaps against one rule-table construct family."""
 
     if left_scope_map.nbytes != 64 or right_scope_map.nbytes != 64:
         return False
@@ -1008,13 +1079,13 @@ def _scope_maps_bind_constructs(
     )
     if left_scope is None or right_scope is None:
         return False
-    left_scalars, left_offset = left_scope
-    right_scalars, right_offset = right_scope
+    left_tag, left_scalars, left_offset = left_scope
+    right_tag, right_scalars, right_offset = right_scope
+    if left_tag != right_tag:
+        return False
     return not (
         any(left_scope_map[index] != left_scalars[left_offset + index] for index in range(32))
-        or any(
-            right_scope_map[index] != right_scalars[right_offset + index] for index in range(32)
-        )
+        or any(right_scope_map[index] != right_scalars[right_offset + index] for index in range(32))
         or any(left_scope_map[index] != right_scope_map[index] for index in range(32))
         or all(left_scope_map[index] == left_scope_map[32 + index] for index in range(32))
         or all(right_scope_map[index] == right_scope_map[32 + index] for index in range(32))
@@ -1034,26 +1105,12 @@ def _named_subclass_only_table(lease: EncodedStructuralLease) -> bool:
     ):
         return False
     for root_index in range(_row_count(buffers, "root_kinds")):
-        if _read_uint(buffers["root_kinds"], root_index, 1) != 2:
+        if _read_uint(buffers["root_kinds"], root_index, 1) != _ROOT_AXIOM:
             return False
         root_id = _read_uint(buffers["root_ids"], root_index, 4)
-        if _read_uint(buffers["node_tags"], root_id - 1, 2) != _TAG_SUB_CLASS_OF:
-            return False
-        start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
-        end = _read_uint(buffers["node_field_offsets"], root_id, 8)
-        if end - start != 3 or any(
-            _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
-            for offset in (0, 1)
-        ):
-            return False
-        source_id = _read_uint(buffers["field_values"], start, 8)
-        destination_id = _read_uint(buffers["field_values"], start + 1, 8)
-        if (
-            _read_uint(buffers["node_tags"], source_id - 1, 2) != _TAG_ENTITY
-            or _read_uint(buffers["node_tags"], destination_id - 1, 2) != _TAG_ENTITY
-            or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
-            or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
-        ):
+        if _read_uint(
+            buffers["node_tags"], root_id - 1, 2
+        ) != _TAG_SUB_CLASS_OF or not _is_exact_named_subclass_root(buffers, root_id):
             return False
     return True
 
@@ -1061,7 +1118,7 @@ def _named_subclass_only_table(lease: EncodedStructuralLease) -> bool:
 def _resolve_private_scope_mapped_composite(
     lease: EncodedStructuralLease,
     *,
-    construct_tag: int,
+    construct_tag: int | None,
 ) -> (
     tuple[
         EncodedStructuralLease,
@@ -1073,7 +1130,7 @@ def _resolve_private_scope_mapped_composite(
     ]
     | None
 ):
-    """Resolve two ALL members whose sole anonymous assertion scopes diverge."""
+    """Resolve two ALL members whose sole anonymous construct scopes diverge."""
 
     rows = _resolve_private_direct_composite_rows(
         lease,
@@ -1114,6 +1171,27 @@ def _resolve_private_scope_mapped_composite(
         right_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _resolve_private_scope_mapped_rule_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one supported scope-remap family through a single rule-table pass."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=None,
     )
 
 
@@ -1431,27 +1509,12 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         or base.encoded_view is direct_member.encoded_view
         or base.owner is direct_member.owner
         or not _named_subclass_only_table(nested_overlay)
-        or not any(
-            _scope_maps_bind_constructs(
-                base,
-                direct_member,
-                nested_scope_map,
-                direct_scope_map,
-                construct_tag=construct_tag,
-            )
-            for construct_tag in (
-                _TAG_SUB_CLASS_OF,
-                _TAG_OBJECT_PROPERTY_DOMAIN,
-                _TAG_OBJECT_PROPERTY_RANGE,
-                _TAG_CLASS_ASSERTION,
-                _TAG_OBJECT_PROPERTY_ASSERTION,
-                _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
-                _TAG_DATA_PROPERTY_ASSERTION,
-                _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
-                _TAG_SAME_INDIVIDUAL,
-                _TAG_DIFFERENT_INDIVIDUALS,
-                _TAG_ANNOTATION_ASSERTION,
-            )
+        or not _scope_maps_bind_constructs(
+            base,
+            direct_member,
+            nested_scope_map,
+            direct_scope_map,
+            construct_tag=None,
         )
     ):
         return None
