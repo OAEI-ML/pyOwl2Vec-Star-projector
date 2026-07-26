@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 import _build_backend
-from tools import audit_release, generate_supply_chain, release_gate
+from tools import audit_release, generate_supply_chain, release_gate, release_support
 from tools.audit_release import _audit_metadata, _audit_native_payloads, audit_artifact
 from tools.generate_supply_chain import build_provenance, generate
 from tools.hash_artifacts import create_manifest, verify_manifest
@@ -366,6 +366,43 @@ def test_release_audit_rejects_duplicate_normalized_archive_members(tmp_path: Pa
     assert report["kind"] == "invalid-wheel"
     assert report["errors"] == [
         "archive could not be read safely: duplicate archive member: 'example/module.py'"
+    ]
+
+
+def test_release_audit_rejects_sdist_links(tmp_path: Path) -> None:
+    artifact = tmp_path / "example-0.1.tar.gz"
+    with tarfile.open(artifact, "w:gz") as archive:
+        link = tarfile.TarInfo("example-0.1/linked.py")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../outside.py"
+        archive.addfile(link)
+    report = audit_artifact(artifact, expected_version="0.1")
+    assert report["errors"] == [
+        "archive could not be read safely: unsupported sdist member type: 'example-0.1/linked.py'"
+    ]
+
+
+def test_release_audit_rejects_noncanonical_wheel_paths(tmp_path: Path) -> None:
+    artifact = tmp_path / "example-0.1-py3-none-any.whl"
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr("example\\module.py", "unsafe")
+    report = audit_artifact(artifact, expected_version="0.1")
+    assert report["errors"] == [
+        "archive could not be read safely: unsafe archive member: 'example\\\\module.py'"
+    ]
+
+
+def test_release_audit_enforces_expanded_member_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "example-0.1-py3-none-any.whl"
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr("example/module.py", "12345")
+    monkeypatch.setattr(release_support, "MAX_ARCHIVE_MEMBER_BYTES", 4)
+    report = audit_artifact(artifact, expected_version="0.1")
+    assert report["errors"] == [
+        "archive could not be read safely: archive member 'example/module.py' exceeds 4 byte limit"
     ]
 
 

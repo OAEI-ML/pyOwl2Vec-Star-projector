@@ -15,6 +15,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any, TypeVar
 
 ARCHIVE_SUFFIXES = (".whl", ".tar.gz")
+MAX_RELEASE_ARTIFACT_BYTES = 512 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 10_000
+MAX_ARCHIVE_MEMBER_BYTES = 128 * 1024 * 1024
+MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
 FORBIDDEN_BINARY_SUFFIXES = (".class", ".ear", ".jar", ".war")
 FORBIDDEN_PATH_PARTS = (
     "/native/target/",
@@ -110,31 +114,54 @@ def archive_members(path: Path, *, payload: bytes | None = None) -> Iterator[tup
     """Yield safe normalized archive member names and bytes."""
     if payload is None:
         payload = read_stable_regular_file(path, label=f"release artifact {path.name}")
+    if len(payload) > MAX_RELEASE_ARTIFACT_BYTES:
+        raise ValueError(f"release artifact exceeds {MAX_RELEASE_ARTIFACT_BYTES} byte limit")
     seen: set[str] = set()
+    seen_casefolded: set[str] = set()
+    expanded = 0
     if path.suffix == ".whl":
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            for info in sorted(archive.infolist(), key=lambda item: item.filename):
+            entries = archive.infolist()
+            if len(entries) > MAX_ARCHIVE_MEMBERS:
+                raise ValueError(f"archive exceeds {MAX_ARCHIVE_MEMBERS} member limit")
+            for info in sorted(entries, key=lambda item: item.filename):
+                name = _safe_member(info.filename, directory=info.is_dir())
+                _record_member(name, seen, seen_casefolded)
                 if info.is_dir():
                     continue
-                name = _safe_member(info.filename)
-                if name in seen:
-                    raise ValueError(f"duplicate archive member: {name!r}")
-                seen.add(name)
-                yield name, archive.read(info)
+                mode = info.external_attr >> 16
+                if stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG)):
+                    raise ValueError(f"unsupported wheel member type: {info.filename!r}")
+                if info.flag_bits & 0x1:
+                    raise ValueError(f"encrypted wheel member is unsupported: {info.filename!r}")
+                expanded = _expanded_size(expanded, info.file_size, name)
+                content = archive.read(info)
+                if len(content) != info.file_size:
+                    raise ValueError(f"archive member size changed while reading: {name!r}")
+                yield name, content
         return
     if path.name.endswith(".tar.gz"):
         with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-            for info in sorted(archive.getmembers(), key=lambda item: item.name):
-                if not info.isfile():
+            entries: list[tarfile.TarInfo] = []
+            for info in archive:
+                entries.append(info)
+                if len(entries) > MAX_ARCHIVE_MEMBERS:
+                    raise ValueError(f"archive exceeds {MAX_ARCHIVE_MEMBERS} member limit")
+            for info in sorted(entries, key=lambda item: item.name):
+                name = _safe_member(info.name, directory=info.isdir())
+                _record_member(name, seen, seen_casefolded)
+                if info.isdir():
                     continue
-                name = _safe_member(info.name)
-                if name in seen:
-                    raise ValueError(f"duplicate archive member: {name!r}")
-                seen.add(name)
+                if not info.isfile():
+                    raise ValueError(f"unsupported sdist member type: {info.name!r}")
+                expanded = _expanded_size(expanded, info.size, name)
                 stream = archive.extractfile(info)
                 if stream is None:  # pragma: no cover - guarded by isfile
                     raise ValueError(f"cannot read archive member {info.name!r}")
-                yield name, stream.read()
+                content = stream.read()
+                if len(content) != info.size:
+                    raise ValueError(f"archive member size changed while reading: {name!r}")
+                yield name, content
         return
     raise ValueError(f"unsupported release artifact: {path}")
 
@@ -173,9 +200,39 @@ def write_if_changed(path: Path, content: bytes) -> bool:
     return True
 
 
-def _safe_member(name: str) -> str:
-    normalized = name.replace("\\", "/")
-    path = PurePosixPath(normalized)
-    if path.is_absolute() or ".." in path.parts:
+def _expanded_size(current: int, size: int, name: str) -> int:
+    if size < 0 or size > MAX_ARCHIVE_MEMBER_BYTES:
+        raise ValueError(f"archive member {name!r} exceeds {MAX_ARCHIVE_MEMBER_BYTES} byte limit")
+    expanded = current + size
+    if expanded > MAX_ARCHIVE_EXPANDED_BYTES:
+        raise ValueError(
+            f"archive expanded content exceeds {MAX_ARCHIVE_EXPANDED_BYTES} byte limit"
+        )
+    return expanded
+
+
+def _record_member(name: str, seen: set[str], seen_casefolded: set[str]) -> None:
+    if name in seen:
+        raise ValueError(f"duplicate archive member: {name!r}")
+    folded = name.casefold()
+    if folded in seen_casefolded:
+        raise ValueError(f"case-insensitive duplicate archive member: {name!r}")
+    seen.add(name)
+    seen_casefolded.add(folded)
+
+
+def _safe_member(name: str, *, directory: bool = False) -> str:
+    if "\\" in name or "\x00" in name or any(ord(character) < 32 for character in name):
         raise ValueError(f"unsafe archive member: {name!r}")
-    return str(path)
+    normalized = name[:-1] if directory and name.endswith("/") else name
+    parts = normalized.split("/")
+    path = PurePosixPath(normalized)
+    if (
+        not normalized
+        or len(normalized.encode("utf-8")) > 1024
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in parts)
+        or parts[0].endswith(":")
+    ):
+        raise ValueError(f"unsafe archive member: {name!r}")
+    return normalized
