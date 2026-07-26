@@ -335,24 +335,44 @@ enum IndividualValue<'a> {
 #[derive(Debug, Default, Eq, PartialEq)]
 struct AnonymousIds {
     node_ids: Vec<usize>,
+    single_position: Option<usize>,
 }
 
 impl AnonymousIds {
     fn render(&self, node_id: usize) -> Result<String, KernelError> {
-        let position = self.node_ids.binary_search(&node_id).map_err(|_| {
+        let local_position = self.node_ids.binary_search(&node_id).map_err(|_| {
             KernelError::malformed("encoded anonymous individual lost its axiom-derived identifier")
         })?;
-        let identifier = 2_147_483_648_usize
-            .checked_add(position)
-            .ok_or_else(|| KernelError::resource("encoded anonymous identifier overflow"))?;
-        let mut output = String::new();
-        output
-            .try_reserve_exact(27)
-            .map_err(|_| KernelError::resource("encoded anonymous identifier allocation failed"))?;
-        std::fmt::Write::write_fmt(&mut output, format_args!("_:genid{identifier}"))
-            .map_err(|_| KernelError::resource("encoded anonymous identifier rendering failed"))?;
-        Ok(output)
+        let position = match self.single_position {
+            Some(position) if self.node_ids.len() == 1 => position,
+            Some(_) => {
+                return Err(KernelError::malformed(
+                    "encoded anonymous identifier override requires exactly one individual",
+                ));
+            }
+            None => local_position,
+        };
+        render_anonymous_identifier(position)
     }
+}
+
+fn render_anonymous_identifier(position: usize) -> Result<String, KernelError> {
+    let identifier = 2_147_483_648_usize
+        .checked_add(position)
+        .ok_or_else(|| KernelError::resource("encoded anonymous identifier overflow"))?;
+    let mut output = String::new();
+    output
+        .try_reserve_exact(27)
+        .map_err(|_| KernelError::resource("encoded anonymous identifier allocation failed"))?;
+    std::fmt::Write::write_fmt(&mut output, format_args!("_:genid{identifier}"))
+        .map_err(|_| KernelError::resource("encoded anonymous identifier rendering failed"))?;
+    Ok(output)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ScopeMappedCompositeKind {
+    IgnoredClassAssertion,
+    ObjectPropertyAssertion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1745,6 +1765,7 @@ enum OwnedOverlayDeltaProjection {
         source: String,
         relation: String,
         destination: String,
+        anonymous_individuals: usize,
     },
 }
 
@@ -1805,12 +1826,21 @@ impl OwnedOverlayDeltaProjection {
                         KernelError::resource("encoded anonymous-individual count overflow")
                     })?;
             }
-            Self::ObjectPropertyAssertion { .. } => {
+            Self::ObjectPropertyAssertion {
+                anonymous_individuals,
+                ..
+            } => {
                 statistics.object_property_assertions = statistics
                     .object_property_assertions
                     .checked_add(1)
                     .ok_or_else(|| {
                         KernelError::resource("encoded object-property-assertion count overflow")
+                    })?;
+                statistics.anonymous_individuals = statistics
+                    .anonymous_individuals
+                    .checked_add(*anonymous_individuals)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded anonymous-individual count overflow")
                     })?;
             }
         }
@@ -2314,11 +2344,11 @@ impl<'a> DirectColumns<'a> {
         Ok(left_key.cmp(right_key))
     }
 
-    fn validate_scope_mapped_class_assertion_table(
+    fn validate_scope_mapped_composite_table(
         self,
         maximum_iri: usize,
         state: &AtomicU8,
-    ) -> Result<&'a [u8], KernelError> {
+    ) -> Result<(ScopeMappedCompositeKind, &'a [u8]), KernelError> {
         if !self.included_root_ids.is_empty()
             || !self.excluded_root_ids.is_empty()
             || self.anonymous_scope_map.len() != 64
@@ -2351,7 +2381,7 @@ impl<'a> DirectColumns<'a> {
             ));
         }
 
-        let mut class_assertions = 0_usize;
+        let mut construct_kind = None;
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
             if self.root_kind(root_index)? != ROOT_AXIOM {
@@ -2372,6 +2402,11 @@ impl<'a> DirectColumns<'a> {
                     }
                 }
                 TAG_CLASS_ASSERTION => {
+                    if construct_kind.is_some() {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                        ));
+                    }
                     let start = self.exact_fields(root, 3)?;
                     let (_annotation_start, annotation_count) =
                         self.node_set_range(start + 2, 0)?;
@@ -2387,23 +2422,50 @@ impl<'a> DirectColumns<'a> {
                             "bounded anonymous-scope composite requires one unannotated named-class assertion over its anonymous individual",
                         ));
                     }
-                    class_assertions = class_assertions.checked_add(1).ok_or_else(|| {
-                        KernelError::resource("encoded class-assertion count overflow")
-                    })?;
+                    construct_kind = Some(ScopeMappedCompositeKind::IgnoredClassAssertion);
+                }
+                TAG_OBJECT_PROPERTY_ASSERTION => {
+                    if construct_kind.is_some() {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                        ));
+                    }
+                    let start = self.exact_fields(root, 4)?;
+                    let (_annotation_start, annotation_count) =
+                        self.node_set_range(start + 3, 0)?;
+                    let (source, _relation, destination) =
+                        self.object_property_assertion_parts(root, maximum_iri)?;
+                    if annotation_count != 0
+                        || !matches!(
+                            (source, destination),
+                            (
+                                IndividualValue::Anonymous(node),
+                                IndividualValue::Named(_)
+                            ) | (
+                                IndividualValue::Named(_),
+                                IndividualValue::Anonymous(node)
+                            ) if node == anonymous_node
+                        )
+                    {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires one unannotated ObjectPropertyAssertion with exactly one anonymous endpoint",
+                        ));
+                    }
+                    construct_kind = Some(ScopeMappedCompositeKind::ObjectPropertyAssertion);
                 }
                 _ => {
                     return Err(KernelError::unsupported(
-                        "bounded anonymous-scope composite supports only named SubClassOf and anonymous ClassAssertion roots",
+                        "bounded anonymous-scope composite supports only named SubClassOf and one supported anonymous construct",
                     ));
                 }
             }
         }
-        if class_assertions != 1 {
-            return Err(KernelError::unsupported(
-                "bounded anonymous-scope composite requires exactly one anonymous ClassAssertion per member",
-            ));
-        }
-        Ok(&self.anonymous_scope_map[32..64])
+        let construct_kind = construct_kind.ok_or_else(|| {
+            KernelError::unsupported(
+                "bounded anonymous-scope composite requires exactly one remapped construct per member",
+            )
+        })?;
+        Ok((construct_kind, &self.anonymous_scope_map[32..64]))
     }
 
     fn root_contains_anonymous_individual(
@@ -2544,7 +2606,10 @@ impl<'a> DirectColumns<'a> {
                 node_ids.push(node_id);
             }
         }
-        Ok(AnonymousIds { node_ids })
+        Ok(AnonymousIds {
+            node_ids,
+            single_position: None,
+        })
     }
 
     fn validate_individual(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
@@ -8061,6 +8126,7 @@ impl DirectEmissionCursor {
                             source,
                             relation,
                             destination,
+                            ..
                         } = &delta.projection
                         {
                             self.overlay_delta_index =
@@ -8615,6 +8681,7 @@ fn own_local_object_property_assertion_projection(
                 source: workspace.clone_text(source)?,
                 relation: workspace.clone_text(relation)?,
                 destination: workspace.clone_text(destination)?,
+                anonymous_individuals: 0,
             })
         }
         _ => Err(KernelError::unsupported(
@@ -8670,9 +8737,57 @@ fn own_composite_tail_projection(
     max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
-    allow_ignored_anonymous_class_assertion: bool,
+    scope_mapped_construct: Option<(ScopeMappedCompositeKind, usize)>,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
-    if !allow_ignored_anonymous_class_assertion || columns.node_tag(root)? != TAG_CLASS_ASSERTION {
+    let tag = columns.node_tag(root)?;
+    if matches!(
+        scope_mapped_construct,
+        Some((ScopeMappedCompositeKind::ObjectPropertyAssertion, _))
+    ) && tag == TAG_OBJECT_PROPERTY_ASSERTION
+    {
+        let field_start = columns.exact_fields(root, 4)?;
+        let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
+        if annotation_count != 0 {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope ObjectPropertyAssertion requires an empty annotation set",
+            ));
+        }
+        let (source, relation, destination) =
+            columns.object_property_assertion_parts(root, max_iri_bytes)?;
+        let position = scope_mapped_construct
+            .map(|(_kind, position)| position)
+            .ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded anonymous-scope ObjectPropertyAssertion lost its global position",
+                )
+            })?;
+        let (source, destination) = match (source, destination) {
+            (IndividualValue::Anonymous(_), IndividualValue::Named(destination)) => (
+                workspace.anonymous_identifier(position)?,
+                workspace.clone_text(destination)?,
+            ),
+            (IndividualValue::Named(source), IndividualValue::Anonymous(_)) => (
+                workspace.clone_text(source)?,
+                workspace.anonymous_identifier(position)?,
+            ),
+            _ => {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope ObjectPropertyAssertion requires exactly one anonymous endpoint",
+                ));
+            }
+        };
+        return Ok(OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
+            source,
+            relation: workspace.clone_text(relation)?,
+            destination,
+            anonymous_individuals: 1,
+        });
+    }
+    if !matches!(
+        scope_mapped_construct,
+        Some((ScopeMappedCompositeKind::IgnoredClassAssertion, _))
+    ) || tag != TAG_CLASS_ASSERTION
+    {
         return own_local_emitting_projection(columns, root, max_iri_bytes, state, workspace);
     }
     let field_start = columns.exact_fields(root, 3)?;
@@ -8741,6 +8856,15 @@ impl LocalOverlayWorkspace {
         self.claim(value.len())?;
         let owned = clone_text(value)?;
         self.claim(owned.capacity().saturating_sub(value.len()))?;
+        Ok(owned)
+    }
+
+    fn anonymous_identifier(&mut self, position: usize) -> Result<String, KernelError> {
+        const RESERVED_BYTES: usize = 27;
+
+        self.claim(RESERVED_BYTES)?;
+        let owned = render_anonymous_identifier(position)?;
+        self.claim(owned.capacity().saturating_sub(RESERVED_BYTES))?;
         Ok(owned)
     }
 
@@ -8909,16 +9033,23 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
     let scope_mapped = columns
         .iter()
         .any(|table| !table.anonymous_scope_map.is_empty());
+    let mut scope_mapped_construct = None;
+    let mut scope_mapped_positions = [0_usize; N];
     if scope_mapped {
         if N != 2 {
             return Err(KernelError::unsupported(
                 "bounded anonymous-scope remapping requires exactly two direct members",
             ));
         }
-        let left_target =
-            columns[0].validate_scope_mapped_class_assertion_table(options.max_iri_bytes, state)?;
-        let right_target =
-            columns[1].validate_scope_mapped_class_assertion_table(options.max_iri_bytes, state)?;
+        let (left_kind, left_target) =
+            columns[0].validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
+        let (right_kind, right_target) =
+            columns[1].validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
+        if left_kind != right_kind {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope remapping requires the same construct family in both members",
+            ));
+        }
         if columns[0].anonymous_scope_map[..32] != columns[1].anonymous_scope_map[..32] {
             return Err(KernelError::unsupported(
                 "bounded anonymous-scope remapping requires one shared source scope",
@@ -8929,6 +9060,9 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                 "encoded composite anonymous scope targets are not unique",
             ));
         }
+        scope_mapped_construct = Some(left_kind);
+        scope_mapped_positions[0] = usize::from(left_target > right_target);
+        scope_mapped_positions[1] = usize::from(right_target > left_target);
     }
     if selected_total == 0 {
         return Err(KernelError::unsupported(
@@ -8952,7 +9086,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             .checked_add(selected_counts[table])
             .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
     }
-    for tail_columns in columns.iter().skip(1) {
+    for (table, tail_columns) in columns.iter().enumerate().skip(1) {
         for root_index in 0..tail_columns.root_count() {
             check_cancel(state, root_index)?;
             if !tail_columns.root_is_selected(root_index)? {
@@ -8970,7 +9104,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                 options.max_iri_bytes,
                 state,
                 &mut local_workspace,
-                scope_mapped,
+                scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[table])),
             )?;
             overlay_deltas.push(OwnedOverlayDelta {
                 projection,
@@ -9085,6 +9219,14 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
     let mut prepared = prepare_direct_batches_with_local_role_uncommitted(
         columns[0], None, options, state, retained, None,
     )?;
+    if scope_mapped_construct == Some(ScopeMappedCompositeKind::ObjectPropertyAssertion) {
+        if prepared.preparation.anonymous_ids.node_ids.len() != 1 {
+            return Err(KernelError::malformed(
+                "encoded anonymous-scope base lost its sole anonymous individual",
+            ));
+        }
+        prepared.preparation.anonymous_ids.single_position = Some(scope_mapped_positions[0]);
+    }
     let mut projection_edges = 0_usize;
     let mut projection_role_expansion_edges = 0_usize;
     for local_delta in &overlay_deltas {
@@ -11190,6 +11332,42 @@ mod tests {
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
         fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_object_property_assertion_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:B".as_slice(), b"urn:Top", b"urn:p", b"urn:j"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=4
+        }
+        for (kind, iri_id) in [
+            (b"class".as_slice(), 1_u64),
+            (b"class".as_slice(), 2),
+            (b"object_property".as_slice(), 3),
+            (b"named_individual".as_slice(), 4),
+        ] {
+            fixture.push_scalar(COMPONENT_ENUM, kind);
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 5..=8
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 9
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 10
+        fixture.push_node_ref(7);
+        fixture.push_node_ref(9);
+        fixture.push_node_ref(8);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_OBJECT_PROPERTY_ASSERTION); // 11
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        fixture.root_ids.extend_from_slice(&10_u32.to_le_bytes());
+        fixture.root_ids.extend_from_slice(&11_u32.to_le_bytes());
         fixture
     }
 
@@ -15253,6 +15431,7 @@ mod tests {
                     source: "urn:z".into(),
                     relation: "urn:q".into(),
                     destination: "urn:a".into(),
+                    anonymous_individuals: 0,
                 },
                 insertion_scan_index: 0,
                 local_canonical_index: 4,
@@ -20375,6 +20554,81 @@ mod tests {
             Err(KernelError::Malformed(message))
                 if message.contains("scope targets are not unique")
         ));
+    }
+
+    #[test]
+    fn two_member_composite_remaps_emitting_object_assertion_scopes() {
+        let left = scope_mapped_object_property_assertion_fixture();
+        let right = scope_mapped_object_property_assertion_fixture();
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_two_member_composite_batches_uncommitted(
+            left_columns,
+            right_columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.object_property_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 3);
+        assert_eq!(prepared.preparation.anonymous_ids.single_position, Some(1));
+        assert!(matches!(
+            &prepared.preparation.overlay_deltas[0].projection,
+            OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
+                source,
+                destination,
+                anonymous_individuals: 1,
+                ..
+            } if source == "_:genid2147483648" && destination == "urn:j"
+        ));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 3)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                },
+                DirectEdge {
+                    source: "_:genid2147483648".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+                DirectEdge {
+                    source: "_:genid2147483649".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+            ]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
     }
 
     #[test]

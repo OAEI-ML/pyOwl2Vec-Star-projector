@@ -64,6 +64,7 @@ _TAG_ENTITY = 2
 _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_SUB_CLASS_OF = 61
 _TAG_CLASS_ASSERTION = 112
+_TAG_OBJECT_PROPERTY_ASSERTION = 113
 _DEFAULT_MAX_SEGMENTS = 1_025
 
 
@@ -633,11 +634,15 @@ def _resolve_private_two_member_composite(
     )
 
 
-def _single_ignored_anonymous_class_assertion_scope(
+def _single_scope_mapped_construct_scope(
     lease: EncodedStructuralLease,
+    *,
+    construct_tag: int,
 ) -> tuple[memoryview, int] | None:
     """Return the sole source scope for one narrow remappable direct table."""
 
+    if construct_tag not in {_TAG_CLASS_ASSERTION, _TAG_OBJECT_PROPERTY_ASSERTION}:
+        return None
     buffers = lease.buffers
     anonymous_node_id: int | None = None
     for index in range(_row_count(buffers, "node_tags")):
@@ -663,7 +668,7 @@ def _single_ignored_anonymous_class_assertion_scope(
         return None
     scope_offset = _read_uint(buffers["field_values"], anonymous_start, 8)
 
-    class_assertions = 0
+    construct_roots = 0
     for root_index in range(_row_count(buffers, "root_kinds")):
         if _read_uint(buffers["root_kinds"], root_index, 1) != 2:
             return None
@@ -671,34 +676,53 @@ def _single_ignored_anonymous_class_assertion_scope(
         root_tag = _read_uint(buffers["node_tags"], root_id - 1, 2)
         if root_tag == _TAG_SUB_CLASS_OF:
             continue
-        if root_tag != _TAG_CLASS_ASSERTION:
+        if root_tag != construct_tag:
             return None
-        class_assertions += 1
+        construct_roots += 1
         start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
         end = _read_uint(buffers["node_field_offsets"], root_id, 8)
-        if end - start != 3:
-            return None
-        if any(
-            _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
-            for offset in (0, 1)
-        ):
-            return None
-        class_id = _read_uint(buffers["field_values"], start, 8)
-        individual_id = _read_uint(buffers["field_values"], start + 1, 8)
-        if (
-            _read_uint(buffers["node_tags"], class_id - 1, 2) != _TAG_ENTITY
-            or individual_id != anonymous_node_id
-            or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
-            or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
-        ):
-            return None
-    if class_assertions != 1:
+        if construct_tag == _TAG_CLASS_ASSERTION:
+            if end - start != 3 or any(
+                _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
+                for offset in (0, 1)
+            ):
+                return None
+            class_id = _read_uint(buffers["field_values"], start, 8)
+            individual_id = _read_uint(buffers["field_values"], start + 1, 8)
+            if (
+                _read_uint(buffers["node_tags"], class_id - 1, 2) != _TAG_ENTITY
+                or individual_id != anonymous_node_id
+                or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
+            ):
+                return None
+        else:
+            if end - start != 4 or any(
+                _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
+                for offset in (0, 1, 2)
+            ):
+                return None
+            property_id = _read_uint(buffers["field_values"], start, 8)
+            source_id = _read_uint(buffers["field_values"], start + 1, 8)
+            destination_id = _read_uint(buffers["field_values"], start + 2, 8)
+            other_id = destination_id if source_id == anonymous_node_id else source_id
+            if (
+                (source_id == anonymous_node_id) == (destination_id == anonymous_node_id)
+                or _read_uint(buffers["node_tags"], property_id - 1, 2) != _TAG_ENTITY
+                or _read_uint(buffers["node_tags"], other_id - 1, 2) != _TAG_ENTITY
+                or _read_uint(buffers["field_kinds"], start + 3, 1) != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
+            ):
+                return None
+    if construct_roots != 1:
         return None
     return buffers["scalar_bytes"], scope_offset
 
 
-def _resolve_private_scope_mapped_class_assertion_composite(
+def _resolve_private_scope_mapped_composite(
     lease: EncodedStructuralLease,
+    *,
+    construct_tag: int,
 ) -> (
     tuple[
         EncodedStructuralLease,
@@ -732,8 +756,14 @@ def _resolve_private_scope_mapped_class_assertion_composite(
         or right_scope_map.nbytes != 64
     ):
         return None
-    left_scope = _single_ignored_anonymous_class_assertion_scope(left)
-    right_scope = _single_ignored_anonymous_class_assertion_scope(right)
+    left_scope = _single_scope_mapped_construct_scope(
+        left,
+        construct_tag=construct_tag,
+    )
+    right_scope = _single_scope_mapped_construct_scope(
+        right,
+        construct_tag=construct_tag,
+    )
     if left_scope is None or right_scope is None:
         return None
     left_scalars, left_offset = left_scope
@@ -761,6 +791,48 @@ def _resolve_private_scope_mapped_class_assertion_composite(
         right_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _resolve_private_scope_mapped_class_assertion_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact ignored-ClassAssertion scope-remap composite."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=_TAG_CLASS_ASSERTION,
+    )
+
+
+def _resolve_private_scope_mapped_object_property_assertion_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact emitting ObjectPropertyAssertion scope-remap composite."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=_TAG_OBJECT_PROPERTY_ASSERTION,
     )
 
 
