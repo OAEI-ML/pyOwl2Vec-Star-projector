@@ -4,16 +4,44 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import re
+import stat
 import uuid
 from pathlib import Path
+from typing import Any
 
 if __package__:
-    from .release_support import canonical_json, read_toml, write_if_changed
+    from .release_support import canonical_json, write_if_changed
 else:
-    from release_support import canonical_json, read_toml, write_if_changed
+    from release_support import canonical_json, write_if_changed
 
 _NAMESPACE = uuid.UUID("2a582b0c-c26a-45a9-8a1f-9a2783ca1fef")
+_BUILD_INPUT_PATHS = (
+    ".github/workflows/native.yml",
+    ".github/workflows/packaging.yml",
+    ".github/workflows/release-candidate.yml",
+    "MANIFEST.in",
+    "_build_backend.py",
+    "native/Cargo.lock",
+    "native/Cargo.toml",
+    "native/THIRD_PARTY_LICENSES.md",
+    "native/build.rs",
+    "pyproject.toml",
+    "release/fallback-build-requirements.txt",
+    "release/native-build-requirements.txt",
+    "setup.py",
+    "tools/audit_release.py",
+    "tools/audit_runtime.py",
+    "tools/check_dependency_dag.py",
+    "tools/compare_artifacts.py",
+    "tools/generate_supply_chain.py",
+    "tools/hash_artifacts.py",
+    "tools/installed_smoke.py",
+    "tools/release_gate.py",
+    "tools/release_support.py",
+)
 
 
 def _component(
@@ -72,10 +100,10 @@ def _bom(
     }
 
 
-def _cargo_licenses(path: Path) -> dict[tuple[str, str], str]:
+def _cargo_licenses(text: str) -> dict[tuple[str, str], str]:
     result: dict[tuple[str, str], str] = {}
     pattern = re.compile(r"^\| ([^|]+) \| ([^|]+) \| ([^|]+) \|$")
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         match = pattern.match(line)
         if not match or match.group(1).strip() == "Crate":
             continue
@@ -86,8 +114,185 @@ def _cargo_licenses(path: Path) -> dict[tuple[str, str], str]:
     return result
 
 
+def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _read_stable_regular_file(path: Path, *, label: str) -> bytes:
+    try:
+        initial = path.lstat()
+    except OSError as error:
+        raise ValueError(
+            f"build provenance: cannot inspect build input {label}: {error}"
+        ) from error
+    if not stat.S_ISREG(initial.st_mode):
+        raise ValueError(
+            f"build provenance: build input must be a regular non-symlink file: {label}"
+        )
+    try:
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            payload = stream.read()
+            completed = os.fstat(stream.fileno())
+        final = path.lstat()
+    except OSError as error:
+        raise ValueError(f"build provenance: cannot read build input {label}: {error}") from error
+    identities = {
+        _stat_identity(initial),
+        _stat_identity(opened),
+        _stat_identity(completed),
+        _stat_identity(final),
+    }
+    if len(identities) != 1 or not stat.S_ISREG(opened.st_mode) or len(payload) != opened.st_size:
+        raise ValueError(f"build provenance: build input changed while reading: {label}")
+    return payload
+
+
+def _capture_build_inputs(root: Path) -> dict[str, bytes]:
+    return {
+        relative_path: _read_stable_regular_file(root / relative_path, label=relative_path)
+        for relative_path in _BUILD_INPUT_PATHS
+    }
+
+
+def _decode_build_input(payload: bytes, label: str) -> str:
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"build provenance: build input is not UTF-8: {label}") from error
+
+
+def _load_build_toml(payload: bytes, label: str) -> dict[str, Any]:
+    try:
+        import tomllib
+    except ImportError:  # pragma: no cover - Python 3.10
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError as error:  # pragma: no cover - actionable CLI failure
+            raise RuntimeError(
+                "Python 3.10 release tooling requires the dev extra (tomli)"
+            ) from error
+    try:
+        loaded = tomllib.loads(_decode_build_input(payload, label))
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError(f"build provenance: cannot parse TOML build input {label}") from error
+    if not isinstance(loaded, dict):  # pragma: no cover - tomllib contract
+        raise ValueError(f"build provenance: TOML build input is not a table: {label}")
+    return loaded
+
+
+def _workflow_pin(text: str, pattern: str, label: str) -> str:
+    values = set(re.findall(pattern, text))
+    if len(values) != 1:
+        raise ValueError(f"build provenance: expected one unique {label}, got {sorted(values)!r}")
+    return values.pop()
+
+
+def _requirements(payload: bytes, label: str) -> list[str]:
+    lines = []
+    for raw_line in _decode_build_input(payload, label).splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#"):
+            lines.append(line)
+    if not lines:
+        raise ValueError(f"build provenance: {label} contains no requirements")
+    return lines
+
+
+def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
+    pyproject = _load_build_toml(payloads["pyproject.toml"], "pyproject.toml")
+    cargo = _load_build_toml(payloads["native/Cargo.toml"], "native/Cargo.toml")
+    project = pyproject.get("project")
+    build_system = pyproject.get("build-system")
+    cargo_package = cargo.get("package")
+    if not isinstance(project, dict) or not isinstance(project.get("version"), str):
+        raise ValueError("build provenance: pyproject.toml has no literal project version")
+    if not isinstance(build_system, dict) or not isinstance(build_system.get("requires"), list):
+        raise ValueError("build provenance: pyproject.toml has no build-system requirements")
+    if not isinstance(cargo_package, dict) or not isinstance(
+        cargo_package.get("rust-version"), str
+    ):
+        raise ValueError("build provenance: native/Cargo.toml has no literal rust-version")
+
+    native_workflow = _decode_build_input(
+        payloads[".github/workflows/native.yml"], ".github/workflows/native.yml"
+    )
+    packaging_workflows = "\n".join(
+        _decode_build_input(payloads[path], path)
+        for path in (
+            ".github/workflows/packaging.yml",
+            ".github/workflows/release-candidate.yml",
+        )
+    )
+    rust_toolchain = _workflow_pin(
+        native_workflow,
+        r'(?m)^\s*toolchain:\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$',
+        "Rust release toolchain",
+    )
+    rust_msrv = str(cargo_package["rust-version"])
+    if not rust_toolchain.startswith(f"{rust_msrv}."):
+        raise ValueError(
+            "build provenance: Cargo rust-version "
+            f"{rust_msrv!r} does not match workflow toolchain {rust_toolchain!r}"
+        )
+    cibuildwheel_revision = _workflow_pin(
+        native_workflow,
+        r"pypa/cibuildwheel@([0-9a-f]{40})",
+        "cibuildwheel action revision",
+    )
+    source_date_epoch = _workflow_pin(
+        packaging_workflows,
+        r'echo "SOURCE_DATE_EPOCH=\$\((git log -1 --pretty=%ct)\)"',
+        "SOURCE_DATE_EPOCH command",
+    )
+    inputs = {
+        path: {
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        for path, payload in payloads.items()
+    }
+    return {
+        "schema": "pyowl-projector.build-provenance/1",
+        "distribution": "pyowl2vec-star-projector",
+        "version": project["version"],
+        "source_date_epoch": {
+            "source": "release commit timestamp",
+            "command": source_date_epoch,
+        },
+        "tools": {
+            "cargo_manifest_rust_version": rust_msrv,
+            "rust_toolchain": rust_toolchain,
+            "cibuildwheel_action": f"pypa/cibuildwheel@{cibuildwheel_revision}",
+            "python_build_system": build_system["requires"],
+            "python_fallback_requirements": _requirements(
+                payloads["release/fallback-build-requirements.txt"],
+                "release/fallback-build-requirements.txt",
+            ),
+            "python_native_requirements": _requirements(
+                payloads["release/native-build-requirements.txt"],
+                "release/native-build-requirements.txt",
+            ),
+        },
+        "inputs": inputs,
+    }
+
+
+def build_provenance(root: Path) -> dict[str, object]:
+    """Bind the deterministic build and release recipe to exact regular-file inputs."""
+    return _build_provenance(_capture_build_inputs(root))
+
+
 def generate(root: Path) -> dict[Path, bytes]:
-    project = read_toml(root / "pyproject.toml")["project"]
+    payloads = _capture_build_inputs(root)
+    project = _load_build_toml(payloads["pyproject.toml"], "pyproject.toml")["project"]
     version = str(project["version"])
     root_ref = f"pkg:pypi/pyowl2vec-star-projector@{version}"
     runtime_root = _component(
@@ -106,8 +311,13 @@ def generate(root: Path) -> dict[Path, bytes]:
     )
     runtime_bom = _bom(version, "runtime", runtime_root, [core])
 
-    cargo_lock = read_toml(root / "native" / "Cargo.lock")
-    license_map = _cargo_licenses(root / "native" / "THIRD_PARTY_LICENSES.md")
+    cargo_lock = _load_build_toml(payloads["native/Cargo.lock"], "native/Cargo.lock")
+    license_map = _cargo_licenses(
+        _decode_build_input(
+            payloads["native/THIRD_PARTY_LICENSES.md"],
+            "native/THIRD_PARTY_LICENSES.md",
+        )
+    )
     native_components: list[dict[str, object]] = []
     native_licenses: list[dict[str, str]] = []
     for package in sorted(cargo_lock["package"], key=lambda item: (item["name"], item["version"])):
@@ -232,6 +442,7 @@ def generate(root: Path) -> dict[Path, bytes]:
     }
     output = root / "release"
     return {
+        output / "build-provenance.json": canonical_json(_build_provenance(payloads)),
         output / "sbom" / "runtime.cdx.json": canonical_json(runtime_bom),
         output / "sbom" / "native-build.cdx.json": canonical_json(native_bom),
         output / "license-inventory.json": canonical_json(license_inventory),

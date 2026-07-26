@@ -8,6 +8,7 @@ ran.
 - `sbom/native-build.cdx.json`: conditional Python build tools and all lockfile-pinned Rust crates.
 - `license-inventory.json`: machine-readable licenses, shipped/non-shipped scope, and mOWL
   behavioral-reference provenance.
+- `build-provenance.json`: exact deterministic build/release recipe inputs and tool pins.
 - `fallback-build-requirements.txt`: exact compiler-free artifact-construction tools.
 - `native-build-requirements.txt`: the fallback tools plus native-only Python build helpers.
 - `external-gates.json`: unresolved actions which cannot be proven in this workspace.
