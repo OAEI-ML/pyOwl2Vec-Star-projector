@@ -2468,6 +2468,50 @@ impl<'a> DirectColumns<'a> {
         Ok((construct_kind, &self.anonymous_scope_map[32..64]))
     }
 
+    fn validate_scope_mapped_neutral_table(
+        self,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<(), KernelError> {
+        if !self.included_root_ids.is_empty()
+            || !self.excluded_root_ids.is_empty()
+            || !self.anonymous_scope_map.is_empty()
+            || self.root_count() == 0
+        {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope nested composite requires one nonempty unposted neutral table",
+            ));
+        }
+        for node_id in 1..=self.node_count() {
+            check_cancel(state, node_id)?;
+            if self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope neutral table cannot contain anonymous individuals",
+                ));
+            }
+        }
+        for root_index in 0..self.root_count() {
+            check_cancel(state, root_index)?;
+            if self.root_kind(root_index)? != ROOT_AXIOM {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope neutral table requires only axiom roots",
+                ));
+            }
+            let root = self.root_id(root_index)?;
+            if self.node_tag(root)? != TAG_SUB_CLASS_OF
+                || !matches!(
+                    self.subclass_projection(root, maximum_iri)?,
+                    SubclassProjection::Taxonomy { .. }
+                )
+            {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope neutral table supports only named SubClassOf roots",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn root_contains_anonymous_individual(
         self,
         root: usize,
@@ -9036,21 +9080,39 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
     let mut scope_mapped_construct = None;
     let mut scope_mapped_positions = [0_usize; N];
     if scope_mapped {
-        if N != 2 {
+        if !matches!(N, 2 | 3) || columns[0].anonymous_scope_map.is_empty() {
             return Err(KernelError::unsupported(
-                "bounded anonymous-scope remapping requires exactly two direct members",
+                "bounded anonymous-scope remapping requires one mapped base, one mapped member, and at most one neutral table",
             ));
         }
         let (left_kind, left_target) =
             columns[0].validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
-        let (right_kind, right_target) =
-            columns[1].validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
+        let mut mapped_tail = None;
+        for (table, member) in columns.iter().copied().enumerate().skip(1) {
+            if member.anonymous_scope_map.is_empty() {
+                member.validate_scope_mapped_neutral_table(options.max_iri_bytes, state)?;
+                continue;
+            }
+            if mapped_tail.is_some() {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope remapping requires exactly two mapped members",
+                ));
+            }
+            let (kind, target) =
+                member.validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
+            mapped_tail = Some((table, kind, target));
+        }
+        let (right_table, right_kind, right_target) = mapped_tail.ok_or_else(|| {
+            KernelError::unsupported(
+                "bounded anonymous-scope remapping requires exactly two mapped members",
+            )
+        })?;
         if left_kind != right_kind {
             return Err(KernelError::unsupported(
                 "bounded anonymous-scope remapping requires the same construct family in both members",
             ));
         }
-        if columns[0].anonymous_scope_map[..32] != columns[1].anonymous_scope_map[..32] {
+        if columns[0].anonymous_scope_map[..32] != columns[right_table].anonymous_scope_map[..32] {
             return Err(KernelError::unsupported(
                 "bounded anonymous-scope remapping requires one shared source scope",
             ));
@@ -9062,7 +9124,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
         }
         scope_mapped_construct = Some(left_kind);
         scope_mapped_positions[0] = usize::from(left_target > right_target);
-        scope_mapped_positions[1] = usize::from(right_target > left_target);
+        scope_mapped_positions[right_table] = usize::from(right_target > left_target);
     }
     if selected_total == 0 {
         return Err(KernelError::unsupported(
@@ -20594,6 +20656,82 @@ mod tests {
         assert_eq!(statistics.anonymous_individuals, 2);
         assert_eq!(statistics.edges, 3);
         assert_eq!(prepared.preparation.anonymous_ids.single_position, Some(1));
+        assert!(matches!(
+            &prepared.preparation.overlay_deltas[0].projection,
+            OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
+                source,
+                destination,
+                anonymous_individuals: 1,
+                ..
+            } if source == "_:genid2147483648" && destination == "urn:j"
+        ));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 3)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                },
+                DirectEdge {
+                    source: "_:genid2147483648".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+                DirectEdge {
+                    source: "_:genid2147483649".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+            ]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_across_one_neutral_table() {
+        let left = scope_mapped_object_property_assertion_fixture();
+        let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let right = scope_mapped_object_property_assertion_fixture();
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_three_member_composite_batches_uncommitted(
+            [left_columns, neutral.columns(), right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.object_property_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 3);
+        assert_eq!(prepared.preparation.anonymous_ids.single_position, Some(1));
+        assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
         assert!(matches!(
             &prepared.preparation.overlay_deltas[0].projection,
             OwnedOverlayDeltaProjection::ObjectPropertyAssertion {

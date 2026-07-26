@@ -20,6 +20,7 @@ from .encoded import (
     _resolve_private_nested_overlay_composite,
     _resolve_private_overlay_aliases,
     _resolve_private_scope_mapped_class_assertion_composite,
+    _resolve_private_scope_mapped_nested_overlay_composite,
     _resolve_private_scope_mapped_object_property_assertion_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
@@ -37,7 +38,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 90
+ENCODED_DIRECT_KERNEL_VERSION = 91
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1198,8 +1199,44 @@ def prepare_native_encoded_compilation(
                         third_member_lease,
                     )
                 else:
-                    resolved_nested = _resolve_private_nested_overlay_composite(lease)
-                    if resolved_nested is not None:
+                    resolved_scope_mapped_nested = (
+                        _resolve_private_scope_mapped_nested_overlay_composite(lease)
+                    )
+                    resolved_nested = (
+                        None
+                        if resolved_scope_mapped_nested is not None
+                        else _resolve_private_nested_overlay_composite(lease)
+                    )
+                    if resolved_scope_mapped_nested is not None:
+                        if options.include_literals:
+                            return (
+                                None,
+                                "private native scope-mapped nested-member composite slice does "
+                                "not support literal projection",
+                            )
+                        if role_state is not None:
+                            return (
+                                None,
+                                "private native scope-mapped nested-member composite slice does "
+                                "not bind Scala-instance state",
+                            )
+                        merge_manifest_lease = lease
+                        (
+                            lease,
+                            local_delta_lease,
+                            third_member_lease,
+                            anonymous_scope_map,
+                            right_anonymous_scope_map,
+                            canonical_work_limit,
+                            canonical_workspace_limit,
+                        ) = resolved_scope_mapped_nested
+                        nested_member_lease = local_delta_lease
+                        container_leases = (
+                            merge_manifest_lease,
+                            local_delta_lease,
+                            third_member_lease,
+                        )
+                    elif resolved_nested is not None:
                         if options.include_literals:
                             return (
                                 None,
@@ -1651,19 +1688,32 @@ def prepare_native_encoded_direct(
         raise ValueError("composite root selection cannot mix INCLUDE and EXCLUDE postings")
     if (anonymous_scope_map is None) != (right_anonymous_scope_map is None):
         raise ValueError("scope-mapped composite requires both member scope maps")
-    if anonymous_scope_map is not None and (
-        merge_manifest_lease is None
-        or local_delta_lease is None
-        or third_member_lease is not None
-        or fourth_member_lease is not None
-        or nested_member_lease is not None
-        or included_root_ids is not None
-        or excluded_root_ids is not None
-        or right_excluded_root_ids is not None
-        or third_excluded_root_ids is not None
-        or fourth_excluded_root_ids is not None
-    ):
-        raise ValueError("scope remapping requires an exact two-member ALL composite")
+    if anonymous_scope_map is not None:
+        exact_two_member = (
+            merge_manifest_lease is not None
+            and local_delta_lease is not None
+            and third_member_lease is None
+            and fourth_member_lease is None
+            and nested_member_lease is None
+        )
+        exact_nested_member = (
+            merge_manifest_lease is not None
+            and local_delta_lease is not None
+            and third_member_lease is not None
+            and fourth_member_lease is None
+            and nested_member_lease is local_delta_lease
+        )
+        if (
+            not (exact_two_member or exact_nested_member)
+            or included_root_ids is not None
+            or excluded_root_ids is not None
+            or right_excluded_root_ids is not None
+            or third_excluded_root_ids is not None
+            or fourth_excluded_root_ids is not None
+        ):
+            raise ValueError(
+                "scope remapping requires an exact two-member or nested-member ALL composite"
+            )
     root_descriptor_sha256: bytes | None = None
     if root_annotation_lease is not None:
         root_descriptor_sha256 = _validated_direct_descriptor_digest(root_annotation_lease)

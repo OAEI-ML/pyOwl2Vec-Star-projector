@@ -719,6 +719,78 @@ def _single_scope_mapped_construct_scope(
     return buffers["scalar_bytes"], scope_offset
 
 
+def _scope_maps_bind_constructs(
+    left: EncodedStructuralLease,
+    right: EncodedStructuralLease,
+    left_scope_map: memoryview,
+    right_scope_map: memoryview,
+    *,
+    construct_tag: int,
+) -> bool:
+    """Check two exact bytes32 remaps against their sole anonymous constructs."""
+
+    if left_scope_map.nbytes != 64 or right_scope_map.nbytes != 64:
+        return False
+    left_scope = _single_scope_mapped_construct_scope(
+        left,
+        construct_tag=construct_tag,
+    )
+    right_scope = _single_scope_mapped_construct_scope(
+        right,
+        construct_tag=construct_tag,
+    )
+    if left_scope is None or right_scope is None:
+        return False
+    left_scalars, left_offset = left_scope
+    right_scalars, right_offset = right_scope
+    return not (
+        any(left_scope_map[index] != left_scalars[left_offset + index] for index in range(32))
+        or any(
+            right_scope_map[index] != right_scalars[right_offset + index] for index in range(32)
+        )
+        or any(left_scope_map[index] != right_scope_map[index] for index in range(32))
+        or all(left_scope_map[index] == left_scope_map[32 + index] for index in range(32))
+        or all(right_scope_map[index] == right_scope_map[32 + index] for index in range(32))
+        or all(left_scope_map[32 + index] == right_scope_map[32 + index] for index in range(32))
+    )
+
+
+def _named_subclass_only_table(lease: EncodedStructuralLease) -> bool:
+    """Return whether a direct table contains only named taxonomy roots."""
+
+    buffers = lease.buffers
+    if not _row_count(buffers, "root_kinds"):
+        return False
+    if any(
+        _read_uint(buffers["node_tags"], index, 2) == _TAG_ANONYMOUS_INDIVIDUAL
+        for index in range(_row_count(buffers, "node_tags"))
+    ):
+        return False
+    for root_index in range(_row_count(buffers, "root_kinds")):
+        if _read_uint(buffers["root_kinds"], root_index, 1) != 2:
+            return False
+        root_id = _read_uint(buffers["root_ids"], root_index, 4)
+        if _read_uint(buffers["node_tags"], root_id - 1, 2) != _TAG_SUB_CLASS_OF:
+            return False
+        start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
+        end = _read_uint(buffers["node_field_offsets"], root_id, 8)
+        if end - start != 3 or any(
+            _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
+            for offset in (0, 1)
+        ):
+            return False
+        source_id = _read_uint(buffers["field_values"], start, 8)
+        destination_id = _read_uint(buffers["field_values"], start + 1, 8)
+        if (
+            _read_uint(buffers["node_tags"], source_id - 1, 2) != _TAG_ENTITY
+            or _read_uint(buffers["node_tags"], destination_id - 1, 2) != _TAG_ENTITY
+            or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
+            or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
+        ):
+            return False
+    return True
+
+
 def _resolve_private_scope_mapped_composite(
     lease: EncodedStructuralLease,
     *,
@@ -752,29 +824,13 @@ def _resolve_private_scope_mapped_composite(
         or right_exclude is not None
         or left_scope_map is None
         or right_scope_map is None
-        or left_scope_map.nbytes != 64
-        or right_scope_map.nbytes != 64
-    ):
-        return None
-    left_scope = _single_scope_mapped_construct_scope(
-        left,
-        construct_tag=construct_tag,
-    )
-    right_scope = _single_scope_mapped_construct_scope(
-        right,
-        construct_tag=construct_tag,
-    )
-    if left_scope is None or right_scope is None:
-        return None
-    left_scalars, left_offset = left_scope
-    right_scalars, right_offset = right_scope
-    if (
-        any(left_scope_map[index] != left_scalars[left_offset + index] for index in range(32))
-        or any(right_scope_map[index] != right_scalars[right_offset + index] for index in range(32))
-        or any(left_scope_map[index] != right_scope_map[index] for index in range(32))
-        or all(left_scope_map[index] == left_scope_map[32 + index] for index in range(32))
-        or all(right_scope_map[index] == right_scope_map[32 + index] for index in range(32))
-        or all(left_scope_map[32 + index] == right_scope_map[32 + index] for index in range(32))
+        or not _scope_maps_bind_constructs(
+            left,
+            right,
+            left_scope_map,
+            right_scope_map,
+            construct_tag=construct_tag,
+        )
     ):
         return None
 
@@ -873,6 +929,96 @@ def _resolve_private_three_member_composite(
         first_excluded,
         second_excluded,
         third_excluded,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _resolve_private_scope_mapped_nested_overlay_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one remapped overlay member and one remapped direct sibling."""
+
+    rows = _resolve_private_direct_composite_rows(
+        lease,
+        member_count=2,
+        require_direct_sources=False,
+        allow_scope_maps=True,
+    )
+    if rows is None or any(
+        included is not None or excluded is not None or scope_map is None
+        for _source, included, excluded, scope_map in rows
+    ):
+        return None
+    overlay_row: tuple[EncodedStructuralLease, memoryview] | None = None
+    direct_row: tuple[EncodedStructuralLease, memoryview] | None = None
+    for source, _included, _excluded, scope_map in rows:
+        assert scope_map is not None
+        roles = tuple(cast(Any, segment).role for segment in source.segments)
+        if roles == (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA):
+            if overlay_row is not None:
+                return None
+            overlay_row = (source, scope_map)
+        elif roles == (_SEGMENT_DIRECT,):
+            if direct_row is not None:
+                return None
+            direct_row = (source, scope_map)
+        else:
+            return None
+    if overlay_row is None or direct_row is None:
+        return None
+    nested_overlay, nested_scope_map = overlay_row
+    direct_member, direct_scope_map = direct_row
+    resolved_overlay = _resolve_private_single_overlay_delta(nested_overlay)
+    if resolved_overlay is None:
+        return None
+    base, excluded_root_ids, _overlay_work, _overlay_workspace = resolved_overlay
+    if (
+        excluded_root_ids is not None
+        or base.encoded_view is direct_member.encoded_view
+        or base.owner is direct_member.owner
+        or not _named_subclass_only_table(nested_overlay)
+        or not any(
+            _scope_maps_bind_constructs(
+                base,
+                direct_member,
+                nested_scope_map,
+                direct_scope_map,
+                construct_tag=construct_tag,
+            )
+            for construct_tag in (
+                _TAG_CLASS_ASSERTION,
+                _TAG_OBJECT_PROPERTY_ASSERTION,
+            )
+        )
+    ):
+        return None
+
+    _enforce_public_limit(lease.owner, "max_overlay_depth", 1)
+    validation_work = (
+        _private_encoded_lease_validation_work(lease)
+        + _private_encoded_lease_validation_work(nested_overlay)
+        + _private_encoded_lease_validation_work(base)
+        + _private_encoded_lease_validation_work(direct_member)
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        base,
+        nested_overlay,
+        direct_member,
+        nested_scope_map,
+        direct_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
     )

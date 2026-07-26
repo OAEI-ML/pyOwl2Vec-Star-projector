@@ -43,7 +43,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 90;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 91;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -721,10 +721,13 @@ impl EncodedDirectCompiler {
                 .right_excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            let right_anonymous_scope_map = self
-                .right_anonymous_scope_map
-                .as_ref()
-                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let right_anonymous_scope_map = if self._nested_member_view.is_some() {
+                &[][..]
+            } else {
+                self.right_anonymous_scope_map
+                    .as_ref()
+                    .map_or(&[][..], RetainedDirectBuffer::as_slice)
+            };
             DirectColumns::from_ordered(slices)
                 .with_excluded_root_ids(right_excluded_root_ids)
                 .with_anonymous_scope_map(right_anonymous_scope_map)
@@ -736,7 +739,16 @@ impl EncodedDirectCompiler {
                 .third_excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            DirectColumns::from_ordered(slices).with_excluded_root_ids(third_excluded_root_ids)
+            let third_anonymous_scope_map = if self._nested_member_view.is_some() {
+                self.right_anonymous_scope_map
+                    .as_ref()
+                    .map_or(&[][..], RetainedDirectBuffer::as_slice)
+            } else {
+                &[][..]
+            };
+            DirectColumns::from_ordered(slices)
+                .with_excluded_root_ids(third_excluded_root_ids)
+                .with_anonymous_scope_map(third_anonymous_scope_map)
         });
         let fourth_member_columns = self.fourth_member_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
@@ -1087,6 +1099,8 @@ impl EncodedDirectCompiler {
                                     encoded_view,
                                     expected_owner,
                                     &[(third_view, third_owner), (fourth_view, fourth_owner)],
+                                    anonymous_scope_map_view,
+                                    right_anonymous_scope_map_view,
                                 )?;
                             } else {
                                 validate_nested_member_composite_manifest(
@@ -1098,6 +1112,8 @@ impl EncodedDirectCompiler {
                                     encoded_view,
                                     expected_owner,
                                     &[(third_view, third_owner)],
+                                    anonymous_scope_map_view,
+                                    right_anonymous_scope_map_view,
                                 )?;
                             }
                             buffers
@@ -1211,20 +1227,26 @@ impl EncodedDirectCompiler {
                 "encoded nested composite member requires outer ALL root selection",
             ));
         }
-        if anonymous_scope_map.is_some()
-            && (merge_manifest.is_none()
-                || third_member.is_some()
-                || fourth_member.is_some()
-                || nested_member.is_some()
+        if anonymous_scope_map.is_some() {
+            let exact_two_member = merge_manifest.is_some()
+                && third_member.is_none()
+                && fourth_member.is_none()
+                && nested_member.is_none();
+            let exact_nested_member = merge_manifest.is_some()
+                && third_member.is_some()
+                && fourth_member.is_none()
+                && nested_member.is_some();
+            if !(exact_two_member || exact_nested_member)
                 || included_root_ids.is_some()
                 || excluded_root_ids.is_some()
                 || right_excluded_root_ids.is_some()
                 || third_excluded_root_ids.is_some()
-                || fourth_excluded_root_ids.is_some())
-        {
-            return Err(EncodedDirectUnsupportedError::new_err(
-                "encoded anonymous scope remapping requires an exact two-member ALL composite",
-            ));
+                || fourth_excluded_root_ids.is_some()
+            {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "encoded anonymous scope remapping requires an exact two-member or nested-member ALL composite",
+                ));
+            }
         }
         Ok(Self {
             _encoded_view: encoded_view.clone().unbind(),
@@ -1336,10 +1358,13 @@ impl EncodedDirectCompiler {
                 .right_excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            let right_anonymous_scope_map = self
-                .right_anonymous_scope_map
-                .as_ref()
-                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let right_anonymous_scope_map = if self._nested_member_view.is_some() {
+                &[][..]
+            } else {
+                self.right_anonymous_scope_map
+                    .as_ref()
+                    .map_or(&[][..], RetainedDirectBuffer::as_slice)
+            };
             DirectColumns::from_ordered(slices)
                 .with_excluded_root_ids(right_excluded_root_ids)
                 .with_anonymous_scope_map(right_anonymous_scope_map)
@@ -1351,7 +1376,16 @@ impl EncodedDirectCompiler {
                 .third_excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            DirectColumns::from_ordered(slices).with_excluded_root_ids(third_excluded_root_ids)
+            let third_anonymous_scope_map = if self._nested_member_view.is_some() {
+                self.right_anonymous_scope_map
+                    .as_ref()
+                    .map_or(&[][..], RetainedDirectBuffer::as_slice)
+            } else {
+                &[][..]
+            };
+            DirectColumns::from_ordered(slices)
+                .with_excluded_root_ids(third_excluded_root_ids)
+                .with_anonymous_scope_map(third_anonymous_scope_map)
         });
         let fourth_member_columns = self.fourth_member_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
@@ -3046,11 +3080,23 @@ fn validate_nested_member_composite_manifest(
     base_view: &Bound<'_, PyAny>,
     base_owner: &Bound<'_, PyAny>,
     direct_members: &[(&Bound<'_, PyAny>, &Bound<'_, PyAny>)],
+    anonymous_scope_map: Option<&Bound<'_, PyAny>>,
+    right_anonymous_scope_map: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
     if !(1..=2).contains(&direct_members.len()) {
         return Err(EncodedDirectUnsupportedError::new_err(
             "bounded nested-member composite requires one or two direct siblings",
+        ));
+    }
+    if anonymous_scope_map.is_some() != right_anonymous_scope_map.is_some() {
+        return Err(encoded_buffer_error(
+            "encoded scope-mapped nested composite requires both outer member scope maps",
+        ));
+    }
+    if anonymous_scope_map.is_some() && direct_members.len() != 1 {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "bounded scope-mapped nested composite requires one direct sibling",
         ));
     }
     if nested_view.is(base_view) || nested_owner.is(base_owner) {
@@ -3157,11 +3203,35 @@ fn validate_nested_member_composite_manifest(
                 "bounded nested-member composite requires outer ALL selection",
             ));
         }
-        for name in ["root_ids", "anonymous_scope_map"] {
-            let buffer = required_attribute(&segment, name)?;
-            if checked_memoryview_length(&buffer, name)? != 0 {
+        let root_ids = required_attribute(&segment, "root_ids")?;
+        if checked_memoryview_length(&root_ids, "root_ids")? != 0 {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "bounded nested-member composite does not support outer postings",
+            ));
+        }
+        let expected_scope_map = match member_index {
+            0 => anonymous_scope_map,
+            1 => right_anonymous_scope_map,
+            _ => None,
+        };
+        let scope_map = required_attribute(&segment, "anonymous_scope_map")?;
+        let scope_map_bytes = checked_memoryview_length(&scope_map, "anonymous_scope_map")?;
+        match expected_scope_map {
+            None if scope_map_bytes == 0 => {}
+            Some(expected) if scope_map_bytes != 0 && scope_map.is(expected) => {}
+            None => {
                 return Err(EncodedDirectUnsupportedError::new_err(
-                    "bounded nested-member composite does not support outer postings or scope remapping",
+                    "bounded nested-member composite received an unexpected anonymous scope map",
+                ));
+            }
+            Some(_) if scope_map_bytes == 0 => {
+                return Err(encoded_buffer_error(
+                    "encoded nested composite member lost its anonymous scope map",
+                ));
+            }
+            Some(_) => {
+                return Err(encoded_buffer_error(
+                    "encoded nested composite member lost its exact anonymous scope map",
                 ));
             }
         }
