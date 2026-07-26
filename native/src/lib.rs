@@ -43,7 +43,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 88;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 89;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -616,6 +616,8 @@ struct EncodedDirectCompiler {
     right_excluded_root_ids: Option<RetainedDirectBuffer>,
     third_excluded_root_ids: Option<RetainedDirectBuffer>,
     fourth_excluded_root_ids: Option<RetainedDirectBuffer>,
+    anonymous_scope_map: Option<RetainedDirectBuffer>,
+    right_anonymous_scope_map: Option<RetainedDirectBuffer>,
     _root_annotation_view: Option<Py<PyAny>>,
     _root_annotation_owner: Option<Py<PyAny>>,
     root_annotation_buffers: Option<Vec<RetainedDirectBuffer>>,
@@ -704,9 +706,14 @@ impl EncodedDirectCompiler {
             .excluded_root_ids
             .as_ref()
             .map_or(&[][..], RetainedDirectBuffer::as_slice);
+        let anonymous_scope_map = self
+            .anonymous_scope_map
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
         let columns = DirectColumns::from_ordered(slices)
             .with_included_root_ids(included_root_ids)
-            .with_excluded_root_ids(excluded_root_ids);
+            .with_excluded_root_ids(excluded_root_ids)
+            .with_anonymous_scope_map(anonymous_scope_map);
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -714,7 +721,13 @@ impl EncodedDirectCompiler {
                 .right_excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            DirectColumns::from_ordered(slices).with_excluded_root_ids(right_excluded_root_ids)
+            let right_anonymous_scope_map = self
+                .right_anonymous_scope_map
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices)
+                .with_excluded_root_ids(right_excluded_root_ids)
+                .with_anonymous_scope_map(right_anonymous_scope_map)
         });
         let third_member_columns = self.third_member_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
@@ -876,6 +889,8 @@ impl EncodedDirectCompiler {
         fourth_member_owner=None,
         fourth_member_descriptor_sha256=None,
         fourth_excluded_root_ids=None,
+        anonymous_scope_map=None,
+        right_anonymous_scope_map=None,
     ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
@@ -906,6 +921,8 @@ impl EncodedDirectCompiler {
         fourth_member_owner: Option<&Bound<'_, PyAny>>,
         fourth_member_descriptor_sha256: Option<&Bound<'_, PyAny>>,
         fourth_excluded_root_ids: Option<&Bound<'_, PyAny>>,
+        anonymous_scope_map: Option<&Bound<'_, PyAny>>,
+        right_anonymous_scope_map: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
         let included_root_ids_view = included_root_ids;
@@ -928,6 +945,19 @@ impl EncodedDirectCompiler {
         let fourth_excluded_root_ids = fourth_excluded_root_ids_view
             .map(|value| retained_exact_bytes_buffer(value, "fourth_excluded_root_ids"))
             .transpose()?;
+        let anonymous_scope_map_view = anonymous_scope_map;
+        let anonymous_scope_map = anonymous_scope_map_view
+            .map(|value| retained_exact_bytes_buffer(value, "anonymous_scope_map"))
+            .transpose()?;
+        let right_anonymous_scope_map_view = right_anonymous_scope_map;
+        let right_anonymous_scope_map = right_anonymous_scope_map_view
+            .map(|value| retained_exact_bytes_buffer(value, "right_anonymous_scope_map"))
+            .transpose()?;
+        if anonymous_scope_map.is_some() != right_anonymous_scope_map.is_some() {
+            return Err(encoded_buffer_error(
+                "encoded scope-mapped composite requires both member scope maps",
+            ));
+        }
         if included_root_ids.is_some() && excluded_root_ids.is_some() {
             return Err(encoded_buffer_error(
                 "encoded root selection cannot combine INCLUDE and EXCLUDE postings",
@@ -1097,6 +1127,8 @@ impl EncodedDirectCompiler {
                                 included_root_ids_view,
                                 excluded_root_ids_view,
                                 right_excluded_root_ids_view,
+                                anonymous_scope_map_view,
+                                right_anonymous_scope_map_view,
                             )?;
                             buffers
                         }
@@ -1179,6 +1211,21 @@ impl EncodedDirectCompiler {
                 "encoded nested composite member requires outer ALL root selection",
             ));
         }
+        if anonymous_scope_map.is_some()
+            && (merge_manifest.is_none()
+                || third_member.is_some()
+                || fourth_member.is_some()
+                || nested_member.is_some()
+                || included_root_ids.is_some()
+                || excluded_root_ids.is_some()
+                || right_excluded_root_ids.is_some()
+                || third_excluded_root_ids.is_some()
+                || fourth_excluded_root_ids.is_some())
+        {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded anonymous scope remapping requires an exact two-member ALL composite",
+            ));
+        }
         Ok(Self {
             _encoded_view: encoded_view.clone().unbind(),
             _owner: expected_owner.clone().unbind(),
@@ -1202,6 +1249,8 @@ impl EncodedDirectCompiler {
             right_excluded_root_ids,
             third_excluded_root_ids,
             fourth_excluded_root_ids,
+            anonymous_scope_map,
+            right_anonymous_scope_map,
             _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
             root_annotation_buffers,
@@ -1272,9 +1321,14 @@ impl EncodedDirectCompiler {
             .excluded_root_ids
             .as_ref()
             .map_or(&[][..], RetainedDirectBuffer::as_slice);
+        let anonymous_scope_map = self
+            .anonymous_scope_map
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
         let columns = DirectColumns::from_ordered(slices)
             .with_included_root_ids(included_root_ids)
-            .with_excluded_root_ids(excluded_root_ids);
+            .with_excluded_root_ids(excluded_root_ids)
+            .with_anonymous_scope_map(anonymous_scope_map);
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -1282,7 +1336,13 @@ impl EncodedDirectCompiler {
                 .right_excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            DirectColumns::from_ordered(slices).with_excluded_root_ids(right_excluded_root_ids)
+            let right_anonymous_scope_map = self
+                .right_anonymous_scope_map
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            DirectColumns::from_ordered(slices)
+                .with_excluded_root_ids(right_excluded_root_ids)
+                .with_anonymous_scope_map(right_anonymous_scope_map)
         });
         let third_member_columns = self.third_member_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
@@ -2036,6 +2096,8 @@ impl EncodedDirectCompiler {
             + usize::from(self.right_excluded_root_ids.is_some())
             + usize::from(self.third_excluded_root_ids.is_some())
             + usize::from(self.fourth_excluded_root_ids.is_some())
+            + usize::from(self.anonymous_scope_map.is_some())
+            + usize::from(self.right_anonymous_scope_map.is_some())
     }
 
     /// Deterministic test hook proving another Python thread can cancel while
@@ -2637,6 +2699,8 @@ fn validate_two_member_composite_manifest(
     included_root_ids: Option<&Bound<'_, PyAny>>,
     excluded_root_ids: Option<&Bound<'_, PyAny>>,
     right_excluded_root_ids: Option<&Bound<'_, PyAny>>,
+    anonymous_scope_map: Option<&Bound<'_, PyAny>>,
+    right_anonymous_scope_map: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
     if left_view.is(right_view) || left_owner.is(right_owner) {
@@ -2691,27 +2755,38 @@ fn validate_two_member_composite_manifest(
             ));
         }
         let source = required_attribute(&segment, "source")?;
-        let (member_owner, expected_include, expected_exclude) = if source.is(left_view) {
-            if matched_left {
+        let (member_owner, expected_include, expected_exclude, expected_scope_map) =
+            if source.is(left_view) {
+                if matched_left {
+                    return Err(encoded_buffer_error(
+                        "encoded composite repeats its left source identity",
+                    ));
+                }
+                matched_left = true;
+                (
+                    left_owner,
+                    included_root_ids,
+                    excluded_root_ids,
+                    anonymous_scope_map,
+                )
+            } else if source.is(right_view) {
+                if matched_right {
+                    return Err(encoded_buffer_error(
+                        "encoded composite repeats its right source identity",
+                    ));
+                }
+                matched_right = true;
+                (
+                    right_owner,
+                    None,
+                    right_excluded_root_ids,
+                    right_anonymous_scope_map,
+                )
+            } else {
                 return Err(encoded_buffer_error(
-                    "encoded composite repeats its left source identity",
+                    "encoded composite member lost its retained source identity",
                 ));
-            }
-            matched_left = true;
-            (left_owner, included_root_ids, excluded_root_ids)
-        } else if source.is(right_view) {
-            if matched_right {
-                return Err(encoded_buffer_error(
-                    "encoded composite repeats its right source identity",
-                ));
-            }
-            matched_right = true;
-            (right_owner, None, right_excluded_root_ids)
-        } else {
-            return Err(encoded_buffer_error(
-                "encoded composite member lost its retained source identity",
-            ));
-        };
+            };
         if !required_attribute(&segment, "owner")?.is(member_owner) {
             return Err(encoded_buffer_error(
                 "encoded composite member lost its retained owner identity",
@@ -2763,10 +2838,25 @@ fn validate_two_member_composite_manifest(
             }
         }
         let scope_map = required_attribute(&segment, "anonymous_scope_map")?;
-        if checked_memoryview_length(&scope_map, "anonymous_scope_map")? != 0 {
-            return Err(EncodedDirectUnsupportedError::new_err(
-                "bounded two-member composite does not support anonymous scope remapping",
-            ));
+        let scope_map_bytes = checked_memoryview_length(&scope_map, "anonymous_scope_map")?;
+        match expected_scope_map {
+            None if scope_map_bytes == 0 => {}
+            Some(expected) if scope_map_bytes != 0 && scope_map.is(expected) => {}
+            None => {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "bounded two-member composite received an unexpected anonymous scope map",
+                ));
+            }
+            Some(_) if scope_map_bytes == 0 => {
+                return Err(encoded_buffer_error(
+                    "encoded composite member lost its anonymous scope map",
+                ));
+            }
+            Some(_) => {
+                return Err(encoded_buffer_error(
+                    "encoded composite member lost its exact anonymous scope map",
+                ));
+            }
         }
 
         let token = required_attribute(&segment, "member_token")?;

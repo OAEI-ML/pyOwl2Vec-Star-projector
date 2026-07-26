@@ -36,6 +36,7 @@ from pyowl2vec_star_projector.encoded import (
     EncodedStructuralLease,
     _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
+    _resolve_private_scope_mapped_class_assertion_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
     _resolve_private_two_member_composite,
@@ -9033,6 +9034,22 @@ def _two_member_duplicate_subclass_composite(
     )
 
 
+def _scope_mapped_class_assertion_composite(
+    provider_backend: pyowl_core.BackendPreference,
+) -> pyowl_core.OntologyView:
+    members = [
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                "SubClassOf(:B :Top) ClassAssertion(:A _:same)",
+                backend=provider_backend,
+            ),
+        )
+        for _ in range(2)
+    ]
+    return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+
+
 def _two_member_dual_exclude_subclass_composite(
     provider_backend: pyowl_core.BackendPreference,
 ) -> pyowl_core.OntologyView:
@@ -9650,6 +9667,296 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
         compiled_edges=3,
         batch_edges=1,
     )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_remaps_anonymous_class_assertion_scopes_in_one_native_pass(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _scope_mapped_class_assertion_composite(provider_backend)
+    top_encoded = composite.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
+    assert all(segment.posting_mode == 0 for segment in top_encoded.segments)
+    assert all(segment.root_ids.nbytes == 0 for segment in top_encoded.segments)
+    assert all(segment.anonymous_scope_map.nbytes == 64 for segment in top_encoded.segments)
+    assert bytes(top_encoded.segments[0].anonymous_scope_map[:32]) == bytes(
+        top_encoded.segments[1].anonymous_scope_map[:32]
+    )
+    assert bytes(top_encoded.segments[0].anonymous_scope_map[32:]) != bytes(
+        top_encoded.segments[1].anonymous_scope_map[32:]
+    )
+    expected_buffer_bytes = sum(value.nbytes for value in top_encoded.buffers.values()) + sum(
+        value.nbytes
+        for segment in top_encoded.segments
+        for value in cast(Any, segment.source).buffers.values()
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("scope-mapped composite reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                "urn:native-integration#B",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+        ]
+    )
+    _assert_semantic_report_parity(expected_report, report)
+    assert tuple((item.code, item.constructor, item.count) for item in report.diagnostics) == (
+        ("MOWL_IGNORED_SHAPE", "ClassAssertion", 2),
+    )
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.anonymous_scope_map is top_encoded.segments[0].anonymous_scope_map
+    assert compilation.right_anonymous_scope_map is top_encoded.segments[1].anonymous_scope_map
+    statistics = compilation.native_statistics
+    assert statistics.roots == 3
+    assert statistics.subclasses == 1
+    assert statistics.class_assertions == 2
+    assert statistics.ignored_class_assertions == 2
+    assert statistics.anonymous_individuals == 2
+    assert statistics.edges == 1
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 33
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 24
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 33
+    assert ingestion.counters["encoded_referenced_view_count"] == 2
+    assert ingestion.counters["encoded_segment_count"] == 4
+    assert ingestion.counters["encoded_posting_bytes"] == 128
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=1,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_scope_mapped_composite_preserves_identity_limits_and_retry(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite = _scope_mapped_class_assertion_composite(provider_backend)
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_scope_mapped_class_assertion_composite(top_lease)
+    assert resolved is not None
+    left, right, left_scope_map, right_scope_map, max_work, max_workspace = resolved
+    assert max_work is not None
+    assert max_workspace is not None
+
+    def compiler(
+        *,
+        work: int = max_work,
+        workspace: int = max_workspace,
+        left_map: memoryview = left_scope_map,
+        right_map: memoryview = right_scope_map,
+        manifest: EncodedStructuralLease = top_lease,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            left,
+            local_delta_lease=right,
+            merge_manifest_lease=manifest,
+            canonical_work_limit=work,
+            canonical_workspace_limit=workspace,
+            anonymous_scope_map=left_map,
+            right_anonymous_scope_map=right_map,
+        )
+
+    cancelled = compiler()
+    assert cancelled.cancel() is True
+    with pytest.raises(NativeEncodedDirectCancelled):
+        cancelled.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024,
+        )
+    assert cancelled.state == "cancelled"
+    assert cancelled.retained_buffer_count == 24
+
+    for work, workspace, expected_message in [
+        (1, max_workspace, "work"),
+        (max_work, 1, "workspace"),
+    ]:
+        limited = compiler(work=work, workspace=workspace)
+        with pytest.raises(ProjectionResourceError) as captured:
+            limited.iter_batches(
+                bidirectional=False,
+                max_edges=1,
+                max_iri_bytes=1024,
+                batch_edges=1,
+            )
+        assert captured.value.__cause__ is not None
+        assert expected_message in str(captured.value.__cause__)
+        assert limited.state == "failed"
+        assert limited.retained_buffer_count == 24
+        assert limited.coarse_output_chunks == 0
+        assert limited.peak_buffered_coarse_edges == 0
+
+    retry = compiler()
+    edges, statistics = retry.compile_batch(
+        bidirectional=False,
+        max_edges=1,
+        max_iri_bytes=1024,
+    )
+    assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["B"]
+    assert statistics.roots == 3
+    assert statistics.subclasses == 1
+    assert statistics.class_assertions == statistics.ignored_class_assertions == 2
+    assert statistics.anonymous_individuals == 2
+    assert statistics.edges == 1
+    assert retry.state == "finished"
+    assert retry.retained_buffer_count == 24
+    assert retry.cancel() is False
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="lost its exact anonymous scope map",
+    ):
+        compiler(left_map=memoryview(bytes(left_scope_map)))
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="lost its exact anonymous scope map",
+    ):
+        compiler(left_map=right_scope_map, right_map=left_scope_map)
+    with pytest.raises(
+        ValueError,
+        match="both member scope maps",
+    ):
+        prepare_native_encoded_direct(
+            left,
+            local_delta_lease=right,
+            merge_manifest_lease=top_lease,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+            anonymous_scope_map=left_scope_map,
+        )
+
+    def forged_manifest(
+        original: memoryview,
+        replacement: memoryview,
+    ) -> EncodedStructuralLease:
+        segments = list(top_lease.segments)
+        index = next(
+            index
+            for index, segment in enumerate(segments)
+            if cast(Any, segment).anonymous_scope_map is original
+        )
+        segments[index] = replace(
+            cast(Any, segments[index]),
+            anonymous_scope_map=replacement,
+        )
+        encoded_view = replace(
+            cast(Any, top_lease.encoded_view),
+            segments=tuple(segments),
+        )
+        return replace(
+            top_lease,
+            encoded_view=encoded_view,
+            segments=tuple(segments),
+        )
+
+    identity_scope_map = memoryview(bytes(left_scope_map[:32]) + bytes(left_scope_map[:32]))
+    identity_lease = forged_manifest(left_scope_map, identity_scope_map)
+    assert _resolve_private_scope_mapped_class_assertion_composite(identity_lease) is None
+    identity = compiler(
+        left_map=identity_scope_map,
+        manifest=identity_lease,
+    )
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="identity row",
+    ):
+        identity.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024,
+        )
+    assert identity.state == "failed"
+
+    colliding_scope_map = memoryview(bytes(right_scope_map[:32]) + bytes(left_scope_map[32:]))
+    forged_lease = forged_manifest(right_scope_map, colliding_scope_map)
+    assert _resolve_private_scope_mapped_class_assertion_composite(forged_lease) is None
+    colliding = compiler(
+        right_map=colliding_scope_map,
+        manifest=forged_lease,
+    )
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="scope targets are not unique",
+    ):
+        colliding.compile_batch(
+            bidirectional=False,
+            max_edges=1,
+            max_iri_bytes=1024,
+        )
+    assert colliding.state == "failed"
 
 
 @pytest.mark.parametrize(
@@ -11439,20 +11746,20 @@ def test_hidden_iterator_keeps_adjacent_nested_member_shapes_fail_closed(
 )
 @pytest.mark.parametrize(
     "shape",
-    ["scope-remap", "bridge"],
+    ["anonymous-object-assertion", "bridge"],
 )
 def test_hidden_iterator_keeps_adjacent_composite_shapes_fail_closed(
     provider_backend: pyowl_core.BackendPreference,
     shape: str,
 ) -> None:
-    if shape == "scope-remap":
+    if shape == "anonymous-object-assertion":
         left = cast(
             pyowl_core.OntologyView,
-            _snapshot("ClassAssertion(:A _:same)", backend=provider_backend),
+            _snapshot("ObjectPropertyAssertion(:p _:same :j)", backend=provider_backend),
         )
         right = cast(
             pyowl_core.OntologyView,
-            _snapshot("ClassAssertion(:A _:same)", backend=provider_backend),
+            _snapshot("ObjectPropertyAssertion(:p _:same :j)", backend=provider_backend),
         )
         composite = pyowl_core.compose_views(left, right)
     else:

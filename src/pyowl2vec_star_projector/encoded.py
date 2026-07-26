@@ -60,6 +60,10 @@ _SEGMENT_COMPOSITE_BRIDGE = 5
 _POSTINGS_ALL = 0
 _POSTINGS_INCLUDE = 1
 _POSTINGS_EXCLUDE = 2
+_TAG_ENTITY = 2
+_TAG_ANONYMOUS_INDIVIDUAL = 3
+_TAG_SUB_CLASS_OF = 61
+_TAG_CLASS_ASSERTION = 112
 _DEFAULT_MAX_SEGMENTS = 1_025
 
 
@@ -446,10 +450,12 @@ def _resolve_private_direct_composite_rows(
     *,
     member_count: int,
     require_direct_sources: bool = True,
+    allow_scope_maps: bool = False,
 ) -> (
     tuple[
         tuple[
             EncodedStructuralLease,
+            memoryview | None,
             memoryview | None,
             memoryview | None,
         ],
@@ -463,6 +469,7 @@ def _resolve_private_direct_composite_rows(
         type(member_count) is not int
         or member_count < 2
         or type(require_direct_sources) is not bool
+        or type(allow_scope_maps) is not bool
         or type(lease) is not EncodedStructuralLease
         or len(lease.segments) != member_count
     ):
@@ -476,6 +483,7 @@ def _resolve_private_direct_composite_rows(
     rows: list[
         tuple[
             EncodedStructuralLease,
+            memoryview | None,
             memoryview | None,
             memoryview | None,
         ]
@@ -503,7 +511,7 @@ def _resolve_private_direct_composite_rows(
             or type(posting_mode) is not int
             or type(root_ids) is not memoryview
             or type(scope_map) is not memoryview
-            or scope_map.nbytes
+            or (scope_map.nbytes and not allow_scope_maps)
             or type(member_token) is not bytes
             or len(member_token) != 32
             or (previous_token is not None and member_token <= previous_token)
@@ -550,10 +558,17 @@ def _resolve_private_direct_composite_rows(
             return None
         if any(
             source_lease.encoded_view is prior.encoded_view or source_lease.owner is prior.owner
-            for prior, _included, _excluded in rows
+            for prior, _included, _excluded, _scope_map in rows
         ):
             return None
-        rows.append((source_lease, included_root_ids, excluded_root_ids))
+        rows.append(
+            (
+                source_lease,
+                included_root_ids,
+                excluded_root_ids,
+                scope_map if scope_map.nbytes else None,
+            )
+        )
 
     return tuple(rows) if len(rows) == member_count else None
 
@@ -586,8 +601,8 @@ def _resolve_private_two_member_composite(
     if resolved_rows is None:
         return None
     rows = list(resolved_rows)
-    include_count = sum(included is not None for _lease, included, _excluded in rows)
-    exclude_count = sum(excluded is not None for _lease, _included, excluded in rows)
+    include_count = sum(included is not None for _lease, included, _excluded, _map in rows)
+    exclude_count = sum(excluded is not None for _lease, _included, excluded, _map in rows)
     if len(rows) != 2:
         return None
     if include_count and exclude_count:
@@ -596,8 +611,8 @@ def _resolve_private_two_member_composite(
         rows[1][1] is not None or rows[1][2] is not None
     ):
         rows.reverse()
-    left, included_root_ids, excluded_root_ids = rows[0]
-    right, right_included_root_ids, right_excluded_root_ids = rows[1]
+    left, included_root_ids, excluded_root_ids, _left_scope_map = rows[0]
+    right, right_included_root_ids, right_excluded_root_ids, _right_scope_map = rows[1]
     if right_included_root_ids is not None:
         return None
 
@@ -613,6 +628,137 @@ def _resolve_private_two_member_composite(
         included_root_ids,
         excluded_root_ids,
         right_excluded_root_ids,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _single_ignored_anonymous_class_assertion_scope(
+    lease: EncodedStructuralLease,
+) -> tuple[memoryview, int] | None:
+    """Return the sole source scope for one narrow remappable direct table."""
+
+    buffers = lease.buffers
+    anonymous_node_id: int | None = None
+    for index in range(_row_count(buffers, "node_tags")):
+        if _read_uint(buffers["node_tags"], index, 2) != _TAG_ANONYMOUS_INDIVIDUAL:
+            continue
+        if anonymous_node_id is not None:
+            return None
+        anonymous_node_id = index + 1
+    if anonymous_node_id is None:
+        return None
+
+    anonymous_start = _read_uint(
+        buffers["node_field_offsets"],
+        anonymous_node_id - 1,
+        8,
+    )
+    anonymous_end = _read_uint(buffers["node_field_offsets"], anonymous_node_id, 8)
+    if (
+        anonymous_end - anonymous_start != 2
+        or _read_uint(buffers["field_kinds"], anonymous_start, 1) != _COMPONENT_BYTES
+        or _read_uint(buffers["field_lengths"], anonymous_start, 8) != 32
+    ):
+        return None
+    scope_offset = _read_uint(buffers["field_values"], anonymous_start, 8)
+
+    class_assertions = 0
+    for root_index in range(_row_count(buffers, "root_kinds")):
+        if _read_uint(buffers["root_kinds"], root_index, 1) != 2:
+            return None
+        root_id = _read_uint(buffers["root_ids"], root_index, 4)
+        root_tag = _read_uint(buffers["node_tags"], root_id - 1, 2)
+        if root_tag == _TAG_SUB_CLASS_OF:
+            continue
+        if root_tag != _TAG_CLASS_ASSERTION:
+            return None
+        class_assertions += 1
+        start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
+        end = _read_uint(buffers["node_field_offsets"], root_id, 8)
+        if end - start != 3:
+            return None
+        if any(
+            _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
+            for offset in (0, 1)
+        ):
+            return None
+        class_id = _read_uint(buffers["field_values"], start, 8)
+        individual_id = _read_uint(buffers["field_values"], start + 1, 8)
+        if (
+            _read_uint(buffers["node_tags"], class_id - 1, 2) != _TAG_ENTITY
+            or individual_id != anonymous_node_id
+            or _read_uint(buffers["field_kinds"], start + 2, 1) != _COMPONENT_SET
+            or _read_uint(buffers["field_lengths"], start + 2, 8) != 0
+        ):
+            return None
+    if class_assertions != 1:
+        return None
+    return buffers["scalar_bytes"], scope_offset
+
+
+def _resolve_private_scope_mapped_class_assertion_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve two ALL members whose sole anonymous assertion scopes diverge."""
+
+    rows = _resolve_private_direct_composite_rows(
+        lease,
+        member_count=2,
+        allow_scope_maps=True,
+    )
+    if rows is None:
+        return None
+    left, left_include, left_exclude, left_scope_map = rows[0]
+    right, right_include, right_exclude, right_scope_map = rows[1]
+    if (
+        left_include is not None
+        or left_exclude is not None
+        or right_include is not None
+        or right_exclude is not None
+        or left_scope_map is None
+        or right_scope_map is None
+        or left_scope_map.nbytes != 64
+        or right_scope_map.nbytes != 64
+    ):
+        return None
+    left_scope = _single_ignored_anonymous_class_assertion_scope(left)
+    right_scope = _single_ignored_anonymous_class_assertion_scope(right)
+    if left_scope is None or right_scope is None:
+        return None
+    left_scalars, left_offset = left_scope
+    right_scalars, right_offset = right_scope
+    if (
+        any(left_scope_map[index] != left_scalars[left_offset + index] for index in range(32))
+        or any(right_scope_map[index] != right_scalars[right_offset + index] for index in range(32))
+        or any(left_scope_map[index] != right_scope_map[index] for index in range(32))
+        or all(left_scope_map[index] == left_scope_map[32 + index] for index in range(32))
+        or all(right_scope_map[index] == right_scope_map[32 + index] for index in range(32))
+        or all(left_scope_map[32 + index] == right_scope_map[32 + index] for index in range(32))
+    ):
+        return None
+
+    validation_work = (
+        _private_encoded_lease_validation_work(lease)
+        + _private_encoded_lease_validation_work(left)
+        + _private_encoded_lease_validation_work(right)
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        left,
+        right,
+        left_scope_map,
+        right_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
     )
@@ -636,11 +782,11 @@ def _resolve_private_three_member_composite(
     """Resolve three exact direct members with source-local ALL/EXCLUDE selection."""
 
     rows = _resolve_private_direct_composite_rows(lease, member_count=3)
-    if rows is None or any(included is not None for _source, included, _excluded in rows):
+    if rows is None or any(included is not None for _source, included, _excluded, _map in rows):
         return None
-    first, _first_include, first_excluded = rows[0]
-    second, _second_include, second_excluded = rows[1]
-    third, _third_include, third_excluded = rows[2]
+    first, _first_include, first_excluded, _first_map = rows[0]
+    second, _second_include, second_excluded, _second_map = rows[1]
+    third, _third_include, third_excluded, _third_map = rows[2]
     validation_work = (
         _private_encoded_lease_validation_work(lease)
         + _private_encoded_lease_validation_work(first)
@@ -681,12 +827,12 @@ def _resolve_private_nested_overlay_composite(
         require_direct_sources=False,
     )
     if rows is None or any(
-        included is not None or excluded is not None for _source, included, excluded in rows
+        included is not None or excluded is not None for _source, included, excluded, _map in rows
     ):
         return None
     overlay_rows: list[EncodedStructuralLease] = []
     direct_rows: list[EncodedStructuralLease] = []
-    for source, _included, _excluded in rows:
+    for source, _included, _excluded, _map in rows:
         roles = tuple(cast(Any, segment).role for segment in source.segments)
         if roles == (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA):
             overlay_rows.append(source)
@@ -745,12 +891,12 @@ def _resolve_private_four_table_nested_composite(
         require_direct_sources=False,
     )
     if rows is None or any(
-        included is not None or excluded is not None for _source, included, excluded in rows
+        included is not None or excluded is not None for _source, included, excluded, _map in rows
     ):
         return None
     overlay_rows: list[EncodedStructuralLease] = []
     direct_rows: list[EncodedStructuralLease] = []
-    for source, _included, _excluded in rows:
+    for source, _included, _excluded, _map in rows:
         roles = tuple(cast(Any, segment).role for segment in source.segments)
         if roles == (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA):
             overlay_rows.append(source)

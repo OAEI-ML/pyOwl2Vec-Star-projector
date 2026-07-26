@@ -1738,6 +1738,9 @@ enum OwnedOverlayDeltaProjection {
         individual: String,
         class: String,
     },
+    IgnoredClassAssertion {
+        anonymous_individuals: usize,
+    },
     ObjectPropertyAssertion {
         source: String,
         relation: String,
@@ -1749,7 +1752,9 @@ impl OwnedOverlayDeltaProjection {
     fn phase(&self) -> EmissionPhase {
         match self {
             Self::Taxonomy { .. } | Self::Restriction { .. } => EmissionPhase::Subclasses,
-            Self::ClassAssertion { .. } => EmissionPhase::ClassAssertions,
+            Self::ClassAssertion { .. } | Self::IgnoredClassAssertion { .. } => {
+                EmissionPhase::ClassAssertions
+            }
             Self::ObjectPropertyAssertion { .. } => EmissionPhase::ObjectAssertions,
         }
     }
@@ -1778,6 +1783,26 @@ impl OwnedOverlayDeltaProjection {
                 statistics.class_assertions =
                     statistics.class_assertions.checked_add(1).ok_or_else(|| {
                         KernelError::resource("encoded class-assertion count overflow")
+                    })?;
+            }
+            Self::IgnoredClassAssertion {
+                anonymous_individuals,
+            } => {
+                statistics.class_assertions =
+                    statistics.class_assertions.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded class-assertion count overflow")
+                    })?;
+                statistics.ignored_class_assertions = statistics
+                    .ignored_class_assertions
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded ignored-class-assertion count overflow")
+                    })?;
+                statistics.anonymous_individuals = statistics
+                    .anonymous_individuals
+                    .checked_add(*anonymous_individuals)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded anonymous-individual count overflow")
                     })?;
             }
             Self::ObjectPropertyAssertion { .. } => {
@@ -1843,6 +1868,7 @@ pub(crate) struct DirectColumns<'a> {
     root_ids: &'a [u8],
     included_root_ids: &'a [u8],
     excluded_root_ids: &'a [u8],
+    anonymous_scope_map: &'a [u8],
     node_tags: &'a [u8],
     node_field_offsets: &'a [u8],
     field_kinds: &'a [u8],
@@ -1861,6 +1887,7 @@ impl<'a> DirectColumns<'a> {
             root_ids: buffers[1],
             included_root_ids: &[],
             excluded_root_ids: &[],
+            anonymous_scope_map: &[],
             node_tags: buffers[2],
             node_field_offsets: buffers[3],
             field_kinds: buffers[4],
@@ -1880,6 +1907,11 @@ impl<'a> DirectColumns<'a> {
 
     pub(crate) fn with_included_root_ids(mut self, included_root_ids: &'a [u8]) -> Self {
         self.included_root_ids = included_root_ids;
+        self
+    }
+
+    pub(crate) fn with_anonymous_scope_map(mut self, anonymous_scope_map: &'a [u8]) -> Self {
+        self.anonymous_scope_map = anonymous_scope_map;
         self
     }
 
@@ -2231,9 +2263,37 @@ impl<'a> DirectColumns<'a> {
         self.validate_anonymous_individual(node_id)?;
         let start = self.exact_fields(node_id, 2)?;
         Ok((
-            self.scalar_payload(start, COMPONENT_BYTES)?,
+            self.remap_anonymous_scope(self.scalar_payload(start, COMPONENT_BYTES)?)?,
             self.scalar_payload(start + 1, COMPONENT_BYTES)?,
         ))
+    }
+
+    fn remap_anonymous_scope(self, scope: &'a [u8]) -> Result<&'a [u8], KernelError> {
+        let mut start = 0_usize;
+        let mut end = self.anonymous_scope_map.len() / 64;
+        while start < end {
+            let middle = start + (end - start) / 2;
+            let offset = middle
+                .checked_mul(64)
+                .ok_or_else(|| KernelError::resource("encoded scope-map offset overflow"))?;
+            let source = self
+                .anonymous_scope_map
+                .get(offset..offset + 32)
+                .ok_or_else(|| KernelError::malformed("encoded scope-map source is truncated"))?;
+            match source.cmp(scope) {
+                std::cmp::Ordering::Less => start = middle + 1,
+                std::cmp::Ordering::Greater => end = middle,
+                std::cmp::Ordering::Equal => {
+                    return self
+                        .anonymous_scope_map
+                        .get(offset + 32..offset + 64)
+                        .ok_or_else(|| {
+                            KernelError::malformed("encoded scope-map target is truncated")
+                        });
+                }
+            }
+        }
+        Ok(scope)
     }
 
     fn compare_anonymous_nodes(
@@ -2252,6 +2312,98 @@ impl<'a> DirectColumns<'a> {
             return Ok(length_order);
         }
         Ok(left_key.cmp(right_key))
+    }
+
+    fn validate_scope_mapped_class_assertion_table(
+        self,
+        maximum_iri: usize,
+        state: &AtomicU8,
+    ) -> Result<&'a [u8], KernelError> {
+        if !self.included_root_ids.is_empty()
+            || !self.excluded_root_ids.is_empty()
+            || self.anonymous_scope_map.len() != 64
+        {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope composite requires one bytes32 remap and ALL roots per member",
+            ));
+        }
+        let mut anonymous_node = None;
+        for node_id in 1..=self.node_count() {
+            check_cancel(state, node_id)?;
+            if self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL
+                && anonymous_node.replace(node_id).is_some()
+            {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope composite requires one anonymous individual per member",
+                ));
+            }
+        }
+        let anonymous_node = anonymous_node.ok_or_else(|| {
+            KernelError::unsupported(
+                "bounded anonymous-scope composite requires one anonymous individual per member",
+            )
+        })?;
+        let anonymous_start = self.exact_fields(anonymous_node, 2)?;
+        let source_scope = self.scalar_payload(anonymous_start, COMPONENT_BYTES)?;
+        if source_scope != &self.anonymous_scope_map[..32] {
+            return Err(KernelError::malformed(
+                "encoded anonymous scope map does not bind the member source scope",
+            ));
+        }
+
+        let mut class_assertions = 0_usize;
+        for root_index in 0..self.root_count() {
+            check_cancel(state, root_index)?;
+            if self.root_kind(root_index)? != ROOT_AXIOM {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope composite requires only axiom roots",
+                ));
+            }
+            let root = self.root_id(root_index)?;
+            match self.node_tag(root)? {
+                TAG_SUB_CLASS_OF => {
+                    if !matches!(
+                        self.subclass_projection(root, maximum_iri)?,
+                        SubclassProjection::Taxonomy { .. }
+                    ) {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite supports only named SubClassOf siblings",
+                        ));
+                    }
+                }
+                TAG_CLASS_ASSERTION => {
+                    let start = self.exact_fields(root, 3)?;
+                    let (_annotation_start, annotation_count) =
+                        self.node_set_range(start + 2, 0)?;
+                    if annotation_count != 0
+                        || self.node_tag(self.field_node(start)?)? != TAG_ENTITY
+                        || self.field_node(start + 1)? != anonymous_node
+                        || !matches!(
+                            self.class_assertion_projection(root, maximum_iri)?,
+                            ClassAssertionProjection::Ignored
+                        )
+                    {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires one unannotated named-class assertion over its anonymous individual",
+                        ));
+                    }
+                    class_assertions = class_assertions.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded class-assertion count overflow")
+                    })?;
+                }
+                _ => {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope composite supports only named SubClassOf and anonymous ClassAssertion roots",
+                    ));
+                }
+            }
+        }
+        if class_assertions != 1 {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope composite requires exactly one anonymous ClassAssertion per member",
+            ));
+        }
+        Ok(&self.anonymous_scope_map[32..64])
     }
 
     fn root_contains_anonymous_individual(
@@ -4146,6 +4298,7 @@ impl<'a> DirectColumns<'a> {
             ("root_ids", 4, self.root_ids),
             ("included_root_ids", 4, self.included_root_ids),
             ("excluded_root_ids", 4, self.excluded_root_ids),
+            ("anonymous_scope_map", 64, self.anonymous_scope_map),
             ("node_tags", 2, self.node_tags),
             ("node_field_offsets", 8, self.node_field_offsets),
             ("field_values", 8, self.field_values),
@@ -4168,6 +4321,22 @@ impl<'a> DirectColumns<'a> {
             return Err(KernelError::malformed(
                 "encoded root selection cannot combine INCLUDE and EXCLUDE postings",
             ));
+        }
+        let mut previous_scope: Option<&[u8]> = None;
+        for (index, row) in self.anonymous_scope_map.chunks_exact(64).enumerate() {
+            check_cancel(state, index)?;
+            let (source, target) = row.split_at(32);
+            if source == target {
+                return Err(KernelError::malformed(
+                    "encoded anonymous scope map contains an identity row",
+                ));
+            }
+            if previous_scope.is_some_and(|previous| previous >= source) {
+                return Err(KernelError::malformed(
+                    "encoded anonymous scope-map sources are not sorted unique",
+                ));
+            }
+            previous_scope = Some(source);
         }
         if self.node_field_offsets.len() / 8 != self.node_count() + 1 {
             return Err(KernelError::malformed(
@@ -6356,6 +6525,7 @@ pub(crate) mod canonical_merge {
         Component {
             index: usize,
             item: bool,
+            remap_scope: bool,
         },
         Collection {
             start: usize,
@@ -6563,11 +6733,13 @@ pub(crate) mod canonical_merge {
                     }
                     EmitTask::Node(node_id) => {
                         let (start, end) = columns.field_range(node_id)?;
+                        let remaps_scope = columns.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL;
                         for field_index in (start..end).rev() {
                             self.push(
                                 EmitTask::Component {
                                     index: field_index,
                                     item: false,
+                                    remap_scope: remaps_scope && field_index == start,
                                 },
                                 budget,
                             )?;
@@ -6577,12 +6749,30 @@ pub(crate) mod canonical_merge {
                             budget,
                         )?;
                     }
-                    EmitTask::Component { index, item } => {
-                        self.schedule_component(
-                            lengths,
-                            canonical_component(columns, index, item, budget, state)?,
-                            budget,
-                        )?;
+                    EmitTask::Component {
+                        index,
+                        item,
+                        remap_scope,
+                    } => {
+                        let component = canonical_component(columns, index, item, budget, state)?;
+                        let component = if remap_scope {
+                            let CanonicalComponent::Scalar {
+                                kind: COMPONENT_BYTES,
+                                value,
+                            } = component
+                            else {
+                                return Err(KernelError::malformed(
+                                    "encoded anonymous scope is not a bytes component",
+                                ));
+                            };
+                            CanonicalComponent::Scalar {
+                                kind: COMPONENT_BYTES,
+                                value: columns.remap_anonymous_scope(value)?,
+                            }
+                        } else {
+                            component
+                        };
+                        self.schedule_component(lengths, component, budget)?;
                     }
                     EmitTask::Collection {
                         start,
@@ -7584,6 +7774,7 @@ impl DirectEmissionCursor {
                                 true
                             }
                             OwnedOverlayDeltaProjection::ClassAssertion { .. }
+                            | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
                             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. } => false,
                         };
                         if handled {
@@ -7806,21 +7997,33 @@ impl DirectEmissionCursor {
                 EmissionPhase::ClassAssertions => {
                     if let Some(delta_index) = self.next_overlay_delta_index(preparation)? {
                         let delta = &preparation.overlay_deltas[delta_index];
-                        if let OwnedOverlayDeltaProjection::ClassAssertion { individual, class } =
-                            &delta.projection
-                        {
-                            self.overlay_delta_index =
-                                self.overlay_delta_index.checked_add(1).ok_or_else(|| {
-                                    KernelError::resource("encoded local-overlay cursor overflow")
-                                })?;
-                            return self.publish(
-                                DirectEdge {
-                                    source: clone_text(individual)?,
-                                    relation: clone_text(RDF_TYPE)?,
-                                    destination: clone_text(class)?,
-                                },
-                                preparation,
-                            );
+                        match &delta.projection {
+                            OwnedOverlayDeltaProjection::ClassAssertion { individual, class } => {
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
+                                return self.publish(
+                                    DirectEdge {
+                                        source: clone_text(individual)?,
+                                        relation: clone_text(RDF_TYPE)?,
+                                        destination: clone_text(class)?,
+                                    },
+                                    preparation,
+                                );
+                            }
+                            OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. } => {
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
+                                continue;
+                            }
+                            _ => {}
                         }
                     }
                     if self.scan_index == columns.root_count() {
@@ -8461,6 +8664,46 @@ fn own_local_emitting_projection(
     }
 }
 
+fn own_composite_tail_projection(
+    columns: DirectColumns<'_>,
+    root: usize,
+    max_iri_bytes: usize,
+    state: &AtomicU8,
+    workspace: &mut LocalOverlayWorkspace,
+    allow_ignored_anonymous_class_assertion: bool,
+) -> Result<OwnedOverlayDeltaProjection, KernelError> {
+    if !allow_ignored_anonymous_class_assertion || columns.node_tag(root)? != TAG_CLASS_ASSERTION {
+        return own_local_emitting_projection(columns, root, max_iri_bytes, state, workspace);
+    }
+    let field_start = columns.exact_fields(root, 3)?;
+    let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
+    if annotation_count != 0 {
+        return Err(KernelError::unsupported(
+            "bounded anonymous-scope ClassAssertion requires an empty annotation set",
+        ));
+    }
+    match columns.class_assertion_projection(root, max_iri_bytes)? {
+        ClassAssertionProjection::Edge { individual, class } => {
+            Ok(OwnedOverlayDeltaProjection::ClassAssertion {
+                individual: workspace.clone_text(individual)?,
+                class: workspace.clone_text(class)?,
+            })
+        }
+        ClassAssertionProjection::Ignored
+            if columns.node_tag(columns.field_node(field_start)?)? == TAG_ENTITY
+                && columns.node_tag(columns.field_node(field_start + 1)?)?
+                    == TAG_ANONYMOUS_INDIVIDUAL =>
+        {
+            Ok(OwnedOverlayDeltaProjection::IgnoredClassAssertion {
+                anonymous_individuals: 1,
+            })
+        }
+        ClassAssertionProjection::Ignored => Err(KernelError::unsupported(
+            "bounded anonymous-scope composite supports only named-class assertions over one anonymous individual",
+        )),
+    }
+}
+
 const LOCAL_EMITTING_OVERLAY_REQUIREMENT: &str = "bounded local-overlay emitting segment requires only named SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots";
 
 #[derive(Debug)]
@@ -8573,6 +8816,17 @@ pub(crate) fn prepare_two_member_composite_batches_uncommitted(
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
 ) -> Result<PreparedDirectBatches, KernelError> {
+    if !left_columns.anonymous_scope_map.is_empty() || !right_columns.anonymous_scope_map.is_empty()
+    {
+        return prepare_k_way_composite_batches_uncommitted(
+            [left_columns, right_columns],
+            options,
+            state,
+            retained,
+            max_canonical_work,
+            max_canonical_workspace_bytes,
+        );
+    }
     prepare_two_table_batches_uncommitted(
         left_columns,
         right_columns,
@@ -8652,6 +8906,30 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             .checked_add(selected_counts[table])
             .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
     }
+    let scope_mapped = columns
+        .iter()
+        .any(|table| !table.anonymous_scope_map.is_empty());
+    if scope_mapped {
+        if N != 2 {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope remapping requires exactly two direct members",
+            ));
+        }
+        let left_target =
+            columns[0].validate_scope_mapped_class_assertion_table(options.max_iri_bytes, state)?;
+        let right_target =
+            columns[1].validate_scope_mapped_class_assertion_table(options.max_iri_bytes, state)?;
+        if columns[0].anonymous_scope_map[..32] != columns[1].anonymous_scope_map[..32] {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope remapping requires one shared source scope",
+            ));
+        }
+        if left_target == right_target {
+            return Err(KernelError::malformed(
+                "encoded composite anonymous scope targets are not unique",
+            ));
+        }
+    }
     if selected_total == 0 {
         return Err(KernelError::unsupported(
             "bounded composite requires at least one selected root",
@@ -8686,12 +8964,13 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                     "bounded composite tail requires projecting axiom roots",
                 ));
             }
-            let projection = own_local_emitting_projection(
+            let projection = own_composite_tail_projection(
                 *tail_columns,
                 root,
                 options.max_iri_bytes,
                 state,
                 &mut local_workspace,
+                scope_mapped,
             )?;
             overlay_deltas.push(OwnedOverlayDelta {
                 projection,
@@ -8837,6 +9116,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             }
             OwnedOverlayDeltaProjection::Restriction { .. }
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
+            | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. } => (0, 0),
         };
         projection_edges = projection_edges
@@ -9896,6 +10176,7 @@ fn prepare_two_table_batches_uncommitted(
             }
             OwnedOverlayDeltaProjection::Restriction { .. }
             | OwnedOverlayDeltaProjection::ClassAssertion { .. }
+            | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. } => (0, 0),
         };
         projection_edges = projection_edges
@@ -10879,6 +11160,36 @@ mod tests {
         fixture.finish_node(TAG_SUB_CLASS_OF); // 5
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_class_assertion_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:A".as_slice(), b"urn:B", b"urn:Top"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        for iri_id in 1_u64..=3 {
+            fixture.push_scalar(COMPONENT_ENUM, b"class");
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 4..=6
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 7
+        fixture.push_node_ref(5);
+        fixture.push_node_ref(6);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 8
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(7);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_CLASS_ASSERTION); // 9
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
+        fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
         fixture
     }
 
@@ -19984,6 +20295,86 @@ mod tests {
         );
         prepared.commit_cursor(first_cursor);
         assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn two_member_composite_remaps_anonymous_class_assertion_scopes() {
+        let left = scope_mapped_class_assertion_fixture();
+        let right = scope_mapped_class_assertion_fixture();
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(8);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(9);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_two_member_composite_batches_uncommitted(
+            left_columns,
+            right_columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.class_assertions, 2);
+        assert_eq!(statistics.ignored_class_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
+        assert!(matches!(
+            prepared.preparation.overlay_deltas[0].projection,
+            OwnedOverlayDeltaProjection::IgnoredClassAssertion {
+                anonymous_individuals: 1
+            }
+        ));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+
+        let mut colliding_scope_map = [0_u8; 64];
+        colliding_scope_map[..32].fill(7);
+        colliding_scope_map[32..].fill(8);
+        assert!(matches!(
+            prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right
+                    .columns()
+                    .with_anonymous_scope_map(&colliding_scope_map),
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Malformed(message))
+                if message.contains("scope targets are not unique")
+        ));
     }
 
     #[test]

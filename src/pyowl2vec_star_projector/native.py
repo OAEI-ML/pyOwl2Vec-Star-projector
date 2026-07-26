@@ -19,6 +19,7 @@ from .encoded import (
     _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
     _resolve_private_overlay_aliases,
+    _resolve_private_scope_mapped_class_assertion_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
     _resolve_private_two_member_composite,
@@ -35,7 +36,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 88
+ENCODED_DIRECT_KERNEL_VERSION = 89
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -392,6 +393,8 @@ class NativeEncodedDirectCompiler:
     right_excluded_root_ids: memoryview | None
     third_excluded_root_ids: memoryview | None
     fourth_excluded_root_ids: memoryview | None
+    anonymous_scope_map: memoryview | None
+    right_anonymous_scope_map: memoryview | None
     _kernel: Any
     _module: Any
 
@@ -913,6 +916,8 @@ class NativeEncodedDirectCompilation:
     right_excluded_root_ids: memoryview | None
     third_excluded_root_ids: memoryview | None
     fourth_excluded_root_ids: memoryview | None
+    anonymous_scope_map: memoryview | None
+    right_anonymous_scope_map: memoryview | None
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
@@ -982,6 +987,8 @@ class NativeEncodedDirectCompilation:
             + int(self.right_excluded_root_ids is not None)
             + int(self.third_excluded_root_ids is not None)
             + int(self.fourth_excluded_root_ids is not None)
+            + int(self.anonymous_scope_map is not None)
+            + int(self.right_anonymous_scope_map is not None)
         )
         retained_buffer_bytes = sum(
             buffer.nbytes for lease in retained_leases for buffer in lease.buffers.values()
@@ -1074,6 +1081,8 @@ def prepare_native_encoded_compilation(
     right_excluded_root_ids: memoryview | None = None
     third_excluded_root_ids: memoryview | None = None
     fourth_excluded_root_ids: memoryview | None = None
+    anonymous_scope_map: memoryview | None = None
+    right_anonymous_scope_map: memoryview | None = None
     resolved_aliases = _resolve_private_overlay_aliases(lease)
     if resolved_aliases is not None:
         lease, container_leases, excluded_root_ids = resolved_aliases
@@ -1099,8 +1108,36 @@ def prepare_native_encoded_compilation(
             ) = resolved_delta
             container_leases = (local_delta_lease,)
         else:
-            resolved_composite = _resolve_private_two_member_composite(lease)
-            if resolved_composite is not None:
+            resolved_scope_mapped = _resolve_private_scope_mapped_class_assertion_composite(lease)
+            resolved_composite = (
+                None
+                if resolved_scope_mapped is not None
+                else _resolve_private_two_member_composite(lease)
+            )
+            if resolved_scope_mapped is not None:
+                if options.include_literals:
+                    return (
+                        None,
+                        "private native scope-mapped composite slice does not support "
+                        "literal projection",
+                    )
+                if role_state is not None:
+                    return (
+                        None,
+                        "private native scope-mapped composite slice does not bind "
+                        "Scala-instance state",
+                    )
+                merge_manifest_lease = lease
+                (
+                    lease,
+                    local_delta_lease,
+                    anonymous_scope_map,
+                    right_anonymous_scope_map,
+                    canonical_work_limit,
+                    canonical_workspace_limit,
+                ) = resolved_scope_mapped
+                container_leases = (merge_manifest_lease, local_delta_lease)
+            elif resolved_composite is not None:
                 if options.include_literals:
                     return (
                         None,
@@ -1247,6 +1284,8 @@ def prepare_native_encoded_compilation(
         right_excluded_root_ids=right_excluded_root_ids,
         third_excluded_root_ids=third_excluded_root_ids,
         fourth_excluded_root_ids=fourth_excluded_root_ids,
+        anonymous_scope_map=anonymous_scope_map,
+        right_anonymous_scope_map=right_anonymous_scope_map,
         merge_manifest_lease=merge_manifest_lease,
     )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
@@ -1362,6 +1401,8 @@ def prepare_native_encoded_compilation(
                 right_excluded_root_ids=right_excluded_root_ids,
                 third_excluded_root_ids=third_excluded_root_ids,
                 fourth_excluded_root_ids=fourth_excluded_root_ids,
+                anonymous_scope_map=anonymous_scope_map,
+                right_anonymous_scope_map=right_anonymous_scope_map,
                 root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,
@@ -1504,6 +1545,8 @@ def prepare_native_encoded_direct(
     right_excluded_root_ids: memoryview | None = None,
     third_excluded_root_ids: memoryview | None = None,
     fourth_excluded_root_ids: memoryview | None = None,
+    anonymous_scope_map: memoryview | None = None,
+    right_anonymous_scope_map: memoryview | None = None,
 ) -> NativeEncodedDirectCompiler:
     """Bind validated public leases to the unadvertised Rust foundation.
 
@@ -1601,6 +1644,21 @@ def prepare_native_encoded_direct(
         or fourth_excluded_root_ids is not None
     ):
         raise ValueError("composite root selection cannot mix INCLUDE and EXCLUDE postings")
+    if (anonymous_scope_map is None) != (right_anonymous_scope_map is None):
+        raise ValueError("scope-mapped composite requires both member scope maps")
+    if anonymous_scope_map is not None and (
+        merge_manifest_lease is None
+        or local_delta_lease is None
+        or third_member_lease is not None
+        or fourth_member_lease is not None
+        or nested_member_lease is not None
+        or included_root_ids is not None
+        or excluded_root_ids is not None
+        or right_excluded_root_ids is not None
+        or third_excluded_root_ids is not None
+        or fourth_excluded_root_ids is not None
+    ):
+        raise ValueError("scope remapping requires an exact two-member ALL composite")
     root_descriptor_sha256: bytes | None = None
     if root_annotation_lease is not None:
         root_descriptor_sha256 = _validated_direct_descriptor_digest(root_annotation_lease)
@@ -1686,6 +1744,8 @@ def prepare_native_encoded_direct(
                     None if merge_manifest_lease is None else merge_manifest_lease.owner
                 ),
                 merge_manifest_descriptor_sha256=merge_manifest_descriptor_sha256,
+                anonymous_scope_map=anonymous_scope_map,
+                right_anonymous_scope_map=right_anonymous_scope_map,
             )
         elif root_annotation_lease is None and excluded_root_ids is None:
             kernel = compiler(lease.encoded_view, lease.owner, descriptor_sha256)
@@ -1730,6 +1790,8 @@ def prepare_native_encoded_direct(
         right_excluded_root_ids,
         third_excluded_root_ids,
         fourth_excluded_root_ids,
+        anonymous_scope_map,
+        right_anonymous_scope_map,
         kernel,
         module,
     )
