@@ -1841,6 +1841,7 @@ pub(crate) struct PreparedDirectBatches {
 pub(crate) struct DirectColumns<'a> {
     root_kinds: &'a [u8],
     root_ids: &'a [u8],
+    included_root_ids: &'a [u8],
     excluded_root_ids: &'a [u8],
     node_tags: &'a [u8],
     node_field_offsets: &'a [u8],
@@ -1858,6 +1859,7 @@ impl<'a> DirectColumns<'a> {
         Self {
             root_kinds: buffers[0],
             root_ids: buffers[1],
+            included_root_ids: &[],
             excluded_root_ids: &[],
             node_tags: buffers[2],
             node_field_offsets: buffers[3],
@@ -1873,6 +1875,11 @@ impl<'a> DirectColumns<'a> {
 
     pub(crate) fn with_excluded_root_ids(mut self, excluded_root_ids: &'a [u8]) -> Self {
         self.excluded_root_ids = excluded_root_ids;
+        self
+    }
+
+    pub(crate) fn with_included_root_ids(mut self, included_root_ids: &'a [u8]) -> Self {
+        self.included_root_ids = included_root_ids;
         self
     }
 
@@ -1907,6 +1914,9 @@ impl<'a> DirectColumns<'a> {
     }
 
     fn selected_root_count(self) -> Result<usize, KernelError> {
+        if !self.included_root_ids.is_empty() {
+            return Ok(self.included_root_ids.len() / 4);
+        }
         self.root_count()
             .checked_sub(self.excluded_root_ids.len() / 4)
             .ok_or_else(|| {
@@ -1923,25 +1933,48 @@ impl<'a> DirectColumns<'a> {
         .map_err(|_| KernelError::malformed("excluded root position does not fit usize"))
     }
 
+    fn included_root_position(self, index: usize) -> Result<usize, KernelError> {
+        usize::try_from(read_u32(
+            self.included_root_ids,
+            index,
+            "included_root_ids",
+        )?)
+        .map_err(|_| KernelError::malformed("included root position does not fit usize"))
+    }
+
     fn root_is_selected(self, index: usize) -> Result<bool, KernelError> {
         let target = index
             .checked_add(1)
             .ok_or_else(|| KernelError::resource("encoded root position overflow"))?;
+        let (postings, included) = if self.included_root_ids.is_empty() {
+            (self.excluded_root_ids, false)
+        } else {
+            (self.included_root_ids, true)
+        };
         let mut start = 0_usize;
-        let mut end = self.excluded_root_ids.len() / 4;
+        let mut end = postings.len() / 4;
         while start < end {
             let middle = start + (end - start) / 2;
-            let candidate = self.excluded_root_position(middle)?;
+            let candidate = if included {
+                self.included_root_position(middle)?
+            } else {
+                self.excluded_root_position(middle)?
+            };
             if candidate < target {
                 start = middle + 1;
             } else {
                 end = middle;
             }
         }
-        if start == self.excluded_root_ids.len() / 4 {
-            return Ok(true);
+        if start == postings.len() / 4 {
+            return Ok(!included);
         }
-        Ok(self.excluded_root_position(start)? != target)
+        let found = if included {
+            self.included_root_position(start)? == target
+        } else {
+            self.excluded_root_position(start)? == target
+        };
+        Ok(if included { found } else { !found })
     }
 
     fn node_count(self) -> usize {
@@ -4111,6 +4144,7 @@ impl<'a> DirectColumns<'a> {
     fn validate_generic(self, state: &AtomicU8) -> Result<(), KernelError> {
         for (name, width, buffer) in [
             ("root_ids", 4, self.root_ids),
+            ("included_root_ids", 4, self.included_root_ids),
             ("excluded_root_ids", 4, self.excluded_root_ids),
             ("node_tags", 2, self.node_tags),
             ("node_field_offsets", 8, self.node_field_offsets),
@@ -4128,6 +4162,11 @@ impl<'a> DirectColumns<'a> {
         if self.root_ids.len() / 4 != self.root_count() {
             return Err(KernelError::malformed(
                 "encoded root columns differ in length",
+            ));
+        }
+        if !self.included_root_ids.is_empty() && !self.excluded_root_ids.is_empty() {
+            return Err(KernelError::malformed(
+                "encoded root selection cannot combine INCLUDE and EXCLUDE postings",
             ));
         }
         if self.node_field_offsets.len() / 8 != self.node_count() + 1 {
@@ -4183,9 +4222,20 @@ impl<'a> DirectColumns<'a> {
             }
             previous_root = Some(key);
         }
+        let mut previous_included_root = 0_usize;
+        for index in 0..self.included_root_ids.len() / 4 {
+            check_cancel(state, index)?;
+            let root_position = self.included_root_position(index)?;
+            if root_position <= previous_included_root || root_position > self.root_count() {
+                return Err(KernelError::malformed(
+                    "encoded included-root postings are not sorted unique in-range positions",
+                ));
+            }
+            previous_included_root = root_position;
+        }
         let mut previous_excluded_root = 0_usize;
         for index in 0..self.excluded_root_ids.len() / 4 {
-            check_cancel(state, index)?;
+            check_cancel(state, self.included_root_ids.len() / 4 + index)?;
             let root_position = self.excluded_root_position(index)?;
             if root_position <= previous_excluded_root || root_position > self.root_count() {
                 return Err(KernelError::malformed(
@@ -6102,7 +6152,8 @@ pub(crate) mod canonical_merge {
         ) -> Result<Self, KernelError> {
             let validation_work = columns
                 .root_count()
-                .checked_add(columns.excluded_root_ids.len() / 4)
+                .checked_add(columns.included_root_ids.len() / 4)
+                .and_then(|value| value.checked_add(columns.excluded_root_ids.len() / 4))
                 .and_then(|value| value.checked_add(columns.node_count()))
                 .and_then(|value| value.checked_add(columns.field_count()))
                 .and_then(|value| value.checked_add(columns.item_count()))
@@ -6764,8 +6815,8 @@ pub(crate) mod canonical_merge {
         comparator: CanonicalNodeComparator<'a>,
         left_position: usize,
         right_position: usize,
-        left_exclusion_position: usize,
-        right_exclusion_position: usize,
+        left_posting_position: usize,
+        right_posting_position: usize,
     }
 
     impl<'a> CanonicalRootMerger<'a> {
@@ -6780,8 +6831,8 @@ pub(crate) mod canonical_merge {
                 comparator,
                 left_position: 0,
                 right_position: 0,
-                left_exclusion_position: 0,
-                right_exclusion_position: 0,
+                left_posting_position: 0,
+                right_posting_position: 0,
             };
             result.validate_group(TableSide::Left, state)?;
             result.validate_group(TableSide::Right, state)?;
@@ -6836,39 +6887,51 @@ pub(crate) mod canonical_merge {
             side: TableSide,
             state: &AtomicU8,
         ) -> Result<Option<CanonicalRootRef>, KernelError> {
-            let (columns, position, exclusion_position) = match side {
+            let (columns, position, posting_position) = match side {
                 TableSide::Left => (
                     self.comparator.left.columns,
                     &mut self.left_position,
-                    &mut self.left_exclusion_position,
+                    &mut self.left_posting_position,
                 ),
                 TableSide::Right => (
                     self.comparator.right.columns,
                     &mut self.right_position,
-                    &mut self.right_exclusion_position,
+                    &mut self.right_posting_position,
                 ),
             };
-            let exclusion_count = columns.excluded_root_ids.len() / 4;
+            let included = !columns.included_root_ids.is_empty();
+            let posting_count = if included {
+                columns.included_root_ids.len() / 4
+            } else {
+                columns.excluded_root_ids.len() / 4
+            };
             while *position < columns.root_count() {
                 self.comparator.budget.consume(1, state)?;
                 let root_position = position.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded canonical root position overflow")
                 })?;
-                let mut excluded = false;
-                while *exclusion_position < exclusion_count {
+                let mut matched = false;
+                while *posting_position < posting_count {
                     self.comparator.budget.consume(1, state)?;
-                    let candidate = columns.excluded_root_position(*exclusion_position)?;
+                    let candidate = if included {
+                        columns.included_root_position(*posting_position)?
+                    } else {
+                        columns.excluded_root_position(*posting_position)?
+                    };
                     if candidate < root_position {
-                        *exclusion_position += 1;
+                        *posting_position += 1;
                         continue;
                     }
                     if candidate == root_position {
-                        *exclusion_position += 1;
-                        excluded = true;
+                        if !included {
+                            *posting_position += 1;
+                        }
+                        matched = true;
                     }
                     break;
                 }
-                if excluded {
+                let selected = if included { matched } else { !matched };
+                if !selected {
                     *position += 1;
                     continue;
                 }
@@ -19280,6 +19343,44 @@ mod tests {
     }
 
     #[test]
+    fn included_root_postings_filter_counts_and_emission_without_indexing() {
+        let fixture = named_subclass_fixture();
+        let included_subclass = 2_u32.to_le_bytes();
+        let (edges, stats) = compile_direct(
+            fixture.columns().with_included_root_ids(&included_subclass),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(stats.roots, 1);
+        assert_eq!(stats.declarations, 0);
+        assert_eq!(stats.subclasses, 1);
+
+        let included_declaration = 1_u32.to_le_bytes();
+        let (edges, stats) = compile_direct(
+            fixture
+                .columns()
+                .with_included_root_ids(&included_declaration),
+            false,
+            false,
+            false,
+            1,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert!(edges.is_empty());
+        assert_eq!(stats.roots, 1);
+        assert_eq!(stats.declarations, 1);
+        assert_eq!(stats.subclasses, 0);
+    }
+
+    #[test]
     fn excluded_root_postings_must_be_complete_sorted_unique_in_range_rows() {
         let fixture = named_subclass_fixture();
         for postings in [
@@ -19302,6 +19403,49 @@ mod tests {
                 Err(KernelError::Malformed(_))
             ));
         }
+    }
+
+    #[test]
+    fn included_root_postings_must_be_complete_sorted_unique_in_range_rows() {
+        let fixture = named_subclass_fixture();
+        for postings in [
+            vec![1_u8, 0],
+            0_u32.to_le_bytes().to_vec(),
+            3_u32.to_le_bytes().to_vec(),
+            [1_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+            [2_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+        ] {
+            assert!(matches!(
+                compile_direct(
+                    fixture.columns().with_included_root_ids(&postings),
+                    false,
+                    false,
+                    false,
+                    1,
+                    1024,
+                    &running_state(),
+                ),
+                Err(KernelError::Malformed(_))
+            ));
+        }
+        let included = 1_u32.to_le_bytes();
+        let excluded = 2_u32.to_le_bytes();
+        assert!(matches!(
+            compile_direct(
+                fixture
+                    .columns()
+                    .with_included_root_ids(&included)
+                    .with_excluded_root_ids(&excluded),
+                false,
+                false,
+                false,
+                1,
+                1024,
+                &running_state(),
+            ),
+            Err(KernelError::Malformed(message))
+                if message.contains("cannot combine INCLUDE and EXCLUDE")
+        ));
     }
 
     #[test]
@@ -20801,6 +20945,30 @@ mod tests {
         assert_eq!(selected.next(&running_state()).unwrap(), None);
         assert_eq!(selected.report().roots_emitted, 2);
         assert_eq!(selected.report().deduplicated_roots, 1);
+
+        let included = 2_u32.to_le_bytes();
+        let mut included_left = canonical_merge::CanonicalRootMerger::new(
+            left.columns().with_included_root_ids(&included),
+            right.columns(),
+            canonical_limits(),
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            included_left.report().work,
+            unselected_preflight_work + included.len() / 4
+        );
+        assert!(matches!(
+            included_left.next(&running_state()).unwrap(),
+            Some(Right(root)) if root.index == 0
+        ));
+        assert!(matches!(
+            included_left.next(&running_state()).unwrap(),
+            Some(Both { left, right }) if left.index == 1 && right.index == 1
+        ));
+        assert_eq!(included_left.next(&running_state()).unwrap(), None);
+        assert_eq!(included_left.report().roots_emitted, 2);
+        assert_eq!(included_left.report().deduplicated_roots, 1);
     }
 
     #[test]

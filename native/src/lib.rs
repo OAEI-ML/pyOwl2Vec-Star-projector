@@ -41,7 +41,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 83;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 84;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -51,6 +51,7 @@ const OVERLAY_BASE_SEGMENT: usize = 2;
 const OVERLAY_DELTA_SEGMENT: usize = 3;
 const COMPOSITE_MEMBER_SEGMENT: usize = 4;
 const POSTINGS_ALL: usize = 0;
+const POSTINGS_INCLUDE: usize = 1;
 const POSTINGS_EXCLUDE: usize = 2;
 const ENCODED_DESCRIPTOR_SHA256: [u8; 32] = [
     0x9a, 0xd2, 0x9d, 0xb6, 0xa7, 0xe6, 0x16, 0xf6, 0x5c, 0xea, 0x29, 0x57, 0xbc, 0x5b, 0xa8, 0xd1,
@@ -600,6 +601,7 @@ struct EncodedDirectCompiler {
     _merge_manifest_view: Option<Py<PyAny>>,
     _merge_manifest_owner: Option<Py<PyAny>>,
     canonical_merge_limits: Option<(usize, usize)>,
+    included_root_ids: Option<RetainedDirectBuffer>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
     _root_annotation_view: Option<Py<PyAny>>,
     _root_annotation_owner: Option<Py<PyAny>>,
@@ -681,11 +683,17 @@ impl EncodedDirectCompiler {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_slice());
+        let included_root_ids = self
+            .included_root_ids
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
         let excluded_root_ids = self
             .excluded_root_ids
             .as_ref()
             .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let columns = DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
+        let columns = DirectColumns::from_ordered(slices)
+            .with_included_root_ids(included_root_ids)
+            .with_excluded_root_ids(excluded_root_ids);
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -798,6 +806,7 @@ impl EncodedDirectCompiler {
         merge_manifest_view=None,
         merge_manifest_owner=None,
         merge_manifest_descriptor_sha256=None,
+        included_root_ids=None,
     ))]
     fn new(
         encoded_view: &Bound<'_, PyAny>,
@@ -815,12 +824,22 @@ impl EncodedDirectCompiler {
         merge_manifest_view: Option<&Bound<'_, PyAny>>,
         merge_manifest_owner: Option<&Bound<'_, PyAny>>,
         merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        included_root_ids: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
+        let included_root_ids_view = included_root_ids;
+        let included_root_ids = included_root_ids_view
+            .map(|value| retained_exact_bytes_buffer(value, "included_root_ids"))
+            .transpose()?;
         let excluded_root_ids_view = excluded_root_ids;
         let excluded_root_ids = excluded_root_ids_view
             .map(|value| retained_exact_bytes_buffer(value, "excluded_root_ids"))
             .transpose()?;
+        if included_root_ids.is_some() && excluded_root_ids.is_some() {
+            return Err(encoded_buffer_error(
+                "encoded root selection cannot combine INCLUDE and EXCLUDE postings",
+            ));
+        }
         let root_annotation_buffers = match (
             root_annotation_view,
             root_annotation_owner,
@@ -879,6 +898,7 @@ impl EncodedDirectCompiler {
                             expected_owner,
                             view,
                             owner,
+                            included_root_ids_view,
                             excluded_root_ids_view,
                         )?;
                         buffers
@@ -905,6 +925,11 @@ impl EncodedDirectCompiler {
                 "encoded composite manifest requires two retained merge tables",
             ));
         }
+        if included_root_ids.is_some() && merge_manifest.is_none() {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded INCLUDE selection requires an exact composite manifest",
+            ));
+        }
         Ok(Self {
             _encoded_view: encoded_view.clone().unbind(),
             _owner: expected_owner.clone().unbind(),
@@ -915,6 +940,7 @@ impl EncodedDirectCompiler {
             _merge_manifest_view: merge_manifest_view.map(|value| value.clone().unbind()),
             _merge_manifest_owner: merge_manifest_owner.map(|value| value.clone().unbind()),
             canonical_merge_limits,
+            included_root_ids,
             excluded_root_ids,
             _root_annotation_view: root_annotation_view.map(|value| value.clone().unbind()),
             _root_annotation_owner: root_annotation_owner.map(|value| value.clone().unbind()),
@@ -978,11 +1004,17 @@ impl EncodedDirectCompiler {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_slice());
+        let included_root_ids = self
+            .included_root_ids
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
         let excluded_root_ids = self
             .excluded_root_ids
             .as_ref()
             .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let columns = DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
+        let columns = DirectColumns::from_ordered(slices)
+            .with_included_root_ids(included_root_ids)
+            .with_excluded_root_ids(excluded_root_ids);
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -1459,12 +1491,17 @@ impl EncodedDirectCompiler {
             };
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| self.buffers[index].as_slice());
+            let included_root_ids = self
+                .included_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
             let excluded_root_ids = self
                 .excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            let columns =
-                DirectColumns::from_ordered(slices).with_excluded_root_ids(excluded_root_ids);
+            let columns = DirectColumns::from_ordered(slices)
+                .with_included_root_ids(included_root_ids)
+                .with_excluded_root_ids(excluded_root_ids);
             let prepared = py
                 .detach(|| stream.prepare_next_batch(columns, &self.state, batch_edges))
                 .map_err(kernel_error);
@@ -1688,6 +1725,7 @@ impl EncodedDirectCompiler {
         self.buffers.len()
             + self.overlay_delta_buffers.as_ref().map_or(0, Vec::len)
             + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
+            + usize::from(self.included_root_ids.is_some())
             + usize::from(self.excluded_root_ids.is_some())
     }
 
@@ -2287,6 +2325,7 @@ fn validate_two_member_composite_manifest(
     left_owner: &Bound<'_, PyAny>,
     right_view: &Bound<'_, PyAny>,
     right_owner: &Bound<'_, PyAny>,
+    included_root_ids: Option<&Bound<'_, PyAny>>,
     excluded_root_ids: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
@@ -2342,14 +2381,14 @@ fn validate_two_member_composite_manifest(
             ));
         }
         let source = required_attribute(&segment, "source")?;
-        let (member_owner, expected_postings) = if source.is(left_view) {
+        let (member_owner, expected_include, expected_exclude) = if source.is(left_view) {
             if matched_left {
                 return Err(encoded_buffer_error(
                     "encoded composite repeats its left source identity",
                 ));
             }
             matched_left = true;
-            (left_owner, excluded_root_ids)
+            (left_owner, included_root_ids, excluded_root_ids)
         } else if source.is(right_view) {
             if matched_right {
                 return Err(encoded_buffer_error(
@@ -2357,7 +2396,7 @@ fn validate_two_member_composite_manifest(
                 ));
             }
             matched_right = true;
-            (right_owner, None)
+            (right_owner, None, None)
         } else {
             return Err(encoded_buffer_error(
                 "encoded composite member lost its retained source identity",
@@ -2375,15 +2414,27 @@ fn validate_two_member_composite_manifest(
         )?;
         let root_ids = required_attribute(&segment, "root_ids")?;
         let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
-        match expected_postings {
-            None => {
+        match (expected_include, expected_exclude) {
+            (None, None) => {
                 if posting_mode != POSTINGS_ALL || root_id_bytes != 0 {
                     return Err(EncodedDirectUnsupportedError::new_err(
                         "bounded two-member composite requires ALL selection on every unposted member",
                     ));
                 }
             }
-            Some(expected) => {
+            (Some(expected), None) => {
+                if posting_mode != POSTINGS_INCLUDE || root_id_bytes == 0 {
+                    return Err(EncodedDirectUnsupportedError::new_err(
+                        "bounded two-member composite requires one nonempty INCLUDE table",
+                    ));
+                }
+                if !root_ids.is(expected) {
+                    return Err(encoded_buffer_error(
+                        "encoded composite member lost its exact INCLUDE table",
+                    ));
+                }
+            }
+            (None, Some(expected)) => {
                 if posting_mode != POSTINGS_EXCLUDE || root_id_bytes == 0 {
                     return Err(EncodedDirectUnsupportedError::new_err(
                         "bounded two-member composite requires one nonempty EXCLUDE table",
@@ -2394,6 +2445,11 @@ fn validate_two_member_composite_manifest(
                         "encoded composite member lost its exact EXCLUDE table",
                     ));
                 }
+            }
+            (Some(_), Some(_)) => {
+                return Err(encoded_buffer_error(
+                    "encoded composite member has ambiguous duplicate selectors",
+                ));
             }
         }
         let scope_map = required_attribute(&segment, "anonymous_scope_map")?;

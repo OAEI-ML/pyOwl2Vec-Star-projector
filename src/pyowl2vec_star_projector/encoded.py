@@ -448,6 +448,7 @@ def _resolve_private_two_member_composite(
         EncodedStructuralLease,
         EncodedStructuralLease,
         memoryview | None,
+        memoryview | None,
         int | None,
         int | None,
     ]
@@ -457,10 +458,10 @@ def _resolve_private_two_member_composite(
 
     This first native composite slice admits exactly two direct members, no
     bridge roots or anonymous-scope remapping, and at most one nonempty
-    ``EXCLUDE`` posting table.  The excluded member becomes the left merge
-    table so the existing bounded posting cursor remains authoritative.
-    ``INCLUDE``, multiple posting tables, nested sources, bridges, and every
-    other composite form stay on whole-operation fallback.
+    ``INCLUDE`` or ``EXCLUDE`` posting table.  The selected member becomes the
+    left merge table so its source-local posting cursor remains authoritative.
+    Multiple posting tables, nested sources, bridges, and every other
+    composite form stay on whole-operation fallback.
     """
 
     if type(lease) is not EncodedStructuralLease or len(lease.segments) != 2:
@@ -471,9 +472,15 @@ def _resolve_private_two_member_composite(
     if any(value.nbytes for name, value in lease.buffers.items() if name != "node_field_offsets"):
         return None
 
-    rows: list[tuple[EncodedStructuralLease, memoryview | None]] = []
+    rows: list[
+        tuple[
+            EncodedStructuralLease,
+            memoryview | None,
+            memoryview | None,
+        ]
+    ] = []
     previous_token: bytes | None = None
-    excluded_member_count = 0
+    selected_member_count = 0
     for raw_segment in lease.segments:
         segment = cast(Any, raw_segment)
         try:
@@ -506,13 +513,23 @@ def _resolve_private_two_member_composite(
         if posting_mode == _POSTINGS_ALL:
             if root_ids.nbytes:
                 return None
+            included_root_ids = None
+            excluded_root_ids = None
+        elif posting_mode == _POSTINGS_INCLUDE:
+            if not root_ids.nbytes:
+                return None
+            selected_member_count += 1
+            if selected_member_count > 1:
+                return None
+            included_root_ids = root_ids
             excluded_root_ids = None
         elif posting_mode == _POSTINGS_EXCLUDE:
             if not root_ids.nbytes:
                 return None
-            excluded_member_count += 1
-            if excluded_member_count > 1:
+            selected_member_count += 1
+            if selected_member_count > 1:
                 return None
+            included_root_ids = None
             excluded_root_ids = root_ids
         else:
             return None
@@ -535,15 +552,15 @@ def _resolve_private_two_member_composite(
             ) from error
         if type(source_role) is not int or source_role != _SEGMENT_DIRECT:
             return None
-        rows.append((source_lease, excluded_root_ids))
+        rows.append((source_lease, included_root_ids, excluded_root_ids))
 
     if len(rows) != 2:
         return None
-    if rows[1][1] is not None:
+    if rows[1][1] is not None or rows[1][2] is not None:
         rows.reverse()
-    left, excluded_root_ids = rows[0]
-    right, right_excluded_root_ids = rows[1]
-    if right_excluded_root_ids is not None:
+    left, included_root_ids, excluded_root_ids = rows[0]
+    right, right_included_root_ids, right_excluded_root_ids = rows[1]
+    if right_included_root_ids is not None or right_excluded_root_ids is not None:
         return None
 
     validation_work = (
@@ -555,6 +572,7 @@ def _resolve_private_two_member_composite(
     return (
         left,
         right,
+        included_root_ids,
         excluded_root_ids,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),

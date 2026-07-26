@@ -9166,6 +9166,80 @@ def _two_member_duplicate_subclass_composite(
     )
 
 
+def _forged_one_include_subclass_composite(
+    provider_backend: pyowl_core.BackendPreference,
+) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease, memoryview]:
+    left = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:B :Top) SubClassOf(:C :Top)",
+            backend=provider_backend,
+        ),
+    )
+    right = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:D :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed = {
+        axiom
+        for axiom in left.iter_axioms()
+        if cast(Any, axiom).sub_class.iri.value.endswith(("#B", "#C"))
+    }
+    assert len(removed) == 2
+    composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(
+            left,
+            right,
+            delta=pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
+        ),
+    )
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    excluded_index = next(
+        index
+        for index, segment in enumerate(top_lease.segments)
+        if cast(Any, segment).posting_mode == 2
+    )
+    excluded_segment = cast(Any, top_lease.segments[excluded_index])
+    source = excluded_segment.source
+    assert source is not None
+    root_count = source.buffers["root_kinds"].nbytes
+    excluded_positions = {
+        int.from_bytes(excluded_segment.root_ids[offset : offset + 4], "little")
+        for offset in range(0, excluded_segment.root_ids.nbytes, 4)
+    }
+    included_positions = [
+        position for position in range(1, root_count + 1) if position not in excluded_positions
+    ]
+    assert included_positions == [1]
+    included_root_ids = memoryview(
+        b"".join(position.to_bytes(4, "little") for position in included_positions)
+    )
+    segments = list(top_lease.segments)
+    segments[excluded_index] = replace(
+        excluded_segment,
+        posting_mode=1,
+        root_ids=included_root_ids,
+    )
+    encoded_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(segments),
+    )
+    forged_lease = replace(
+        top_lease,
+        encoded_view=encoded_view,
+        segments=tuple(segments),
+    )
+    return composite, forged_lease, included_root_ids
+
+
 @pytest.mark.parametrize(
     "provider_backend",
     [
@@ -9327,7 +9401,8 @@ def test_two_member_composite_preserves_cancel_limit_and_retry_preoutput(
     assert top_lease is not None
     resolved = _resolve_private_two_member_composite(top_lease)
     assert resolved is not None
-    base_lease, right_lease, excluded, max_work, max_workspace = resolved
+    base_lease, right_lease, included, excluded, max_work, max_workspace = resolved
+    assert included is None
     assert excluded is not None
     assert max_work is not None
     assert max_workspace is not None
@@ -9418,6 +9493,12 @@ def test_two_member_composite_preserves_cancel_limit_and_retry_preoutput(
     include_segments[excluded_index] = replace(
         cast(Any, include_segments[excluded_index]),
         posting_mode=1,
+    )
+    all_index = 1 - excluded_index
+    include_segments[all_index] = replace(
+        cast(Any, include_segments[all_index]),
+        posting_mode=1,
+        root_ids=memoryview((1).to_bytes(4, "little")),
     )
     include_encoded = replace(
         cast(Any, top_lease.encoded_view),
@@ -9527,7 +9608,8 @@ def test_two_member_composite_dedup_preserves_cancel_limits_and_retry(
     assert top_lease is not None
     resolved = _resolve_private_two_member_composite(top_lease)
     assert resolved is not None
-    left_lease, right_lease, excluded, max_work, max_workspace = resolved
+    left_lease, right_lease, included, excluded, max_work, max_workspace = resolved
+    assert included is None
     assert excluded is None
     assert max_work is not None
     assert max_workspace is not None
@@ -9585,6 +9667,229 @@ def test_two_member_composite_dedup_preserves_cancel_limits_and_retry(
     assert retry.state == "finished"
     assert retry.retained_buffer_count == 22
     assert retry.cancel() is False
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_compiles_one_exact_include_composite_member(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite, forged_lease, included_root_ids = _forged_one_include_subclass_composite(
+        provider_backend
+    )
+    expected_projector = Projector()
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation(
+                "encoded-native",
+                lease=forged_lease,
+            ),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("one-INCLUDE composite reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected == [
+        Edge(
+            f"urn:native-integration#{source}",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        for source in ["A", "D"]
+    ]
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.included_root_ids is included_root_ids
+    assert compilation.excluded_root_ids is None
+    assert compilation.native_statistics.roots == 2
+    assert compilation.native_statistics.subclasses == 2
+    assert compilation.native_statistics.edges == 2
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 33
+    assert ingestion.counters["encoded_detached_buffer_count"] == 23
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 33
+    assert ingestion.counters["encoded_referenced_view_count"] == 2
+    assert ingestion.counters["encoded_segment_count"] == 4
+    assert ingestion.counters["encoded_posting_bytes"] == 4
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=2,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_one_include_composite_preserves_identity_cancel_limits_and_retry(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    _composite, forged_lease, included_root_ids = _forged_one_include_subclass_composite(
+        provider_backend
+    )
+    resolved = _resolve_private_two_member_composite(forged_lease)
+    assert resolved is not None
+    left_lease, right_lease, included, excluded, max_work, max_workspace = resolved
+    assert included is included_root_ids
+    assert excluded is None
+    assert max_work is not None
+    assert max_workspace is not None
+
+    def compiler(
+        *,
+        work: int = max_work,
+        workspace: int = max_workspace,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            left_lease,
+            local_delta_lease=right_lease,
+            merge_manifest_lease=forged_lease,
+            included_root_ids=included,
+            canonical_work_limit=work,
+            canonical_workspace_limit=workspace,
+        )
+
+    cancelled = compiler()
+    assert cancelled.cancel() is True
+    with pytest.raises(NativeEncodedDirectCancelled):
+        cancelled.compile_batch(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024,
+        )
+    assert cancelled.state == "cancelled"
+    assert cancelled.retained_buffer_count == 23
+
+    for work, workspace, expected_message in [
+        (1, max_workspace, "work"),
+        (max_work, 1, "workspace"),
+    ]:
+        limited = compiler(work=work, workspace=workspace)
+        with pytest.raises(ProjectionResourceError) as captured:
+            limited.iter_batches(
+                bidirectional=False,
+                max_edges=2,
+                max_iri_bytes=1024,
+                batch_edges=1,
+            )
+        assert captured.value.__cause__ is not None
+        assert expected_message in str(captured.value.__cause__)
+        assert limited.state == "failed"
+        assert limited.coarse_output_chunks == 0
+        assert limited.peak_buffered_coarse_edges == 0
+
+    retry = compiler()
+    edges, statistics = retry.compile_batch(
+        bidirectional=False,
+        max_edges=2,
+        max_iri_bytes=1024,
+    )
+    assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["A", "D"]
+    assert statistics.roots == statistics.subclasses == statistics.edges == 2
+    assert retry.state == "finished"
+    assert retry.retained_buffer_count == 23
+
+    equal_but_distinct_posting = memoryview(bytes(included_root_ids))
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="lost its exact INCLUDE table",
+    ):
+        prepare_native_encoded_direct(
+            left_lease,
+            local_delta_lease=right_lease,
+            merge_manifest_lease=forged_lease,
+            included_root_ids=equal_but_distinct_posting,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+    with pytest.raises(
+        ValueError,
+        match="cannot combine INCLUDE and EXCLUDE",
+    ):
+        prepare_native_encoded_direct(
+            left_lease,
+            local_delta_lease=right_lease,
+            merge_manifest_lease=forged_lease,
+            included_root_ids=included,
+            excluded_root_ids=included,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+
+    segments = list(forged_lease.segments)
+    all_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).posting_mode == 0
+    )
+    segments[all_index] = replace(
+        cast(Any, segments[all_index]),
+        posting_mode=1,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    two_include_view = replace(
+        cast(Any, forged_lease.encoded_view),
+        segments=tuple(segments),
+    )
+    two_include_lease = replace(
+        forged_lease,
+        encoded_view=two_include_view,
+        segments=tuple(segments),
+    )
+    assert _resolve_private_two_member_composite(two_include_lease) is None
 
 
 @pytest.mark.parametrize(
