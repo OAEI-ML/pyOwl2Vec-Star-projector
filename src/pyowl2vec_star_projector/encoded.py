@@ -60,6 +60,7 @@ _SEGMENT_COMPOSITE_BRIDGE = 5
 _POSTINGS_ALL = 0
 _POSTINGS_INCLUDE = 1
 _POSTINGS_EXCLUDE = 2
+_TAG_IRI = 1
 _TAG_ENTITY = 2
 _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_LITERAL = 4
@@ -71,6 +72,7 @@ _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION = 114
 _TAG_DATA_PROPERTY_ASSERTION = 115
 _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION = 116
+_TAG_ANNOTATION_ASSERTION = 120
 _DEFAULT_MAX_SEGMENTS = 1_025
 
 
@@ -655,6 +657,7 @@ def _single_scope_mapped_construct_scope(
         _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
         _TAG_DATA_PROPERTY_ASSERTION,
         _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+        _TAG_ANNOTATION_ASSERTION,
     }:
         return None
     buffers = lease.buffers
@@ -753,7 +756,10 @@ def _single_scope_mapped_construct_scope(
                 or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
             ):
                 return None
-        else:
+        elif construct_tag in {
+            _TAG_DATA_PROPERTY_ASSERTION,
+            _TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+        }:
             if end - start != 4 or any(
                 _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
                 for offset in (0, 1, 2)
@@ -766,6 +772,32 @@ def _single_scope_mapped_construct_scope(
                 _read_uint(buffers["node_tags"], property_id - 1, 2) != _TAG_ENTITY
                 or source_id != anonymous_node_id
                 or _read_uint(buffers["node_tags"], literal_id - 1, 2) != _TAG_LITERAL
+                or _read_uint(buffers["field_kinds"], start + 3, 1) != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
+            ):
+                return None
+        else:
+            if end - start != 4 or any(
+                _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
+                for offset in (0, 1, 2)
+            ):
+                return None
+            property_id = _read_uint(buffers["field_values"], start, 8)
+            subject_id = _read_uint(buffers["field_values"], start + 1, 8)
+            value_id = _read_uint(buffers["field_values"], start + 2, 8)
+            subject_tag = _read_uint(buffers["node_tags"], subject_id - 1, 2)
+            value_tag = _read_uint(buffers["node_tags"], value_id - 1, 2)
+            if (
+                _read_uint(buffers["node_tags"], property_id - 1, 2) != _TAG_ENTITY
+                or (subject_id == anonymous_node_id) == (value_id == anonymous_node_id)
+                or (
+                    subject_id != anonymous_node_id
+                    and subject_tag != _TAG_IRI
+                )
+                or (
+                    value_id != anonymous_node_id
+                    and value_tag not in {_TAG_IRI, _TAG_LITERAL}
+                )
                 or _read_uint(buffers["field_kinds"], start + 3, 1) != _COMPONENT_SET
                 or _read_uint(buffers["field_lengths"], start + 3, 8) != 0
             ):
@@ -1050,6 +1082,27 @@ def _resolve_private_scope_mapped_different_individuals_composite(
     return _resolve_private_scope_mapped_composite(
         lease,
         construct_tag=_TAG_DIFFERENT_INDIVIDUALS,
+    )
+
+
+def _resolve_private_scope_mapped_annotation_assertion_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact silent AnnotationAssertion scope remap."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=_TAG_ANNOTATION_ASSERTION,
     )
 
 
