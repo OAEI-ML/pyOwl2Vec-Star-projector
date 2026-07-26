@@ -64,6 +64,8 @@ _TAG_ENTITY = 2
 _TAG_ANONYMOUS_INDIVIDUAL = 3
 _TAG_LITERAL = 4
 _TAG_SUB_CLASS_OF = 61
+_TAG_SAME_INDIVIDUAL = 110
+_TAG_DIFFERENT_INDIVIDUALS = 111
 _TAG_CLASS_ASSERTION = 112
 _TAG_OBJECT_PROPERTY_ASSERTION = 113
 _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION = 114
@@ -647,6 +649,8 @@ def _single_scope_mapped_construct_scope(
 
     if construct_tag not in {
         _TAG_CLASS_ASSERTION,
+        _TAG_SAME_INDIVIDUAL,
+        _TAG_DIFFERENT_INDIVIDUALS,
         _TAG_OBJECT_PROPERTY_ASSERTION,
         _TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
         _TAG_DATA_PROPERTY_ASSERTION,
@@ -691,7 +695,29 @@ def _single_scope_mapped_construct_scope(
         construct_roots += 1
         start = _read_uint(buffers["node_field_offsets"], root_id - 1, 8)
         end = _read_uint(buffers["node_field_offsets"], root_id, 8)
-        if construct_tag == _TAG_CLASS_ASSERTION:
+        if construct_tag in {_TAG_SAME_INDIVIDUAL, _TAG_DIFFERENT_INDIVIDUALS}:
+            if (
+                end - start != 2
+                or _read_uint(buffers["field_kinds"], start, 1) != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start, 8) != 2
+                or _read_uint(buffers["field_kinds"], start + 1, 1) != _COMPONENT_SET
+                or _read_uint(buffers["field_lengths"], start + 1, 8) != 0
+            ):
+                return None
+            item_start = _read_uint(buffers["field_values"], start, 8)
+            member_tags: list[int] = []
+            for item_index in range(item_start, item_start + 2):
+                if _read_uint(buffers["item_kinds"], item_index, 1) != _COMPONENT_NODE:
+                    return None
+                member_id = _read_uint(buffers["item_values"], item_index, 8)
+                member_tags.append(
+                    _read_uint(buffers["node_tags"], member_id - 1, 2)
+                )
+            if sorted(member_tags) != sorted(
+                [_TAG_ENTITY, _TAG_ANONYMOUS_INDIVIDUAL]
+            ):
+                return None
+        elif construct_tag == _TAG_CLASS_ASSERTION:
             if end - start != 3 or any(
                 _read_uint(buffers["field_kinds"], start + offset, 1) != _COMPONENT_NODE
                 for offset in (0, 1)
@@ -982,6 +1008,48 @@ def _resolve_private_scope_mapped_negative_data_property_assertion_composite(
     return _resolve_private_scope_mapped_composite(
         lease,
         construct_tag=_TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+    )
+
+
+def _resolve_private_scope_mapped_same_individual_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact skipped SameIndividual scope remap."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=_TAG_SAME_INDIVIDUAL,
+    )
+
+
+def _resolve_private_scope_mapped_different_individuals_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve one exact skipped DifferentIndividuals scope remap."""
+
+    return _resolve_private_scope_mapped_composite(
+        lease,
+        construct_tag=_TAG_DIFFERENT_INDIVIDUALS,
     )
 
 

@@ -376,6 +376,8 @@ enum ScopeMappedCompositeKind {
     NegativeObject,
     PositiveData,
     NegativeData,
+    SameIndividual,
+    DifferentIndividuals,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1777,6 +1779,10 @@ enum OwnedOverlayDeltaProjection {
         anonymous_individuals: usize,
         negative: bool,
     },
+    IgnoredIndividualSet {
+        anonymous_individuals: usize,
+        different: bool,
+    },
 }
 
 impl OwnedOverlayDeltaProjection {
@@ -1788,7 +1794,8 @@ impl OwnedOverlayDeltaProjection {
             }
             Self::ObjectPropertyAssertion { .. }
             | Self::IgnoredNegativeObjectPropertyAssertion { .. }
-            | Self::IgnoredDataPropertyAssertion { .. } => EmissionPhase::ObjectAssertions,
+            | Self::IgnoredDataPropertyAssertion { .. }
+            | Self::IgnoredIndividualSet { .. } => EmissionPhase::ObjectAssertions,
         }
     }
 
@@ -1897,6 +1904,35 @@ impl OwnedOverlayDeltaProjection {
                         "encoded negative-data-property-assertion count overflow"
                     } else {
                         "encoded data-property-assertion count overflow"
+                    })
+                })?;
+                statistics.anonymous_individuals = statistics
+                    .anonymous_individuals
+                    .checked_add(*anonymous_individuals)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded anonymous-individual count overflow")
+                    })?;
+                if !asserted_taxonomy_only {
+                    statistics.skipped_axioms =
+                        statistics.skipped_axioms.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded skipped-axiom count overflow")
+                        })?;
+                }
+            }
+            Self::IgnoredIndividualSet {
+                anonymous_individuals,
+                different,
+            } => {
+                let counter = if *different {
+                    &mut statistics.different_individuals
+                } else {
+                    &mut statistics.same_individuals
+                };
+                *counter = counter.checked_add(1).ok_or_else(|| {
+                    KernelError::resource(if *different {
+                        "encoded different-individuals count overflow"
+                    } else {
+                        "encoded same-individual count overflow"
                     })
                 })?;
                 statistics.anonymous_individuals = statistics
@@ -2580,6 +2616,48 @@ impl<'a> DirectColumns<'a> {
                         ScopeMappedCompositeKind::PositiveData
                     } else {
                         ScopeMappedCompositeKind::NegativeData
+                    });
+                }
+                TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS => {
+                    if construct_kind.is_some() {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                        ));
+                    }
+                    let tag = self.node_tag(root)?;
+                    self.validate_individual_set_axiom(root, tag, maximum_iri)?;
+                    let start = self.exact_fields(root, 2)?;
+                    let (item_start, item_count) = self.node_set_range(start, 2)?;
+                    let (_annotation_start, annotation_count) =
+                        self.node_set_range(start + 1, 0)?;
+                    let mut anonymous_count = 0_usize;
+                    let mut named_count = 0_usize;
+                    for item_index in item_start..item_start + item_count {
+                        match self.individual_value(self.item_node(item_index)?, maximum_iri)? {
+                            IndividualValue::Anonymous(node) if node == anonymous_node => {
+                                anonymous_count += 1;
+                            }
+                            IndividualValue::Named(_) => named_count += 1,
+                            IndividualValue::Anonymous(_) => {
+                                return Err(KernelError::unsupported(
+                                    "bounded anonymous-scope individual set contains an unrelated anonymous individual",
+                                ));
+                            }
+                        }
+                    }
+                    if item_count != 2
+                        || annotation_count != 0
+                        || anonymous_count != 1
+                        || named_count != 1
+                    {
+                        return Err(KernelError::unsupported(
+                            "bounded anonymous-scope composite requires one unannotated binary individual set with one anonymous member",
+                        ));
+                    }
+                    construct_kind = Some(if tag == TAG_SAME_INDIVIDUAL {
+                        ScopeMappedCompositeKind::SameIndividual
+                    } else {
+                        ScopeMappedCompositeKind::DifferentIndividuals
                     });
                 }
                 _ => {
@@ -8019,7 +8097,8 @@ impl DirectEmissionCursor {
                             }
                             | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
                                 ..
-                            } => false,
+                            }
+                            | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. } => false,
                         };
                         if handled {
                             continue;
@@ -8328,7 +8407,8 @@ impl DirectEmissionCursor {
                             }
                             | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
                                 ..
-                            } => {
+                            }
+                            | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. } => {
                                 self.overlay_delta_index =
                                     self.overlay_delta_index.checked_add(1).ok_or_else(|| {
                                         KernelError::resource(
@@ -9043,6 +9123,37 @@ fn own_composite_tail_projection(
             negative: tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
         });
     }
+    if matches!(
+        scope_mapped_construct,
+        Some((
+            ScopeMappedCompositeKind::SameIndividual
+                | ScopeMappedCompositeKind::DifferentIndividuals,
+            _
+        ))
+    ) && matches!(tag, TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS)
+    {
+        columns.validate_individual_set_axiom(root, tag, max_iri_bytes)?;
+        let field_start = columns.exact_fields(root, 2)?;
+        let (item_start, item_count) = columns.node_set_range(field_start, 2)?;
+        let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 1, 0)?;
+        let mut anonymous_count = 0_usize;
+        let mut named_count = 0_usize;
+        for item_index in item_start..item_start + item_count {
+            match columns.individual_value(columns.item_node(item_index)?, max_iri_bytes)? {
+                IndividualValue::Anonymous(_) => anonymous_count += 1,
+                IndividualValue::Named(_) => named_count += 1,
+            }
+        }
+        if item_count != 2 || annotation_count != 0 || anonymous_count != 1 || named_count != 1 {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope individual set requires one anonymous and one named member",
+            ));
+        }
+        return Ok(OwnedOverlayDeltaProjection::IgnoredIndividualSet {
+            anonymous_individuals: 1,
+            different: tag == TAG_DIFFERENT_INDIVIDUALS,
+        });
+    }
     if !matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::IgnoredClass, _))
@@ -9539,7 +9650,8 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. } => (0, 0),
+            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
+            | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. } => (0, 0),
         };
         projection_edges = projection_edges
             .checked_add(edges)
@@ -10603,7 +10715,8 @@ fn prepare_two_table_batches_uncommitted(
             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
             | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. } => (0, 0),
+            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
+            | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. } => (0, 0),
         };
         projection_edges = projection_edges
             .checked_add(edges)
@@ -11715,6 +11828,43 @@ mod tests {
             .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
         fixture.root_ids.extend_from_slice(&11_u32.to_le_bytes());
         fixture.root_ids.extend_from_slice(&12_u32.to_le_bytes());
+        fixture
+    }
+
+    fn scope_mapped_individual_set_fixture(set_tag: u16) -> Fixture {
+        assert!(matches!(
+            set_tag,
+            TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS
+        ));
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:B".as_slice(), b"urn:Top", b"urn:j"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=3
+        }
+        for (kind, iri_id) in [
+            (b"class".as_slice(), 1_u64),
+            (b"class".as_slice(), 2),
+            (b"named_individual".as_slice(), 3),
+        ] {
+            fixture.push_scalar(COMPONENT_ENUM, kind);
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 4..=6
+        }
+        fixture.push_scalar(COMPONENT_BYTES, &[7; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 7
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(5);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_SUB_CLASS_OF); // 8
+        fixture.push_node_set(&[6, 7]);
+        fixture.push_empty_set();
+        fixture.finish_node(set_tag); // 9
+        fixture
+            .root_kinds
+            .extend_from_slice(&[ROOT_AXIOM, ROOT_AXIOM]);
+        fixture.root_ids.extend_from_slice(&8_u32.to_le_bytes());
+        fixture.root_ids.extend_from_slice(&9_u32.to_le_bytes());
         fixture
     }
 
@@ -21146,6 +21296,97 @@ mod tests {
             assert_eq!(
                 asserted.statistics().negative_data_property_assertions,
                 usize::from(negative) * 2
+            );
+            assert_eq!(asserted.statistics().skipped_axioms, 0);
+            assert_eq!(asserted.statistics().edges, 1);
+        }
+    }
+
+    #[test]
+    fn two_member_composite_remaps_skipped_individual_set_scopes() {
+        for (set_tag, different) in [
+            (TAG_SAME_INDIVIDUAL, false),
+            (TAG_DIFFERENT_INDIVIDUALS, true),
+        ] {
+            let left = scope_mapped_individual_set_fixture(set_tag);
+            let right = scope_mapped_individual_set_fixture(set_tag);
+            let mut left_scope_map = [0_u8; 64];
+            left_scope_map[..32].fill(7);
+            left_scope_map[32..].fill(8);
+            let mut right_scope_map = [0_u8; 64];
+            right_scope_map[..32].fill(7);
+            right_scope_map[32..].fill(9);
+            let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+            let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+            let options = DirectCompileOptions {
+                bidirectional: false,
+                asserted_taxonomy_only: false,
+                only_taxonomy: false,
+                include_literals: false,
+                max_edges: 1,
+                max_iri_bytes: 1024,
+            };
+            let state = running_state();
+            let mut prepared = prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right_columns,
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = prepared.statistics();
+            assert_eq!(statistics.roots, 3);
+            assert_eq!(statistics.subclasses, 1);
+            assert_eq!(statistics.same_individuals, usize::from(!different) * 2);
+            assert_eq!(statistics.different_individuals, usize::from(different) * 2);
+            assert_eq!(statistics.anonymous_individuals, 2);
+            assert_eq!(statistics.skipped_axioms, 2);
+            assert_eq!(statistics.edges, 1);
+            assert!(matches!(
+                prepared.preparation.overlay_deltas[0].projection,
+                OwnedOverlayDeltaProjection::IgnoredIndividualSet {
+                    anonymous_individuals: 1,
+                    different: actual_different,
+                } if actual_different == different
+            ));
+
+            let (edges, cursor) = prepared
+                .prepare_next_batch(left_columns, &state, 1)
+                .unwrap();
+            assert_eq!(
+                edges,
+                vec![DirectEdge {
+                    source: "urn:B".into(),
+                    relation: SUBCLASS_OF.into(),
+                    destination: "urn:Top".into(),
+                }]
+            );
+            prepared.commit_cursor(cursor);
+            assert!(prepared.is_exhausted());
+
+            let asserted = prepare_two_member_composite_batches_uncommitted(
+                left_columns,
+                right_columns,
+                DirectCompileOptions {
+                    asserted_taxonomy_only: true,
+                    ..options
+                },
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(
+                asserted.statistics().same_individuals,
+                usize::from(!different) * 2
+            );
+            assert_eq!(
+                asserted.statistics().different_individuals,
+                usize::from(different) * 2
             );
             assert_eq!(asserted.statistics().skipped_axioms, 0);
             assert_eq!(asserted.statistics().edges, 1);

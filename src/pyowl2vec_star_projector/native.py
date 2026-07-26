@@ -21,10 +21,12 @@ from .encoded import (
     _resolve_private_overlay_aliases,
     _resolve_private_scope_mapped_class_assertion_composite,
     _resolve_private_scope_mapped_data_property_assertion_composite,
+    _resolve_private_scope_mapped_different_individuals_composite,
     _resolve_private_scope_mapped_negative_data_property_assertion_composite,
     _resolve_private_scope_mapped_negative_object_property_assertion_composite,
     _resolve_private_scope_mapped_nested_overlay_composite,
     _resolve_private_scope_mapped_object_property_assertion_composite,
+    _resolve_private_scope_mapped_same_individual_composite,
     _resolve_private_single_overlay_delta,
     _resolve_private_three_member_composite,
     _resolve_private_two_member_composite,
@@ -41,7 +43,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 93
+ENCODED_DIRECT_KERNEL_VERSION = 94
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1133,6 +1135,14 @@ def prepare_native_encoded_compilation(
                     _resolve_private_scope_mapped_negative_data_property_assertion_composite(
                         lease
                     )
+                )
+            if resolved_scope_mapped is None:
+                resolved_scope_mapped = (
+                    _resolve_private_scope_mapped_same_individual_composite(lease)
+                )
+            if resolved_scope_mapped is None:
+                resolved_scope_mapped = (
+                    _resolve_private_scope_mapped_different_individuals_composite(lease)
                 )
             resolved_composite = (
                 None
