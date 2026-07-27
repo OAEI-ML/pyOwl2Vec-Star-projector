@@ -64,7 +64,13 @@ recursive plans remain fail-closed. Kernel v123 applies the same source-local ru
 two-direct-sibling family: the outer nested-member selector and either or both direct-sibling
 selectors remain attached to their exact leaf table alongside the nested base selector.
 `INCLUDE`, scope remapping, another nested delta, a third direct sibling, and broader recursive
-plans remain fail-closed. Kernel v31 additionally rejects cycles in nested annotation metadata
+plans remain fail-closed. Kernel v124 composes anonymous-scope remapping with the exact
+one-direct-sibling nested family when the nested overlay's one named-subclass local-delta root is
+fully selected out. The two scope-mapped member tables and inner overlay base remain `ALL`; the
+four-byte outer `EXCLUDE` exporter is retained and validated as the complete local-delta selector.
+Partial selection, selection on either mapped member or the inner base, `INCLUDE`, two direct
+siblings, and broader recursive scope-mapped plans remain fail-closed. Kernel v31 additionally
+rejects cycles in nested annotation metadata
 with an iterative preflight over both closure and retained root tables. This closes a hostile
 structural-columns case without advertising the encoded compiler or changing valid projection
 output. Exact installed diamond and cyclic import cases additionally prove that the v30 join's

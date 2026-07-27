@@ -4514,16 +4514,32 @@ impl<'a> DirectColumns<'a> {
     fn validate_scope_mapped_neutral_table(
         self,
         root_rule_plan: &SelectedRootRulePlan,
-        _maximum_iri: usize,
+        maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<(), KernelError> {
+        let fully_excluded = if self.excluded_root_ids.is_empty() {
+            false
+        } else {
+            if self.excluded_root_ids.len() / 4 != self.root_count() {
+                return Err(KernelError::unsupported(
+                    "bounded anonymous-scope nested composite permits only ALL or fully excluded neutral roots",
+                ));
+            }
+            for index in 0..self.root_count() {
+                if self.excluded_root_position(index)? != index + 1 {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope nested composite permits only ALL or fully excluded neutral roots",
+                    ));
+                }
+            }
+            true
+        };
         if !self.included_root_ids.is_empty()
-            || !self.excluded_root_ids.is_empty()
             || !self.anonymous_scope_map.is_empty()
             || self.root_count() == 0
         {
             return Err(KernelError::unsupported(
-                "bounded anonymous-scope nested composite requires one nonempty unposted neutral table",
+                "bounded anonymous-scope nested composite requires one nonempty ALL or fully excluded neutral table",
             ));
         }
         for node_id in 1..=self.node_count() {
@@ -4537,6 +4553,22 @@ impl<'a> DirectColumns<'a> {
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
             let root = self.root_id(root_index)?;
+            if fully_excluded {
+                if self.root_kind(root_index)? != ROOT_AXIOM
+                    || self.node_tag(root)? != TAG_SUB_CLASS_OF
+                    || !matches!(
+                        self.subclass_projection(root, maximum_iri)?,
+                        SubclassProjection::Taxonomy { .. }
+                    )
+                {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope neutral table supports only named SubClassOf roots",
+                    ));
+                }
+                let start = self.exact_fields(root, 3)?;
+                self.node_set_range(start + 2, 0)?;
+                continue;
+            }
             let rule = root_rule_plan.rule_at(root_index)?;
             if self.root_kind(root_index)? != rule.root_kind || self.node_tag(root)? != rule.tag {
                 return Err(KernelError::malformed(
@@ -27277,6 +27309,81 @@ mod tests {
                     relation: SUBCLASS_OF.into(),
                     destination: "urn:Top".into(),
                 },
+                DirectEdge {
+                    source: "_:genid2147483648".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+                DirectEdge {
+                    source: "_:genid2147483649".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+            ]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn nested_member_composite_remaps_across_fully_excluded_neutral_table() {
+        let mut left = scope_mapped_object_property_assertion_fixture();
+        let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let mut right = scope_mapped_object_property_assertion_fixture();
+        left.root_kinds.remove(0);
+        left.root_ids.drain(..4);
+        right.root_kinds.remove(0);
+        right.root_ids.drain(..4);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let excluded_neutral_root = 1_u32.to_le_bytes();
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let neutral_columns = neutral
+            .columns()
+            .with_excluded_root_ids(&excluded_neutral_root);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        assert_eq!(neutral_columns.selected_root_count().unwrap(), 0);
+        assert!(!neutral_columns.root_is_selected(0).unwrap());
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 2,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_three_member_composite_batches_uncommitted(
+            [left_columns, neutral_columns, right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 2);
+        assert_eq!(statistics.subclasses, 0);
+        assert_eq!(statistics.object_property_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 2);
+        assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
+        assert!(matches!(
+            prepared.preparation.overlay_deltas[0].projection,
+            OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
+        ));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 2)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![
                 DirectEdge {
                     source: "_:genid2147483648".into(),
                     relation: "urn:p".into(),

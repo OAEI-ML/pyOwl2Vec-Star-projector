@@ -2295,6 +2295,129 @@ def test_hidden_iterator_compiles_empty_overlay_alias_without_flattening(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite, top_lease = _forged_scope_mapped_nested_overlay_exclude(
+        provider_backend
+    )
+    resolved = _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
+    assert resolved is not None
+    (
+        _base_lease,
+        nested_lease,
+        _direct_lease,
+        nested_excluded,
+        nested_scope_map,
+        direct_scope_map,
+        _max_work,
+        _max_workspace,
+    ) = resolved
+    assert nested_excluded is not None
+    nested_segment = next(
+        cast(Any, segment)
+        for segment in top_lease.segments
+        if cast(Any, segment).source is nested_lease.encoded_view
+    )
+    assert nested_excluded is nested_segment.root_ids
+    assert nested_scope_map is nested_segment.anonymous_scope_map
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "selected scope-mapped nested member reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert len(actual) == 2
+    assert len({edge.source for edge in actual}) == 2
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics == ()
+    assert len(captured) == len(captured_compilers) == 1
+    compilation = captured[0]
+    compiler = captured_compilers[0]
+    assert compilation.right_excluded_root_ids is nested_excluded
+    assert compilation.anonymous_scope_map is nested_scope_map
+    assert compilation.right_anonymous_scope_map is direct_scope_map
+    assert compilation.native_statistics.roots == 2
+    assert compilation.native_statistics.object_property_assertions == 2
+    assert compilation.native_statistics.anonymous_individuals == 2
+    assert compilation.native_statistics.edges == 2
+    assert compiler.retained_buffer_count == 36
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 44
+    assert ingestion.counters["encoded_detached_buffer_count"] == 36
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 44
+    assert ingestion.counters["encoded_referenced_view_count"] == 3
+    assert ingestion.counters["encoded_segment_count"] == 6
+    assert ingestion.counters["encoded_posting_bytes"] == 132
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=2,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
 @pytest.mark.parametrize(
     ("removal", "only_taxonomy", "expected_relations"),
     [
@@ -10060,6 +10183,60 @@ def _scope_mapped_nested_overlay_composite(
     )
 
 
+def _forged_scope_mapped_nested_overlay_exclude(
+    provider_backend: pyowl_core.BackendPreference,
+) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease]:
+    storage_composite = _scope_mapped_nested_overlay_composite(
+        provider_backend,
+        object_assertion=True,
+    )
+    top_lease = select_private_direct_ingestion(
+        storage_composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    segments = list(top_lease.segments)
+    nested_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if tuple(cast(Any, child).role for child in cast(Any, cast(Any, segment).source).segments)
+        == (2, 3)
+    )
+    nested_segment = cast(Any, segments[nested_index])
+    assert nested_segment.anonymous_scope_map.nbytes == 64
+    assert nested_segment.source.buffers["root_kinds"].nbytes == 1
+    segments[nested_index] = replace(
+        nested_segment,
+        posting_mode=2,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    top_encoded = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(segments),
+    )
+    top_lease = replace(
+        top_lease,
+        encoded_view=top_encoded,
+        segments=tuple(segments),
+    )
+    local_subclass = next(
+        axiom
+        for axiom in storage_composite.iter_axioms()
+        if type(axiom).__name__ == "SubClassOf"
+        and cast(Any, axiom).sub_class.iri.value.endswith("#B")
+    )
+    semantic_view = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(
+            storage_composite,
+            pyowl_core.OntologyDelta(
+                remove_axioms=cast(Any, {local_subclass}),
+            ),
+        ),
+    )
+    return semantic_view, top_lease
+
+
 _SCOPE_MAPPED_NESTED_SILENT_FAMILIES = (
     (
         "NegativeObjectPropertyAssertion(:p _:same :j)",
@@ -15586,6 +15763,7 @@ def test_four_table_selected_member_views_live_until_compiler_release() -> None:
         ("four-table-directs", 5, 12),
         ("nested-member", 3, 12),
         ("four-table-nested-member", 4, 16),
+        ("scope-mapped-nested-member", 2, 132),
     ],
 )
 def test_selected_nested_composites_feed_sink_digest_and_artifact(
@@ -15594,7 +15772,11 @@ def test_selected_nested_composites_feed_sink_digest_and_artifact(
     compiled_edges: int,
     posting_bytes: int,
 ) -> None:
-    if shape == "nested-member":
+    if shape == "scope-mapped-nested-member":
+        composite, top_lease = _forged_scope_mapped_nested_overlay_exclude(
+            pyowl_core.BackendPreference.NATIVE
+        )
+    elif shape == "nested-member":
         composite, top_lease = _forged_nested_overlay_member_dual_exclude_subclass_composite(
             pyowl_core.BackendPreference.NATIVE,
             exclude_nested_delta=True,
@@ -17118,11 +17300,13 @@ def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
         base_lease,
         nested_lease,
         direct_lease,
+        nested_excluded,
         nested_scope_map,
         direct_scope_map,
         max_work,
         max_workspace,
     ) = resolved
+    assert nested_excluded is None
     assert max_work is not None
     assert max_workspace is not None
 
@@ -17278,11 +17462,13 @@ def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
         base_lease,
         nested_lease,
         direct_lease,
+        nested_excluded,
         nested_scope_map,
         direct_scope_map,
         max_work,
         max_workspace,
     ) = resolved
+    assert nested_excluded is None
     assert max_work is not None
     assert max_workspace is not None
 
@@ -17394,6 +17580,203 @@ def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
             canonical_workspace_limit=max_workspace,
             anonymous_scope_map=nested_scope_map,
         )
+
+
+def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
+    _composite, top_lease = _forged_scope_mapped_nested_overlay_exclude(
+        pyowl_core.BackendPreference.PYTHON
+    )
+    resolved = _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
+    assert resolved is not None
+    (
+        base_lease,
+        nested_lease,
+        direct_lease,
+        nested_excluded,
+        nested_scope_map,
+        direct_scope_map,
+        max_work,
+        max_workspace,
+    ) = resolved
+    assert nested_excluded is not None
+    assert max_work is not None
+    assert max_workspace is not None
+
+    def compiler(
+        *,
+        manifest: EncodedStructuralLease = top_lease,
+        selector: memoryview = nested_excluded,
+        left_map: memoryview = nested_scope_map,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=direct_lease,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=manifest,
+            right_excluded_root_ids=selector,
+            anonymous_scope_map=left_map,
+            right_anonymous_scope_map=direct_scope_map,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+
+    valid = compiler()
+    edges, statistics = valid.compile_batch(
+        bidirectional=False,
+        max_edges=2,
+        max_iri_bytes=1024,
+    )
+    assert len(edges) == 2
+    assert statistics.roots == statistics.object_property_assertions == statistics.edges == 2
+    assert valid.retained_buffer_count == 36
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="nested member lost its exact EXCLUDE table",
+    ):
+        compiler(selector=memoryview(bytes(nested_excluded)))
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="lost its exact anonymous scope map",
+    ):
+        compiler(left_map=memoryview(bytes(nested_scope_map)))
+
+    segments = list(top_lease.segments)
+    nested_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).source is nested_lease.encoded_view
+    )
+    direct_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).source is direct_lease.encoded_view
+    )
+    out_of_range = memoryview((99).to_bytes(4, "little"))
+    malformed_segments = list(segments)
+    malformed_segments[nested_index] = replace(
+        cast(Any, malformed_segments[nested_index]),
+        root_ids=out_of_range,
+    )
+    malformed_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(malformed_segments),
+    )
+    malformed_lease = replace(
+        top_lease,
+        encoded_view=malformed_view,
+        segments=tuple(malformed_segments),
+    )
+    assert _resolve_private_scope_mapped_nested_overlay_composite(malformed_lease) is None
+    malformed = compiler(
+        manifest=malformed_lease,
+        selector=out_of_range,
+    )
+    with pytest.raises(SnapshotCompatibilityError, match=r"excluded[_-]root"):
+        malformed.compile_batch(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024,
+        )
+    assert malformed.state == "failed"
+
+    nested_included = list(segments)
+    nested_included[nested_index] = replace(
+        cast(Any, nested_included[nested_index]),
+        posting_mode=1,
+    )
+    nested_included_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(nested_included),
+    )
+    assert (
+        _resolve_private_scope_mapped_nested_overlay_composite(
+            replace(
+                top_lease,
+                encoded_view=nested_included_view,
+                segments=tuple(nested_included),
+            )
+        )
+        is None
+    )
+
+    direct_excluded = list(segments)
+    direct_excluded[direct_index] = replace(
+        cast(Any, direct_excluded[direct_index]),
+        posting_mode=2,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    direct_excluded_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(direct_excluded),
+    )
+    assert (
+        _resolve_private_scope_mapped_nested_overlay_composite(
+            replace(
+                top_lease,
+                encoded_view=direct_excluded_view,
+                segments=tuple(direct_excluded),
+            )
+        )
+        is None
+    )
+
+
+def test_selected_scope_mapped_nested_views_live_until_compiler_release() -> None:
+    def create() -> tuple[
+        NativeEncodedDirectCompiler,
+        tuple[weakref.ReferenceType[Any], ...],
+    ]:
+        _composite, top_lease = _forged_scope_mapped_nested_overlay_exclude(
+            pyowl_core.BackendPreference.PYTHON
+        )
+        resolved = _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
+        assert resolved is not None
+        (
+            base_lease,
+            nested_lease,
+            direct_lease,
+            nested_excluded,
+            nested_scope_map,
+            direct_scope_map,
+            max_work,
+            max_workspace,
+        ) = resolved
+        assert nested_excluded is not None
+        assert max_work is not None
+        assert max_workspace is not None
+        compiler = prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=direct_lease,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=top_lease,
+            right_excluded_root_ids=nested_excluded,
+            anonymous_scope_map=nested_scope_map,
+            right_anonymous_scope_map=direct_scope_map,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+        return (
+            compiler,
+            tuple(
+                weakref.ref(lease.encoded_view)
+                for lease in (
+                    top_lease,
+                    base_lease,
+                    nested_lease,
+                    direct_lease,
+                )
+            ),
+        )
+
+    compiler, retained_view_refs = create()
+    gc.collect()
+    assert all(reference() is not None for reference in retained_view_refs)
+    del compiler
+    gc.collect()
+    assert all(reference() is None for reference in retained_view_refs)
 
 
 @pytest.mark.parametrize(

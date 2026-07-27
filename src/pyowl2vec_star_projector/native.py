@@ -36,7 +36,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 123
+ENCODED_DIRECT_KERNEL_VERSION = 124
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1233,6 +1233,7 @@ def prepare_native_encoded_compilation(
                         lease,
                         local_delta_lease,
                         third_member_lease,
+                        right_excluded_root_ids,
                         anonymous_scope_map,
                         right_anonymous_scope_map,
                         canonical_work_limit,
@@ -2033,7 +2034,7 @@ def prepare_native_encoded_direct(
             not (exact_two_member or exact_nested_member)
             or included_root_ids is not None
             or excluded_root_ids is not None
-            or right_excluded_root_ids is not None
+            or (right_excluded_root_ids is not None and not exact_nested_member)
             or third_excluded_root_ids is not None
             or fourth_excluded_root_ids is not None
         ):

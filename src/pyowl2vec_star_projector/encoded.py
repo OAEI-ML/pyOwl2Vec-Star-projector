@@ -1623,6 +1623,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         EncodedStructuralLease,
         EncodedStructuralLease,
         EncodedStructuralLease,
+        memoryview | None,
         memoryview,
         memoryview,
         int | None,
@@ -1639,29 +1640,36 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         allow_scope_maps=True,
     )
     if rows is None or any(
-        included is not None or excluded is not None or scope_map is None
-        for _source, included, excluded, scope_map in rows
+        included is not None or scope_map is None
+        for _source, included, _excluded, scope_map in rows
     ):
         return None
-    overlay_row: tuple[EncodedStructuralLease, memoryview] | None = None
+    overlay_row: tuple[EncodedStructuralLease, memoryview | None, memoryview] | None = None
     direct_row: tuple[EncodedStructuralLease, memoryview] | None = None
-    for source, _included, _excluded, scope_map in rows:
+    for source, _included, excluded, scope_map in rows:
         assert scope_map is not None
         roles = tuple(cast(Any, segment).role for segment in source.segments)
         if roles == (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA):
             if overlay_row is not None:
                 return None
-            overlay_row = (source, scope_map)
+            overlay_row = (source, excluded, scope_map)
         elif roles == (_SEGMENT_DIRECT,):
-            if direct_row is not None:
+            if direct_row is not None or excluded is not None:
                 return None
             direct_row = (source, scope_map)
         else:
             return None
     if overlay_row is None or direct_row is None:
         return None
-    nested_overlay, nested_scope_map = overlay_row
+    nested_overlay, nested_excluded_root_ids, nested_scope_map = overlay_row
     direct_member, direct_scope_map = direct_row
+    if nested_excluded_root_ids is not None:
+        local_root_count = nested_overlay.buffers["root_kinds"].nbytes
+        if nested_excluded_root_ids.nbytes != 4 * local_root_count or any(
+            _read_uint(nested_excluded_root_ids, index, 4) != index + 1
+            for index in range(local_root_count)
+        ):
+            return None
     resolved_overlay = _resolve_private_single_overlay_delta(nested_overlay)
     if resolved_overlay is None:
         return None
@@ -1693,6 +1701,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         base,
         nested_overlay,
         direct_member,
+        nested_excluded_root_ids,
         nested_scope_map,
         direct_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),
