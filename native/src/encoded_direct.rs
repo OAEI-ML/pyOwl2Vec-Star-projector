@@ -10388,13 +10388,13 @@ fn prepare_two_table_batches_uncommitted(
         let (_entity_kind, iri_id) =
             delta_columns.entity(delta_columns.field_node(field_start)?)?;
         delta_columns.iri(iri_id, options.max_iri_bytes)?;
-        let (_annotation_start, annotation_count) =
-            delta_columns.node_set_range(field_start + 1, 0)?;
-        if annotation_count != 0 {
-            return Err(KernelError::unsupported(
-                "bounded local-overlay Declaration root must be unannotated",
-            ));
-        }
+        validate_local_annotation_scope(
+            delta_columns,
+            delta_root,
+            field_start + 1,
+            "Declaration",
+            state,
+        )?;
         None
     } else if let Some(kind) = silent_ignored_class_root {
         let constructor = kind.constructor();
@@ -14456,6 +14456,20 @@ mod tests {
         fixture
     }
 
+    fn anonymous_annotated_declaration_delta_fixture() -> Fixture {
+        let mut fixture = named_declaration_delta_fixture(b"urn:C", true);
+        fixture.push_scalar(COMPONENT_BYTES, &[19; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"local-declaration-annotation");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 7
+
+        let annotation_start =
+            read_usize(&fixture.node_field_offsets, 4, "annotation offset").unwrap();
+        let value_field = annotation_start + 1;
+        fixture.field_values[value_field * 8..value_field * 8 + 8]
+            .copy_from_slice(&7_u64.to_le_bytes());
+        fixture
+    }
+
     fn named_class_axiom_fixture() -> Fixture {
         let mut fixture = Fixture::default();
         for iri in [b"urn:A".as_slice(), b"urn:B", b"urn:Z", b"urn:i", b"urn:AA"] {
@@ -16878,17 +16892,35 @@ mod tests {
         ));
 
         let annotated = named_declaration_delta_fixture(b"urn:C", true);
+        let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated_prepared.statistics().roots, 3);
+        assert_eq!(annotated_prepared.statistics().declarations, 2);
+        assert_eq!(annotated_prepared.statistics().subclasses, 1);
+        assert_eq!(annotated_prepared.statistics().edges, 1);
+        assert_eq!(annotated_prepared.emission_attempts(), 0);
+
+        let anonymous_annotation = anonymous_annotated_declaration_delta_fixture();
         assert!(matches!(
             prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
-                annotated.columns(),
+                anonymous_annotation.columns(),
                 options,
                 &running_state(),
                 None,
                 canonical_limits().max_work,
                 canonical_limits().max_workspace_bytes,
             ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            Err(KernelError::Unsupported(message))
+                if message.contains("annotations require no anonymous individuals or local scope remap")
         ));
     }
 

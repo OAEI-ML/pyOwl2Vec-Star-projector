@@ -6101,6 +6101,7 @@ def test_hidden_iterator_composes_one_base_exclusion_with_one_local_delta(
         "datatype",
     ],
 )
+@pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
 @pytest.mark.parametrize(
     ("removed_sources", "expected_sources"),
     [
@@ -6113,6 +6114,7 @@ def test_hidden_iterator_composes_one_base_exclusion_with_one_local_delta(
 def test_hidden_iterator_compiles_one_silent_local_declaration(
     provider_backend: pyowl_core.BackendPreference,
     local_entity: str,
+    annotated: bool,
     removed_sources: frozenset[str],
     expected_sources: tuple[str, ...],
 ) -> None:
@@ -6129,9 +6131,13 @@ def test_hidden_iterator_compiles_one_silent_local_declaration(
         if cast(Any, axiom).sub_class.iri.value.rsplit("#", 1)[-1] in removed_sources
     }
     assert len(removed) == len(removed_sources)
+    annotation = 'Annotation(:label "declaration") ' if annotated else ""
     addition_source = cast(
         pyowl_core.OntologyView,
-        _snapshot(f"Declaration({local_entity})", backend=provider_backend),
+        _snapshot(
+            f"Declaration({annotation}{local_entity})",
+            backend=provider_backend,
+        ),
     )
     overlay = pyowl_core.apply_delta(
         base,
@@ -15179,10 +15185,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "bounded local-overlay DifferentIndividuals root requires a canonical binary "
             "or ternary named-individual set",
         ),
-        (
-            'Declaration(Annotation(:label "x") Class(:D))',
-            "bounded local-overlay Declaration root must be unannotated",
-        ),
     ],
     ids=[
         "ignored-taxonomy-local-subclasses",
@@ -15246,7 +15248,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
         "annotated-local-different-individuals",
         "anonymous-local-different-individuals",
         "oversized-local-different-individuals",
-        "annotated-local-declaration",
     ],
 )
 def test_hidden_iterator_keeps_adjacent_local_overlay_shapes_on_whole_call_fallback(
