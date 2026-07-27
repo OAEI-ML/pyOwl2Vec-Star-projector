@@ -10577,13 +10577,13 @@ fn prepare_two_table_batches_uncommitted(
             }
         }
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
-        let (_annotation_start, annotation_count) =
-            delta_columns.node_set_range(field_start + 2, 0)?;
-        if annotation_count != 0 {
-            return Err(KernelError::unsupported(format!(
-                "bounded local-overlay {constructor} root must be unannotated",
-            )));
-        }
+        validate_local_annotation_scope(
+            delta_columns,
+            delta_root,
+            field_start + 2,
+            constructor,
+            state,
+        )?;
         None
     } else if let Some(kind) = silent_class_disjointness_root {
         let constructor = kind.constructor();
@@ -13885,6 +13885,21 @@ mod tests {
         fixture
             .root_ids
             .extend_from_slice(&(fixture.node_tags.len() as u32 / 2).to_le_bytes());
+        fixture
+    }
+
+    fn anonymous_annotated_annotation_property_delta_fixture() -> Fixture {
+        let mut fixture =
+            silent_annotation_property_delta_fixture(TAG_ANNOTATION_PROPERTY_DOMAIN, true);
+        fixture.push_scalar(COMPONENT_BYTES, &[23; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"local-annotation-property");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 6
+
+        let annotation_start =
+            read_usize(&fixture.node_field_offsets, 3, "annotation offset").unwrap();
+        let value_field = annotation_start + 1;
+        fixture.field_values[value_field * 8..value_field * 8 + 8]
+            .copy_from_slice(&6_u64.to_le_bytes());
         fixture
     }
 
@@ -19091,19 +19106,45 @@ mod tests {
             TAG_ANNOTATION_PROPERTY_RANGE,
         ] {
             let annotated = silent_annotation_property_delta_fixture(tag, true);
-            assert!(matches!(
-                prepare_single_overlay_delta_batches_uncommitted(
-                    base.columns(),
-                    annotated.columns(),
-                    options,
-                    &running_state(),
-                    None,
-                    canonical_limits().max_work,
-                    canonical_limits().max_workspace_bytes,
-                ),
-                Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
-            ));
+            let annotated_prepared = prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                annotated.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let kind = SilentAnnotationPropertyRoot::classify(
+                annotated
+                    .columns()
+                    .classify_roots(options.max_iri_bytes, &running_state())
+                    .unwrap(),
+                tag,
+            )
+            .unwrap();
+            assert_eq!(annotated_prepared.statistics().roots, 3);
+            assert_eq!(kind.statistics_count(&annotated_prepared.statistics()), 1);
+            assert_eq!(annotated_prepared.statistics().skipped_axioms, 1);
+            assert_eq!(annotated_prepared.statistics().edges, 1);
+            assert_eq!(annotated_prepared.emission_attempts(), 0);
         }
+
+        let anonymous_annotation = anonymous_annotated_annotation_property_delta_fixture();
+        assert!(matches!(
+            prepare_single_overlay_delta_batches_uncommitted(
+                base.columns(),
+                anonymous_annotation.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message))
+                if message.contains("annotations require no anonymous individuals or local scope remap")
+        ));
     }
 
     #[test]

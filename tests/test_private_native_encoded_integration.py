@@ -5244,6 +5244,7 @@ def test_hidden_iterator_compiles_one_silent_local_class_disjointness_axiom(
     ],
     ids=["sub-property", "domain", "range"],
 )
+@pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
 @pytest.mark.parametrize(
     ("removed_sources", "only_taxonomy", "expected_sources"),
     [
@@ -5258,6 +5259,7 @@ def test_hidden_iterator_compiles_one_silent_local_annotation_property_axiom(
     provider_backend: pyowl_core.BackendPreference,
     local_body: str,
     statistics_field: str,
+    annotated: bool,
     removed_sources: frozenset[str],
     only_taxonomy: bool,
     expected_sources: tuple[str, ...],
@@ -5275,9 +5277,11 @@ def test_hidden_iterator_compiles_one_silent_local_annotation_property_axiom(
         if cast(Any, axiom).sub_class.iri.value.rsplit("#", 1)[-1] in removed_sources
     }
     assert len(removed) == len(removed_sources)
+    annotation = 'Annotation(:label "annotation-property") ' if annotated else ""
+    annotated_local_body = local_body.replace("(", f"({annotation}", 1)
     addition_source = cast(
         pyowl_core.OntologyView,
-        _snapshot(local_body, backend=provider_backend),
+        _snapshot(annotated_local_body, backend=provider_backend),
     )
     overlay = pyowl_core.apply_delta(
         base,
@@ -15130,18 +15134,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "binary or ternary object-property-expression set",
         ),
         (
-            'SubAnnotationPropertyOf(Annotation(:label "x") :ap :aq)',
-            "bounded local-overlay SubAnnotationPropertyOf root must be unannotated",
-        ),
-        (
-            'AnnotationPropertyDomain(Annotation(:label "x") :ap <urn:domain>)',
-            "bounded local-overlay AnnotationPropertyDomain root must be unannotated",
-        ),
-        (
-            'AnnotationPropertyRange(Annotation(:label "x") :ap <urn:range>)',
-            "bounded local-overlay AnnotationPropertyRange root must be unannotated",
-        ),
-        (
             'DisjointClasses(Annotation(:label "x") :A :B)',
             "bounded local-overlay DisjointClasses root must be unannotated",
         ),
@@ -15235,9 +15227,6 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
         "annotated-local-transitive-object-property",
         "oversized-local-equivalent-object-properties",
         "oversized-local-disjoint-object-properties",
-        "annotated-local-sub-annotation-property",
-        "annotated-local-annotation-property-domain",
-        "annotated-local-annotation-property-range",
         "annotated-local-disjoint-classes",
         "oversized-local-disjoint-classes",
         "annotated-local-disjoint-union",
