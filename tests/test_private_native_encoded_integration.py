@@ -15484,6 +15484,151 @@ def test_four_table_selected_member_views_live_until_compiler_release() -> None:
     assert all(reference() is None for reference in retained_view_refs)
 
 
+def test_four_table_direct_exclusions_feed_sink_digest_and_artifact(
+    tmp_path: Any,
+) -> None:
+    composite, top_lease = _forged_four_table_nested_overlay_direct_excludes(
+        pyowl_core.BackendPreference.NATIVE,
+        exclude_first=True,
+        exclude_second=True,
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="canonical",
+        duplicates="unique",
+    )
+    native_options = replace(python_options, backend="native")
+
+    class Sink:
+        protocol_version = BATCH_SINK_PROTOCOL_VERSION
+
+        def __init__(self) -> None:
+            self.batches: list[tuple[Edge, ...]] = []
+            self.report: ProjectionReport | None = None
+
+        def write_batch(self, batch: tuple[Edge, ...]) -> None:
+            self.batches.append(batch)
+
+        def finish(self, report: ProjectionReport) -> None:
+            self.report = report
+
+    expected_sink = Sink()
+    expected_sink_report = Projector().project_to_sink(
+        composite,
+        expected_sink,
+        options=python_options,
+        batch_size=2,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    expected_digest = Projector().canonical_digest(
+        composite,
+        options=python_options,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+    expected_destination = io.BytesIO()
+    expected_artifact = Projector().write_artifact(
+        composite,
+        expected_destination,
+        options=python_options,
+        buffer_edges=2,
+        temp_directory=tmp_path,
+    )
+
+    native_sink = Sink()
+    native_destination = io.BytesIO()
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ) as select,
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "selected four-table consumer plan reached scalar traversal"
+            ),
+        ),
+    ):
+        native_sink_report = Projector()._project_native_encoded_to_sink(
+            composite,
+            native_sink,
+            options=native_options,
+            batch_size=2,
+            buffer_edges=2,
+            temp_directory=tmp_path,
+        )
+        native_digest = Projector()._canonical_native_encoded_digest(
+            composite,
+            options=native_options,
+            buffer_edges=2,
+            temp_directory=tmp_path,
+        )
+        native_artifact = Projector()._write_native_encoded_artifact(
+            composite,
+            native_destination,
+            options=native_options,
+            buffer_edges=2,
+            temp_directory=tmp_path,
+        )
+
+    assert select.call_count == 3
+    assert native_sink.batches == expected_sink.batches
+    assert native_sink.report is native_sink_report
+    assert all(0 < len(batch) <= 2 for batch in native_sink.batches)
+    _assert_semantic_report_parity(expected_sink_report, native_sink_report)
+    assert (
+        native_digest.sha256,
+        native_digest.edge_count,
+        native_digest.duplicate_count,
+    ) == (
+        expected_digest.sha256,
+        expected_digest.edge_count,
+        expected_digest.duplicate_count,
+    )
+    _assert_semantic_report_parity(expected_digest.report, native_digest.report)
+    assert native_destination.getvalue() == expected_destination.getvalue()
+    assert (
+        native_artifact.artifact_sha256,
+        native_artifact.canonical_edges_sha256,
+        native_artifact.edge_count,
+        native_artifact.duplicate_count,
+        native_artifact.bytes_written,
+        native_artifact.metadata,
+    ) == (
+        expected_artifact.artifact_sha256,
+        expected_artifact.canonical_edges_sha256,
+        expected_artifact.edge_count,
+        expected_artifact.duplicate_count,
+        expected_artifact.bytes_written,
+        expected_artifact.metadata,
+    )
+    _assert_semantic_report_parity(expected_artifact.report, native_artifact.report)
+    for report in (
+        native_sink_report,
+        native_digest.report,
+        native_artifact.report,
+    ):
+        ingestion = report.provenance.ingestion
+        assert ingestion.path == "encoded-native"
+        assert ingestion.reason is None
+        assert ingestion.counters["encoded_posting_bytes"] == 12
+        assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+        assert ingestion.counters["base_flattening_bytes"] == 0
+        assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+        assert ingestion.counters["scalar_axiom_materializations"] == 0
+        assert ingestion.counters["scalar_term_materializations"] == 0
+        assert ingestion.counters["per_row_ffi_calls"] == 0
+        _assert_bounded_native_output(
+            ingestion.counters,
+            compiled_edges=5,
+            batch_edges=2,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "provider_backend",
     [

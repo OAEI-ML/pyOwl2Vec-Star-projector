@@ -2594,7 +2594,9 @@ dual-direct-selector cases retain 47 native inputs and report twelve posting byt
 report zero selected-root indexes, base flattening, structural staging copies, scalar ontology
 materializations, and per-row FFI calls. Focused checks also reject replacement selector
 exporters, out-of-range postings, `INCLUDE`, and selection on the nested outer member before
-output, and prove all five retained member views live exactly until compiler release.
+output, and prove all five retained member views live exactly until compiler release. The
+dual-selector packed-provider case additionally passes byte-identical sink batches, canonical
+digest, and portable artifact output through the hidden consumer surfaces without scalar fallback.
 
 Anonymous-scope remapping, another nested delta, a third direct sibling, and the corresponding
 broader recursive traversal families remain fail-closed. The feature ledger remains exactly
