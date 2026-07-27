@@ -3735,6 +3735,7 @@ impl<'a> DirectColumns<'a> {
 
     fn validate_scope_mapped_composite_table(
         self,
+        root_rule_plan: &SelectedRootRulePlan,
         maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<(ScopeMappedCompositeKind, &'a [u8]), KernelError> {
@@ -3773,85 +3774,81 @@ impl<'a> DirectColumns<'a> {
         let mut construct_kind = None;
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
-            let root_kind = self.root_kind(root_index)?;
             let root = self.root_id(root_index)?;
-            let root_tag = self.node_tag(root)?;
-            if root_kind == ROOT_ONTOLOGY_ANNOTATION {
-                if root_tag != TAG_ANNOTATION {
-                    return Err(KernelError::malformed(
-                        "encoded ontology-annotation root is not an Annotation",
-                    ));
-                }
-                if construct_kind.is_some() {
-                    return Err(KernelError::unsupported(
-                        "bounded anonymous-scope composite requires exactly one remapped construct per member",
-                    ));
-                }
-                self.validate_annotation(root, maximum_iri)?;
-                let start = self.exact_fields(root, 3)?;
-                self.node_set_range(start + 2, 0)?;
-                if self.field_node(start + 1)? != anonymous_node {
-                    return Err(KernelError::unsupported(
-                        "bounded anonymous-scope ontology Annotation requires its anonymous value",
-                    ));
-                }
-                construct_kind = Some(ScopeMappedCompositeKind::SilentOntologyAnnotation);
-                continue;
-            }
-            if root_kind == ROOT_EXTENSION {
-                if root_tag != TAG_SWRL_RULE {
-                    return Err(KernelError::malformed(
-                        "encoded extension root is not a SWRLRule",
-                    ));
-                }
-                if construct_kind.is_some() {
-                    return Err(KernelError::unsupported(
-                        "bounded anonymous-scope composite requires exactly one remapped construct per member",
-                    ));
-                }
-                self.validate_swrl_rule(root)?;
-                if !self.root_contains_anonymous_individual(root, state)? {
-                    return Err(KernelError::unsupported(
-                        "bounded anonymous-scope SWRLRule must carry the member anonymous individual",
-                    ));
-                }
-                construct_kind = Some(ScopeMappedCompositeKind::SilentSwrl);
-                continue;
-            }
-            if root_kind != ROOT_AXIOM {
-                return Err(KernelError::unsupported(
-                    "bounded anonymous-scope composite requires axiom roots, one ontology Annotation, or one SWRL extension",
+            let rule = root_rule_plan.rule_at(root_index)?;
+            if self.root_kind(root_index)? != rule.root_kind || self.node_tag(root)? != rule.tag {
+                return Err(KernelError::malformed(
+                    "encoded selected root changed after structural rule preflight",
                 ));
             }
-            match root_tag {
-                TAG_SUB_CLASS_OF => match self.subclass_projection(root, maximum_iri)? {
-                    SubclassProjection::Taxonomy { .. } => {}
-                    SubclassProjection::Ignored
-                        if construct_kind.is_none()
-                            && self.is_scope_mapped_ignored_subclass(
-                                root,
-                                Some(anonymous_node),
-                                maximum_iri,
-                            )? =>
-                    {
-                        construct_kind = Some(ScopeMappedCompositeKind::IgnoredSubclass);
-                    }
-                    SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
+            match (rule.root_kind, rule.handler) {
+                (ROOT_ONTOLOGY_ANNOTATION, RootRuleHandler::OntologyAnnotation) => {
+                    if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
+                        "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                    ));
+                    }
+                    self.validate_annotation(root, maximum_iri)?;
+                    let start = self.exact_fields(root, 3)?;
+                    self.node_set_range(start + 2, 0)?;
+                    if self.field_node(start + 1)? != anonymous_node {
+                        return Err(KernelError::unsupported(
+                        "bounded anonymous-scope ontology Annotation requires its anonymous value",
+                    ));
+                    }
+                    construct_kind = Some(ScopeMappedCompositeKind::SilentOntologyAnnotation);
+                    continue;
+                }
+                (ROOT_EXTENSION, RootRuleHandler::SwrlRule) => {
+                    if construct_kind.is_some() {
+                        return Err(KernelError::unsupported(
+                        "bounded anonymous-scope composite requires exactly one remapped construct per member",
+                    ));
+                    }
+                    self.validate_swrl_rule(root)?;
+                    if !self.root_contains_anonymous_individual(root, state)? {
+                        return Err(KernelError::unsupported(
+                        "bounded anonymous-scope SWRLRule must carry the member anonymous individual",
+                    ));
+                    }
+                    construct_kind = Some(ScopeMappedCompositeKind::SilentSwrl);
+                    continue;
+                }
+                (ROOT_AXIOM, RootRuleHandler::Subclass) => {
+                    match self.subclass_projection(root, maximum_iri)? {
+                        SubclassProjection::Taxonomy { .. } => {}
+                        SubclassProjection::Ignored
+                            if construct_kind.is_none()
+                                && self.is_scope_mapped_ignored_subclass(
+                                    root,
+                                    Some(anonymous_node),
+                                    maximum_iri,
+                                )? =>
+                        {
+                            construct_kind = Some(ScopeMappedCompositeKind::IgnoredSubclass);
+                        }
+                        SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {
+                            return Err(KernelError::unsupported(
                                 "bounded anonymous-scope composite supports named SubClassOf siblings and one unannotated ignored SubClassOf pairing a named class with a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
                             ));
+                        }
                     }
-                },
-                TAG_OBJECT_PROPERTY_DOMAIN | TAG_OBJECT_PROPERTY_RANGE => {
+                }
+                (ROOT_AXIOM, RootRuleHandler::ObjectPropertyClass) => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
                         ));
                     }
-                    let tag = self.node_tag(root)?;
+                    let kind = ObjectPropertyClassRuleKind::from_effect(rule.domain_range_effect)
+                        .ok_or_else(|| {
+                        KernelError::malformed(
+                            "encoded object-property class rule lost its domain/range effect",
+                        )
+                    })?;
                     if !self.is_scope_mapped_ignored_object_property_class(
                         root,
-                        tag,
+                        rule.tag,
                         Some(anonymous_node),
                         maximum_iri,
                     )? {
@@ -3859,13 +3856,16 @@ impl<'a> DirectColumns<'a> {
                             "bounded anonymous-scope composite requires one unannotated ObjectPropertyDomain or ObjectPropertyRange with a named outer property and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
                         ));
                     }
-                    construct_kind = Some(if tag == TAG_OBJECT_PROPERTY_DOMAIN {
-                        ScopeMappedCompositeKind::IgnoredObjectPropertyDomain
-                    } else {
-                        ScopeMappedCompositeKind::IgnoredObjectPropertyRange
+                    construct_kind = Some(match kind {
+                        ObjectPropertyClassRuleKind::Domain => {
+                            ScopeMappedCompositeKind::IgnoredObjectPropertyDomain
+                        }
+                        ObjectPropertyClassRuleKind::Range => {
+                            ScopeMappedCompositeKind::IgnoredObjectPropertyRange
+                        }
                     });
                 }
-                TAG_CLASS_ASSERTION => {
+                (ROOT_AXIOM, RootRuleHandler::ClassAssertion) => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
@@ -3882,7 +3882,7 @@ impl<'a> DirectColumns<'a> {
                     }
                     construct_kind = Some(ScopeMappedCompositeKind::IgnoredClass);
                 }
-                TAG_OBJECT_PROPERTY_ASSERTION => {
+                (ROOT_AXIOM, RootRuleHandler::ObjectPropertyAssertion) => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
@@ -3911,7 +3911,7 @@ impl<'a> DirectColumns<'a> {
                     }
                     construct_kind = Some(ScopeMappedCompositeKind::PositiveObject);
                 }
-                TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
+                (ROOT_AXIOM, RootRuleHandler::NegativeObjectPropertyAssertion) => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
@@ -3942,13 +3942,12 @@ impl<'a> DirectColumns<'a> {
                     }
                     construct_kind = Some(ScopeMappedCompositeKind::NegativeObject);
                 }
-                TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
+                (ROOT_AXIOM, RootRuleHandler::DataPropertyAssertion) => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
                         ));
                     }
-                    let tag = self.node_tag(root)?;
                     let start = self.exact_fields(root, 4)?;
                     let (_annotation_start, annotation_count) =
                         self.node_set_range(start + 3, 0)?;
@@ -3965,20 +3964,27 @@ impl<'a> DirectColumns<'a> {
                             "bounded anonymous-scope composite requires one unannotated data-property assertion over its anonymous individual",
                         ));
                     }
-                    construct_kind = Some(if tag == TAG_DATA_PROPERTY_ASSERTION {
-                        ScopeMappedCompositeKind::PositiveData
-                    } else {
-                        ScopeMappedCompositeKind::NegativeData
+                    construct_kind = Some(match rule.stats_effect.counter() {
+                        RootCounter::DataPropertyAssertions => {
+                            ScopeMappedCompositeKind::PositiveData
+                        }
+                        RootCounter::NegativeDataPropertyAssertions => {
+                            ScopeMappedCompositeKind::NegativeData
+                        }
+                        _ => {
+                            return Err(KernelError::malformed(
+                                "encoded data-property assertion rule lost its constructor counter",
+                            ));
+                        }
                     });
                 }
-                TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS => {
+                (ROOT_AXIOM, RootRuleHandler::IndividualSet) => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
                         ));
                     }
-                    let tag = self.node_tag(root)?;
-                    self.validate_individual_set_axiom(root, tag, maximum_iri)?;
+                    self.validate_individual_set_axiom(root, rule.tag, maximum_iri)?;
                     let start = self.exact_fields(root, 2)?;
                     let (item_start, item_count) = self.node_set_range(start, 2)?;
                     let (_annotation_start, annotation_count) =
@@ -4007,13 +4013,19 @@ impl<'a> DirectColumns<'a> {
                             "bounded anonymous-scope composite requires one unannotated binary individual set with one anonymous member",
                         ));
                     }
-                    construct_kind = Some(if tag == TAG_SAME_INDIVIDUAL {
-                        ScopeMappedCompositeKind::SameIndividual
-                    } else {
-                        ScopeMappedCompositeKind::DifferentIndividuals
+                    construct_kind = Some(match rule.stats_effect.counter() {
+                        RootCounter::SameIndividuals => ScopeMappedCompositeKind::SameIndividual,
+                        RootCounter::DifferentIndividuals => {
+                            ScopeMappedCompositeKind::DifferentIndividuals
+                        }
+                        _ => {
+                            return Err(KernelError::malformed(
+                                "encoded individual-set rule lost its constructor counter",
+                            ));
+                        }
                     });
                 }
-                TAG_ANNOTATION_ASSERTION => {
+                (ROOT_AXIOM, RootRuleHandler::AnnotationAssertion) => {
                     if construct_kind.is_some() {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
@@ -4048,6 +4060,7 @@ impl<'a> DirectColumns<'a> {
 
     fn validate_scope_mapped_neutral_table(
         self,
+        root_rule_plan: &SelectedRootRulePlan,
         maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<(), KernelError> {
@@ -4070,18 +4083,22 @@ impl<'a> DirectColumns<'a> {
         }
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
-            if self.root_kind(root_index)? != ROOT_AXIOM {
+            let root = self.root_id(root_index)?;
+            let rule = root_rule_plan.rule_at(root_index)?;
+            if self.root_kind(root_index)? != rule.root_kind || self.node_tag(root)? != rule.tag {
+                return Err(KernelError::malformed(
+                    "encoded selected root changed after structural rule preflight",
+                ));
+            }
+            if (rule.root_kind, rule.handler) != (ROOT_AXIOM, RootRuleHandler::Subclass) {
                 return Err(KernelError::unsupported(
                     "bounded anonymous-scope neutral table requires only axiom roots",
                 ));
             }
-            let root = self.root_id(root_index)?;
-            if self.node_tag(root)? != TAG_SUB_CLASS_OF
-                || !matches!(
-                    self.subclass_projection(root, maximum_iri)?,
-                    SubclassProjection::Taxonomy { .. }
-                )
-            {
+            if !matches!(
+                self.subclass_projection(root, maximum_iri)?,
+                SubclassProjection::Taxonomy { .. }
+            ) {
                 return Err(KernelError::unsupported(
                     "bounded anonymous-scope neutral table supports only named SubClassOf roots",
                 ));
@@ -6608,12 +6625,8 @@ impl<'a> DirectColumns<'a> {
                 (rule.tag, rule.role_effect)
             } else {
                 let tag = self.node_tag(node_id)?;
-                let role_effect = match tag {
-                    TAG_SUB_OBJECT_PROPERTY_OF => RootRoleEffect::SubPropertyOrChain,
-                    TAG_INVERSE_OBJECT_PROPERTIES => RootRoleEffect::InverseProperties,
-                    _ => RootRoleEffect::None,
-                };
-                (tag, role_effect)
+                let rule = RootRule::resolve(self.root_kind(canonical_order)?, tag)?;
+                (rule.tag, rule.role_effect)
             };
             match role_effect {
                 RootRoleEffect::None => continue,
@@ -7415,13 +7428,21 @@ impl DirectPreparation {
         }
         let node_id = columns.root_id(position)?;
         let tag = columns.node_tag(node_id)?;
-        let kind = match tag {
-            TAG_OBJECT_PROPERTY_DOMAIN => ObjectPropertyClassRuleKind::Domain,
-            TAG_OBJECT_PROPERTY_RANGE => ObjectPropertyClassRuleKind::Range,
-            _ => return Ok(None),
+        let rule = RootRule::resolve(columns.root_kind(position)?, tag)?;
+        let kind = match (
+            rule.handler,
+            ObjectPropertyClassRuleKind::from_effect(rule.domain_range_effect),
+        ) {
+            (RootRuleHandler::ObjectPropertyClass, Some(kind)) => kind,
+            (RootRuleHandler::ObjectPropertyClass, None) | (_, Some(_)) => {
+                return Err(KernelError::malformed(
+                    "encoded structural root rule has an inconsistent domain/range effect",
+                ));
+            }
+            (_, None) => return Ok(None),
         };
         Ok(columns
-            .object_property_class_projection(node_id, tag, maximum_iri)?
+            .object_property_class_projection(node_id, rule.tag, maximum_iri)?
             .map(|(property, class)| (kind, property, class)))
     }
 
@@ -11483,11 +11504,18 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         let mut second_mapped = None;
         for (table, member) in columns.iter().copied().enumerate() {
             if member.anonymous_scope_map.is_empty() {
-                member.validate_scope_mapped_neutral_table(options.max_iri_bytes, state)?;
+                member.validate_scope_mapped_neutral_table(
+                    &closure_rule_plans[table],
+                    options.max_iri_bytes,
+                    state,
+                )?;
                 continue;
             }
-            let (kind, target) =
-                member.validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
+            let (kind, target) = member.validate_scope_mapped_composite_table(
+                &closure_rule_plans[table],
+                options.max_iri_bytes,
+                state,
+            )?;
             if first_mapped.is_none() {
                 first_mapped = Some((table, kind, target));
             } else if second_mapped.is_none() {
