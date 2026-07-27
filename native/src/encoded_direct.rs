@@ -769,6 +769,217 @@ impl RootCounter {
             .ok_or_else(|| KernelError::resource(message))?;
         Ok(())
     }
+
+    fn increment_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
+        let (counter, message) = match self {
+            Self::OntologyAnnotations => (
+                &mut statistics.ontology_annotations,
+                "encoded ontology-annotation count overflow",
+            ),
+            Self::SwrlRules => (
+                &mut statistics.swrl_rules,
+                "encoded SWRL-rule count overflow",
+            ),
+            Self::Declarations => (
+                &mut statistics.declarations,
+                "encoded declaration-count overflow",
+            ),
+            Self::Subclasses => (
+                &mut statistics.subclasses,
+                "encoded subclass-count overflow",
+            ),
+            Self::Equivalents => (
+                &mut statistics.equivalents,
+                "encoded equivalent-class count overflow",
+            ),
+            Self::DisjointClasses => (
+                &mut statistics.disjoint_classes,
+                "encoded disjoint-class count overflow",
+            ),
+            Self::DisjointUnions => (
+                &mut statistics.disjoint_unions,
+                "encoded disjoint-union count overflow",
+            ),
+            Self::HasKeys => (&mut statistics.has_keys, "encoded has-key count overflow"),
+            Self::SameIndividuals => (
+                &mut statistics.same_individuals,
+                "encoded same-individual count overflow",
+            ),
+            Self::DifferentIndividuals => (
+                &mut statistics.different_individuals,
+                "encoded different-individuals count overflow",
+            ),
+            Self::ClassAssertions => (
+                &mut statistics.class_assertions,
+                "encoded class-assertion count overflow",
+            ),
+            Self::ObjectPropertyAssertions => (
+                &mut statistics.object_property_assertions,
+                "encoded object-property-assertion count overflow",
+            ),
+            Self::NegativeObjectPropertyAssertions => (
+                &mut statistics.negative_object_property_assertions,
+                "encoded negative-object-property-assertion count overflow",
+            ),
+            Self::SubObjectProperties => (
+                &mut statistics.sub_object_properties,
+                "encoded sub-object-property count overflow",
+            ),
+            Self::EquivalentObjectProperties => (
+                &mut statistics.equivalent_object_properties,
+                "encoded equivalent-object-properties count overflow",
+            ),
+            Self::DisjointObjectProperties => (
+                &mut statistics.disjoint_object_properties,
+                "encoded disjoint-object-properties count overflow",
+            ),
+            Self::InverseObjectProperties => (
+                &mut statistics.inverse_object_properties,
+                "encoded inverse-object-properties count overflow",
+            ),
+            Self::FunctionalObjectProperties => (
+                &mut statistics.functional_object_properties,
+                "encoded functional-object-property count overflow",
+            ),
+            Self::InverseFunctionalObjectProperties => (
+                &mut statistics.inverse_functional_object_properties,
+                "encoded inverse-functional-object-property count overflow",
+            ),
+            Self::ReflexiveObjectProperties => (
+                &mut statistics.reflexive_object_properties,
+                "encoded reflexive-object-property count overflow",
+            ),
+            Self::IrreflexiveObjectProperties => (
+                &mut statistics.irreflexive_object_properties,
+                "encoded irreflexive-object-property count overflow",
+            ),
+            Self::SymmetricObjectProperties => (
+                &mut statistics.symmetric_object_properties,
+                "encoded symmetric-object-property count overflow",
+            ),
+            Self::AsymmetricObjectProperties => (
+                &mut statistics.asymmetric_object_properties,
+                "encoded asymmetric-object-property count overflow",
+            ),
+            Self::TransitiveObjectProperties => (
+                &mut statistics.transitive_object_properties,
+                "encoded transitive-object-property count overflow",
+            ),
+            Self::SubDataProperties => (
+                &mut statistics.sub_data_properties,
+                "encoded sub-data-property count overflow",
+            ),
+            Self::EquivalentDataProperties => (
+                &mut statistics.equivalent_data_properties,
+                "encoded equivalent-data-property count overflow",
+            ),
+            Self::DisjointDataProperties => (
+                &mut statistics.disjoint_data_properties,
+                "encoded disjoint-data-property count overflow",
+            ),
+            Self::DataPropertyDomains => (
+                &mut statistics.data_property_domains,
+                "encoded data-property-domain count overflow",
+            ),
+            Self::DataPropertyRanges => (
+                &mut statistics.data_property_ranges,
+                "encoded data-property-range count overflow",
+            ),
+            Self::FunctionalDataProperties => (
+                &mut statistics.functional_data_properties,
+                "encoded functional-data-property count overflow",
+            ),
+            Self::DatatypeDefinitions => (
+                &mut statistics.datatype_definitions,
+                "encoded datatype-definition count overflow",
+            ),
+            Self::DataPropertyAssertions => (
+                &mut statistics.data_property_assertions,
+                "encoded data-property-assertion count overflow",
+            ),
+            Self::NegativeDataPropertyAssertions => (
+                &mut statistics.negative_data_property_assertions,
+                "encoded negative-data-property-assertion count overflow",
+            ),
+            Self::AnnotationAssertions => (
+                &mut statistics.annotation_assertions,
+                "encoded annotation-assertion count overflow",
+            ),
+            Self::SubAnnotationProperties => (
+                &mut statistics.sub_annotation_properties,
+                "encoded sub-annotation-property count overflow",
+            ),
+            Self::AnnotationPropertyDomains => (
+                &mut statistics.annotation_property_domains,
+                "encoded annotation-property-domain count overflow",
+            ),
+            Self::AnnotationPropertyRanges => (
+                &mut statistics.annotation_property_ranges,
+                "encoded annotation-property-range count overflow",
+            ),
+            Self::ObjectPropertyDomains => (
+                &mut statistics.object_property_domains,
+                "encoded object-property-domain count overflow",
+            ),
+            Self::ObjectPropertyRanges => (
+                &mut statistics.object_property_ranges,
+                "encoded object-property-range count overflow",
+            ),
+        };
+        *counter = counter
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource(message))?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn statistics_count(self, statistics: &DirectCompileStats) -> usize {
+        match self {
+            Self::OntologyAnnotations => statistics.ontology_annotations,
+            Self::SwrlRules => statistics.swrl_rules,
+            Self::Declarations => statistics.declarations,
+            Self::Subclasses => statistics.subclasses,
+            Self::Equivalents => statistics.equivalents,
+            Self::DisjointClasses => statistics.disjoint_classes,
+            Self::DisjointUnions => statistics.disjoint_unions,
+            Self::HasKeys => statistics.has_keys,
+            Self::SameIndividuals => statistics.same_individuals,
+            Self::DifferentIndividuals => statistics.different_individuals,
+            Self::ClassAssertions => statistics.class_assertions,
+            Self::ObjectPropertyAssertions => statistics.object_property_assertions,
+            Self::NegativeObjectPropertyAssertions => {
+                statistics.negative_object_property_assertions
+            }
+            Self::SubObjectProperties => statistics.sub_object_properties,
+            Self::EquivalentObjectProperties => statistics.equivalent_object_properties,
+            Self::DisjointObjectProperties => statistics.disjoint_object_properties,
+            Self::InverseObjectProperties => statistics.inverse_object_properties,
+            Self::FunctionalObjectProperties => statistics.functional_object_properties,
+            Self::InverseFunctionalObjectProperties => {
+                statistics.inverse_functional_object_properties
+            }
+            Self::ReflexiveObjectProperties => statistics.reflexive_object_properties,
+            Self::IrreflexiveObjectProperties => statistics.irreflexive_object_properties,
+            Self::SymmetricObjectProperties => statistics.symmetric_object_properties,
+            Self::AsymmetricObjectProperties => statistics.asymmetric_object_properties,
+            Self::TransitiveObjectProperties => statistics.transitive_object_properties,
+            Self::SubDataProperties => statistics.sub_data_properties,
+            Self::EquivalentDataProperties => statistics.equivalent_data_properties,
+            Self::DisjointDataProperties => statistics.disjoint_data_properties,
+            Self::DataPropertyDomains => statistics.data_property_domains,
+            Self::DataPropertyRanges => statistics.data_property_ranges,
+            Self::FunctionalDataProperties => statistics.functional_data_properties,
+            Self::DatatypeDefinitions => statistics.datatype_definitions,
+            Self::DataPropertyAssertions => statistics.data_property_assertions,
+            Self::NegativeDataPropertyAssertions => statistics.negative_data_property_assertions,
+            Self::AnnotationAssertions => statistics.annotation_assertions,
+            Self::SubAnnotationProperties => statistics.sub_annotation_properties,
+            Self::AnnotationPropertyDomains => statistics.annotation_property_domains,
+            Self::AnnotationPropertyRanges => statistics.annotation_property_ranges,
+            Self::ObjectPropertyDomains => statistics.object_property_domains,
+            Self::ObjectPropertyRanges => statistics.object_property_ranges,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1562,6 +1773,25 @@ impl RootRule {
         self.mode_disposition[LocalProjectionMode::from_options(options).index()]
     }
 
+    fn apply_statistics(
+        self,
+        statistics: &mut DirectCompileStats,
+        options: DirectCompileOptions,
+    ) -> Result<(), KernelError> {
+        self.stats_effect
+            .counter()
+            .increment_statistics(statistics)?;
+        if matches!(self.stats_effect, RootStatsEffect::Skipped(_))
+            && self.disposition(options) == RootModeDisposition::SkipDiagnostic
+        {
+            statistics.skipped_axioms = statistics
+                .skipped_axioms
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
+        }
+        Ok(())
+    }
+
     fn classify(
         self,
         columns: DirectColumns<'_>,
@@ -1665,341 +1895,6 @@ impl RootRule {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SilentObjectPropertyRoot {
-    EquivalentSet,
-    DisjointSet,
-    Functional,
-    InverseFunctional,
-    Reflexive,
-    Irreflexive,
-    Symmetric,
-    Asymmetric,
-    Transitive,
-}
-
-impl SilentObjectPropertyRoot {
-    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
-        match tag {
-            TAG_EQUIVALENT_OBJECT_PROPERTIES
-                if counts
-                    == (RootCounts {
-                        equivalent_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::EquivalentSet)
-            }
-            TAG_DISJOINT_OBJECT_PROPERTIES
-                if counts
-                    == (RootCounts {
-                        disjoint_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::DisjointSet)
-            }
-            TAG_FUNCTIONAL_OBJECT_PROPERTY
-                if counts
-                    == (RootCounts {
-                        functional_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Functional)
-            }
-            TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY
-                if counts
-                    == (RootCounts {
-                        inverse_functional_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::InverseFunctional)
-            }
-            TAG_REFLEXIVE_OBJECT_PROPERTY
-                if counts
-                    == (RootCounts {
-                        reflexive_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Reflexive)
-            }
-            TAG_IRREFLEXIVE_OBJECT_PROPERTY
-                if counts
-                    == (RootCounts {
-                        irreflexive_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Irreflexive)
-            }
-            TAG_SYMMETRIC_OBJECT_PROPERTY
-                if counts
-                    == (RootCounts {
-                        symmetric_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Symmetric)
-            }
-            TAG_ASYMMETRIC_OBJECT_PROPERTY
-                if counts
-                    == (RootCounts {
-                        asymmetric_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Asymmetric)
-            }
-            TAG_TRANSITIVE_OBJECT_PROPERTY
-                if counts
-                    == (RootCounts {
-                        transitive_object_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Transitive)
-            }
-            _ => None,
-        }
-    }
-
-    fn constructor(self) -> &'static str {
-        match self {
-            Self::EquivalentSet => "EquivalentObjectProperties",
-            Self::DisjointSet => "DisjointObjectProperties",
-            Self::Functional => "FunctionalObjectProperty",
-            Self::InverseFunctional => "InverseFunctionalObjectProperty",
-            Self::Reflexive => "ReflexiveObjectProperty",
-            Self::Irreflexive => "IrreflexiveObjectProperty",
-            Self::Symmetric => "SymmetricObjectProperty",
-            Self::Asymmetric => "AsymmetricObjectProperty",
-            Self::Transitive => "TransitiveObjectProperty",
-        }
-    }
-
-    fn is_set(self) -> bool {
-        matches!(self, Self::EquivalentSet | Self::DisjointSet)
-    }
-
-    fn statistics_counter(self, statistics: &mut DirectCompileStats) -> &mut usize {
-        match self {
-            Self::EquivalentSet => &mut statistics.equivalent_object_properties,
-            Self::DisjointSet => &mut statistics.disjoint_object_properties,
-            Self::Functional => &mut statistics.functional_object_properties,
-            Self::InverseFunctional => &mut statistics.inverse_functional_object_properties,
-            Self::Reflexive => &mut statistics.reflexive_object_properties,
-            Self::Irreflexive => &mut statistics.irreflexive_object_properties,
-            Self::Symmetric => &mut statistics.symmetric_object_properties,
-            Self::Asymmetric => &mut statistics.asymmetric_object_properties,
-            Self::Transitive => &mut statistics.transitive_object_properties,
-        }
-    }
-
-    fn statistics_count(self, statistics: &DirectCompileStats) -> usize {
-        match self {
-            Self::EquivalentSet => statistics.equivalent_object_properties,
-            Self::DisjointSet => statistics.disjoint_object_properties,
-            Self::Functional => statistics.functional_object_properties,
-            Self::InverseFunctional => statistics.inverse_functional_object_properties,
-            Self::Reflexive => statistics.reflexive_object_properties,
-            Self::Irreflexive => statistics.irreflexive_object_properties,
-            Self::Symmetric => statistics.symmetric_object_properties,
-            Self::Asymmetric => statistics.asymmetric_object_properties,
-            Self::Transitive => statistics.transitive_object_properties,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SilentAnnotationPropertyRoot {
-    SubProperty,
-    Domain,
-    Range,
-}
-
-impl SilentAnnotationPropertyRoot {
-    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
-        match tag {
-            TAG_SUB_ANNOTATION_PROPERTY_OF
-                if counts
-                    == (RootCounts {
-                        sub_annotation_properties: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::SubProperty)
-            }
-            TAG_ANNOTATION_PROPERTY_DOMAIN
-                if counts
-                    == (RootCounts {
-                        annotation_property_domains: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Domain)
-            }
-            TAG_ANNOTATION_PROPERTY_RANGE
-                if counts
-                    == (RootCounts {
-                        annotation_property_ranges: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Range)
-            }
-            _ => None,
-        }
-    }
-
-    fn constructor(self) -> &'static str {
-        match self {
-            Self::SubProperty => "SubAnnotationPropertyOf",
-            Self::Domain => "AnnotationPropertyDomain",
-            Self::Range => "AnnotationPropertyRange",
-        }
-    }
-
-    fn statistics_counter(self, statistics: &mut DirectCompileStats) -> &mut usize {
-        match self {
-            Self::SubProperty => &mut statistics.sub_annotation_properties,
-            Self::Domain => &mut statistics.annotation_property_domains,
-            Self::Range => &mut statistics.annotation_property_ranges,
-        }
-    }
-
-    fn statistics_count(self, statistics: &DirectCompileStats) -> usize {
-        match self {
-            Self::SubProperty => statistics.sub_annotation_properties,
-            Self::Domain => statistics.annotation_property_domains,
-            Self::Range => statistics.annotation_property_ranges,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SilentClassDisjointnessRoot {
-    Classes,
-    Union,
-}
-
-impl SilentClassDisjointnessRoot {
-    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
-        match tag {
-            TAG_DISJOINT_CLASSES
-                if counts
-                    == (RootCounts {
-                        disjoint_classes: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Classes)
-            }
-            TAG_DISJOINT_UNION
-                if counts
-                    == (RootCounts {
-                        disjoint_unions: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Union)
-            }
-            _ => None,
-        }
-    }
-
-    fn constructor(self) -> &'static str {
-        match self {
-            Self::Classes => "DisjointClasses",
-            Self::Union => "DisjointUnion",
-        }
-    }
-
-    fn statistics_counter(self, statistics: &mut DirectCompileStats) -> &mut usize {
-        match self {
-            Self::Classes => &mut statistics.disjoint_classes,
-            Self::Union => &mut statistics.disjoint_unions,
-        }
-    }
-
-    fn statistics_count(self, statistics: &DirectCompileStats) -> usize {
-        match self {
-            Self::Classes => statistics.disjoint_classes,
-            Self::Union => statistics.disjoint_unions,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SilentIgnoredClassRoot {
-    Subclass,
-    Assertion,
-}
-
-impl SilentIgnoredClassRoot {
-    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
-        match tag {
-            TAG_SUB_CLASS_OF
-                if counts
-                    == (RootCounts {
-                        subclasses: 1,
-                        ignored_subclasses: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Subclass)
-            }
-            TAG_CLASS_ASSERTION
-                if counts
-                    == (RootCounts {
-                        class_assertions: 1,
-                        ignored_class_assertions: 1,
-                        ..RootCounts::default()
-                    }) =>
-            {
-                Some(Self::Assertion)
-            }
-            _ => None,
-        }
-    }
-
-    fn constructor(self) -> &'static str {
-        match self {
-            Self::Subclass => "SubClassOf",
-            Self::Assertion => "ClassAssertion",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SilentIgnoredEquivalentRoot;
-
-impl SilentIgnoredEquivalentRoot {
-    fn classify(counts: RootCounts, tag: u16) -> Option<Self> {
-        if tag != TAG_EQUIVALENT_CLASSES {
-            return None;
-        }
-        if counts
-            == (RootCounts {
-                equivalents: 1,
-                ..RootCounts::default()
-            })
-            || counts
-                == (RootCounts {
-                    equivalents: 1,
-                    aggregate_equivalents: 1,
-                    ..RootCounts::default()
-                })
-        {
-            Some(Self)
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LocalProjectionMode {
     Normal,
     TaxonomyOnly,
@@ -2082,34 +1977,11 @@ enum ObjectPropertyClassRuleKind {
 }
 
 impl ObjectPropertyClassRuleKind {
-    fn matches_single_root(self, counts: RootCounts) -> bool {
-        match self {
-            Self::Domain => {
-                counts
-                    == (RootCounts {
-                        object_property_domains: 1,
-                        ..RootCounts::default()
-                    })
-                    || counts
-                        == (RootCounts {
-                            object_property_domains: 1,
-                            ignored_object_property_domains: 1,
-                            ..RootCounts::default()
-                        })
-            }
-            Self::Range => {
-                counts
-                    == (RootCounts {
-                        object_property_ranges: 1,
-                        ..RootCounts::default()
-                    })
-                    || counts
-                        == (RootCounts {
-                            object_property_ranges: 1,
-                            ignored_object_property_ranges: 1,
-                            ..RootCounts::default()
-                        })
-            }
+    fn from_effect(effect: RootDomainRangeEffect) -> Option<Self> {
+        match effect {
+            RootDomainRangeEffect::Domain => Some(Self::Domain),
+            RootDomainRangeEffect::Range => Some(Self::Range),
+            RootDomainRangeEffect::None => None,
         }
     }
 
@@ -2119,67 +1991,39 @@ impl ObjectPropertyClassRuleKind {
             Self::Range => counts.ignored_object_property_ranges == 1,
         }
     }
-}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ObjectPropertyClassRule {
-    tag: u16,
-    kind: ObjectPropertyClassRuleKind,
-    constructor: &'static str,
-    scope_description: &'static str,
-    retain_ignored_by_mode: [bool; 3],
-    scope_policy: LocalAnonymousScopePolicy,
+    fn scope_description(self) -> &'static str {
+        match self {
+            Self::Domain => "ignored ObjectPropertyDomain",
+            Self::Range => "ignored ObjectPropertyRange",
+        }
+    }
 }
-
-const OBJECT_PROPERTY_CLASS_RULES: [ObjectPropertyClassRule; 2] = [
-    ObjectPropertyClassRule {
-        tag: TAG_OBJECT_PROPERTY_DOMAIN,
-        kind: ObjectPropertyClassRuleKind::Domain,
-        constructor: "ObjectPropertyDomain",
-        scope_description: "ignored ObjectPropertyDomain",
-        retain_ignored_by_mode: [true, true, true],
-        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
-    },
-    ObjectPropertyClassRule {
-        tag: TAG_OBJECT_PROPERTY_RANGE,
-        kind: ObjectPropertyClassRuleKind::Range,
-        constructor: "ObjectPropertyRange",
-        scope_description: "ignored ObjectPropertyRange",
-        retain_ignored_by_mode: [true, true, true],
-        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
-    },
-];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ObjectPropertyClassRulePlan {
-    rule: ObjectPropertyClassRule,
+    root_rule: RootRule,
+    kind: ObjectPropertyClassRuleKind,
     ignored: bool,
     retain_ignored_counter: bool,
 }
 
 impl ObjectPropertyClassRulePlan {
-    fn from_rule(rule: ObjectPropertyClassRule, ignored: bool, context: LocalRuleContext) -> Self {
-        Self {
-            rule,
-            ignored,
-            retain_ignored_counter: rule.retain_ignored_by_mode[context.mode.index()],
+    fn from_root_rule(
+        root_rule: RootRule,
+        counts: RootCounts,
+        _context: LocalRuleContext,
+    ) -> Option<Self> {
+        if root_rule.handler != RootRuleHandler::ObjectPropertyClass {
+            return None;
         }
-    }
-
-    fn for_tag(tag: u16, ignored: bool, context: LocalRuleContext) -> Option<Self> {
-        OBJECT_PROPERTY_CLASS_RULES
-            .iter()
-            .copied()
-            .find(|rule| rule.tag == tag)
-            .map(|rule| Self::from_rule(rule, ignored, context))
-    }
-
-    fn classify(counts: RootCounts, tag: u16, context: LocalRuleContext) -> Option<Self> {
-        let rule = OBJECT_PROPERTY_CLASS_RULES
-            .iter()
-            .copied()
-            .find(|rule| rule.tag == tag && rule.kind.matches_single_root(counts))?;
-        Some(Self::from_rule(rule, rule.kind.is_ignored(counts), context))
+        let kind = ObjectPropertyClassRuleKind::from_effect(root_rule.domain_range_effect)?;
+        Some(Self {
+            root_rule,
+            kind,
+            ignored: kind.is_ignored(counts),
+            retain_ignored_counter: true,
+        })
     }
 
     fn validate<'a>(
@@ -2194,22 +2038,25 @@ impl ObjectPropertyClassRulePlan {
         if annotation_count != 0 {
             return Err(KernelError::unsupported(format!(
                 "bounded local-overlay {} root must be unannotated",
-                self.rule.constructor,
+                self.root_rule.constructor,
             )));
         }
-        let projection =
-            columns.object_property_class_projection(root, self.rule.tag, context.max_iri_bytes)?;
+        let projection = columns.object_property_class_projection(
+            root,
+            self.root_rule.tag,
+            context.max_iri_bytes,
+        )?;
         if self.ignored {
             if projection.is_some() {
                 return Err(KernelError::malformed(
                     "encoded local object-property class rule changed after classification",
                 ));
             }
-            self.rule.scope_policy.validate(
+            LocalAnonymousScopePolicy::RejectWithoutRemap.validate(
                 columns,
                 root,
                 context,
-                self.rule.scope_description,
+                self.kind.scope_description(),
                 state,
             )?;
             return Ok(None);
@@ -2219,19 +2066,17 @@ impl ObjectPropertyClassRulePlan {
                 "encoded local object-property class projection changed after classification",
             )
         })?;
-        Ok(Some((self.rule.kind, property, class)))
+        Ok(Some((self.kind, property, class)))
     }
 
     fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
-        match self.rule.kind {
-            ObjectPropertyClassRuleKind::Domain => {
-                statistics.object_property_domains = statistics
-                    .object_property_domains
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        KernelError::resource("encoded object-property-domain count overflow")
-                    })?;
-                if self.ignored && self.retain_ignored_counter {
+        self.root_rule
+            .stats_effect
+            .counter()
+            .increment_statistics(statistics)?;
+        if self.ignored && self.retain_ignored_counter {
+            match self.kind {
+                ObjectPropertyClassRuleKind::Domain => {
                     statistics.ignored_object_property_domains = statistics
                         .ignored_object_property_domains
                         .checked_add(1)
@@ -2241,15 +2086,7 @@ impl ObjectPropertyClassRulePlan {
                             )
                         })?;
                 }
-            }
-            ObjectPropertyClassRuleKind::Range => {
-                statistics.object_property_ranges = statistics
-                    .object_property_ranges
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        KernelError::resource("encoded object-property-range count overflow")
-                    })?;
-                if self.ignored && self.retain_ignored_counter {
+                ObjectPropertyClassRuleKind::Range => {
                     statistics.ignored_object_property_ranges = statistics
                         .ignored_object_property_ranges
                         .checked_add(1)
@@ -2272,94 +2109,36 @@ enum LocalRoleRuleKind {
     InverseProperties,
 }
 
-impl LocalRoleRuleKind {
-    fn matches_single_root(self, counts: RootCounts) -> bool {
-        match self {
-            Self::SimpleSubProperty => {
-                counts
-                    == (RootCounts {
-                        sub_object_properties: 1,
-                        ..RootCounts::default()
-                    })
-            }
-            Self::PropertyChain => {
-                counts
-                    == (RootCounts {
-                        sub_object_properties: 1,
-                        object_property_chains: 1,
-                        ..RootCounts::default()
-                    })
-            }
-            Self::InverseProperties => {
-                counts
-                    == (RootCounts {
-                        inverse_object_properties: 1,
-                        ..RootCounts::default()
-                    })
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct LocalRoleRule {
-    tag: u16,
-    kind: LocalRoleRuleKind,
-    constructor: &'static str,
-    mutates_role_state: bool,
-    retain_constructor_by_mode: [bool; 3],
-    retain_chain_by_mode: [bool; 3],
-    scope_policy: LocalAnonymousScopePolicy,
-}
-
-const LOCAL_ROLE_RULES: [LocalRoleRule; 3] = [
-    LocalRoleRule {
-        tag: TAG_SUB_OBJECT_PROPERTY_OF,
-        kind: LocalRoleRuleKind::SimpleSubProperty,
-        constructor: "SubObjectPropertyOf",
-        mutates_role_state: true,
-        retain_constructor_by_mode: [true, true, true],
-        retain_chain_by_mode: [false, false, false],
-        scope_policy: LocalAnonymousScopePolicy::ExcludedByGrammar,
-    },
-    LocalRoleRule {
-        tag: TAG_SUB_OBJECT_PROPERTY_OF,
-        kind: LocalRoleRuleKind::PropertyChain,
-        constructor: "SubObjectPropertyOf",
-        mutates_role_state: false,
-        retain_constructor_by_mode: [true, true, true],
-        retain_chain_by_mode: [true, true, true],
-        scope_policy: LocalAnonymousScopePolicy::ExcludedByGrammar,
-    },
-    LocalRoleRule {
-        tag: TAG_INVERSE_OBJECT_PROPERTIES,
-        kind: LocalRoleRuleKind::InverseProperties,
-        constructor: "InverseObjectProperties",
-        mutates_role_state: true,
-        retain_constructor_by_mode: [true, true, true],
-        retain_chain_by_mode: [false, false, false],
-        scope_policy: LocalAnonymousScopePolicy::ExcludedByGrammar,
-    },
-];
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LocalRoleRulePlan {
-    rule: LocalRoleRule,
+    root_rule: RootRule,
+    kind: LocalRoleRuleKind,
+    mutates_role_state: bool,
     retain_constructor_counter: bool,
     retain_chain_counter: bool,
 }
 
 impl LocalRoleRulePlan {
-    fn classify(counts: RootCounts, tag: u16, context: LocalRuleContext) -> Option<Self> {
-        LOCAL_ROLE_RULES
-            .iter()
-            .copied()
-            .find(|rule| rule.tag == tag && rule.kind.matches_single_root(counts))
-            .map(|rule| Self {
-                rule,
-                retain_constructor_counter: rule.retain_constructor_by_mode[context.mode.index()],
-                retain_chain_counter: rule.retain_chain_by_mode[context.mode.index()],
-            })
+    fn from_root_rule(
+        root_rule: RootRule,
+        counts: RootCounts,
+        _context: LocalRuleContext,
+    ) -> Option<Self> {
+        let kind = match root_rule.role_effect {
+            RootRoleEffect::None => return None,
+            RootRoleEffect::SubPropertyOrChain if counts.object_property_chains == 1 => {
+                LocalRoleRuleKind::PropertyChain
+            }
+            RootRoleEffect::SubPropertyOrChain => LocalRoleRuleKind::SimpleSubProperty,
+            RootRoleEffect::InverseProperties => LocalRoleRuleKind::InverseProperties,
+        };
+        Some(Self {
+            root_rule,
+            kind,
+            mutates_role_state: kind != LocalRoleRuleKind::PropertyChain,
+            retain_constructor_counter: true,
+            retain_chain_counter: kind == LocalRoleRuleKind::PropertyChain,
+        })
     }
 
     fn validate<'a>(
@@ -2374,15 +2153,19 @@ impl LocalRoleRulePlan {
             columns,
             root,
             field_start + 2,
-            self.rule.constructor,
+            self.root_rule.constructor,
             state,
         )?;
-        self.rule
-            .scope_policy
-            .validate(columns, root, context, self.rule.constructor, state)?;
-        if self.rule.mutates_role_state {
+        LocalAnonymousScopePolicy::ExcludedByGrammar.validate(
+            columns,
+            root,
+            context,
+            self.root_rule.constructor,
+            state,
+        )?;
+        if self.mutates_role_state {
             return columns
-                .role_axiom_row(root, self.rule.tag, context.max_iri_bytes, 0, 0)
+                .role_axiom_row(root, self.root_rule.tag, context.max_iri_bytes, 0, 0)
                 .map(Some);
         }
         Ok(None)
@@ -2390,26 +2173,10 @@ impl LocalRoleRulePlan {
 
     fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
         if self.retain_constructor_counter {
-            match self.rule.kind {
-                LocalRoleRuleKind::SimpleSubProperty | LocalRoleRuleKind::PropertyChain => {
-                    statistics.sub_object_properties = statistics
-                        .sub_object_properties
-                        .checked_add(1)
-                        .ok_or_else(|| {
-                            KernelError::resource("encoded sub-object-property count overflow")
-                        })?;
-                }
-                LocalRoleRuleKind::InverseProperties => {
-                    statistics.inverse_object_properties = statistics
-                        .inverse_object_properties
-                        .checked_add(1)
-                        .ok_or_else(|| {
-                            KernelError::resource(
-                                "encoded inverse-object-properties count overflow",
-                            )
-                        })?;
-                }
-            }
+            self.root_rule
+                .stats_effect
+                .counter()
+                .increment_statistics(statistics)?;
         }
         if self.retain_chain_counter {
             statistics.object_property_chains = statistics
@@ -2429,90 +2196,25 @@ enum LocalAnnotationRuleKind {
     Assertion,
 }
 
-impl LocalAnnotationRuleKind {
-    fn matches_single_root(self, counts: RootCounts) -> bool {
-        match self {
-            Self::OntologyAnnotation => {
-                counts
-                    == (RootCounts {
-                        ontology_annotations: 1,
-                        ..RootCounts::default()
-                    })
-            }
-            Self::Assertion => {
-                counts
-                    == (RootCounts {
-                        annotation_assertions: 1,
-                        ..RootCounts::default()
-                    })
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct LocalAnnotationRule {
-    root_kind: u8,
-    tag: u16,
-    kind: LocalAnnotationRuleKind,
-    constructor: &'static str,
-    field_count: usize,
-    annotation_field_offset: usize,
-    retain_counter_by_mode: [bool; 3],
-    supports_literal_projection: bool,
-    scope_policy: LocalAnonymousScopePolicy,
-}
-
-const LOCAL_ANNOTATION_RULES: [LocalAnnotationRule; 2] = [
-    LocalAnnotationRule {
-        root_kind: ROOT_ONTOLOGY_ANNOTATION,
-        tag: TAG_ANNOTATION,
-        kind: LocalAnnotationRuleKind::OntologyAnnotation,
-        constructor: "ontology Annotation",
-        field_count: 3,
-        annotation_field_offset: 2,
-        retain_counter_by_mode: [true, true, true],
-        supports_literal_projection: false,
-        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
-    },
-    LocalAnnotationRule {
-        root_kind: ROOT_AXIOM,
-        tag: TAG_ANNOTATION_ASSERTION,
-        kind: LocalAnnotationRuleKind::Assertion,
-        constructor: "AnnotationAssertion",
-        field_count: 4,
-        annotation_field_offset: 3,
-        retain_counter_by_mode: [true, true, true],
-        supports_literal_projection: false,
-        scope_policy: LocalAnonymousScopePolicy::RejectWithoutRemap,
-    },
-];
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LocalAnnotationRulePlan {
-    rule: LocalAnnotationRule,
+    root_rule: RootRule,
+    kind: LocalAnnotationRuleKind,
     retain_counter: bool,
 }
 
 impl LocalAnnotationRulePlan {
-    fn classify(
-        counts: RootCounts,
-        root_kind: u8,
-        tag: u16,
-        context: LocalRuleContext,
-    ) -> Option<Self> {
-        LOCAL_ANNOTATION_RULES
-            .iter()
-            .copied()
-            .find(|rule| {
-                rule.root_kind == root_kind
-                    && rule.tag == tag
-                    && rule.kind.matches_single_root(counts)
-            })
-            .map(|rule| Self {
-                rule,
-                retain_counter: rule.retain_counter_by_mode[context.mode.index()],
-            })
+    fn from_root_rule(root_rule: RootRule, _context: LocalRuleContext) -> Option<Self> {
+        let kind = match root_rule.handler {
+            RootRuleHandler::OntologyAnnotation => LocalAnnotationRuleKind::OntologyAnnotation,
+            RootRuleHandler::AnnotationAssertion => LocalAnnotationRuleKind::Assertion,
+            _ => return None,
+        };
+        Some(Self {
+            root_rule,
+            kind,
+            retain_counter: true,
+        })
     }
 
     fn validate(
@@ -2522,44 +2224,45 @@ impl LocalAnnotationRulePlan {
         context: LocalRuleContext,
         state: &AtomicU8,
     ) -> Result<(), KernelError> {
-        if context.include_literals && !self.rule.supports_literal_projection {
+        if context.include_literals {
             return Err(KernelError::unsupported(format!(
                 "bounded local-overlay {} root requires literal projection to remain disabled",
-                self.rule.constructor,
+                self.root_rule.constructor,
             )));
         }
-        let field_start = columns.exact_fields(root, self.rule.field_count)?;
+        let (field_count, annotation_field_offset) = match self.kind {
+            LocalAnnotationRuleKind::OntologyAnnotation => (3, 2),
+            LocalAnnotationRuleKind::Assertion => (4, 3),
+        };
+        let field_start = columns.exact_fields(root, field_count)?;
         let annotation_field = field_start
-            .checked_add(self.rule.annotation_field_offset)
+            .checked_add(annotation_field_offset)
             .ok_or_else(|| {
                 KernelError::resource("encoded local annotation field offset overflow")
             })?;
         columns.node_set_range(annotation_field, 0)?;
-        self.rule
-            .scope_policy
-            .validate(columns, root, context, self.rule.constructor, state)
+        LocalAnonymousScopePolicy::RejectWithoutRemap.validate(
+            columns,
+            root,
+            context,
+            self.root_rule.constructor,
+            state,
+        )
     }
 
     fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
         if !self.retain_counter {
             return Ok(());
         }
-        match self.rule.kind {
+        self.root_rule
+            .stats_effect
+            .counter()
+            .increment_statistics(statistics)?;
+        match self.kind {
             LocalAnnotationRuleKind::OntologyAnnotation => {
-                statistics.ontology_annotations = statistics
-                    .ontology_annotations
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        KernelError::resource("encoded ontology-annotation count overflow")
-                    })?;
+                return Ok(());
             }
             LocalAnnotationRuleKind::Assertion => {
-                statistics.annotation_assertions = statistics
-                    .annotation_assertions
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        KernelError::resource("encoded annotation-assertion count overflow")
-                    })?;
                 statistics.selected_annotation_assertions = statistics
                     .selected_annotation_assertions
                     .checked_add(1)
@@ -12356,6 +12059,13 @@ fn prepare_two_table_batches_uncommitted(
             "bounded two-table compilation requires at least one selected right root",
         ));
     }
+    let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
+    let delta_rule_plan = resolve_selected_root_rule_plan(
+        delta_columns,
+        options.max_iri_bytes,
+        state,
+        &mut local_workspace,
+    )?;
     let mut delta_root_index = None;
     for index in 0..delta_source_root_count {
         check_cancel(state, index)?;
@@ -12367,7 +12077,7 @@ fn prepare_two_table_batches_uncommitted(
     let delta_root_index = delta_root_index.ok_or_else(|| {
         KernelError::malformed("encoded right selection lost its first selected root")
     })?;
-    let delta_counts = delta_columns.classify_roots(options.max_iri_bytes, state)?;
+    let delta_counts = delta_rule_plan.counts;
     let paired_object_property_class = delta_root_count == 2
         && delta_counts
             == (RootCounts {
@@ -12376,67 +12086,46 @@ fn prepare_two_table_batches_uncommitted(
                 ..RootCounts::default()
             });
     let delta_root = delta_columns.root_id(delta_root_index)?;
-    let delta_root_kind = delta_columns.root_kind(delta_root_index)?;
-    let delta_tag = delta_columns.node_tag(delta_root)?;
+    let delta_rule = delta_rule_plan.rule_at(delta_root_index)?;
+    let delta_counter = delta_rule.stats_effect.counter();
     let singular_emitting_delta = delta_root_count == 1
-        && delta_root_kind == ROOT_AXIOM
-        && (matches!(delta_tag, TAG_SUB_CLASS_OF)
-            && (delta_counts
-                == (RootCounts {
-                    subclasses: 1,
-                    ..RootCounts::default()
-                })
-                || delta_counts
-                    == (RootCounts {
-                        subclasses: 1,
-                        restriction_subclasses: 1,
-                        ..RootCounts::default()
-                    }))
-            || delta_tag == TAG_CLASS_ASSERTION
-                && delta_counts
-                    == (RootCounts {
-                        class_assertions: 1,
-                        ..RootCounts::default()
-                    })
-            || delta_tag == TAG_OBJECT_PROPERTY_ASSERTION
-                && delta_counts
-                    == (RootCounts {
-                        object_property_assertions: 1,
-                        ..RootCounts::default()
-                    })
-            || delta_tag == TAG_EQUIVALENT_CLASSES && delta_counts.equivalents == 1);
+        && delta_rule.root_kind == ROOT_AXIOM
+        && match delta_rule.handler {
+            RootRuleHandler::Subclass => delta_counts.ignored_subclasses == 0,
+            RootRuleHandler::ClassAssertion => delta_counts.ignored_class_assertions == 0,
+            RootRuleHandler::ObjectPropertyAssertion | RootRuleHandler::EquivalentClasses => true,
+            _ => false,
+        };
     let emitting_delta =
         !paired_object_property_class && (delta_root_count > 1 || singular_emitting_delta);
     let aggregate_or_emitting_delta = paired_object_property_class || emitting_delta;
     let local_rule_context = LocalRuleContext::new(options, false);
-    let local_annotation_rule = LocalAnnotationRulePlan::classify(
-        delta_counts,
-        delta_root_kind,
-        delta_tag,
-        local_rule_context,
-    );
+    let local_annotation_rule =
+        LocalAnnotationRulePlan::from_root_rule(delta_rule, local_rule_context);
     if !aggregate_or_emitting_delta
-        && delta_root_kind != ROOT_AXIOM
+        && delta_rule.root_kind != ROOT_AXIOM
         && local_annotation_rule.is_none()
     {
         return Err(KernelError::unsupported(
             "bounded local-overlay root must be one supported axiom or ontology annotation",
         ));
     }
-    let silent_object_property_root = SilentObjectPropertyRoot::classify(delta_counts, delta_tag);
-    let silent_annotation_property_root =
-        SilentAnnotationPropertyRoot::classify(delta_counts, delta_tag);
-    let silent_class_disjointness_root =
-        SilentClassDisjointnessRoot::classify(delta_counts, delta_tag);
-    let silent_ignored_class_root = SilentIgnoredClassRoot::classify(delta_counts, delta_tag);
-    let silent_ignored_equivalent_root =
-        SilentIgnoredEquivalentRoot::classify(delta_counts, delta_tag);
+    let silent_ignored_class_handler = match delta_rule.handler {
+        RootRuleHandler::Subclass if delta_counts.ignored_subclasses == 1 => {
+            Some(RootRuleHandler::Subclass)
+        }
+        RootRuleHandler::ClassAssertion if delta_counts.ignored_class_assertions == 1 => {
+            Some(RootRuleHandler::ClassAssertion)
+        }
+        _ => None,
+    };
+    let silent_ignored_equivalent = delta_rule.handler == RootRuleHandler::EquivalentClasses;
     let object_property_class_rule =
-        ObjectPropertyClassRulePlan::classify(delta_counts, delta_tag, local_rule_context);
-    let local_role_rule = LocalRoleRulePlan::classify(delta_counts, delta_tag, local_rule_context);
+        ObjectPropertyClassRulePlan::from_root_rule(delta_rule, delta_counts, local_rule_context);
+    let local_role_rule =
+        LocalRoleRulePlan::from_root_rule(delta_rule, delta_counts, local_rule_context);
     let mut object_property_class_rules = [object_property_class_rule, None];
     let mut local_object_property_classes = [None, None];
-    let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
     let mut overlay_deltas = if emitting_delta {
         local_workspace.reserve_overlay_deltas(delta_root_count)?
     } else {
@@ -12450,14 +12139,18 @@ fn prepare_two_table_batches_uncommitted(
                 continue;
             }
             let root = delta_columns.root_id(root_index)?;
-            if delta_columns.root_kind(root_index)? != ROOT_AXIOM {
+            let root_rule = delta_rule_plan.rule_at(root_index)?;
+            if root_rule.root_kind != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
                     "bounded two-root local overlay requires axiom roots",
                 ));
             }
-            let tag = delta_columns.node_tag(root)?;
-            let rule = ObjectPropertyClassRulePlan::for_tag(tag, false, local_rule_context)
-                .ok_or_else(|| {
+            let rule = ObjectPropertyClassRulePlan::from_root_rule(
+                root_rule,
+                delta_counts,
+                local_rule_context,
+            )
+            .ok_or_else(|| {
                     KernelError::unsupported(
                         "bounded two-root local overlay requires ObjectPropertyDomain and ObjectPropertyRange roots",
                     )
@@ -12522,20 +12215,12 @@ fn prepare_two_table_batches_uncommitted(
                 continue;
             }
             let root = delta_columns.root_id(root_index)?;
-            let root_kind = delta_columns.root_kind(root_index)?;
-            if root_kind != ROOT_AXIOM {
+            let rule = delta_rule_plan.rule_at(root_index)?;
+            if rule.root_kind != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
                     "bounded local-overlay emitting segment requires axiom roots",
                 ));
             }
-            let rule =
-                RootRule::resolve(root_kind, delta_columns.node_tag(root)?).map_err(|error| {
-                    if matches!(error, KernelError::Unsupported(_)) {
-                        KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT)
-                    } else {
-                        error
-                    }
-                })?;
             let projection = own_local_emitting_projection(
                 rule,
                 delta_columns,
@@ -12562,13 +12247,7 @@ fn prepare_two_table_batches_uncommitted(
     } else if let Some(rule) = local_annotation_rule {
         rule.validate(delta_columns, delta_root, local_rule_context, state)?;
         None
-    } else if delta_counts
-        == (RootCounts {
-            declarations: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_DECLARATION
-    {
+    } else if delta_rule.handler == RootRuleHandler::Declaration {
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
         let (_entity_kind, iri_id) =
             delta_columns.entity(delta_columns.field_node(field_start)?)?;
@@ -12577,12 +12256,12 @@ fn prepare_two_table_batches_uncommitted(
             delta_columns,
             delta_root,
             field_start + 1,
-            "Declaration",
+            delta_rule.constructor,
             state,
         )?;
         None
-    } else if let Some(kind) = silent_ignored_class_root {
-        let constructor = kind.constructor();
+    } else if let Some(handler) = silent_ignored_class_handler {
+        let constructor = delta_rule.constructor;
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 2, 0)?;
@@ -12591,8 +12270,8 @@ fn prepare_two_table_batches_uncommitted(
                 "bounded local-overlay {constructor} root must be unannotated",
             )));
         }
-        match kind {
-            SilentIgnoredClassRoot::Subclass => {
+        match handler {
+            RootRuleHandler::Subclass => {
                 if !matches!(
                     delta_columns.subclass_projection(delta_root, options.max_iri_bytes)?,
                     SubclassProjection::Ignored
@@ -12602,7 +12281,7 @@ fn prepare_two_table_batches_uncommitted(
                     ));
                 }
             }
-            SilentIgnoredClassRoot::Assertion => {
+            RootRuleHandler::ClassAssertion => {
                 if !matches!(
                     delta_columns.class_assertion_projection(delta_root, options.max_iri_bytes,)?,
                     ClassAssertionProjection::Ignored
@@ -12612,6 +12291,7 @@ fn prepare_two_table_batches_uncommitted(
                     ));
                 }
             }
+            _ => unreachable!("ignored class handler is prefiltered"),
         }
         if !delta_columns
             .axiom_anonymous_ids(state)?
@@ -12623,7 +12303,7 @@ fn prepare_two_table_batches_uncommitted(
             )));
         }
         None
-    } else if silent_ignored_equivalent_root.is_some() {
+    } else if silent_ignored_equivalent {
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
         let (_item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
         if item_count > 3 {
@@ -12673,13 +12353,7 @@ fn prepare_two_table_batches_uncommitted(
         local_role_state_axiom =
             rule.validate(delta_columns, delta_root, local_rule_context, state)?;
         None
-    } else if delta_counts
-        == (RootCounts {
-            negative_object_property_assertions: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION
-    {
+    } else if delta_rule.handler == RootRuleHandler::NegativeObjectPropertyAssertion {
         let field_start = delta_columns.exact_fields(delta_root, 4)?;
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 3, 0)?;
@@ -12709,10 +12383,24 @@ fn prepare_two_table_batches_uncommitted(
             ));
         }
         None
-    } else if let Some(kind) = silent_object_property_root {
-        let constructor = kind.constructor();
+    } else if matches!(
+        delta_counter,
+        RootCounter::EquivalentObjectProperties
+            | RootCounter::DisjointObjectProperties
+            | RootCounter::FunctionalObjectProperties
+            | RootCounter::InverseFunctionalObjectProperties
+            | RootCounter::ReflexiveObjectProperties
+            | RootCounter::IrreflexiveObjectProperties
+            | RootCounter::SymmetricObjectProperties
+            | RootCounter::AsymmetricObjectProperties
+            | RootCounter::TransitiveObjectProperties
+    ) {
+        let constructor = delta_rule.constructor;
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
-        if kind.is_set() {
+        if matches!(
+            delta_counter,
+            RootCounter::EquivalentObjectProperties | RootCounter::DisjointObjectProperties
+        ) {
             let (item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
             if item_count > 3 {
                 return Err(KernelError::unsupported(format!(
@@ -12739,27 +12427,33 @@ fn prepare_two_table_batches_uncommitted(
             )));
         }
         None
-    } else if let Some(kind) = silent_annotation_property_root {
-        let constructor = kind.constructor();
-        match kind {
-            SilentAnnotationPropertyRoot::SubProperty => {
+    } else if matches!(
+        delta_counter,
+        RootCounter::SubAnnotationProperties
+            | RootCounter::AnnotationPropertyDomains
+            | RootCounter::AnnotationPropertyRanges
+    ) {
+        let constructor = delta_rule.constructor;
+        match delta_counter {
+            RootCounter::SubAnnotationProperties => {
                 delta_columns
                     .validate_sub_annotation_property_of(delta_root, options.max_iri_bytes)?;
             }
-            SilentAnnotationPropertyRoot::Domain => {
+            RootCounter::AnnotationPropertyDomains => {
                 delta_columns.validate_annotation_property_iri_axiom(
                     delta_root,
                     TAG_ANNOTATION_PROPERTY_DOMAIN,
                     options.max_iri_bytes,
                 )?;
             }
-            SilentAnnotationPropertyRoot::Range => {
+            RootCounter::AnnotationPropertyRanges => {
                 delta_columns.validate_annotation_property_iri_axiom(
                     delta_root,
                     TAG_ANNOTATION_PROPERTY_RANGE,
                     options.max_iri_bytes,
                 )?;
             }
+            _ => unreachable!("annotation-property counter is prefiltered"),
         }
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         validate_local_annotation_scope(
@@ -12770,21 +12464,25 @@ fn prepare_two_table_batches_uncommitted(
             state,
         )?;
         None
-    } else if let Some(kind) = silent_class_disjointness_root {
-        let constructor = kind.constructor();
-        let (item_count, annotation_field) = match kind {
-            SilentClassDisjointnessRoot::Classes => {
+    } else if matches!(
+        delta_counter,
+        RootCounter::DisjointClasses | RootCounter::DisjointUnions
+    ) {
+        let constructor = delta_rule.constructor;
+        let (item_count, annotation_field) = match delta_counter {
+            RootCounter::DisjointClasses => {
                 delta_columns.validate_disjoint_classes(delta_root, options.max_iri_bytes)?;
                 let field_start = delta_columns.exact_fields(delta_root, 2)?;
                 let (_item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
                 (item_count, field_start + 1)
             }
-            SilentClassDisjointnessRoot::Union => {
+            RootCounter::DisjointUnions => {
                 delta_columns.validate_disjoint_union(delta_root, options.max_iri_bytes)?;
                 let field_start = delta_columns.exact_fields(delta_root, 3)?;
                 let (_item_start, item_count) = delta_columns.node_set_range(field_start + 1, 2)?;
                 (item_count, field_start + 2)
             }
+            _ => unreachable!("class-disjointness counter is prefiltered"),
         };
         if item_count > 3 {
             return Err(KernelError::unsupported(format!(
@@ -12799,30 +12497,17 @@ fn prepare_two_table_batches_uncommitted(
             )));
         }
         None
-    } else if (delta_counts
-        == (RootCounts {
-            data_property_assertions: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_DATA_PROPERTY_ASSERTION)
-        || (delta_counts
-            == (RootCounts {
-                negative_data_property_assertions: 1,
-                ..RootCounts::default()
-            })
-            && delta_tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION)
-    {
+    } else if delta_rule.handler == RootRuleHandler::DataPropertyAssertion {
+        let positive = delta_counter == RootCounter::DataPropertyAssertions;
         let field_start = delta_columns.exact_fields(delta_root, 4)?;
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 3, 0)?;
         if annotation_count != 0 {
-            return Err(KernelError::unsupported(
-                if delta_tag == TAG_DATA_PROPERTY_ASSERTION {
-                    "bounded local-overlay DataPropertyAssertion root must be unannotated"
-                } else {
-                    "bounded local-overlay NegativeDataPropertyAssertion root must be unannotated"
-                },
-            ));
+            return Err(KernelError::unsupported(if positive {
+                "bounded local-overlay DataPropertyAssertion root must be unannotated"
+            } else {
+                "bounded local-overlay NegativeDataPropertyAssertion root must be unannotated"
+            }));
         }
         delta_columns.named_data_property_iri(
             delta_columns.field_node(field_start)?,
@@ -12833,26 +12518,18 @@ fn prepare_two_table_batches_uncommitted(
             options.max_iri_bytes,
         )?;
         if !matches!(source, IndividualValue::Named(_)) {
-            return Err(KernelError::unsupported(
-                if delta_tag == TAG_DATA_PROPERTY_ASSERTION {
-                    "bounded local-overlay DataPropertyAssertion root requires a named individual"
-                } else {
-                    "bounded local-overlay NegativeDataPropertyAssertion root requires a named individual"
-                },
-            ));
+            return Err(KernelError::unsupported(if positive {
+                "bounded local-overlay DataPropertyAssertion root requires a named individual"
+            } else {
+                "bounded local-overlay NegativeDataPropertyAssertion root requires a named individual"
+            }));
         }
         delta_columns.validate_literal(
             delta_columns.field_node(field_start + 2)?,
             options.max_iri_bytes,
         )?;
         None
-    } else if delta_counts
-        == (RootCounts {
-            sub_data_properties: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_SUB_DATA_PROPERTY_OF
-    {
+    } else if delta_counter == RootCounter::SubDataProperties {
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         let (_annotation_start, annotation_count) =
             delta_columns.node_set_range(field_start + 2, 0)?;
@@ -12870,13 +12547,7 @@ fn prepare_two_table_batches_uncommitted(
             options.max_iri_bytes,
         )?;
         None
-    } else if delta_counts
-        == (RootCounts {
-            equivalent_data_properties: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_EQUIVALENT_DATA_PROPERTIES
-    {
+    } else if delta_counter == RootCounter::EquivalentDataProperties {
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
         let (item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
         let (_annotation_start, annotation_count) =
@@ -12893,13 +12564,7 @@ fn prepare_two_table_batches_uncommitted(
             )?;
         }
         None
-    } else if delta_counts
-        == (RootCounts {
-            disjoint_data_properties: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_DISJOINT_DATA_PROPERTIES
-    {
+    } else if delta_counter == RootCounter::DisjointDataProperties {
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
         let (item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
         let (_annotation_start, annotation_count) =
@@ -12916,13 +12581,7 @@ fn prepare_two_table_batches_uncommitted(
             )?;
         }
         None
-    } else if delta_counts
-        == (RootCounts {
-            data_property_domains: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_DATA_PROPERTY_DOMAIN
-    {
+    } else if delta_counter == RootCounter::DataPropertyDomains {
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         delta_columns.named_data_property_iri(
             delta_columns.field_node(field_start)?,
@@ -12940,13 +12599,7 @@ fn prepare_two_table_batches_uncommitted(
             ));
         }
         None
-    } else if delta_counts
-        == (RootCounts {
-            data_property_ranges: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_DATA_PROPERTY_RANGE
-    {
+    } else if delta_counter == RootCounter::DataPropertyRanges {
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         delta_columns.named_data_property_iri(
             delta_columns.field_node(field_start)?,
@@ -12964,13 +12617,7 @@ fn prepare_two_table_batches_uncommitted(
             ));
         }
         None
-    } else if delta_counts
-        == (RootCounts {
-            functional_data_properties: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_FUNCTIONAL_DATA_PROPERTY
-    {
+    } else if delta_counter == RootCounter::FunctionalDataProperties {
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
         delta_columns.named_data_property_iri(
             delta_columns.field_node(field_start)?,
@@ -12984,13 +12631,7 @@ fn prepare_two_table_batches_uncommitted(
             ));
         }
         None
-    } else if delta_counts
-        == (RootCounts {
-            datatype_definitions: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_DATATYPE_DEFINITION
-    {
+    } else if delta_counter == RootCounter::DatatypeDefinitions {
         let field_start = delta_columns.exact_fields(delta_root, 3)?;
         delta_columns.named_datatype_iri(
             delta_columns.field_node(field_start)?,
@@ -13008,13 +12649,7 @@ fn prepare_two_table_batches_uncommitted(
             ));
         }
         None
-    } else if delta_counts
-        == (RootCounts {
-            has_keys: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_HAS_KEY
-    {
+    } else if delta_counter == RootCounter::HasKeys {
         let field_start = delta_columns.exact_fields(delta_root, 4)?;
         delta_columns.class_expression_rank(
             delta_columns.field_node(field_start)?,
@@ -13047,24 +12682,8 @@ fn prepare_two_table_batches_uncommitted(
             ));
         }
         None
-    } else if (delta_counts
-        == (RootCounts {
-            same_individuals: 1,
-            ..RootCounts::default()
-        })
-        && delta_tag == TAG_SAME_INDIVIDUAL)
-        || (delta_counts
-            == (RootCounts {
-                different_individuals: 1,
-                ..RootCounts::default()
-            })
-            && delta_tag == TAG_DIFFERENT_INDIVIDUALS)
-    {
-        let constructor = if delta_tag == TAG_SAME_INDIVIDUAL {
-            "SameIndividual"
-        } else {
-            "DifferentIndividuals"
-        };
+    } else if delta_rule.handler == RootRuleHandler::IndividualSet {
+        let constructor = delta_rule.constructor;
         let field_start = delta_columns.exact_fields(delta_root, 2)?;
         let (item_start, item_count) = delta_columns.node_set_range(field_start, 2)?;
         if item_count > 3 {
@@ -13377,52 +12996,37 @@ fn prepare_two_table_batches_uncommitted(
         .role_expansion_edges
         .checked_add(projection_role_expansion_edges)
         .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
-    match emitting_delta {
-        true => {}
-        false if local_annotation_rule.is_some() => {
-            let Some(rule) = local_annotation_rule else {
-                unreachable!("matched local annotation rule remains available");
-            };
+    if !emitting_delta {
+        if let Some(rule) = local_annotation_rule {
             rule.apply_statistics(statistics)?;
-        }
-        false
-            if matches!(
-                silent_ignored_class_root,
-                Some(SilentIgnoredClassRoot::Subclass)
-            ) =>
-        {
-            statistics.subclasses = statistics
-                .subclasses
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded subclass-count overflow"))?;
-            statistics.ignored_subclasses = statistics
-                .ignored_subclasses
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded ignored-subclass count overflow"))?;
-        }
-        false
-            if matches!(
-                silent_ignored_class_root,
-                Some(SilentIgnoredClassRoot::Assertion)
-            ) =>
-        {
-            statistics.class_assertions = statistics
-                .class_assertions
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded class-assertion count overflow"))?;
-            statistics.ignored_class_assertions = statistics
-                .ignored_class_assertions
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded ignored-class-assertion count overflow")
-                })?;
-        }
-        false if silent_ignored_equivalent_root.is_some() => {
-            statistics.equivalents = statistics
-                .equivalents
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded equivalent-class count overflow"))?;
-            if !options.asserted_taxonomy_only {
+        } else if object_property_class_rules.iter().any(Option::is_some) {
+            for rule in object_property_class_rules.iter().flatten().copied() {
+                rule.apply_statistics(statistics)?;
+            }
+        } else if let Some(rule) = local_role_rule {
+            rule.apply_statistics(statistics)?;
+        } else {
+            delta_rule.apply_statistics(statistics, options)?;
+            match silent_ignored_class_handler {
+                Some(RootRuleHandler::Subclass) => {
+                    statistics.ignored_subclasses = statistics
+                        .ignored_subclasses
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded ignored-subclass count overflow")
+                        })?;
+                }
+                Some(RootRuleHandler::ClassAssertion) => {
+                    statistics.ignored_class_assertions = statistics
+                        .ignored_class_assertions
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded ignored-class-assertion count overflow")
+                        })?;
+                }
+                _ => {}
+            }
+            if silent_ignored_equivalent && !options.asserted_taxonomy_only {
                 statistics.ignored_equivalents = statistics
                     .ignored_equivalents
                     .checked_add(1)
@@ -13430,269 +13034,6 @@ fn prepare_two_table_batches_uncommitted(
                         KernelError::resource("encoded ignored-equivalent count overflow")
                     })?;
             }
-        }
-        false if object_property_class_rules.iter().any(Option::is_some) => {
-            for rule in object_property_class_rules.iter().flatten().copied() {
-                rule.apply_statistics(statistics)?;
-            }
-        }
-        false if local_role_rule.is_some() => {
-            let Some(rule) = local_role_rule else {
-                unreachable!("matched local role rule remains available");
-            };
-            rule.apply_statistics(statistics)?;
-        }
-        false if delta_tag == TAG_DECLARATION => {
-            statistics.declarations = statistics
-                .declarations
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded declaration-count overflow"))?;
-        }
-        false if delta_tag == TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION => {
-            statistics.negative_object_property_assertions = statistics
-                .negative_object_property_assertions
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource(
-                        "encoded negative-object-property-assertion count overflow",
-                    )
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_DATA_PROPERTY_ASSERTION => {
-            statistics.data_property_assertions = statistics
-                .data_property_assertions
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded data-property-assertion count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION => {
-            statistics.negative_data_property_assertions = statistics
-                .negative_data_property_assertions
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded negative-data-property-assertion count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_SUB_DATA_PROPERTY_OF => {
-            statistics.sub_data_properties = statistics
-                .sub_data_properties
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded sub-data-property count overflow"))?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_EQUIVALENT_DATA_PROPERTIES => {
-            statistics.equivalent_data_properties = statistics
-                .equivalent_data_properties
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded equivalent-data-property count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_DISJOINT_DATA_PROPERTIES => {
-            statistics.disjoint_data_properties = statistics
-                .disjoint_data_properties
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded disjoint-data-property count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_DATA_PROPERTY_DOMAIN => {
-            statistics.data_property_domains = statistics
-                .data_property_domains
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded data-property-domain count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_DATA_PROPERTY_RANGE => {
-            statistics.data_property_ranges = statistics
-                .data_property_ranges
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded data-property-range count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_FUNCTIONAL_DATA_PROPERTY => {
-            statistics.functional_data_properties = statistics
-                .functional_data_properties
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded functional-data-property count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_DATATYPE_DEFINITION => {
-            statistics.datatype_definitions = statistics
-                .datatype_definitions
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded datatype-definition count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_HAS_KEY => {
-            statistics.has_keys = statistics
-                .has_keys
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded has-key count overflow"))?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if silent_object_property_root.is_some() => {
-            let kind = silent_object_property_root.ok_or_else(|| {
-                KernelError::malformed(
-                    "encoded local-overlay object-property root lost its constructor",
-                )
-            })?;
-            let constructor = kind.constructor();
-            let count = kind
-                .statistics_count(statistics)
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource(format!("encoded {constructor} count overflow"))
-                })?;
-            *kind.statistics_counter(statistics) = count;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if silent_annotation_property_root.is_some() => {
-            let kind = silent_annotation_property_root.ok_or_else(|| {
-                KernelError::malformed(
-                    "encoded local-overlay annotation-property root lost its constructor",
-                )
-            })?;
-            let constructor = kind.constructor();
-            let count = kind
-                .statistics_count(statistics)
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource(format!("encoded {constructor} count overflow"))
-                })?;
-            *kind.statistics_counter(statistics) = count;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if silent_class_disjointness_root.is_some() => {
-            let kind = silent_class_disjointness_root.ok_or_else(|| {
-                KernelError::malformed(
-                    "encoded local-overlay class-disjointness root lost its constructor",
-                )
-            })?;
-            let constructor = kind.constructor();
-            let count = kind
-                .statistics_count(statistics)
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource(format!("encoded {constructor} count overflow"))
-                })?;
-            *kind.statistics_counter(statistics) = count;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_SAME_INDIVIDUAL => {
-            statistics.same_individuals = statistics
-                .same_individuals
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded same-individual count overflow"))?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false if delta_tag == TAG_DIFFERENT_INDIVIDUALS => {
-            statistics.different_individuals = statistics
-                .different_individuals
-                .checked_add(1)
-                .ok_or_else(|| {
-                    KernelError::resource("encoded different-individuals count overflow")
-                })?;
-            if !options.asserted_taxonomy_only {
-                statistics.skipped_axioms = statistics
-                    .skipped_axioms
-                    .checked_add(1)
-                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
-            }
-        }
-        false => {
-            return Err(KernelError::malformed(
-                "encoded local-overlay silent root lost its constructor",
-            ));
         }
     }
     statistics.domain_range_edges = statistics
@@ -14282,6 +13623,22 @@ mod tests {
         keys.sort_unstable();
         keys.dedup();
         assert_eq!(keys.len(), ROOT_RULES.len());
+        let mut expected_keys = vec![
+            (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION),
+            (ROOT_EXTENSION, TAG_SWRL_RULE),
+        ];
+        for tags in [
+            60_u16..=64,
+            70_u16..=82,
+            90_u16..=95,
+            100_u16..=101,
+            110_u16..=116,
+            120_u16..=123,
+        ] {
+            expected_keys.extend(tags.map(|tag| (ROOT_AXIOM, tag)));
+        }
+        expected_keys.sort_unstable();
+        assert_eq!(keys, expected_keys);
 
         for (table_index, expected) in ROOT_RULES.iter().copied().enumerate() {
             assert_eq!(
@@ -21244,14 +20601,8 @@ mod tests {
         for (tag, property_iris, inverse_mask) in cases {
             let delta =
                 silent_object_property_delta_fixture(tag, &property_iris, inverse_mask, false);
-            let kind = SilentObjectPropertyRoot::classify(
-                delta
-                    .columns()
-                    .classify_roots(options.max_iri_bytes, &running_state())
-                    .unwrap(),
-                tag,
-            )
-            .unwrap();
+            let rule = RootRule::resolve(ROOT_AXIOM, tag).unwrap();
+            let counter = rule.stats_effect.counter();
             let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
                 delta.columns(),
@@ -21263,7 +20614,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(prepared.statistics().roots, 3);
-            assert_eq!(kind.statistics_count(&prepared.statistics()), 1);
+            assert_eq!(counter.statistics_count(&prepared.statistics()), 1);
             assert_eq!(prepared.statistics().skipped_axioms, 1);
             assert_eq!(prepared.statistics().edges, 1);
             assert_eq!(prepared.emission_attempts(), 0);
@@ -21294,7 +20645,7 @@ mod tests {
                 canonical_limits().max_workspace_bytes,
             )
             .unwrap();
-            assert_eq!(kind.statistics_count(&asserted.statistics()), 1);
+            assert_eq!(counter.statistics_count(&asserted.statistics()), 1);
             assert_eq!(asserted.statistics().skipped_axioms, 0);
             assert_eq!(asserted.statistics().edges, 1);
             assert_eq!(asserted.emission_attempts(), 0);
@@ -21423,14 +20774,10 @@ mod tests {
             TAG_ANNOTATION_PROPERTY_RANGE,
         ] {
             let delta = silent_annotation_property_delta_fixture(tag, false);
-            let kind = SilentAnnotationPropertyRoot::classify(
-                delta
-                    .columns()
-                    .classify_roots(options.max_iri_bytes, &running_state())
-                    .unwrap(),
-                tag,
-            )
-            .unwrap();
+            let counter = RootRule::resolve(ROOT_AXIOM, tag)
+                .unwrap()
+                .stats_effect
+                .counter();
             let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
                 delta.columns(),
@@ -21442,7 +20789,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(prepared.statistics().roots, 3);
-            assert_eq!(kind.statistics_count(&prepared.statistics()), 1);
+            assert_eq!(counter.statistics_count(&prepared.statistics()), 1);
             assert_eq!(prepared.statistics().skipped_axioms, 1);
             assert_eq!(prepared.statistics().edges, 1);
             assert_eq!(prepared.emission_attempts(), 0);
@@ -21473,7 +20820,7 @@ mod tests {
                 canonical_limits().max_workspace_bytes,
             )
             .unwrap();
-            assert_eq!(kind.statistics_count(&asserted.statistics()), 1);
+            assert_eq!(counter.statistics_count(&asserted.statistics()), 1);
             assert_eq!(asserted.statistics().skipped_axioms, 0);
             assert_eq!(asserted.statistics().edges, 1);
             assert_eq!(asserted.emission_attempts(), 0);
@@ -21530,16 +20877,15 @@ mod tests {
                 canonical_limits().max_workspace_bytes,
             )
             .unwrap();
-            let kind = SilentAnnotationPropertyRoot::classify(
-                annotated
-                    .columns()
-                    .classify_roots(options.max_iri_bytes, &running_state())
-                    .unwrap(),
-                tag,
-            )
-            .unwrap();
+            let counter = RootRule::resolve(ROOT_AXIOM, tag)
+                .unwrap()
+                .stats_effect
+                .counter();
             assert_eq!(annotated_prepared.statistics().roots, 3);
-            assert_eq!(kind.statistics_count(&annotated_prepared.statistics()), 1);
+            assert_eq!(
+                counter.statistics_count(&annotated_prepared.statistics()),
+                1
+            );
             assert_eq!(annotated_prepared.statistics().skipped_axioms, 1);
             assert_eq!(annotated_prepared.statistics().edges, 1);
             assert_eq!(annotated_prepared.emission_attempts(), 0);
@@ -21580,14 +20926,10 @@ mod tests {
                     recursive_member,
                     false,
                 );
-                let kind = SilentClassDisjointnessRoot::classify(
-                    delta
-                        .columns()
-                        .classify_roots(options.max_iri_bytes, &running_state())
-                        .unwrap(),
-                    tag,
-                )
-                .unwrap();
+                let counter = RootRule::resolve(ROOT_AXIOM, tag)
+                    .unwrap()
+                    .stats_effect
+                    .counter();
                 let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
                     base.columns(),
                     delta.columns(),
@@ -21599,7 +20941,7 @@ mod tests {
                 )
                 .unwrap();
                 assert_eq!(prepared.statistics().roots, 3);
-                assert_eq!(kind.statistics_count(&prepared.statistics()), 1);
+                assert_eq!(counter.statistics_count(&prepared.statistics()), 1);
                 assert_eq!(prepared.statistics().skipped_axioms, 1);
                 assert_eq!(prepared.statistics().edges, 1);
                 assert_eq!(prepared.emission_attempts(), 0);
@@ -21630,7 +20972,7 @@ mod tests {
                     canonical_limits().max_workspace_bytes,
                 )
                 .unwrap();
-                assert_eq!(kind.statistics_count(&asserted.statistics()), 1);
+                assert_eq!(counter.statistics_count(&asserted.statistics()), 1);
                 assert_eq!(asserted.statistics().skipped_axioms, 0);
                 assert_eq!(asserted.statistics().edges, 1);
                 assert_eq!(asserted.emission_attempts(), 0);
@@ -21718,12 +21060,11 @@ mod tests {
         for root_tag in [TAG_SUB_CLASS_OF, TAG_CLASS_ASSERTION] {
             for recursive in [false, true] {
                 let delta = ignored_class_axiom_delta_fixture(root_tag, recursive, false, false);
-                let counts = delta
-                    .columns()
-                    .classify_roots(options.max_iri_bytes, &running_state())
-                    .unwrap();
-                let kind =
-                    SilentIgnoredClassRoot::classify(counts, root_tag).expect("ignored root");
+                let rule = RootRule::resolve(ROOT_AXIOM, root_tag).unwrap();
+                assert!(matches!(
+                    rule.handler,
+                    RootRuleHandler::Subclass | RootRuleHandler::ClassAssertion
+                ));
                 let mut prepared = prepare_single_overlay_delta_batches_uncommitted(
                     base.columns(),
                     delta.columns(),
@@ -21757,7 +21098,7 @@ mod tests {
                 assert_eq!(prepared.emission_attempts(), 0);
                 assert!(prepared.preparation.overlay_deltas.is_empty());
                 assert_eq!(
-                    kind.constructor(),
+                    rule.constructor,
                     if root_tag == TAG_SUB_CLASS_OF {
                         "SubClassOf"
                     } else {
@@ -21900,10 +21241,9 @@ mod tests {
                     .columns()
                     .classify_roots(options.max_iri_bytes, &running_state())
                     .unwrap();
-                assert_eq!(
-                    SilentIgnoredEquivalentRoot::classify(counts, TAG_EQUIVALENT_CLASSES),
-                    Some(SilentIgnoredEquivalentRoot)
-                );
+                let rule = RootRule::resolve(ROOT_AXIOM, TAG_EQUIVALENT_CLASSES).unwrap();
+                assert_eq!(rule.handler, RootRuleHandler::EquivalentClasses);
+                assert_eq!(counts.equivalents, 1);
                 let root = delta.columns().root_id(0).unwrap();
                 assert_eq!(
                     delta
@@ -22214,13 +21554,14 @@ mod tests {
                     .columns()
                     .classify_roots(options.max_iri_bytes, &running_state())
                     .unwrap();
-                let plan = ObjectPropertyClassRulePlan::classify(
+                let root_rule = RootRule::resolve(ROOT_AXIOM, root_tag).unwrap();
+                let plan = ObjectPropertyClassRulePlan::from_root_rule(
+                    root_rule,
                     counts,
-                    root_tag,
                     LocalRuleContext::new(options, false),
                 )
                 .unwrap();
-                assert_eq!(plan.rule.tag, root_tag);
+                assert_eq!(plan.root_rule.tag, root_tag);
                 assert!(plan.ignored);
                 let root = delta.columns().root_id(0).unwrap();
                 assert_eq!(
@@ -22254,7 +21595,7 @@ mod tests {
                     .unwrap_or_else(|error| {
                         panic!(
                             "ignored {} inverse={inverse_property} recursive={recursive_class}: {error:?}",
-                            plan.rule.constructor
+                            plan.root_rule.constructor
                         )
                     });
                     let statistics = prepared.statistics();
@@ -22339,9 +21680,10 @@ mod tests {
                 .columns()
                 .classify_roots(options.max_iri_bytes, &running_state())
                 .unwrap();
-            let plan = ObjectPropertyClassRulePlan::classify(
+            let root_rule = RootRule::resolve(ROOT_AXIOM, root_tag).unwrap();
+            let plan = ObjectPropertyClassRulePlan::from_root_rule(
+                root_rule,
                 counts,
-                root_tag,
                 LocalRuleContext::new(options, false),
             )
             .unwrap();
@@ -22994,14 +22336,15 @@ mod tests {
                     .columns()
                     .classify_roots(options.max_iri_bytes, &running_state())
                     .unwrap();
-                let plan = LocalRoleRulePlan::classify(
+                let root_rule = RootRule::resolve(ROOT_AXIOM, TAG_SUB_OBJECT_PROPERTY_OF).unwrap();
+                let plan = LocalRoleRulePlan::from_root_rule(
+                    root_rule,
                     counts,
-                    TAG_SUB_OBJECT_PROPERTY_OF,
                     LocalRuleContext::new(options, false),
                 )
                 .unwrap();
-                assert_eq!(plan.rule.kind, LocalRoleRuleKind::PropertyChain);
-                assert!(!plan.rule.mutates_role_state);
+                assert_eq!(plan.kind, LocalRoleRuleKind::PropertyChain);
+                assert!(!plan.mutates_role_state);
                 let root = delta.columns().root_id(0).unwrap();
                 assert!(delta
                     .columns()
@@ -23154,14 +22497,15 @@ mod tests {
                 .columns()
                 .classify_roots(options.max_iri_bytes, &running_state())
                 .unwrap();
-            let plan = LocalRoleRulePlan::classify(
+            let root_rule = RootRule::resolve(ROOT_AXIOM, root_tag).unwrap();
+            let plan = LocalRoleRulePlan::from_root_rule(
+                root_rule,
                 counts,
-                root_tag,
                 LocalRuleContext::new(options, false),
             )
             .unwrap();
-            assert_eq!(plan.rule.kind, kind);
-            assert!(plan.rule.mutates_role_state);
+            assert_eq!(plan.kind, kind);
+            assert!(plan.mutates_role_state);
 
             for (variant, projects_roles) in [
                 (options, true),
@@ -23353,21 +22697,16 @@ mod tests {
                 [(false, false), (true, false), (false, true), (true, true)]
             {
                 let delta = local_annotation_delta_fixture(kind, literal_value, annotated, false);
-                let counts = delta
-                    .columns()
-                    .classify_roots(options.max_iri_bytes, &running_state())
-                    .unwrap();
                 let root_kind = delta.columns().root_kind(0).unwrap();
                 let root = delta.columns().root_id(0).unwrap();
                 let tag = delta.columns().node_tag(root).unwrap();
-                let plan = LocalAnnotationRulePlan::classify(
-                    counts,
-                    root_kind,
-                    tag,
+                let root_rule = RootRule::resolve(root_kind, tag).unwrap();
+                let plan = LocalAnnotationRulePlan::from_root_rule(
+                    root_rule,
                     LocalRuleContext::new(options, false),
                 )
                 .unwrap();
-                assert_eq!(plan.rule.kind, kind);
+                assert_eq!(plan.kind, kind);
 
                 for variant in [
                     options,
