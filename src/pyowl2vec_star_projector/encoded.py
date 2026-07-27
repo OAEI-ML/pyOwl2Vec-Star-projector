@@ -1193,6 +1193,23 @@ def _named_subclass_only_table(lease: EncodedStructuralLease) -> bool:
     return True
 
 
+def _selects_every_root(
+    lease: EncodedStructuralLease,
+    excluded_root_ids: memoryview,
+) -> bool:
+    """Return whether one EXCLUDE exporter selects the complete local table."""
+
+    root_count = lease.buffers["root_kinds"].nbytes
+    return (
+        root_count > 0
+        and excluded_root_ids.nbytes == 4 * root_count
+        and all(
+            _read_uint(excluded_root_ids, index, 4) == index + 1
+            for index in range(root_count)
+        )
+    )
+
+
 def _resolve_private_scope_mapped_composite(
     lease: EncodedStructuralLease,
     *,
@@ -1663,13 +1680,11 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         return None
     nested_overlay, nested_excluded_root_ids, nested_scope_map = overlay_row
     direct_member, direct_scope_map = direct_row
-    if nested_excluded_root_ids is not None:
-        local_root_count = nested_overlay.buffers["root_kinds"].nbytes
-        if nested_excluded_root_ids.nbytes != 4 * local_root_count or any(
-            _read_uint(nested_excluded_root_ids, index, 4) != index + 1
-            for index in range(local_root_count)
-        ):
-            return None
+    if nested_excluded_root_ids is not None and not _selects_every_root(
+        nested_overlay,
+        nested_excluded_root_ids,
+    ):
+        return None
     resolved_overlay = _resolve_private_single_overlay_delta(nested_overlay)
     if resolved_overlay is None:
         return None
@@ -1702,6 +1717,111 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         nested_overlay,
         direct_member,
         nested_excluded_root_ids,
+        nested_scope_map,
+        direct_scope_map,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
+def _resolve_private_scope_mapped_four_table_nested_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview | None,
+        memoryview | None,
+        memoryview,
+        memoryview,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve two remapped members separated by two named neutral tables."""
+
+    rows = _resolve_private_direct_composite_rows(
+        lease,
+        member_count=3,
+        require_direct_sources=False,
+        allow_scope_maps=True,
+    )
+    if rows is None or any(included is not None for _source, included, _excluded, _map in rows):
+        return None
+    overlay_row: tuple[EncodedStructuralLease, memoryview | None, memoryview] | None = None
+    mapped_row: tuple[EncodedStructuralLease, memoryview] | None = None
+    neutral_row: tuple[EncodedStructuralLease, memoryview | None] | None = None
+    for source, _included, excluded, scope_map in rows:
+        roles = tuple(cast(Any, segment).role for segment in source.segments)
+        if roles == (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA):
+            if overlay_row is not None or scope_map is None:
+                return None
+            overlay_row = (source, excluded, scope_map)
+        elif roles == (_SEGMENT_DIRECT,) and scope_map is not None:
+            if mapped_row is not None or excluded is not None:
+                return None
+            mapped_row = (source, scope_map)
+        elif roles == (_SEGMENT_DIRECT,):
+            if neutral_row is not None:
+                return None
+            neutral_row = (source, excluded)
+        else:
+            return None
+    if overlay_row is None or mapped_row is None or neutral_row is None:
+        return None
+
+    nested_overlay, nested_excluded_root_ids, nested_scope_map = overlay_row
+    mapped_direct, direct_scope_map = mapped_row
+    neutral_direct, neutral_excluded_root_ids = neutral_row
+    for source, selector in (
+        (nested_overlay, nested_excluded_root_ids),
+        (neutral_direct, neutral_excluded_root_ids),
+    ):
+        if selector is not None and not _selects_every_root(source, selector):
+            return None
+
+    resolved_overlay = _resolve_private_single_overlay_delta(nested_overlay)
+    if resolved_overlay is None:
+        return None
+    base, excluded_root_ids, _overlay_work, _overlay_workspace = resolved_overlay
+    direct_members = (mapped_direct, neutral_direct)
+    if (
+        excluded_root_ids is not None
+        or any(
+            base.encoded_view is direct.encoded_view or base.owner is direct.owner
+            for direct in direct_members
+        )
+        or not _named_subclass_only_table(nested_overlay)
+        or not _named_subclass_only_table(neutral_direct)
+        or not _scope_maps_bind_constructs(
+            base,
+            mapped_direct,
+            nested_scope_map,
+            direct_scope_map,
+            construct_tag=None,
+        )
+    ):
+        return None
+
+    _enforce_public_limit(lease.owner, "max_overlay_depth", 1)
+    validation_work = (
+        _private_encoded_lease_validation_work(lease)
+        + _private_encoded_lease_validation_work(nested_overlay)
+        + _private_encoded_lease_validation_work(base)
+        + _private_encoded_lease_validation_work(mapped_direct)
+        + _private_encoded_lease_validation_work(neutral_direct)
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        base,
+        nested_overlay,
+        mapped_direct,
+        neutral_direct,
+        nested_excluded_root_ids,
+        neutral_excluded_root_ids,
         nested_scope_map,
         direct_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),

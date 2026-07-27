@@ -69,7 +69,13 @@ one-direct-sibling nested family when the nested overlay's one named-subclass lo
 fully selected out. The two scope-mapped member tables and inner overlay base remain `ALL`; the
 four-byte outer `EXCLUDE` exporter is retained and validated as the complete local-delta selector.
 Partial selection, selection on either mapped member or the inner base, `INCLUDE`, two direct
-siblings, and broader recursive scope-mapped plans remain fail-closed. Kernel v31 additionally
+siblings, and broader recursive scope-mapped plans remain fail-closed. Kernel v125 extends that
+exact scope-mapped nested family to a second direct sibling when the new sibling is an
+unannotated named-subclass-only neutral table. The nested local-delta table and that neutral
+sibling independently accept `ALL` or a complete `EXCLUDE`, while the two mapped members and inner
+base remain `ALL`. A third mapped member, selection on a mapped member or the inner base, partial
+selection, `INCLUDE`, and broader recursive scope-mapped plans remain fail-closed. Kernel v31
+additionally
 rejects cycles in nested annotation metadata
 with an iterative preflight over both closure and retained root tables. This closes a hostile
 structural-columns case without advertising the encoded compiler or changing valid projection

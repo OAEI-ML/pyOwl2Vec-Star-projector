@@ -21,6 +21,7 @@ from .encoded import (
     _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
     _resolve_private_overlay_aliases,
+    _resolve_private_scope_mapped_four_table_nested_composite,
     _resolve_private_scope_mapped_nested_overlay_composite,
     _resolve_private_single_overlay_delta,
 )
@@ -36,7 +37,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 124
+ENCODED_DIRECT_KERNEL_VERSION = 125
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1213,15 +1214,50 @@ def prepare_native_encoded_compilation(
                     *composite_member_leases[1:],
                 )
             else:
+                resolved_scope_mapped_four_table_nested = (
+                    _resolve_private_scope_mapped_four_table_nested_composite(lease)
+                )
                 resolved_scope_mapped_nested = (
-                    _resolve_private_scope_mapped_nested_overlay_composite(lease)
+                    None
+                    if resolved_scope_mapped_four_table_nested is not None
+                    else _resolve_private_scope_mapped_nested_overlay_composite(lease)
                 )
                 resolved_nested = (
                     None
-                    if resolved_scope_mapped_nested is not None
+                    if (
+                        resolved_scope_mapped_four_table_nested is not None
+                        or resolved_scope_mapped_nested is not None
+                    )
                     else _resolve_private_nested_overlay_composite(lease)
                 )
-                if resolved_scope_mapped_nested is not None:
+                if resolved_scope_mapped_four_table_nested is not None:
+                    if role_state is not None:
+                        return (
+                            None,
+                            "private native scope-mapped four-table nested composite slice "
+                            "does not bind Scala-instance state",
+                        )
+                    merge_manifest_lease = lease
+                    (
+                        lease,
+                        local_delta_lease,
+                        third_member_lease,
+                        fourth_member_lease,
+                        right_excluded_root_ids,
+                        fourth_excluded_root_ids,
+                        anonymous_scope_map,
+                        right_anonymous_scope_map,
+                        canonical_work_limit,
+                        canonical_workspace_limit,
+                    ) = resolved_scope_mapped_four_table_nested
+                    nested_member_lease = local_delta_lease
+                    container_leases = (
+                        merge_manifest_lease,
+                        local_delta_lease,
+                        third_member_lease,
+                        fourth_member_lease,
+                    )
+                elif resolved_scope_mapped_nested is not None:
                     if role_state is not None:
                         return (
                             None,
@@ -2030,16 +2066,33 @@ def prepare_native_encoded_direct(
             and fourth_member_lease is None
             and nested_member_lease is local_delta_lease
         )
+        exact_four_table_nested_member = (
+            merge_manifest_lease is not None
+            and local_delta_lease is not None
+            and third_member_lease is not None
+            and fourth_member_lease is not None
+            and nested_member_lease is local_delta_lease
+        )
         if (
-            not (exact_two_member or exact_nested_member)
+            not (
+                exact_two_member
+                or exact_nested_member
+                or exact_four_table_nested_member
+            )
             or included_root_ids is not None
             or excluded_root_ids is not None
-            or (right_excluded_root_ids is not None and not exact_nested_member)
+            or (
+                right_excluded_root_ids is not None
+                and not (exact_nested_member or exact_four_table_nested_member)
+            )
             or third_excluded_root_ids is not None
-            or fourth_excluded_root_ids is not None
+            or (
+                fourth_excluded_root_ids is not None
+                and not exact_four_table_nested_member
+            )
         ):
             raise ValueError(
-                "scope remapping requires an exact two-member or nested-member ALL composite"
+                "scope remapping requires an exact two-member or bounded nested-member composite"
             )
     root_descriptor_sha256: bytes | None = None
     if root_annotation_lease is not None:

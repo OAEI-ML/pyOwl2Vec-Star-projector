@@ -12987,9 +12987,9 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     )?;
     scope_mapped_positions.resize(member_count, 0);
     if scope_mapped {
-        if !matches!(member_count, 2 | 3) {
+        if !matches!(member_count, 2..=4) {
             return Err(KernelError::unsupported(
-                "bounded anonymous-scope remapping requires exactly two mapped members and at most one neutral table",
+                "bounded anonymous-scope remapping requires exactly two mapped members and at most two neutral tables",
             ));
         }
         let mut first_mapped = None;
@@ -27359,6 +27359,89 @@ mod tests {
         let state = running_state();
         let mut prepared = prepare_three_member_composite_batches_uncommitted(
             [left_columns, neutral_columns, right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 2);
+        assert_eq!(statistics.subclasses, 0);
+        assert_eq!(statistics.object_property_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 2);
+        assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
+        assert!(matches!(
+            prepared.preparation.overlay_deltas[0].projection,
+            OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
+        ));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 2)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "_:genid2147483648".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+                DirectEdge {
+                    source: "_:genid2147483649".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+            ]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn four_table_nested_member_remaps_across_two_fully_excluded_neutral_tables() {
+        let mut left = scope_mapped_object_property_assertion_fixture();
+        let local_neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let mut right = scope_mapped_object_property_assertion_fixture();
+        let direct_neutral = named_subclass_delta_fixture(b"urn:D", b"urn:Top");
+        left.root_kinds.remove(0);
+        left.root_ids.drain(..4);
+        right.root_kinds.remove(0);
+        right.root_ids.drain(..4);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let excluded_local_root = 1_u32.to_le_bytes();
+        let excluded_direct_root = 1_u32.to_le_bytes();
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let local_neutral_columns = local_neutral
+            .columns()
+            .with_excluded_root_ids(&excluded_local_root);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let direct_neutral_columns = direct_neutral
+            .columns()
+            .with_excluded_root_ids(&excluded_direct_root);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 2,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_four_table_composite_batches_uncommitted(
+            [
+                left_columns,
+                local_neutral_columns,
+                right_columns,
+                direct_neutral_columns,
+            ],
             options,
             &state,
             None,

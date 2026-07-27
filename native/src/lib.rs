@@ -42,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 124;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 125;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -1713,15 +1713,20 @@ impl EncodedDirectCompiler {
                 && third_member.is_some()
                 && fourth_member.is_none()
                 && nested_member.is_some();
-            if !(exact_two_member || exact_nested_member)
+            let exact_four_table_nested_member = merge_manifest.is_some()
+                && third_member.is_some()
+                && fourth_member.is_some()
+                && nested_member.is_some();
+            if !(exact_two_member || exact_nested_member || exact_four_table_nested_member)
                 || included_root_ids.is_some()
                 || excluded_root_ids.is_some()
-                || (right_excluded_root_ids.is_some() && !exact_nested_member)
+                || (right_excluded_root_ids.is_some()
+                    && !(exact_nested_member || exact_four_table_nested_member))
                 || third_excluded_root_ids.is_some()
-                || fourth_excluded_root_ids.is_some()
+                || (fourth_excluded_root_ids.is_some() && !exact_four_table_nested_member)
             {
                 return Err(EncodedDirectUnsupportedError::new_err(
-                    "encoded anonymous scope remapping requires an exact two-member or nested-member ALL composite",
+                    "encoded anonymous scope remapping requires an exact two-member or bounded nested-member composite",
                 ));
             }
         }
@@ -3808,11 +3813,6 @@ fn validate_nested_member_composite_manifest(
     if anonymous_scope_map.is_some() != right_anonymous_scope_map.is_some() {
         return Err(encoded_buffer_error(
             "encoded scope-mapped nested composite requires both outer member scope maps",
-        ));
-    }
-    if anonymous_scope_map.is_some() && direct_members.len() != 1 {
-        return Err(EncodedDirectUnsupportedError::new_err(
-            "bounded scope-mapped nested composite requires one direct sibling",
         ));
     }
     if nested_view.is(base_view) || nested_owner.is(base_owner) {
