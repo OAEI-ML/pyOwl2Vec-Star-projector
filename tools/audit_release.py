@@ -65,6 +65,13 @@ _FORBIDDEN_NATIVE_MARKERS = (
     b"libjvm",
     b"jvm.dll",
 )
+_LEGAL_SOURCE_PATHS = {
+    "project_license": "LICENSE",
+    "project_notice": "NOTICE",
+    "third_party_notices": "THIRD_PARTY_NOTICES.md",
+    "native_third_party_licenses": "native/THIRD_PARTY_LICENSES.md",
+    "conformance_license": "src/pyowl2vec_star_projector/conformance_data/LICENSE",
+}
 
 
 def _artifact_identity(path: Path) -> tuple[int, int, int, int, int, int]:
@@ -92,7 +99,19 @@ def _identity_error(
     return None
 
 
-def audit_artifact(path: Path, *, expected_version: str) -> dict[str, object]:
+def release_legal_payloads(root: Path) -> dict[str, bytes]:
+    return {
+        key: read_stable_regular_file(root / relative, label=f"legal payload {relative}")
+        for key, relative in _LEGAL_SOURCE_PATHS.items()
+    }
+
+
+def audit_artifact(
+    path: Path,
+    *,
+    expected_version: str,
+    expected_legal_payloads: dict[str, bytes] | None = None,
+) -> dict[str, object]:
     errors: list[str] = []
     payload: bytes | None = None
     initial_identity: tuple[int, int, int, int, int, int] | None = None
@@ -125,9 +144,21 @@ def audit_artifact(path: Path, *, expected_version: str) -> dict[str, object]:
             errors.append(f"quarantined path shipped: {name}")
 
     if path.suffix == ".whl":
-        kind = _audit_wheel(path, members, expected_version, errors)
+        kind = _audit_wheel(
+            path,
+            members,
+            expected_version,
+            errors,
+            expected_legal_payloads=expected_legal_payloads,
+        )
     elif path.name.endswith(".tar.gz"):
-        kind = _audit_sdist(path, lowered, expected_version, errors)
+        kind = _audit_sdist(
+            path,
+            lowered,
+            expected_version,
+            errors,
+            expected_legal_payloads=expected_legal_payloads,
+        )
     else:  # pragma: no cover - filtered by CLI
         kind = "unknown"
         errors.append("unsupported artifact suffix")
@@ -153,6 +184,8 @@ def _audit_wheel(
     members: dict[str, bytes],
     expected_version: str,
     errors: list[str],
+    *,
+    expected_legal_payloads: dict[str, bytes] | None = None,
 ) -> str:
     lowered = {name.lower(): content for name, content in members.items()}
     expected_root = f"pyowl2vec_star_projector-{expected_version}.dist-info"
@@ -235,7 +268,12 @@ def _audit_wheel(
         if root_is_pure != "false":
             errors.append("platform wheel unexpectedly claims Root-Is-Purelib")
         _audit_native_payloads(native_members, members, errors)
-    _required_license_basenames(members, errors)
+    _audit_wheel_legal_payloads(
+        members,
+        expected_root,
+        expected_legal_payloads,
+        errors,
+    )
     return kind
 
 
@@ -295,6 +333,8 @@ def _audit_sdist(
     members: dict[str, bytes],
     expected_version: str,
     errors: list[str],
+    *,
+    expected_legal_payloads: dict[str, bytes] | None = None,
 ) -> str:
     expected_root = f"pyowl2vec_star_projector-{expected_version}"
     expected_filename = f"{expected_root}.tar.gz"
@@ -308,6 +348,12 @@ def _audit_sdist(
         errors.append(f"sdist missing exact root PKG-INFO: {metadata_name}")
     else:
         _audit_metadata(members[metadata_name], expected_version, errors)
+    _audit_sdist_legal_payloads(
+        members,
+        expected_root,
+        expected_legal_payloads,
+        errors,
+    )
     required = (
         "_build_backend.py",
         "license",
@@ -365,11 +411,72 @@ def _audit_native_payloads(
             )
 
 
-def _required_license_basenames(members: dict[str, bytes], errors: list[str]) -> None:
-    basenames = {Path(name).name.lower() for name in members}
-    for required in ("license", "notice", "third_party_notices.md", "third_party_licenses.md"):
-        if required not in basenames:
-            errors.append(f"wheel missing license/provenance file: {required}")
+def _audit_wheel_legal_payloads(
+    members: dict[str, bytes],
+    dist_info_root: str,
+    expected_payloads: dict[str, bytes] | None,
+    errors: list[str],
+) -> None:
+    expected_paths = {
+        f"{dist_info_root}/licenses/LICENSE": "project_license",
+        f"{dist_info_root}/licenses/NOTICE": "project_notice",
+        f"{dist_info_root}/licenses/THIRD_PARTY_NOTICES.md": "third_party_notices",
+        (
+            f"{dist_info_root}/licenses/native/THIRD_PARTY_LICENSES.md"
+        ): "native_third_party_licenses",
+        ("pyowl2vec_star_projector/conformance_data/LICENSE"): "conformance_license",
+    }
+    _audit_legal_payloads(members, expected_paths, expected_payloads, errors)
+
+
+def _audit_sdist_legal_payloads(
+    members: dict[str, bytes],
+    sdist_root: str,
+    expected_payloads: dict[str, bytes] | None,
+    errors: list[str],
+) -> None:
+    expected_paths = {
+        f"{sdist_root}/license": "project_license",
+        f"{sdist_root}/notice": "project_notice",
+        f"{sdist_root}/third_party_notices.md": "third_party_notices",
+        (f"{sdist_root}/native/third_party_licenses.md"): "native_third_party_licenses",
+        (
+            f"{sdist_root}/src/pyowl2vec_star_projector/conformance_data/license"
+        ): "conformance_license",
+    }
+    _audit_legal_payloads(members, expected_paths, expected_payloads, errors)
+
+
+def _audit_legal_payloads(
+    members: dict[str, bytes],
+    expected_paths: dict[str, str],
+    expected_payloads: dict[str, bytes] | None,
+    errors: list[str],
+) -> None:
+    legal_basenames = {
+        "license",
+        "notice",
+        "third_party_notices.md",
+        "third_party_licenses.md",
+    }
+    observed_paths = {name for name in members if Path(name).name.lower() in legal_basenames}
+    expected_path_set = set(expected_paths)
+    missing = sorted(expected_path_set - observed_paths)
+    extra = sorted(observed_paths - expected_path_set)
+    if missing:
+        errors.append(f"artifact is missing exact legal payloads: {missing}")
+    if extra:
+        errors.append(f"artifact contains unreviewed legal payloads: {extra}")
+    if expected_payloads is None:
+        return
+    expected_keys = set(_LEGAL_SOURCE_PATHS)
+    if set(expected_payloads) != expected_keys:
+        errors.append("release legal source inventory is incomplete or contains unreviewed keys")
+        return
+    for path, key in expected_paths.items():
+        payload = members.get(path)
+        if payload is not None and payload != expected_payloads[key]:
+            errors.append(f"artifact legal payload differs from source-controlled bytes: {path}")
 
 
 def _required_conformance_kit(members: dict[str, bytes], errors: list[str]) -> None:
@@ -393,7 +500,15 @@ def main(argv: list[str] | None = None) -> int:
     artifacts = release_artifacts(args.artifacts.resolve())
     if not artifacts:
         parser.error(f"no wheel or sdist artifacts in {args.artifacts}")
-    results = [audit_artifact(path, expected_version=version) for path in artifacts]
+    legal_payloads = release_legal_payloads(root)
+    results = [
+        audit_artifact(
+            path,
+            expected_version=version,
+            expected_legal_payloads=legal_payloads,
+        )
+        for path in artifacts
+    ]
     report = {"schema": "pyowl-projector.release-audit/1", "version": version, "artifacts": results}
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.report:

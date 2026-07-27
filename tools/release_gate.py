@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 if __package__:
-    from .audit_release import audit_artifact
+    from .audit_release import audit_artifact, release_legal_payloads
     from .audit_runtime import audit as audit_runtime
     from .check_dependency_dag import check_dependency_dag
     from .generate_supply_chain import generate
@@ -22,7 +22,7 @@ if __package__:
         release_artifacts,
     )
 else:
-    from audit_release import audit_artifact
+    from audit_release import audit_artifact, release_legal_payloads
     from audit_runtime import audit as audit_runtime
     from check_dependency_dag import check_dependency_dag
     from generate_supply_chain import generate
@@ -183,7 +183,19 @@ def _artifact_checks(
         artifact_set_errors.append(str(error))
     if not artifacts and not artifact_set_errors:
         artifact_set_errors.append("release artifact set is empty")
-    reports = [audit_artifact(path, expected_version=version) for path in artifacts]
+    try:
+        legal_payloads = release_legal_payloads(root)
+    except ValueError as error:
+        legal_payloads = None
+        artifact_set_errors.append(str(error))
+    reports = [
+        audit_artifact(
+            path,
+            expected_version=version,
+            expected_legal_payloads=legal_payloads,
+        )
+        for path in artifacts
+    ]
     kinds = {str(report["kind"]) for report in reports if report["passed"]}
     audit_errors = [
         f"{report['artifact']}: {report['errors']}" for report in reports if not report["passed"]

@@ -19,7 +19,9 @@ from tools.audit_release import (
     _audit_metadata,
     _audit_native_payloads,
     _audit_sdist,
+    _audit_wheel_legal_payloads,
     audit_artifact,
+    release_legal_payloads,
 )
 from tools.generate_supply_chain import build_provenance, generate
 from tools.hash_artifacts import create_manifest, verify_manifest
@@ -485,6 +487,33 @@ def test_release_audit_rejects_wheel_record_payload_mismatch(tmp_path: Path) -> 
     ]
 
 
+def test_release_audit_requires_exact_source_controlled_legal_payloads() -> None:
+    expected = release_legal_payloads(ROOT)
+    dist_info = "pyowl2vec_star_projector-0.1.dist-info"
+    members = {
+        f"{dist_info}/licenses/LICENSE": expected["project_license"],
+        f"{dist_info}/licenses/NOTICE": expected["project_notice"],
+        (f"{dist_info}/licenses/THIRD_PARTY_NOTICES.md"): expected["third_party_notices"],
+        (f"{dist_info}/licenses/native/THIRD_PARTY_LICENSES.md"): expected[
+            "native_third_party_licenses"
+        ],
+        ("pyowl2vec_star_projector/conformance_data/LICENSE"): expected["conformance_license"],
+    }
+    errors: list[str] = []
+    _audit_wheel_legal_payloads(members, dist_info, expected, errors)
+    assert errors == []
+
+    members[f"{dist_info}/licenses/NOTICE"] = b"changed"
+    members["unreviewed/LICENSE"] = b"unknown"
+    errors = []
+    _audit_wheel_legal_payloads(members, dist_info, expected, errors)
+    assert errors == [
+        "artifact contains unreviewed legal payloads: ['unreviewed/LICENSE']",
+        "artifact legal payload differs from source-controlled bytes: "
+        "pyowl2vec_star_projector-0.1.dist-info/licenses/NOTICE",
+    ]
+
+
 def test_release_audit_binds_sdist_filename_and_root() -> None:
     version = "0.1"
     root = f"pyowl2vec_star_projector-{version}"
@@ -508,6 +537,7 @@ def test_release_audit_binds_sdist_filename_and_root() -> None:
                 "native/cargo.toml",
                 "native/third_party_licenses.md",
                 "releasing.md",
+                "src/pyowl2vec_star_projector/conformance_data/license",
             )
         },
     }
