@@ -359,6 +359,27 @@ def test_rust_workflow_toolchains_are_immutable() -> None:
     )
 
 
+def test_native_workflow_runs_bounded_p7_contract_on_installed_wheel() -> None:
+    workflow = (ROOT / ".github/workflows/native.yml").read_text(encoding="utf-8")
+    condition = "matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'"
+    assert workflow.count(condition) == 2
+    assert "P7 installed-wheel encoded contract" in workflow
+    for path in (
+        "tests/test_native_encoded_foundation.py",
+        "tests/test_private_native_encoded_integration.py",
+        "tests/test_encoded_benchmark.py",
+    ):
+        assert path in workflow
+    assert workflow.count('PYOWL2VEC_REQUIRE_NATIVE_TESTS: "1"') == 2
+    assert "python -m tools.differential_encoded_native" in workflow
+    assert "python -m tools.hostile_encoded_native" in workflow
+    assert "--cases 32 --provider both --buffer-edges 7" in workflow
+    assert "--sources 4 --provider both" in workflow
+    assert "p7-generated-short.json" in workflow
+    assert "p7-hostile-short.json" in workflow
+    assert "p7-native-contract-linux-x86_64-py312" in workflow
+
+
 def test_offline_smoke_images_are_platform_digest_pinned() -> None:
     workflow = (ROOT / ".github/workflows/packaging.yml").read_text(encoding="utf-8")
     images = generate_supply_chain._offline_python_images(workflow)
