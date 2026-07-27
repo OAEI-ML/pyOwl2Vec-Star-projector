@@ -1730,6 +1730,13 @@ struct EquivalentAggregateCursor {
     previous_named: Option<(String, usize)>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OwnedEquivalentAggregateCursor {
+    delta_index: usize,
+    named_index: usize,
+    restriction_index: usize,
+}
+
 #[derive(Debug, Default, Eq, PartialEq)]
 pub(crate) struct DirectEmissionCursor {
     phase: EmissionPhase,
@@ -1737,12 +1744,19 @@ pub(crate) struct DirectEmissionCursor {
     overlay_delta_index: usize,
     pending: Option<PendingExpansion>,
     aggregate: Option<EquivalentAggregateCursor>,
+    owned_aggregate: Option<OwnedEquivalentAggregateCursor>,
     previous_property: Option<String>,
     active_property: Option<String>,
     current_domain: Option<String>,
     domain_index: usize,
     range_index: usize,
     emitted: usize,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct OwnedEquivalentRestriction {
+    relation: String,
+    destination: String,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1756,6 +1770,17 @@ enum OwnedOverlayDeltaProjection {
         relation: String,
         destination: String,
     },
+    EquivalentPair {
+        source: String,
+        destination: String,
+    },
+    EquivalentAggregate {
+        source: String,
+        named_destinations: Vec<String>,
+        restrictions: Vec<OwnedEquivalentRestriction>,
+        ignored_shapes: usize,
+    },
+    IgnoredEquivalent,
     ClassAssertion {
         individual: String,
         class: String,
@@ -1800,6 +1825,9 @@ impl OwnedOverlayDeltaProjection {
             Self::Taxonomy { .. } | Self::Restriction { .. } | Self::IgnoredSubclass { .. } => {
                 EmissionPhase::Subclasses
             }
+            Self::EquivalentPair { .. }
+            | Self::EquivalentAggregate { .. }
+            | Self::IgnoredEquivalent => EmissionPhase::Equivalents,
             Self::ClassAssertion { .. } | Self::IgnoredClassAssertion { .. } => {
                 EmissionPhase::ClassAssertions
             }
@@ -1814,11 +1842,95 @@ impl OwnedOverlayDeltaProjection {
         }
     }
 
+    fn edge_counts(
+        &self,
+        role_state: &OwnedRoleState,
+        options: DirectCompileOptions,
+    ) -> Result<(usize, usize), KernelError> {
+        match self {
+            Self::Taxonomy { .. } => Ok((
+                1_usize
+                    .checked_add(usize::from(options.bidirectional))
+                    .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?,
+                0,
+            )),
+            Self::Restriction { relation, .. }
+                if !options.asserted_taxonomy_only && !options.only_taxonomy =>
+            {
+                let edges = role_state.edge_count(relation)?;
+                Ok((
+                    edges,
+                    edges.checked_sub(1).ok_or_else(|| {
+                        KernelError::malformed(
+                            "encoded local restriction edge count is inconsistent",
+                        )
+                    })?,
+                ))
+            }
+            Self::EquivalentPair { .. } if !options.asserted_taxonomy_only => Ok((
+                1_usize
+                    .checked_add(usize::from(options.bidirectional))
+                    .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?,
+                0,
+            )),
+            Self::EquivalentAggregate {
+                named_destinations,
+                restrictions,
+                ..
+            } if !options.asserted_taxonomy_only => {
+                let mut edges = named_destinations
+                    .len()
+                    .checked_mul(1_usize + usize::from(options.bidirectional))
+                    .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+                let mut role_expansion_edges = 0_usize;
+                if !options.only_taxonomy {
+                    for restriction in restrictions {
+                        let expanded = role_state.edge_count(&restriction.relation)?;
+                        edges = edges
+                            .checked_add(expanded)
+                            .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
+                        role_expansion_edges = role_expansion_edges
+                            .checked_add(expanded.checked_sub(1).ok_or_else(|| {
+                                KernelError::malformed(
+                                    "encoded equivalent restriction edge count is inconsistent",
+                                )
+                            })?)
+                            .ok_or_else(|| {
+                                KernelError::resource("encoded role-expansion edge-count overflow")
+                            })?;
+                    }
+                }
+                Ok((edges, role_expansion_edges))
+            }
+            Self::ClassAssertion { .. } | Self::ObjectPropertyAssertion { .. }
+                if !options.asserted_taxonomy_only =>
+            {
+                Ok((1, 0))
+            }
+            Self::Restriction { .. }
+            | Self::EquivalentPair { .. }
+            | Self::EquivalentAggregate { .. }
+            | Self::IgnoredEquivalent
+            | Self::IgnoredSubclass { .. }
+            | Self::IgnoredObjectPropertyClass { .. }
+            | Self::ClassAssertion { .. }
+            | Self::IgnoredClassAssertion { .. }
+            | Self::ObjectPropertyAssertion { .. }
+            | Self::IgnoredNegativeObjectPropertyAssertion { .. }
+            | Self::IgnoredDataPropertyAssertion { .. }
+            | Self::IgnoredIndividualSet { .. }
+            | Self::IgnoredAnnotationAssertion { .. }
+            | Self::SilentOntologyAnnotation
+            | Self::SilentSwrl => Ok((0, 0)),
+        }
+    }
+
     fn apply_statistics(
         &self,
         statistics: &mut DirectCompileStats,
-        asserted_taxonomy_only: bool,
+        options: DirectCompileOptions,
     ) -> Result<(), KernelError> {
+        let asserted_taxonomy_only = options.asserted_taxonomy_only;
         match self {
             Self::Taxonomy { .. } => {
                 statistics.subclasses = statistics
@@ -1837,6 +1949,80 @@ impl OwnedOverlayDeltaProjection {
                     .ok_or_else(|| {
                         KernelError::resource("encoded restriction-subclass count overflow")
                     })?;
+            }
+            Self::EquivalentPair { .. } => {
+                statistics.equivalents =
+                    statistics.equivalents.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded equivalent-class count overflow")
+                    })?;
+                if !asserted_taxonomy_only {
+                    let directions = 1_usize + usize::from(options.bidirectional);
+                    statistics.equivalent_base_edges = statistics
+                        .equivalent_base_edges
+                        .checked_add(directions)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded equivalent base-edge count overflow")
+                        })?;
+                }
+            }
+            Self::EquivalentAggregate {
+                named_destinations,
+                restrictions,
+                ignored_shapes,
+                ..
+            } => {
+                statistics.equivalents =
+                    statistics.equivalents.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded equivalent-class count overflow")
+                    })?;
+                statistics.aggregate_equivalents = statistics
+                    .aggregate_equivalents
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded aggregate-equivalent count overflow")
+                    })?;
+                if !asserted_taxonomy_only {
+                    let named_edges = named_destinations
+                        .len()
+                        .checked_mul(1_usize + usize::from(options.bidirectional))
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded equivalent base-edge count overflow")
+                        })?;
+                    let restriction_edges = if options.only_taxonomy {
+                        0
+                    } else {
+                        restrictions.len()
+                    };
+                    statistics.equivalent_base_edges = statistics
+                        .equivalent_base_edges
+                        .checked_add(named_edges)
+                        .and_then(|count| count.checked_add(restriction_edges))
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded equivalent base-edge count overflow")
+                        })?;
+                    if !options.only_taxonomy {
+                        statistics.ignored_equivalents = statistics
+                            .ignored_equivalents
+                            .checked_add(*ignored_shapes)
+                            .ok_or_else(|| {
+                                KernelError::resource("encoded ignored-equivalent count overflow")
+                            })?;
+                    }
+                }
+            }
+            Self::IgnoredEquivalent => {
+                statistics.equivalents =
+                    statistics.equivalents.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded equivalent-class count overflow")
+                    })?;
+                if !asserted_taxonomy_only {
+                    statistics.ignored_equivalents = statistics
+                        .ignored_equivalents
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded ignored-equivalent count overflow")
+                        })?;
+                }
             }
             Self::IgnoredSubclass {
                 anonymous_individuals,
@@ -8243,6 +8429,7 @@ impl DirectEmissionCursor {
                 .as_ref()
                 .map(EquivalentAggregateCursor::try_clone)
                 .transpose()?,
+            owned_aggregate: self.owned_aggregate,
             previous_property: self
                 .previous_property
                 .as_deref()
@@ -8400,7 +8587,10 @@ impl DirectEmissionCursor {
                                     })?;
                                 true
                             }
-                            OwnedOverlayDeltaProjection::ClassAssertion { .. }
+                            OwnedOverlayDeltaProjection::EquivalentPair { .. }
+                            | OwnedOverlayDeltaProjection::EquivalentAggregate { .. }
+                            | OwnedOverlayDeltaProjection::IgnoredEquivalent
+                            | OwnedOverlayDeltaProjection::ClassAssertion { .. }
                             | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
                             | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
                             | OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass { .. }
@@ -8462,6 +8652,62 @@ impl DirectEmissionCursor {
                     }
                 }
                 EmissionPhase::Equivalents => {
+                    if let Some(mut aggregate) = self.owned_aggregate.take() {
+                        let projection = preparation
+                            .overlay_deltas
+                            .get(aggregate.delta_index)
+                            .ok_or_else(|| {
+                                KernelError::malformed(
+                                    "encoded owned-equivalent cursor lost its local root",
+                                )
+                            })?;
+                        let OwnedOverlayDeltaProjection::EquivalentAggregate {
+                            source,
+                            named_destinations,
+                            restrictions,
+                            ..
+                        } = &projection.projection
+                        else {
+                            return Err(KernelError::malformed(
+                                "encoded owned-equivalent cursor references another projection",
+                            ));
+                        };
+                        if let Some(destination) = named_destinations.get(aggregate.named_index) {
+                            aggregate.named_index =
+                                aggregate.named_index.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded owned-equivalent cursor overflow",
+                                    )
+                                })?;
+                            self.set_taxonomy(
+                                source,
+                                destination,
+                                preparation.options.bidirectional,
+                            )?;
+                            self.owned_aggregate = Some(aggregate);
+                            continue;
+                        }
+                        if !preparation.options.only_taxonomy {
+                            if let Some(restriction) = restrictions.get(aggregate.restriction_index)
+                            {
+                                aggregate.restriction_index = aggregate
+                                    .restriction_index
+                                    .checked_add(1)
+                                    .ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded owned-equivalent cursor overflow",
+                                        )
+                                    })?;
+                                self.set_role(
+                                    source,
+                                    &restriction.relation,
+                                    &restriction.destination,
+                                )?;
+                                self.owned_aggregate = Some(aggregate);
+                                continue;
+                            }
+                        }
+                    }
                     if let Some(mut aggregate) = self.aggregate.take() {
                         if aggregate.phase == AggregatePhase::Named {
                             let after = aggregate
@@ -8546,6 +8792,55 @@ impl DirectEmissionCursor {
                             self.aggregate = Some(aggregate);
                         }
                         continue;
+                    }
+                    if let Some(delta_index) = self.next_overlay_delta_index(preparation)? {
+                        let delta = &preparation.overlay_deltas[delta_index];
+                        let handled = match &delta.projection {
+                            OwnedOverlayDeltaProjection::EquivalentPair {
+                                source,
+                                destination,
+                            } => {
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
+                                self.set_taxonomy(
+                                    source,
+                                    destination,
+                                    preparation.options.bidirectional,
+                                )?;
+                                true
+                            }
+                            OwnedOverlayDeltaProjection::EquivalentAggregate { .. } => {
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
+                                self.owned_aggregate = Some(OwnedEquivalentAggregateCursor {
+                                    delta_index,
+                                    named_index: 0,
+                                    restriction_index: 0,
+                                });
+                                true
+                            }
+                            OwnedOverlayDeltaProjection::IgnoredEquivalent => {
+                                self.overlay_delta_index =
+                                    self.overlay_delta_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded local-overlay cursor overflow",
+                                        )
+                                    })?;
+                                true
+                            }
+                            _ => false,
+                        };
+                        if handled {
+                            continue;
+                        }
                     }
                     if self.scan_index == columns.root_count() {
                         self.scan_index = 0;
@@ -9284,6 +9579,141 @@ fn own_local_object_property_assertion_projection(
     }
 }
 
+fn own_local_equivalent_projection(
+    columns: DirectColumns<'_>,
+    root: usize,
+    max_iri_bytes: usize,
+    state: &AtomicU8,
+    workspace: &mut LocalOverlayWorkspace,
+) -> Result<OwnedOverlayDeltaProjection, KernelError> {
+    if columns.node_tag(root)? != TAG_EQUIVALENT_CLASSES {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay equivalence envelope requires EquivalentClasses roots",
+        ));
+    }
+    let field_start = columns.exact_fields(root, 2)?;
+    validate_local_annotation_scope(columns, root, field_start + 1, "EquivalentClasses", state)?;
+    if columns.root_contains_anonymous_individual(root, state)? {
+        return Err(KernelError::unsupported(
+            "bounded local-overlay EquivalentClasses root requires no anonymous individuals or local scope remap",
+        ));
+    }
+    match columns.equivalent_projection(root, max_iri_bytes)? {
+        EquivalentProjection::Pair {
+            source,
+            destination,
+        } => Ok(OwnedOverlayDeltaProjection::EquivalentPair {
+            source: workspace.clone_text(source)?,
+            destination: workspace.clone_text(destination)?,
+        }),
+        EquivalentProjection::Ignored => Ok(OwnedOverlayDeltaProjection::IgnoredEquivalent),
+        EquivalentProjection::Aggregate {
+            source,
+            expression_id,
+        } => {
+            let (item_start, item_count) = columns.aggregate_operand_range(expression_id)?;
+            let mut named_count = 0_usize;
+            let mut restriction_count = 0_usize;
+            let mut ignored_shapes = 0_usize;
+            for item_index in item_start..item_start + item_count {
+                check_cancel(state, item_index)?;
+                let operand_id = columns.item_node(item_index)?;
+                let tag = columns.node_tag(operand_id)?;
+                if tag == TAG_ENTITY {
+                    columns.named_class_iri(operand_id, max_iri_bytes)?;
+                    named_count = named_count.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded aggregate named-operand count overflow")
+                    })?;
+                } else if is_restriction_tag(tag) {
+                    restriction_count = restriction_count.checked_add(1).ok_or_else(|| {
+                        KernelError::resource(
+                            "encoded aggregate restriction-operand count overflow",
+                        )
+                    })?;
+                    if columns
+                        .restriction_projection(operand_id, max_iri_bytes)?
+                        .is_none()
+                    {
+                        ignored_shapes = ignored_shapes.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded equivalent ignored-shape count overflow")
+                        })?;
+                    }
+                } else if is_nonprojecting_class_tag(tag) || is_aggregate_tag(tag) {
+                    ignored_shapes = ignored_shapes.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded equivalent ignored-shape count overflow")
+                    })?;
+                } else {
+                    return Err(KernelError::malformed(
+                        "encoded aggregate operand changed after successful preflight",
+                    ));
+                }
+            }
+
+            let mut named_destinations = workspace.reserve_owned::<String>(
+                named_count,
+                "encoded aggregate named-operand allocation failed",
+            )?;
+            let mut previous_node_id = None;
+            loop {
+                let after = named_destinations
+                    .last()
+                    .zip(previous_node_id)
+                    .map(|(value, node_id)| (value.as_str(), node_id));
+                let Some((destination, node_id)) = columns.next_named_aggregate_operand(
+                    expression_id,
+                    after,
+                    max_iri_bytes,
+                    state,
+                )?
+                else {
+                    break;
+                };
+                named_destinations.push(workspace.clone_text(destination)?);
+                previous_node_id = Some(node_id);
+            }
+            if named_destinations.len() != named_count {
+                return Err(KernelError::malformed(
+                    "encoded aggregate named-operand selection changed after preflight",
+                ));
+            }
+
+            let mut restrictions = workspace.reserve_owned::<OwnedEquivalentRestriction>(
+                restriction_count,
+                "encoded aggregate restriction-operand allocation failed",
+            )?;
+            for tag in [
+                TAG_OBJECT_SOME_VALUES_FROM,
+                TAG_OBJECT_ALL_VALUES_FROM,
+                TAG_OBJECT_MIN_CARDINALITY,
+                TAG_OBJECT_MAX_CARDINALITY,
+            ] {
+                for item_index in item_start..item_start + item_count {
+                    check_cancel(state, item_index)?;
+                    let operand_id = columns.item_node(item_index)?;
+                    if columns.node_tag(operand_id)? != tag {
+                        continue;
+                    }
+                    let Some((relation, destination)) =
+                        columns.restriction_projection(operand_id, max_iri_bytes)?
+                    else {
+                        continue;
+                    };
+                    restrictions.push(OwnedEquivalentRestriction {
+                        relation: workspace.clone_text(relation)?,
+                        destination: workspace.clone_text(destination)?,
+                    });
+                }
+            }
+            Ok(OwnedOverlayDeltaProjection::EquivalentAggregate {
+                source: workspace.clone_text(source)?,
+                named_destinations,
+                restrictions,
+                ignored_shapes,
+            })
+        }
+    }
+}
+
 fn validate_local_annotation_scope(
     columns: DirectColumns<'_>,
     root: usize,
@@ -9321,6 +9751,9 @@ fn own_local_emitting_projection(
             state,
             workspace,
         ),
+        TAG_EQUIVALENT_CLASSES => {
+            own_local_equivalent_projection(columns, root, max_iri_bytes, state, workspace)
+        }
         _ => Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT)),
     }
 }
@@ -9611,7 +10044,7 @@ fn own_composite_tail_projection(
     }
 }
 
-const LOCAL_EMITTING_OVERLAY_REQUIREMENT: &str = "bounded local-overlay emitting segment requires only named SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots";
+const LOCAL_EMITTING_OVERLAY_REQUIREMENT: &str = "bounded local-overlay emitting segment requires only supported SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots";
 
 #[derive(Debug)]
 struct LocalOverlayWorkspace {
@@ -9660,26 +10093,37 @@ impl LocalOverlayWorkspace {
         Ok(owned)
     }
 
+    fn reserve_owned<T>(
+        &mut self,
+        item_count: usize,
+        allocation_error: &'static str,
+    ) -> Result<Vec<T>, KernelError> {
+        use std::mem::size_of;
+
+        let requested = item_count
+            .checked_mul(size_of::<T>())
+            .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
+        self.claim(requested)?;
+        let mut items = Vec::new();
+        items
+            .try_reserve_exact(item_count)
+            .map_err(|_| KernelError::resource(allocation_error))?;
+        let actual = items
+            .capacity()
+            .checked_mul(size_of::<T>())
+            .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
+        self.claim(actual.saturating_sub(requested))?;
+        Ok(items)
+    }
+
     fn reserve_overlay_deltas(
         &mut self,
         root_count: usize,
     ) -> Result<Vec<OwnedOverlayDelta>, KernelError> {
-        use std::mem::size_of;
-
-        let requested = root_count
-            .checked_mul(size_of::<OwnedOverlayDelta>())
-            .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
-        self.claim(requested)?;
-        let mut deltas = Vec::new();
-        deltas.try_reserve_exact(root_count).map_err(|_| {
-            KernelError::resource("encoded local-overlay projection allocation failed")
-        })?;
-        let actual = deltas
-            .capacity()
-            .checked_mul(size_of::<OwnedOverlayDelta>())
-            .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
-        self.claim(actual.saturating_sub(requested))?;
-        Ok(deltas)
+        self.reserve_owned(
+            root_count,
+            "encoded local-overlay projection allocation failed",
+        )
     }
 
     fn remaining_for_canonical_merge(&self) -> Result<usize, KernelError> {
@@ -10054,45 +10498,9 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
     let mut projection_edges = 0_usize;
     let mut projection_role_expansion_edges = 0_usize;
     for local_delta in &overlay_deltas {
-        let (edges, role_expansion_edges) = match &local_delta.projection {
-            OwnedOverlayDeltaProjection::Taxonomy { .. } => (
-                1_usize
-                    .checked_add(usize::from(options.bidirectional))
-                    .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?,
-                0,
-            ),
-            OwnedOverlayDeltaProjection::Restriction { relation, .. }
-                if !options.asserted_taxonomy_only && !options.only_taxonomy =>
-            {
-                let edges = prepared.preparation.role_state.edge_count(relation)?;
-                (
-                    edges,
-                    edges.checked_sub(1).ok_or_else(|| {
-                        KernelError::malformed(
-                            "encoded composite restriction edge count is inconsistent",
-                        )
-                    })?,
-                )
-            }
-            OwnedOverlayDeltaProjection::ClassAssertion { .. }
-            | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
-                if !options.asserted_taxonomy_only =>
-            {
-                (1, 0)
-            }
-            OwnedOverlayDeltaProjection::Restriction { .. }
-            | OwnedOverlayDeltaProjection::IgnoredSubclass { .. }
-            | OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass { .. }
-            | OwnedOverlayDeltaProjection::ClassAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
-            | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
-            | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. }
-            | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
-            | OwnedOverlayDeltaProjection::SilentSwrl => (0, 0),
-        };
+        let (edges, role_expansion_edges) = local_delta
+            .projection
+            .edge_counts(&prepared.preparation.role_state, options)?;
         projection_edges = projection_edges
             .checked_add(edges)
             .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
@@ -10126,7 +10534,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
     for local_delta in &overlay_deltas {
         local_delta
             .projection
-            .apply_statistics(statistics, options.asserted_taxonomy_only)?;
+            .apply_statistics(statistics, options)?;
     }
     statistics.role_expansion_edges = statistics
         .role_expansion_edges
@@ -10229,7 +10637,8 @@ fn prepare_two_table_batches_uncommitted(
                     == (RootCounts {
                         object_property_assertions: 1,
                         ..RootCounts::default()
-                    }));
+                    })
+            || delta_tag == TAG_EQUIVALENT_CLASSES && delta_counts.equivalents == 1);
     let emitting_delta =
         !paired_object_property_class && (delta_root_count > 1 || singular_emitting_delta);
     let aggregate_or_emitting_delta = paired_object_property_class || emitting_delta;
@@ -11124,45 +11533,8 @@ fn prepare_two_table_batches_uncommitted(
     let mut projection_role_expansion_edges = 0_usize;
     for local_delta in &overlay_deltas {
         let local_projection = &local_delta.projection;
-        let (edges, role_expansion_edges) = match local_projection {
-            OwnedOverlayDeltaProjection::Taxonomy { .. } => (
-                1_usize
-                    .checked_add(usize::from(options.bidirectional))
-                    .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?,
-                0,
-            ),
-            OwnedOverlayDeltaProjection::Restriction { relation, .. }
-                if !options.asserted_taxonomy_only && !options.only_taxonomy =>
-            {
-                let edges = prepared.preparation.role_state.edge_count(relation)?;
-                (
-                    edges,
-                    edges.checked_sub(1).ok_or_else(|| {
-                        KernelError::malformed(
-                            "encoded local-overlay restriction edge count is inconsistent",
-                        )
-                    })?,
-                )
-            }
-            OwnedOverlayDeltaProjection::ClassAssertion { .. }
-            | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
-                if !options.asserted_taxonomy_only =>
-            {
-                (1, 0)
-            }
-            OwnedOverlayDeltaProjection::Restriction { .. }
-            | OwnedOverlayDeltaProjection::IgnoredSubclass { .. }
-            | OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass { .. }
-            | OwnedOverlayDeltaProjection::ClassAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredClassAssertion { .. }
-            | OwnedOverlayDeltaProjection::ObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredNegativeObjectPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion { .. }
-            | OwnedOverlayDeltaProjection::IgnoredIndividualSet { .. }
-            | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion { .. }
-            | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
-            | OwnedOverlayDeltaProjection::SilentSwrl => (0, 0),
-        };
+        let (edges, role_expansion_edges) =
+            local_projection.edge_counts(&prepared.preparation.role_state, options)?;
         projection_edges = projection_edges
             .checked_add(edges)
             .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
@@ -11210,7 +11582,7 @@ fn prepare_two_table_batches_uncommitted(
     for local_delta in &overlay_deltas {
         local_delta
             .projection
-            .apply_statistics(statistics, options.asserted_taxonomy_only)?;
+            .apply_statistics(statistics, options)?;
     }
     statistics.role_expansion_edges = statistics
         .role_expansion_edges
@@ -19521,7 +19893,13 @@ mod tests {
                 assert_eq!(statistics.skipped_axioms, 0);
                 assert_eq!(statistics.edges, 1);
                 assert_eq!(prepared.emission_attempts(), 0);
-                assert!(prepared.preparation.overlay_deltas.is_empty());
+                assert!(matches!(
+                    prepared.preparation.overlay_deltas.as_slice(),
+                    [OwnedOverlayDelta {
+                        projection: OwnedOverlayDeltaProjection::IgnoredEquivalent,
+                        ..
+                    }]
+                ));
                 let (edges, cursor) = prepared
                     .prepare_next_batch(base.columns(), &running_state(), 1)
                     .unwrap();
@@ -19555,7 +19933,13 @@ mod tests {
                 assert_eq!(only_taxonomy.statistics().skipped_axioms, 0);
                 assert_eq!(only_taxonomy.statistics().edges, 1);
                 assert_eq!(only_taxonomy.emission_attempts(), 0);
-                assert!(only_taxonomy.preparation.overlay_deltas.is_empty());
+                assert!(matches!(
+                    only_taxonomy.preparation.overlay_deltas.as_slice(),
+                    [OwnedOverlayDelta {
+                        projection: OwnedOverlayDeltaProjection::IgnoredEquivalent,
+                        ..
+                    }]
+                ));
 
                 let asserted = prepare_single_overlay_delta_batches_uncommitted(
                     base.columns(),
@@ -19576,7 +19960,13 @@ mod tests {
                 assert_eq!(asserted.statistics().skipped_axioms, 0);
                 assert_eq!(asserted.statistics().edges, 1);
                 assert_eq!(asserted.emission_attempts(), 0);
-                assert!(asserted.preparation.overlay_deltas.is_empty());
+                assert!(matches!(
+                    asserted.preparation.overlay_deltas.as_slice(),
+                    [OwnedOverlayDelta {
+                        projection: OwnedOverlayDeltaProjection::IgnoredEquivalent,
+                        ..
+                    }]
+                ));
             }
         }
 
@@ -19599,7 +19989,13 @@ mod tests {
         assert_eq!(silent.statistics().skipped_axioms, 0);
         assert_eq!(silent.statistics().edges, 0);
         assert_eq!(silent.emission_attempts(), 0);
-        assert!(silent.preparation.overlay_deltas.is_empty());
+        assert!(matches!(
+            silent.preparation.overlay_deltas.as_slice(),
+            [OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::IgnoredEquivalent,
+                ..
+            }]
+        ));
         assert!(silent.is_exhausted());
 
         let duplicate_base = ignored_equivalent_classes_delta_fixture(2, false, false, false);
@@ -19617,17 +20013,24 @@ mod tests {
         ));
 
         let annotated = ignored_equivalent_classes_delta_fixture(2, false, true, false);
+        let annotated = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            annotated.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(annotated.statistics().equivalents, 1);
+        assert_eq!(annotated.statistics().ignored_equivalents, 1);
         assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                annotated.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message)) if message.contains("must be unannotated")
+            annotated.preparation.overlay_deltas.as_slice(),
+            [OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::IgnoredEquivalent,
+                ..
+            }]
         ));
 
         let anonymous = ignored_equivalent_classes_delta_fixture(2, false, false, true);
@@ -19646,18 +20049,24 @@ mod tests {
         ));
 
         let oversized = ignored_equivalent_classes_delta_fixture(4, true, false, false);
+        let oversized = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            oversized.columns(),
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(oversized.statistics().equivalents, 1);
+        assert_eq!(oversized.statistics().ignored_equivalents, 1);
         assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                oversized.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message))
-                if message.contains("canonical binary or ternary")
+            oversized.preparation.overlay_deltas.as_slice(),
+            [OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::IgnoredEquivalent,
+                ..
+            }]
         ));
 
         let mut pair = ignored_equivalent_classes_delta_fixture(2, false, false, false);
@@ -19671,18 +20080,30 @@ mod tests {
         };
         pair.item_values[second_item * 8..second_item * 8 + 8]
             .copy_from_slice(&7_u64.to_le_bytes());
+        let pair = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            pair.columns(),
+            DirectCompileOptions {
+                max_edges: 3,
+                ..options
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(pair.statistics().equivalents, 1);
+        assert_eq!(pair.statistics().aggregate_equivalents, 0);
+        assert_eq!(pair.statistics().equivalent_base_edges, 1);
+        assert_eq!(pair.statistics().ignored_equivalents, 0);
+        assert_eq!(pair.statistics().edges, 2);
         assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                pair.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message))
-                if message.contains("requires an ignored complete direct projection")
+            pair.preparation.overlay_deltas.as_slice(),
+            [OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::EquivalentPair { .. },
+                ..
+            }]
         ));
 
         let mut aggregate = ignored_equivalent_classes_delta_fixture(2, true, false, false);
@@ -19699,18 +20120,30 @@ mod tests {
         };
         aggregate.item_values[second_item * 8..second_item * 8 + 8]
             .copy_from_slice(&(aggregate_id as u64).to_le_bytes());
+        let aggregate = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            aggregate.columns(),
+            DirectCompileOptions {
+                max_edges: 4,
+                ..options
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(aggregate.statistics().equivalents, 1);
+        assert_eq!(aggregate.statistics().aggregate_equivalents, 1);
+        assert_eq!(aggregate.statistics().equivalent_base_edges, 2);
+        assert_eq!(aggregate.statistics().ignored_equivalents, 0);
+        assert_eq!(aggregate.statistics().edges, 3);
         assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                aggregate.columns(),
-                options,
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message))
-                if message.contains("requires an ignored complete direct projection")
+            aggregate.preparation.overlay_deltas.as_slice(),
+            [OwnedOverlayDelta {
+                projection: OwnedOverlayDeltaProjection::EquivalentAggregate { .. },
+                ..
+            }]
         ));
     }
 

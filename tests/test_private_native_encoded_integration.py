@@ -3324,6 +3324,305 @@ def test_private_overlay_ignored_class_axiom_preserves_asserted_taxonomy(
     ids=["independent-bytes", "packed-bytes"],
 )
 @pytest.mark.parametrize(
+    ("local_body", "aggregate", "ignored_normal"),
+    [
+        (
+            'EquivalentClasses(Annotation(<urn:meta> "pair") :PairA :PairB)',
+            False,
+            0,
+        ),
+        (
+            'EquivalentClasses(Annotation(<urn:meta> "aggregate") :Root '
+            "ObjectIntersectionOf(:Named ObjectSomeValuesFrom(:superP :Filler) "
+            "ObjectAllValuesFrom(:q :Other) ObjectComplementOf(:Ignored)))",
+            True,
+            1,
+        ),
+        (
+            'EquivalentClasses(Annotation(<urn:meta> "ignored") '
+            ":Ignored ObjectComplementOf(:Other))",
+            False,
+            1,
+        ),
+        (
+            "EquivalentClasses(:Ignored ObjectSomeValuesFrom(:p :Filler) "
+            "ObjectComplementOf(:Other) ObjectHasSelf(:q))",
+            False,
+            1,
+        ),
+    ],
+    ids=["pair", "aggregate", "annotated-ignored", "nary-ignored"],
+)
+@pytest.mark.parametrize(
+    ("bidirectional", "only_taxonomy"),
+    [(False, False), (True, False), (True, True)],
+    ids=["normal", "bidirectional", "taxonomy-only"],
+)
+def test_hidden_iterator_projects_local_equivalent_classes_through_one_plan(
+    provider_backend: pyowl_core.BackendPreference,
+    local_body: str,
+    aggregate: bool,
+    ignored_normal: int,
+    bidirectional: bool,
+    only_taxonomy: bool,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:Base :Top) SubObjectPropertyOf(:p :superP)",
+            backend=provider_backend,
+        ),
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot(local_body, backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        bidirectional_taxonomy=bidirectional,
+        only_taxonomy=only_taxonomy,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("local EquivalentClasses reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    statistics = captured[0].native_statistics
+    assert statistics.equivalents == 1
+    assert statistics.aggregate_equivalents == int(aggregate)
+    assert statistics.ignored_equivalents == (0 if only_taxonomy and aggregate else ignored_normal)
+    assert statistics.edges == len(actual)
+    if aggregate and not only_taxonomy:
+        assert statistics.role_expansion_edges == 1
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_referenced_view_count"] == 1
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
+    ("bidirectional", "only_taxonomy"),
+    [(False, False), (True, False), (True, True)],
+    ids=["normal", "bidirectional", "taxonomy-only"],
+)
+def test_hidden_iterator_projects_equivalent_classes_from_composite_tails(
+    provider_backend: pyowl_core.BackendPreference,
+    bidirectional: bool,
+    only_taxonomy: bool,
+) -> None:
+    members = [
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(body, backend=provider_backend),
+        )
+        for body in (
+            "SubClassOf(:Base :Top)",
+            'EquivalentClasses(Annotation(<urn:meta> "pair") :PairA :PairB)',
+            "EquivalentClasses(:Root ObjectIntersectionOf("
+            ":Named ObjectSomeValuesFrom(:p :Filler) ObjectComplementOf(:Ignored)))",
+        )
+    ]
+    composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        bidirectional_taxonomy=bidirectional,
+        only_taxonomy=only_taxonomy,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("tail EquivalentClasses reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert len(captured) == 1
+    statistics = captured[0].native_statistics
+    assert statistics.equivalents == 2
+    assert statistics.aggregate_equivalents == 1
+    assert statistics.ignored_equivalents == (0 if only_taxonomy else 1)
+    assert statistics.edges == len(actual)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_referenced_view_count"] == 3
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("local_body", "aggregate"),
+    [
+        ("EquivalentClasses(:PairA :PairB)", False),
+        (
+            "EquivalentClasses(:Root ObjectIntersectionOf("
+            ":Named ObjectSomeValuesFrom(:p :Filler)))",
+            True,
+        ),
+    ],
+    ids=["pair", "aggregate"],
+)
+def test_private_local_equivalence_preserves_asserted_taxonomy(
+    local_body: str,
+    aggregate: bool,
+) -> None:
+    base = cast(pyowl_core.OntologyView, _snapshot("SubClassOf(:Base :Top)"))
+    addition_source = cast(pyowl_core.OntologyView, _snapshot(local_body))
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    top_lease = select_private_direct_ingestion(
+        overlay,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_single_overlay_delta(top_lease)
+    assert resolved is not None
+    base_lease, excluded_root_ids, max_work, max_workspace = resolved
+    assert excluded_root_ids is None
+    compiler = prepare_native_encoded_direct(
+        base_lease,
+        local_delta_lease=top_lease,
+        canonical_work_limit=max_work,
+        canonical_workspace_limit=max_workspace,
+    )
+    edges, statistics = compiler.compile_batch(
+        bidirectional=False,
+        asserted_taxonomy_only=True,
+        only_taxonomy=True,
+        max_edges=1,
+        max_iri_bytes=1024,
+    )
+
+    assert edges == [
+        Edge(
+            "urn:native-integration#Base",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+    ]
+    assert statistics.roots == 2
+    assert statistics.subclasses == 1
+    assert statistics.equivalents == 1
+    assert statistics.aggregate_equivalents == int(aggregate)
+    assert statistics.equivalent_base_edges == 0
+    assert statistics.ignored_equivalents == 0
+    assert statistics.role_expansion_edges == 0
+    assert statistics.edges == 1
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize(
     "local_body",
     [
         "EquivalentClasses(:Ignored ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
@@ -15492,40 +15791,40 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
     [
         (
             "SubClassOf(:B :C) SubClassOf(ObjectUnionOf(:D :E) :F)",
-            "bounded local-overlay emitting segment requires only named "
-            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+            "bounded local-overlay emitting segment requires only supported "
+            "SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ClassAssertion(:B :i) ClassAssertion(ObjectSomeValuesFrom(:p :C) :j)",
-            "bounded local-overlay emitting segment requires only named "
-            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+            "bounded local-overlay emitting segment requires only supported "
+            "SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ClassAssertion(:B :i) ClassAssertion(:C _:anonymous)",
-            "bounded local-overlay emitting segment requires only named "
-            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+            "bounded local-overlay emitting segment requires only supported "
+            "SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "SubClassOf(:B :C) ClassAssertion(:D :i) Declaration(Class(:E))",
-            "bounded local-overlay emitting segment requires only named "
-            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+            "bounded local-overlay emitting segment requires only supported "
+            "SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "SubClassOf(:B :C) "
             "ClassAssertion(ObjectSomeValuesFrom(:p :E) :i) "
             "ObjectPropertyAssertion(:q :i :j)",
-            "bounded local-overlay emitting segment requires only named "
-            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+            "bounded local-overlay emitting segment requires only supported "
+            "SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "SubClassOf(:B :C) ClassAssertion(:D :i) SubObjectPropertyOf(:p :q)",
-            "bounded local-overlay emitting segment requires only named "
-            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+            "bounded local-overlay emitting segment requires only supported "
+            "SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ObjectPropertyDomain(:p :A) ObjectPropertyDomain(:p :B)",
-            "bounded local-overlay emitting segment requires only named "
-            "SubClassOf, ClassAssertion, or ObjectPropertyAssertion roots",
+            "bounded local-overlay emitting segment requires only supported "
+            "SubClassOf, EquivalentClasses, ClassAssertion, or ObjectPropertyAssertion roots",
         ),
         (
             "ObjectPropertyDomain(:p :A) ObjectPropertyRange(:q :B)",
@@ -15537,29 +15836,9 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
             "bounded local-overlay ObjectPropertyDomain root must be unannotated",
         ),
         (
-            "EquivalentClasses(:A :B)",
-            "bounded local-overlay EquivalentClasses root requires an ignored "
-            "complete direct projection",
-        ),
-        (
-            "EquivalentClasses(:A ObjectIntersectionOf(:B :C))",
-            "bounded local-overlay EquivalentClasses root requires an ignored "
-            "complete direct projection",
-        ),
-        (
-            'EquivalentClasses(Annotation(:label "x") :A ObjectComplementOf(:B))',
-            "bounded local-overlay EquivalentClasses root must be unannotated",
-        ),
-        (
             "EquivalentClasses(:A ObjectOneOf(_:anonymous))",
-            "bounded local-overlay ignored EquivalentClasses root requires no "
+            "bounded local-overlay EquivalentClasses root requires no "
             "anonymous individuals or local scope remap",
-        ),
-        (
-            "EquivalentClasses(:A ObjectSomeValuesFrom(:p :B) "
-            "ObjectComplementOf(:C) ObjectHasSelf(:q))",
-            "bounded local-overlay EquivalentClasses root requires a canonical "
-            "binary or ternary ignored class-expression set",
         ),
         (
             'ObjectPropertyDomain(Annotation(:label "x") ObjectInverseOf(:p) :A)',
@@ -15762,11 +16041,7 @@ def test_hidden_iterator_declines_anonymous_local_projection_metadata_preoutput(
         "two-local-domains",
         "two-local-properties",
         "annotated-local-domain-range-pair",
-        "projecting-pair-local-equivalent-classes",
-        "projecting-aggregate-local-equivalent-classes",
-        "annotated-ignored-local-equivalent-classes",
         "anonymous-ignored-local-equivalent-classes",
-        "oversized-ignored-local-equivalent-classes",
         "annotated-ignored-local-object-property-domain",
         "annotated-ignored-local-object-property-range",
         "anonymous-ignored-local-object-property-domain",
