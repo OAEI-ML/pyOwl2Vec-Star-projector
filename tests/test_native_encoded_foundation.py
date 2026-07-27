@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import gc
+import mmap
 import sys
+import tempfile
 import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
@@ -2881,9 +2883,68 @@ def test_unsupported_exporters_are_rejected_before_output() -> None:
     non_bytes = _replace_buffers(direct, {"root_kinds": readonly_bytearray})
     with pytest.raises(
         NativeEncodedDirectUnsupported,
-        match="not backed by exact immutable bytes",
+        match=r"PyUntypedBuffer \(abi3-py311 or newer\).*abi3-py310",
     ):
         prepare_native_encoded_direct(non_bytes)
+
+
+def test_readonly_mmap_exporter_fails_at_explicit_abi_boundary_and_releases_cleanly() -> None:
+    direct = _lease(_snapshot("SubClassOf(:A :B)"))
+    root_kinds = bytes(direct.buffers["root_kinds"])
+    with tempfile.TemporaryFile() as backing:
+        backing.write(root_kinds)
+        backing.flush()
+        mapped = mmap.mmap(backing.fileno(), len(root_kinds), access=mmap.ACCESS_READ)
+        candidate = memoryview(mapped)
+        hostile = _replace_buffers(direct, {"root_kinds": candidate})
+        try:
+            with pytest.raises(
+                NativeEncodedDirectUnsupported,
+                match=r"valid readonly C-contiguous non-bytes exporter.*abi3-py311",
+            ):
+                prepare_native_encoded_direct(hostile)
+        finally:
+            candidate.release()
+            del hostile
+            gc.collect()
+            mapped.close()
+        assert mapped.closed
+
+
+@pytest.mark.parametrize(
+    ("layout", "match"),
+    [
+        ("writable", "is writable"),
+        ("strided", "not a contiguous one-dimensional unsigned-byte view"),
+        ("multidimensional", "not a contiguous one-dimensional unsigned-byte view"),
+        ("signed", "not a contiguous one-dimensional unsigned-byte view"),
+    ],
+)
+def test_general_exporter_hostile_layouts_fail_before_retention(
+    layout: str,
+    match: str,
+) -> None:
+    direct = _lease(_snapshot("SubClassOf(:A :B)"))
+    root_kinds = bytes(direct.buffers["root_kinds"])
+    raw = bytearray(root_kinds * 4)
+    if layout == "writable":
+        candidate = memoryview(raw)
+    elif layout == "strided":
+        candidate = memoryview(raw).toreadonly()[::2]
+    elif layout == "multidimensional":
+        candidate = memoryview(raw).toreadonly().cast(
+            "B",
+            shape=(2, len(raw) // 2),
+        )
+    else:
+        assert layout == "signed"
+        candidate = memoryview(raw).toreadonly().cast("b")
+    hostile = _replace_buffers(direct, {"root_kinds": candidate})
+    try:
+        with pytest.raises(SnapshotCompatibilityError, match=match):
+            prepare_native_encoded_direct(hostile)
+    finally:
+        candidate.release()
 
 
 def test_canonical_packed_bytes_exporter_is_retained_without_copy() -> None:
@@ -2964,7 +3025,7 @@ def test_noncanonical_packed_bytes_layouts_are_rejected_before_output() -> None:
 
     with pytest.raises(
         NativeEncodedDirectUnsupported,
-        match="not backed by exact immutable bytes",
+        match=r"PyUntypedBuffer \(abi3-py311 or newer\).*abi3-py310",
     ):
         prepare_native_encoded_direct(_packed_lease(direct, mutable=True))
 

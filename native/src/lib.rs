@@ -42,7 +42,8 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 118;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 119;
+const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -524,15 +525,27 @@ struct DirectBatchOutput {
     cancelled: bool,
 }
 
+/// Exporter-specific lifetime ownership for a validated direct buffer.
+///
+/// A future general-buffer backend belongs here once the package can use
+/// `pyo3::buffer::PyUntypedBuffer`. PyO3 0.28.3 compiles that API out for the
+/// current `abi3-py310` floor, so the only safe zero-copy storage today is an
+/// exact immutable Python `bytes` owner.
+enum RetainedDirectStorage {
+    ExactImmutableBytes(PyBackedBytes),
+}
+
 struct RetainedDirectBuffer {
-    exporter: PyBackedBytes,
+    storage: RetainedDirectStorage,
     start: usize,
     end: usize,
 }
 
 impl RetainedDirectBuffer {
     fn as_slice(&self) -> &[u8] {
-        &self.exporter[self.start..self.end]
+        match &self.storage {
+            RetainedDirectStorage::ExactImmutableBytes(exporter) => &exporter[self.start..self.end],
+        }
     }
 }
 
@@ -4046,50 +4059,32 @@ fn retained_structural_buffers(
             "encoded buffer set does not contain exactly eleven columns",
         ));
     }
-    let mut borrowed = Vec::new();
-    borrowed
+    let mut candidates = Vec::new();
+    candidates
         .try_reserve_exact(BUFFER_COUNT)
         .map_err(|_| PyMemoryError::new_err("encoded buffer-retention allocation failed"))?;
     for name in BUFFER_NAMES {
         let buffer = mapping
             .get_item(name)
             .map_err(|_| encoded_buffer_error(format!("encoded view is missing buffer {name}")))?;
-        let length = checked_memoryview_length(&buffer, name)?;
-        let exporter = required_attribute(&buffer, "obj")?;
-        if !exporter.is_exact_instance_of::<PyBytes>() {
-            return Err(EncodedDirectUnsupportedError::new_err(format!(
-                "encoded buffer {name} is not backed by exact immutable bytes",
-            )));
-        }
-        let exporter = exporter.cast_into::<PyBytes>().map_err(|_| {
-            encoded_buffer_error(format!("encoded buffer {name} owner is inaccessible"))
-        })?;
-        borrowed.push((name, buffer, exporter, length));
+        candidates.push(ValidatedDirectBuffer::inspect(buffer, name)?);
     }
-    retain_direct_bytes_exporters(borrowed)
+    retain_direct_exporters(candidates)
 }
 
 fn retained_exact_bytes_buffer(
     buffer: &Bound<'_, PyAny>,
     name: &'static str,
 ) -> PyResult<RetainedDirectBuffer> {
-    let length = checked_memoryview_length(buffer, name)?;
-    let exporter = required_attribute(buffer, "obj")?;
-    if !exporter.is_exact_instance_of::<PyBytes>() {
-        return Err(EncodedDirectUnsupportedError::new_err(format!(
-            "encoded buffer {name} is not backed by exact immutable bytes",
-        )));
-    }
-    let exporter = exporter.cast_into::<PyBytes>().map_err(|_| {
-        encoded_buffer_error(format!("encoded buffer {name} owner is inaccessible"))
-    })?;
+    let candidate = ValidatedDirectBuffer::inspect(buffer.clone(), name)?;
+    let (exporter, length) = candidate.into_exact_bytes()?;
     if exporter.as_bytes().len() != length {
         return Err(EncodedDirectUnsupportedError::new_err(format!(
             "encoded buffer {name} does not cover its complete bytes exporter",
         )));
     }
     Ok(RetainedDirectBuffer {
-        exporter: PyBackedBytes::from(exporter),
+        storage: RetainedDirectStorage::ExactImmutableBytes(PyBackedBytes::from(exporter)),
         start: 0,
         end: length,
     })
@@ -4317,10 +4312,86 @@ fn validate_all_segment(
     Ok(())
 }
 
-type BorrowedDirectBuffer<'py> = (&'static str, Bound<'py, PyAny>, Bound<'py, PyBytes>, usize);
+enum ValidatedDirectExporter<'py> {
+    ExactImmutableBytes(Bound<'py, PyBytes>),
+    GeneralReadonlyContiguous(Bound<'py, PyAny>),
+}
+
+struct ValidatedDirectBuffer<'py> {
+    name: &'static str,
+    view: Bound<'py, PyAny>,
+    exporter: ValidatedDirectExporter<'py>,
+    length: usize,
+}
+
+impl<'py> ValidatedDirectBuffer<'py> {
+    fn inspect(view: Bound<'py, PyAny>, name: &'static str) -> PyResult<Self> {
+        let length = checked_memoryview_length(&view, name)?;
+        let exporter = required_attribute(&view, "obj")?;
+        let exporter = if exporter.is_exact_instance_of::<PyBytes>() {
+            ValidatedDirectExporter::ExactImmutableBytes(exporter.cast_into::<PyBytes>().map_err(
+                |_| encoded_buffer_error(format!("encoded buffer {name} owner is inaccessible")),
+            )?)
+        } else {
+            ValidatedDirectExporter::GeneralReadonlyContiguous(exporter)
+        };
+        Ok(Self {
+            name,
+            view,
+            exporter,
+            length,
+        })
+    }
+
+    fn is_general_exporter(&self) -> bool {
+        matches!(
+            self.exporter,
+            ValidatedDirectExporter::GeneralReadonlyContiguous(_)
+        )
+    }
+
+    fn exact_bytes(&self) -> &Bound<'py, PyBytes> {
+        match &self.exporter {
+            ValidatedDirectExporter::ExactImmutableBytes(exporter) => exporter,
+            ValidatedDirectExporter::GeneralReadonlyContiguous(_) => {
+                unreachable!("general exporters are rejected before bytes-layout validation")
+            }
+        }
+    }
+
+    fn into_exact_bytes(self) -> PyResult<(Bound<'py, PyBytes>, usize)> {
+        match self.exporter {
+            ValidatedDirectExporter::ExactImmutableBytes(exporter) => Ok((exporter, self.length)),
+            ValidatedDirectExporter::GeneralReadonlyContiguous(exporter) => {
+                drop(exporter);
+                Err(general_buffer_retention_error(self.name))
+            }
+        }
+    }
+}
+
+fn general_buffer_retention_error(name: &str) -> PyErr {
+    EncodedDirectUnsupportedError::new_err(format!(
+        "encoded buffer {name} has a valid readonly C-contiguous non-bytes exporter, but \
+         zero-copy retention requires pyo3::buffer::PyUntypedBuffer \
+         ({GENERAL_BUFFER_STABLE_ABI_MINIMUM} or newer); this extension is abi3-py310",
+    ))
+}
+
+fn retain_direct_exporters<'py>(
+    candidates: Vec<ValidatedDirectBuffer<'py>>,
+) -> PyResult<Vec<RetainedDirectBuffer>> {
+    if let Some(candidate) = candidates
+        .iter()
+        .find(|candidate| candidate.is_general_exporter())
+    {
+        return Err(general_buffer_retention_error(candidate.name));
+    }
+    retain_direct_bytes_exporters(candidates)
+}
 
 fn retain_direct_bytes_exporters<'py>(
-    borrowed: Vec<BorrowedDirectBuffer<'py>>,
+    borrowed: Vec<ValidatedDirectBuffer<'py>>,
 ) -> PyResult<Vec<RetainedDirectBuffer>> {
     let mut retained = Vec::new();
     retained
@@ -4328,11 +4399,12 @@ fn retain_direct_bytes_exporters<'py>(
         .map_err(|_| PyMemoryError::new_err("encoded buffer-retention allocation failed"))?;
     if borrowed
         .iter()
-        .all(|(_, _, exporter, length)| exporter.as_bytes().len() == *length)
+        .all(|candidate| candidate.exact_bytes().as_bytes().len() == candidate.length)
     {
-        for (_, _, exporter, length) in borrowed {
+        for candidate in borrowed {
+            let (exporter, length) = candidate.into_exact_bytes()?;
             retained.push(RetainedDirectBuffer {
-                exporter: PyBackedBytes::from(exporter),
+                storage: RetainedDirectStorage::ExactImmutableBytes(PyBackedBytes::from(exporter)),
                 start: 0,
                 end: length,
             });
@@ -4340,30 +4412,29 @@ fn retain_direct_bytes_exporters<'py>(
         return Ok(retained);
     }
 
-    let Some((_, _, first_exporter, _)) = borrowed.first() else {
+    let Some(first) = borrowed.first() else {
         return Err(encoded_buffer_error("encoded buffer set is empty"));
     };
+    let first_exporter = first.exact_bytes();
     if borrowed
         .iter()
-        .any(|(_, _, exporter, _)| !exporter.is(first_exporter))
+        .any(|candidate| !candidate.exact_bytes().is(first_exporter))
     {
         let name = borrowed
             .iter()
-            .find(|(_, _, exporter, length)| exporter.as_bytes().len() != *length)
-            .map(|(name, _, _, _)| *name)
+            .find(|candidate| candidate.exact_bytes().as_bytes().len() != candidate.length)
+            .map(|candidate| candidate.name)
             .unwrap_or("unknown");
         return Err(EncodedDirectUnsupportedError::new_err(format!(
             "encoded buffer {name} does not cover its complete bytes exporter",
         )));
     }
 
-    let total_length = borrowed
-        .iter()
-        .try_fold(0_usize, |total, (_, _, _, length)| {
-            total
-                .checked_add(*length)
-                .ok_or_else(|| encoded_buffer_error("encoded packed-buffer byte length overflow"))
-        })?;
+    let total_length = borrowed.iter().try_fold(0_usize, |total, candidate| {
+        total
+            .checked_add(candidate.length)
+            .ok_or_else(|| encoded_buffer_error("encoded packed-buffer byte length overflow"))
+    })?;
     if total_length != first_exporter.as_bytes().len() {
         return Err(EncodedDirectUnsupportedError::new_err(
             "encoded packed buffers do not exactly cover their shared bytes exporter",
@@ -4374,7 +4445,19 @@ fn retain_direct_bytes_exporters<'py>(
         encoded_buffer_error("encoded packed bytes exporter is not memoryview-compatible")
     })?;
     let mut start = 0_usize;
-    for (name, buffer, exporter, length) in borrowed {
+    for candidate in borrowed {
+        let ValidatedDirectBuffer {
+            name,
+            view: buffer,
+            exporter,
+            length,
+        } = candidate;
+        let exporter = match exporter {
+            ValidatedDirectExporter::ExactImmutableBytes(exporter) => exporter,
+            ValidatedDirectExporter::GeneralReadonlyContiguous(_) => {
+                unreachable!("general exporters are rejected before bytes-layout validation")
+            }
+        };
         let end = start
             .checked_add(length)
             .ok_or_else(|| encoded_buffer_error("encoded packed-buffer range overflow"))?;
@@ -4399,7 +4482,7 @@ fn retain_direct_bytes_exporters<'py>(
             )));
         }
         retained.push(RetainedDirectBuffer {
-            exporter: PyBackedBytes::from(exporter),
+            storage: RetainedDirectStorage::ExactImmutableBytes(PyBackedBytes::from(exporter)),
             start,
             end,
         });

@@ -36,7 +36,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 118
+ENCODED_DIRECT_KERNEL_VERSION = 119
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1768,9 +1768,11 @@ def prepare_native_encoded_direct(
     """Bind validated public leases to the unadvertised Rust foundation.
 
     No memoryview is copied.  The Rust constructor accepts exact full immutable-``bytes``
-    exporters or the canonical eleven-column packed layout over one such exporter.  Arbitrary
-    slices, mmap, and other valid exporters are deliberately reported as unsupported until the
-    abi3-safe design expands.  An optional independent root table is retained for the native
+    exporters or the canonical eleven-column packed layout over one such exporter.  Valid
+    readonly C-contiguous mmap and other general exporters are classified separately and fail
+    at the explicit ``abi3-py311`` retained-buffer boundary; the current extension keeps its
+    ``abi3-py310`` floor and never substitutes a copy.  An optional independent root table is
+    retained for the native
     annotation-provenance join.  One optional sorted INCLUDE or EXCLUDE posting table is
     retained and scanned in place by the native root cursor. One bounded top-local overlay
     table may be retained for the canonical merge, including with an EXCLUDE base posting.  One
