@@ -525,6 +525,1146 @@ impl RootCounts {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootRuleHandler {
+    Simple,
+    Declaration,
+    Subclass,
+    EquivalentClasses,
+    SubObjectProperty,
+    ObjectPropertyClass,
+    ClassAssertion,
+    ObjectPropertyAssertion,
+    NegativeObjectPropertyAssertion,
+    DataPropertyAssertion,
+    IndividualSet,
+    AnnotationAssertion,
+    OntologyAnnotation,
+    SwrlRule,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootModeDisposition {
+    Project,
+    FamilyDefined,
+    LiteralConditional,
+    SkipDiagnostic,
+    ValidateOnly,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootLiteralPolicy {
+    Never,
+    RootScopedAnnotation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootAnnotationPolicy {
+    AxiomAnnotations,
+    NestedAnnotation,
+    RuleAnnotations,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootAnonymousScopePolicy {
+    AxiomDerived,
+    ExcludedFromAxiomIds,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootCounter {
+    OntologyAnnotations,
+    SwrlRules,
+    Declarations,
+    Subclasses,
+    Equivalents,
+    DisjointClasses,
+    DisjointUnions,
+    HasKeys,
+    SameIndividuals,
+    DifferentIndividuals,
+    ClassAssertions,
+    ObjectPropertyAssertions,
+    NegativeObjectPropertyAssertions,
+    SubObjectProperties,
+    EquivalentObjectProperties,
+    DisjointObjectProperties,
+    InverseObjectProperties,
+    FunctionalObjectProperties,
+    InverseFunctionalObjectProperties,
+    ReflexiveObjectProperties,
+    IrreflexiveObjectProperties,
+    SymmetricObjectProperties,
+    AsymmetricObjectProperties,
+    TransitiveObjectProperties,
+    SubDataProperties,
+    EquivalentDataProperties,
+    DisjointDataProperties,
+    DataPropertyDomains,
+    DataPropertyRanges,
+    FunctionalDataProperties,
+    DatatypeDefinitions,
+    DataPropertyAssertions,
+    NegativeDataPropertyAssertions,
+    AnnotationAssertions,
+    SubAnnotationProperties,
+    AnnotationPropertyDomains,
+    AnnotationPropertyRanges,
+    ObjectPropertyDomains,
+    ObjectPropertyRanges,
+}
+
+impl RootCounter {
+    fn increment(self, counts: &mut RootCounts) -> Result<(), KernelError> {
+        let (counter, message) = match self {
+            Self::OntologyAnnotations => (
+                &mut counts.ontology_annotations,
+                "encoded ontology-annotation count overflow",
+            ),
+            Self::SwrlRules => (&mut counts.swrl_rules, "encoded SWRL-rule count overflow"),
+            Self::Declarations => (
+                &mut counts.declarations,
+                "encoded declaration-count overflow",
+            ),
+            Self::Subclasses => (&mut counts.subclasses, "encoded subclass-count overflow"),
+            Self::Equivalents => (
+                &mut counts.equivalents,
+                "encoded equivalent-class count overflow",
+            ),
+            Self::DisjointClasses => (
+                &mut counts.disjoint_classes,
+                "encoded disjoint-class count overflow",
+            ),
+            Self::DisjointUnions => (
+                &mut counts.disjoint_unions,
+                "encoded disjoint-union count overflow",
+            ),
+            Self::HasKeys => (&mut counts.has_keys, "encoded has-key count overflow"),
+            Self::SameIndividuals => (
+                &mut counts.same_individuals,
+                "encoded same-individual count overflow",
+            ),
+            Self::DifferentIndividuals => (
+                &mut counts.different_individuals,
+                "encoded different-individual count overflow",
+            ),
+            Self::ClassAssertions => (
+                &mut counts.class_assertions,
+                "encoded class-assertion count overflow",
+            ),
+            Self::ObjectPropertyAssertions => (
+                &mut counts.object_property_assertions,
+                "encoded object-property-assertion count overflow",
+            ),
+            Self::NegativeObjectPropertyAssertions => (
+                &mut counts.negative_object_property_assertions,
+                "encoded negative-object-property-assertion count overflow",
+            ),
+            Self::SubObjectProperties => (
+                &mut counts.sub_object_properties,
+                "encoded sub-object-property count overflow",
+            ),
+            Self::EquivalentObjectProperties => (
+                &mut counts.equivalent_object_properties,
+                "encoded equivalent-object-property count overflow",
+            ),
+            Self::DisjointObjectProperties => (
+                &mut counts.disjoint_object_properties,
+                "encoded disjoint-object-property count overflow",
+            ),
+            Self::InverseObjectProperties => (
+                &mut counts.inverse_object_properties,
+                "encoded inverse-object-property count overflow",
+            ),
+            Self::FunctionalObjectProperties => (
+                &mut counts.functional_object_properties,
+                "encoded functional-object-property count overflow",
+            ),
+            Self::InverseFunctionalObjectProperties => (
+                &mut counts.inverse_functional_object_properties,
+                "encoded inverse-functional-object-property count overflow",
+            ),
+            Self::ReflexiveObjectProperties => (
+                &mut counts.reflexive_object_properties,
+                "encoded reflexive-object-property count overflow",
+            ),
+            Self::IrreflexiveObjectProperties => (
+                &mut counts.irreflexive_object_properties,
+                "encoded irreflexive-object-property count overflow",
+            ),
+            Self::SymmetricObjectProperties => (
+                &mut counts.symmetric_object_properties,
+                "encoded symmetric-object-property count overflow",
+            ),
+            Self::AsymmetricObjectProperties => (
+                &mut counts.asymmetric_object_properties,
+                "encoded asymmetric-object-property count overflow",
+            ),
+            Self::TransitiveObjectProperties => (
+                &mut counts.transitive_object_properties,
+                "encoded transitive-object-property count overflow",
+            ),
+            Self::SubDataProperties => (
+                &mut counts.sub_data_properties,
+                "encoded sub-data-property count overflow",
+            ),
+            Self::EquivalentDataProperties => (
+                &mut counts.equivalent_data_properties,
+                "encoded equivalent-data-property count overflow",
+            ),
+            Self::DisjointDataProperties => (
+                &mut counts.disjoint_data_properties,
+                "encoded disjoint-data-property count overflow",
+            ),
+            Self::DataPropertyDomains => (
+                &mut counts.data_property_domains,
+                "encoded data-property-domain count overflow",
+            ),
+            Self::DataPropertyRanges => (
+                &mut counts.data_property_ranges,
+                "encoded data-property-range count overflow",
+            ),
+            Self::FunctionalDataProperties => (
+                &mut counts.functional_data_properties,
+                "encoded functional-data-property count overflow",
+            ),
+            Self::DatatypeDefinitions => (
+                &mut counts.datatype_definitions,
+                "encoded datatype-definition count overflow",
+            ),
+            Self::DataPropertyAssertions => (
+                &mut counts.data_property_assertions,
+                "encoded data-property-assertion count overflow",
+            ),
+            Self::NegativeDataPropertyAssertions => (
+                &mut counts.negative_data_property_assertions,
+                "encoded negative-data-property-assertion count overflow",
+            ),
+            Self::AnnotationAssertions => (
+                &mut counts.annotation_assertions,
+                "encoded annotation-assertion count overflow",
+            ),
+            Self::SubAnnotationProperties => (
+                &mut counts.sub_annotation_properties,
+                "encoded sub-annotation-property count overflow",
+            ),
+            Self::AnnotationPropertyDomains => (
+                &mut counts.annotation_property_domains,
+                "encoded annotation-property-domain count overflow",
+            ),
+            Self::AnnotationPropertyRanges => (
+                &mut counts.annotation_property_ranges,
+                "encoded annotation-property-range count overflow",
+            ),
+            Self::ObjectPropertyDomains => (
+                &mut counts.object_property_domains,
+                "encoded object-property-domain count overflow",
+            ),
+            Self::ObjectPropertyRanges => (
+                &mut counts.object_property_ranges,
+                "encoded object-property-range count overflow",
+            ),
+        };
+        *counter = counter
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource(message))?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootStatsEffect {
+    Silent(RootCounter),
+    Projecting(RootCounter),
+    Skipped(RootCounter),
+    ShapeClassified(RootCounter),
+}
+
+impl RootStatsEffect {
+    fn counter(self) -> RootCounter {
+        match self {
+            Self::Silent(counter)
+            | Self::Projecting(counter)
+            | Self::Skipped(counter)
+            | Self::ShapeClassified(counter) => counter,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootRoleEffect {
+    None,
+    SubPropertyOrChain,
+    InverseProperties,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RootDomainRangeEffect {
+    None,
+    Domain,
+    Range,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DynamicRootAction {
+    General,
+    PairedDeclaration,
+    PairedAnnotationOrScopeMapped,
+    ScopeMappedOnly,
+    UnsupportedDynamic,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RootRule {
+    root_kind: u8,
+    tag: u16,
+    constructor: &'static str,
+    handler: RootRuleHandler,
+    phase: EmissionPhase,
+    mode_disposition: [RootModeDisposition; 3],
+    literal_policy: RootLiteralPolicy,
+    annotation_policy: RootAnnotationPolicy,
+    anonymous_scope_policy: RootAnonymousScopePolicy,
+    stats_effect: RootStatsEffect,
+    role_effect: RootRoleEffect,
+    domain_range_effect: RootDomainRangeEffect,
+    dynamic_action: DynamicRootAction,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct SelectedRootRulePlan {
+    rule_indexes: Vec<u8>,
+    counts: RootCounts,
+    selected: usize,
+}
+
+impl SelectedRootRulePlan {
+    fn rule_at(&self, root_index: usize) -> Result<RootRule, KernelError> {
+        let encoded_index = self.rule_indexes.get(root_index).copied().ok_or_else(|| {
+            KernelError::malformed("encoded selected root lost its resolved structural rule")
+        })?;
+        let table_index = encoded_index.checked_sub(1).ok_or_else(|| {
+            KernelError::malformed("encoded selected root lost its resolved structural rule")
+        })?;
+        ROOT_RULES
+            .get(usize::from(table_index))
+            .copied()
+            .ok_or_else(|| {
+                KernelError::malformed("encoded selected root has an invalid structural rule index")
+            })
+    }
+
+    fn skipped_axioms(&self, options: DirectCompileOptions) -> Result<usize, KernelError> {
+        self.rule_indexes
+            .iter()
+            .copied()
+            .filter(|encoded_index| *encoded_index != 0)
+            .try_fold(0_usize, |count, encoded_index| {
+                let rule = ROOT_RULES
+                    .get(usize::from(encoded_index - 1))
+                    .copied()
+                    .ok_or_else(|| {
+                        KernelError::malformed(
+                            "encoded selected root has an invalid structural rule index",
+                        )
+                    })?;
+                if matches!(rule.stats_effect, RootStatsEffect::Skipped(_))
+                    && rule.disposition(options) == RootModeDisposition::SkipDiagnostic
+                {
+                    count.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded skipped-axiom count overflow")
+                    })
+                } else {
+                    Ok(count)
+                }
+            })
+    }
+}
+
+const ROOT_MODES_SILENT: [RootModeDisposition; 3] = [RootModeDisposition::ValidateOnly; 3];
+const ROOT_MODES_FAMILY: [RootModeDisposition; 3] = [RootModeDisposition::FamilyDefined; 3];
+const ROOT_MODES_ROLE: [RootModeDisposition; 3] = [
+    RootModeDisposition::FamilyDefined,
+    RootModeDisposition::FamilyDefined,
+    RootModeDisposition::ValidateOnly,
+];
+const ROOT_MODES_PROJECT_NONASSERTED: [RootModeDisposition; 3] = [
+    RootModeDisposition::Project,
+    RootModeDisposition::Project,
+    RootModeDisposition::ValidateOnly,
+];
+const ROOT_MODES_LITERAL: [RootModeDisposition; 3] = [
+    RootModeDisposition::LiteralConditional,
+    RootModeDisposition::LiteralConditional,
+    RootModeDisposition::ValidateOnly,
+];
+const ROOT_MODES_SKIPPED: [RootModeDisposition; 3] = [
+    RootModeDisposition::SkipDiagnostic,
+    RootModeDisposition::SkipDiagnostic,
+    RootModeDisposition::ValidateOnly,
+];
+
+macro_rules! root_rule {
+    (
+        $root_kind:expr,
+        $tag:expr,
+        $constructor:literal,
+        $handler:ident,
+        $phase:ident,
+        $modes:expr,
+        $literal:ident,
+        $annotations:ident,
+        $anonymous:ident,
+        $stats:ident($counter:ident),
+        $role:ident,
+        $domain_range:ident,
+        $dynamic:ident
+    ) => {
+        RootRule {
+            root_kind: $root_kind,
+            tag: $tag,
+            constructor: $constructor,
+            handler: RootRuleHandler::$handler,
+            phase: EmissionPhase::$phase,
+            mode_disposition: $modes,
+            literal_policy: RootLiteralPolicy::$literal,
+            annotation_policy: RootAnnotationPolicy::$annotations,
+            anonymous_scope_policy: RootAnonymousScopePolicy::$anonymous,
+            stats_effect: RootStatsEffect::$stats(RootCounter::$counter),
+            role_effect: RootRoleEffect::$role,
+            domain_range_effect: RootDomainRangeEffect::$domain_range,
+            dynamic_action: DynamicRootAction::$dynamic,
+        }
+    };
+}
+
+const ROOT_RULES: &[RootRule] = &[
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DECLARATION,
+        "Declaration",
+        Declaration,
+        ObjectAssertions,
+        ROOT_MODES_SILENT,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Silent(Declarations),
+        None,
+        None,
+        PairedDeclaration
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_SUB_CLASS_OF,
+        "SubClassOf",
+        Subclass,
+        Subclasses,
+        ROOT_MODES_FAMILY,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        ShapeClassified(Subclasses),
+        None,
+        None,
+        General
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_EQUIVALENT_CLASSES,
+        "EquivalentClasses",
+        EquivalentClasses,
+        Equivalents,
+        ROOT_MODES_FAMILY,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        ShapeClassified(Equivalents),
+        None,
+        None,
+        General
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DISJOINT_CLASSES,
+        "DisjointClasses",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DisjointClasses),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DISJOINT_UNION,
+        "DisjointUnion",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DisjointUnions),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_HAS_KEY,
+        "HasKey",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(HasKeys),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_SUB_OBJECT_PROPERTY_OF,
+        "SubObjectPropertyOf",
+        SubObjectProperty,
+        ObjectAssertions,
+        ROOT_MODES_ROLE,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Silent(SubObjectProperties),
+        SubPropertyOrChain,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_EQUIVALENT_OBJECT_PROPERTIES,
+        "EquivalentObjectProperties",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(EquivalentObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DISJOINT_OBJECT_PROPERTIES,
+        "DisjointObjectProperties",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DisjointObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_INVERSE_OBJECT_PROPERTIES,
+        "InverseObjectProperties",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_ROLE,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Silent(InverseObjectProperties),
+        InverseProperties,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_OBJECT_PROPERTY_DOMAIN,
+        "ObjectPropertyDomain",
+        ObjectPropertyClass,
+        DomainRanges,
+        ROOT_MODES_FAMILY,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        ShapeClassified(ObjectPropertyDomains),
+        None,
+        Domain,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_OBJECT_PROPERTY_RANGE,
+        "ObjectPropertyRange",
+        ObjectPropertyClass,
+        DomainRanges,
+        ROOT_MODES_FAMILY,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        ShapeClassified(ObjectPropertyRanges),
+        None,
+        Range,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_CLASS_ASSERTION,
+        "ClassAssertion",
+        ClassAssertion,
+        ClassAssertions,
+        ROOT_MODES_PROJECT_NONASSERTED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        ShapeClassified(ClassAssertions),
+        None,
+        None,
+        General
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_OBJECT_PROPERTY_ASSERTION,
+        "ObjectPropertyAssertion",
+        ObjectPropertyAssertion,
+        ObjectAssertions,
+        ROOT_MODES_PROJECT_NONASSERTED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Projecting(ObjectPropertyAssertions),
+        None,
+        None,
+        General
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION,
+        "NegativeObjectPropertyAssertion",
+        NegativeObjectPropertyAssertion,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(NegativeObjectPropertyAssertions),
+        None,
+        None,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_FUNCTIONAL_OBJECT_PROPERTY,
+        "FunctionalObjectProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(FunctionalObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
+        "InverseFunctionalObjectProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(InverseFunctionalObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_REFLEXIVE_OBJECT_PROPERTY,
+        "ReflexiveObjectProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(ReflexiveObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_IRREFLEXIVE_OBJECT_PROPERTY,
+        "IrreflexiveObjectProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(IrreflexiveObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_SYMMETRIC_OBJECT_PROPERTY,
+        "SymmetricObjectProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(SymmetricObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_ASYMMETRIC_OBJECT_PROPERTY,
+        "AsymmetricObjectProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(AsymmetricObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_TRANSITIVE_OBJECT_PROPERTY,
+        "TransitiveObjectProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(TransitiveObjectProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_SUB_DATA_PROPERTY_OF,
+        "SubDataPropertyOf",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(SubDataProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_EQUIVALENT_DATA_PROPERTIES,
+        "EquivalentDataProperties",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(EquivalentDataProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DISJOINT_DATA_PROPERTIES,
+        "DisjointDataProperties",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DisjointDataProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DATA_PROPERTY_DOMAIN,
+        "DataPropertyDomain",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DataPropertyDomains),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DATA_PROPERTY_RANGE,
+        "DataPropertyRange",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DataPropertyRanges),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_FUNCTIONAL_DATA_PROPERTY,
+        "FunctionalDataProperty",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(FunctionalDataProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DATATYPE_DEFINITION,
+        "DatatypeDefinition",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DatatypeDefinitions),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_SAME_INDIVIDUAL,
+        "SameIndividual",
+        IndividualSet,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(SameIndividuals),
+        None,
+        None,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DIFFERENT_INDIVIDUALS,
+        "DifferentIndividuals",
+        IndividualSet,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DifferentIndividuals),
+        None,
+        None,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_DATA_PROPERTY_ASSERTION,
+        "DataPropertyAssertion",
+        DataPropertyAssertion,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(DataPropertyAssertions),
+        None,
+        None,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+        "NegativeDataPropertyAssertion",
+        DataPropertyAssertion,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(NegativeDataPropertyAssertions),
+        None,
+        None,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_ANNOTATION_ASSERTION,
+        "AnnotationAssertion",
+        AnnotationAssertion,
+        Annotations,
+        ROOT_MODES_LITERAL,
+        RootScopedAnnotation,
+        AxiomAnnotations,
+        AxiomDerived,
+        Projecting(AnnotationAssertions),
+        None,
+        None,
+        PairedAnnotationOrScopeMapped
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_SUB_ANNOTATION_PROPERTY_OF,
+        "SubAnnotationPropertyOf",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(SubAnnotationProperties),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_ANNOTATION_PROPERTY_DOMAIN,
+        "AnnotationPropertyDomain",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(AnnotationPropertyDomains),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_AXIOM,
+        TAG_ANNOTATION_PROPERTY_RANGE,
+        "AnnotationPropertyRange",
+        Simple,
+        ObjectAssertions,
+        ROOT_MODES_SKIPPED,
+        Never,
+        AxiomAnnotations,
+        AxiomDerived,
+        Skipped(AnnotationPropertyRanges),
+        None,
+        None,
+        UnsupportedDynamic
+    ),
+    root_rule!(
+        ROOT_ONTOLOGY_ANNOTATION,
+        TAG_ANNOTATION,
+        "ontology Annotation",
+        OntologyAnnotation,
+        ObjectAssertions,
+        ROOT_MODES_SILENT,
+        Never,
+        NestedAnnotation,
+        ExcludedFromAxiomIds,
+        Silent(OntologyAnnotations),
+        None,
+        None,
+        ScopeMappedOnly
+    ),
+    root_rule!(
+        ROOT_EXTENSION,
+        TAG_SWRL_RULE,
+        "SWRLRule",
+        SwrlRule,
+        ObjectAssertions,
+        ROOT_MODES_SILENT,
+        Never,
+        RuleAnnotations,
+        ExcludedFromAxiomIds,
+        Silent(SwrlRules),
+        None,
+        None,
+        ScopeMappedOnly
+    ),
+];
+
+impl RootRule {
+    fn resolve_index(root_kind: u8, tag: u16) -> Result<u8, KernelError> {
+        if let Some(table_index) = ROOT_RULES
+            .iter()
+            .position(|rule| rule.root_kind == root_kind && rule.tag == tag)
+        {
+            return u8::try_from(table_index + 1).map_err(|_| {
+                KernelError::resource("encoded structural root-rule table is too large")
+            });
+        }
+        match (root_kind, tag) {
+            (ROOT_AXIOM, TAG_ANNOTATION | TAG_SWRL_RULE)
+            | (ROOT_ONTOLOGY_ANNOTATION, _)
+            | (ROOT_EXTENSION, _) => Err(KernelError::malformed(
+                "encoded root kind does not match its constructor tag",
+            )),
+            (ROOT_AXIOM, known) if SCHEMA_TAGS.contains(&known) => Err(KernelError::unsupported(
+                format!("direct native slice does not support axiom tag {known}",),
+            )),
+            _ => Err(KernelError::malformed(
+                "encoded root kind does not match its constructor tag",
+            )),
+        }
+    }
+
+    fn resolve(root_kind: u8, tag: u16) -> Result<Self, KernelError> {
+        let encoded_index = Self::resolve_index(root_kind, tag)?;
+        ROOT_RULES
+            .get(usize::from(encoded_index - 1))
+            .copied()
+            .ok_or_else(|| KernelError::malformed("encoded structural root-rule index is invalid"))
+    }
+
+    fn disposition(self, options: DirectCompileOptions) -> RootModeDisposition {
+        self.mode_disposition[LocalProjectionMode::from_options(options).index()]
+    }
+
+    fn classify(
+        self,
+        columns: DirectColumns<'_>,
+        node_id: usize,
+        maximum_iri: usize,
+        counts: &mut RootCounts,
+    ) -> Result<(), KernelError> {
+        self.stats_effect.counter().increment(counts)?;
+        match self.handler {
+            RootRuleHandler::Simple
+            | RootRuleHandler::Declaration
+            | RootRuleHandler::NegativeObjectPropertyAssertion
+            | RootRuleHandler::DataPropertyAssertion
+            | RootRuleHandler::IndividualSet
+            | RootRuleHandler::AnnotationAssertion
+            | RootRuleHandler::OntologyAnnotation
+            | RootRuleHandler::SwrlRule => {}
+            RootRuleHandler::Subclass => match columns.subclass_projection(node_id, maximum_iri)? {
+                SubclassProjection::Restriction { .. } => {
+                    counts.restriction_subclasses = counts
+                        .restriction_subclasses
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded restriction-subclass count overflow")
+                        })?;
+                }
+                SubclassProjection::Ignored => {
+                    counts.ignored_subclasses =
+                        counts.ignored_subclasses.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded ignored-subclass count overflow")
+                        })?;
+                }
+                SubclassProjection::Taxonomy { .. } => {}
+            },
+            RootRuleHandler::EquivalentClasses => {
+                if matches!(
+                    columns.equivalent_projection(node_id, maximum_iri)?,
+                    EquivalentProjection::Aggregate { .. }
+                ) {
+                    counts.aggregate_equivalents =
+                        counts.aggregate_equivalents.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded aggregate-equivalent count overflow")
+                        })?;
+                }
+            }
+            RootRuleHandler::SubObjectProperty => {
+                if columns.validate_sub_object_property_of(node_id, maximum_iri)? {
+                    counts.object_property_chains = counts
+                        .object_property_chains
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded object-property-chain count overflow")
+                        })?;
+                }
+            }
+            RootRuleHandler::ObjectPropertyClass => {
+                let tag = match self.domain_range_effect {
+                    RootDomainRangeEffect::Domain => TAG_OBJECT_PROPERTY_DOMAIN,
+                    RootDomainRangeEffect::Range => TAG_OBJECT_PROPERTY_RANGE,
+                    RootDomainRangeEffect::None => {
+                        return Err(KernelError::malformed(
+                            "encoded object-property class rule lost its domain/range effect",
+                        ));
+                    }
+                };
+                if columns
+                    .object_property_class_projection(node_id, tag, maximum_iri)?
+                    .is_none()
+                {
+                    let counter = match self.domain_range_effect {
+                        RootDomainRangeEffect::Domain => {
+                            &mut counts.ignored_object_property_domains
+                        }
+                        RootDomainRangeEffect::Range => &mut counts.ignored_object_property_ranges,
+                        RootDomainRangeEffect::None => unreachable!(),
+                    };
+                    *counter = counter.checked_add(1).ok_or_else(|| {
+                        KernelError::resource(
+                            "encoded ignored-object-property class count overflow",
+                        )
+                    })?;
+                }
+            }
+            RootRuleHandler::ClassAssertion => {
+                if matches!(
+                    columns.class_assertion_projection(node_id, maximum_iri)?,
+                    ClassAssertionProjection::Ignored
+                ) {
+                    counts.ignored_class_assertions = counts
+                        .ignored_class_assertions
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            KernelError::resource("encoded ignored-class-assertion count overflow")
+                        })?;
+                }
+            }
+            RootRuleHandler::ObjectPropertyAssertion => {}
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SilentObjectPropertyRoot {
     EquivalentSet,
     DisjointSet,
@@ -5728,175 +6868,7 @@ impl<'a> DirectColumns<'a> {
             let kind = self.root_kind(index)?;
             let node_id = self.root_id(index)?;
             let tag = self.node_tag(node_id)?;
-            match (kind, tag) {
-                (ROOT_AXIOM, TAG_DECLARATION) => counts.declarations += 1,
-                (ROOT_AXIOM, TAG_SUB_CLASS_OF) => {
-                    counts.subclasses += 1;
-                    match self.subclass_projection(node_id, maximum_iri)? {
-                        SubclassProjection::Restriction { .. } => {
-                            counts.restriction_subclasses += 1;
-                        }
-                        SubclassProjection::Ignored => counts.ignored_subclasses += 1,
-                        SubclassProjection::Taxonomy { .. } => {}
-                    }
-                }
-                (ROOT_AXIOM, TAG_EQUIVALENT_CLASSES) => {
-                    counts.equivalents += 1;
-                    if matches!(
-                        self.equivalent_projection(node_id, maximum_iri)?,
-                        EquivalentProjection::Aggregate { .. }
-                    ) {
-                        counts.aggregate_equivalents += 1;
-                    }
-                }
-                (ROOT_AXIOM, TAG_DISJOINT_CLASSES) => counts.disjoint_classes += 1,
-                (ROOT_AXIOM, TAG_DISJOINT_UNION) => counts.disjoint_unions += 1,
-                (ROOT_AXIOM, TAG_SUB_OBJECT_PROPERTY_OF) => {
-                    counts.sub_object_properties += 1;
-                    if self.validate_sub_object_property_of(node_id, maximum_iri)? {
-                        counts.object_property_chains += 1;
-                    }
-                }
-                (ROOT_AXIOM, TAG_EQUIVALENT_OBJECT_PROPERTIES) => {
-                    counts.equivalent_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_DISJOINT_OBJECT_PROPERTIES) => {
-                    counts.disjoint_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_INVERSE_OBJECT_PROPERTIES) => {
-                    counts.inverse_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_OBJECT_PROPERTY_DOMAIN) => {
-                    counts.object_property_domains += 1;
-                    if self
-                        .object_property_class_projection(
-                            node_id,
-                            TAG_OBJECT_PROPERTY_DOMAIN,
-                            maximum_iri,
-                        )?
-                        .is_none()
-                    {
-                        counts.ignored_object_property_domains += 1;
-                    }
-                }
-                (ROOT_AXIOM, TAG_OBJECT_PROPERTY_RANGE) => {
-                    counts.object_property_ranges += 1;
-                    if self
-                        .object_property_class_projection(
-                            node_id,
-                            TAG_OBJECT_PROPERTY_RANGE,
-                            maximum_iri,
-                        )?
-                        .is_none()
-                    {
-                        counts.ignored_object_property_ranges += 1;
-                    }
-                }
-                (ROOT_AXIOM, TAG_CLASS_ASSERTION) => {
-                    counts.class_assertions += 1;
-                    if matches!(
-                        self.class_assertion_projection(node_id, maximum_iri)?,
-                        ClassAssertionProjection::Ignored
-                    ) {
-                        counts.ignored_class_assertions += 1;
-                    }
-                }
-                (ROOT_AXIOM, TAG_OBJECT_PROPERTY_ASSERTION) => {
-                    counts.object_property_assertions += 1;
-                }
-                (ROOT_AXIOM, TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION) => {
-                    counts.negative_object_property_assertions += 1;
-                }
-                (ROOT_AXIOM, TAG_FUNCTIONAL_OBJECT_PROPERTY) => {
-                    counts.functional_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY) => {
-                    counts.inverse_functional_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_REFLEXIVE_OBJECT_PROPERTY) => {
-                    counts.reflexive_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_IRREFLEXIVE_OBJECT_PROPERTY) => {
-                    counts.irreflexive_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_SYMMETRIC_OBJECT_PROPERTY) => {
-                    counts.symmetric_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_ASYMMETRIC_OBJECT_PROPERTY) => {
-                    counts.asymmetric_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_TRANSITIVE_OBJECT_PROPERTY) => {
-                    counts.transitive_object_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_SUB_DATA_PROPERTY_OF) => {
-                    counts.sub_data_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_EQUIVALENT_DATA_PROPERTIES) => {
-                    counts.equivalent_data_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_DISJOINT_DATA_PROPERTIES) => {
-                    counts.disjoint_data_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_DATA_PROPERTY_DOMAIN) => {
-                    counts.data_property_domains += 1;
-                }
-                (ROOT_AXIOM, TAG_DATA_PROPERTY_RANGE) => {
-                    counts.data_property_ranges += 1;
-                }
-                (ROOT_AXIOM, TAG_FUNCTIONAL_DATA_PROPERTY) => {
-                    counts.functional_data_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_DATATYPE_DEFINITION) => {
-                    counts.datatype_definitions += 1;
-                }
-                (ROOT_AXIOM, TAG_HAS_KEY) => counts.has_keys += 1,
-                (ROOT_AXIOM, TAG_SAME_INDIVIDUAL) => counts.same_individuals += 1,
-                (ROOT_AXIOM, TAG_DIFFERENT_INDIVIDUALS) => {
-                    counts.different_individuals += 1;
-                }
-                (ROOT_AXIOM, TAG_DATA_PROPERTY_ASSERTION) => {
-                    counts.data_property_assertions += 1;
-                }
-                (ROOT_AXIOM, TAG_NEGATIVE_DATA_PROPERTY_ASSERTION) => {
-                    counts.negative_data_property_assertions += 1;
-                }
-                (ROOT_AXIOM, TAG_ANNOTATION_ASSERTION) => {
-                    counts.annotation_assertions += 1;
-                }
-                (ROOT_AXIOM, TAG_SUB_ANNOTATION_PROPERTY_OF) => {
-                    counts.sub_annotation_properties += 1;
-                }
-                (ROOT_AXIOM, TAG_ANNOTATION_PROPERTY_DOMAIN) => {
-                    counts.annotation_property_domains += 1;
-                }
-                (ROOT_AXIOM, TAG_ANNOTATION_PROPERTY_RANGE) => {
-                    counts.annotation_property_ranges += 1;
-                }
-                (ROOT_ONTOLOGY_ANNOTATION, TAG_ANNOTATION) => {
-                    counts.ontology_annotations += 1;
-                }
-                (ROOT_EXTENSION, TAG_SWRL_RULE) => {
-                    counts.swrl_rules += 1;
-                }
-                (ROOT_AXIOM, TAG_ANNOTATION)
-                | (ROOT_AXIOM, TAG_SWRL_RULE)
-                | (ROOT_ONTOLOGY_ANNOTATION, _)
-                | (ROOT_EXTENSION, _) => {
-                    return Err(KernelError::malformed(
-                        "encoded root kind does not match its constructor tag",
-                    ));
-                }
-                (ROOT_AXIOM, known) if SCHEMA_TAGS.contains(&known) => {
-                    return Err(KernelError::unsupported(format!(
-                        "direct native slice does not support axiom tag {known}",
-                    )));
-                }
-                _ => {
-                    return Err(KernelError::malformed(
-                        "encoded root kind does not match its constructor tag",
-                    ));
-                }
-            }
+            RootRule::resolve(kind, tag)?.classify(self, node_id, maximum_iri, &mut counts)?;
         }
         Ok(counts)
     }
@@ -5907,6 +6879,7 @@ impl<'a> DirectColumns<'a> {
         maximum_iri: usize,
         state: &AtomicU8,
         retained: Option<&OwnedRoleState>,
+        root_rule_plan: Option<&SelectedRootRulePlan>,
         local_axiom: Option<RoleAxiom<'a>>,
     ) -> Result<RoleState<'a>, KernelError> {
         let role_axiom_count = counts
@@ -5922,14 +6895,31 @@ impl<'a> DirectColumns<'a> {
                 continue;
             }
             let node_id = self.root_id(canonical_order)?;
-            let tag = self.node_tag(node_id)?;
-            if ![TAG_SUB_OBJECT_PROPERTY_OF, TAG_INVERSE_OBJECT_PROPERTIES].contains(&tag) {
-                continue;
-            }
-            if tag == TAG_SUB_OBJECT_PROPERTY_OF
-                && self.validate_sub_object_property_of(node_id, maximum_iri)?
-            {
-                continue;
+            let (tag, role_effect) = if let Some(plan) = root_rule_plan {
+                let rule = plan.rule_at(canonical_order)?;
+                if self.node_tag(node_id)? != rule.tag {
+                    return Err(KernelError::malformed(
+                        "encoded selected root changed after structural rule preflight",
+                    ));
+                }
+                (rule.tag, rule.role_effect)
+            } else {
+                let tag = self.node_tag(node_id)?;
+                let role_effect = match tag {
+                    TAG_SUB_OBJECT_PROPERTY_OF => RootRoleEffect::SubPropertyOrChain,
+                    TAG_INVERSE_OBJECT_PROPERTIES => RootRoleEffect::InverseProperties,
+                    _ => RootRoleEffect::None,
+                };
+                (tag, role_effect)
+            };
+            match role_effect {
+                RootRoleEffect::None => continue,
+                RootRoleEffect::SubPropertyOrChain
+                    if self.validate_sub_object_property_of(node_id, maximum_iri)? =>
+                {
+                    continue;
+                }
+                RootRoleEffect::SubPropertyOrChain | RootRoleEffect::InverseProperties => {}
             }
             rows.push(self.role_axiom_row(node_id, tag, maximum_iri, canonical_order, 1)?);
         }
@@ -9493,6 +10483,7 @@ fn prepare_direct<'a>(
     options: DirectCompileOptions,
     state: &AtomicU8,
     retained: Option<&OwnedRoleState>,
+    preclassified_root_plan: Option<&SelectedRootRulePlan>,
     local_role_axiom: Option<RoleAxiom<'a>>,
 ) -> Result<DirectPreparation, KernelError> {
     let DirectCompileOptions {
@@ -9506,7 +10497,18 @@ fn prepare_direct<'a>(
     check_cancel(state, 0)?;
     columns.validate_generic(state)?;
     columns.validate_supported_nodes(max_iri_bytes, state)?;
-    let counts = columns.classify_roots(max_iri_bytes, state)?;
+    let counts = if let Some(plan) = preclassified_root_plan {
+        if plan.rule_indexes.len() != columns.root_count()
+            || plan.selected != columns.selected_root_count()?
+        {
+            return Err(KernelError::malformed(
+                "encoded structural root-rule plan does not match its base table",
+            ));
+        }
+        plan.counts
+    } else {
+        columns.classify_roots(max_iri_bytes, state)?
+    };
     let selected_annotation_nodes = if let Some(root_columns) = root_annotation_columns {
         root_columns.validate_generic(state)?;
         root_columns.validate_supported_nodes(max_iri_bytes, state)?;
@@ -9533,7 +10535,14 @@ fn prepare_direct<'a>(
     let role_state = if asserted_taxonomy_only {
         RoleState::default()
     } else {
-        columns.build_role_state(counts, max_iri_bytes, state, retained, local_role_axiom)?
+        columns.build_role_state(
+            counts,
+            max_iri_bytes,
+            state,
+            retained,
+            preclassified_root_plan,
+            local_role_axiom,
+        )?
     };
     let directions = 1_usize + usize::from(bidirectional);
     let direct_subclasses = counts
@@ -9596,6 +10605,8 @@ fn prepare_direct<'a>(
     };
     let skipped_axioms = if asserted_taxonomy_only {
         0
+    } else if let Some(plan) = preclassified_root_plan {
+        plan.skipped_axioms(options)?
     } else {
         counts.skipped_axioms()?
     };
@@ -9732,6 +10743,7 @@ pub(crate) fn prepare_direct_batches_uncommitted(
         state,
         retained,
         None,
+        None,
     )
 }
 
@@ -9741,6 +10753,7 @@ fn prepare_direct_batches_with_local_role_uncommitted<'a>(
     options: DirectCompileOptions,
     state: &AtomicU8,
     retained: Option<&OwnedRoleState>,
+    preclassified_root_plan: Option<&SelectedRootRulePlan>,
     local_role_axiom: Option<RoleAxiom<'a>>,
 ) -> Result<PreparedDirectBatches, KernelError> {
     let preparation = prepare_direct(
@@ -9749,6 +10762,7 @@ fn prepare_direct_batches_with_local_role_uncommitted<'a>(
         options,
         state,
         retained,
+        preclassified_root_plan,
         local_role_axiom,
     )?;
     // Every column read reachable from the cursor has already passed the
@@ -9761,19 +10775,15 @@ fn prepare_direct_batches_with_local_role_uncommitted<'a>(
 }
 
 fn own_local_subclass_projection(
+    constructor: &'static str,
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
-    if columns.node_tag(root)? != TAG_SUB_CLASS_OF {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay subclass envelope requires SubClassOf roots",
-        ));
-    }
     let field_start = columns.exact_fields(root, 3)?;
-    validate_local_annotation_scope(columns, root, field_start + 2, "SubClassOf", state)?;
+    validate_local_annotation_scope(columns, root, field_start + 2, constructor, state)?;
     match columns.subclass_projection(root, max_iri_bytes)? {
         SubclassProjection::Taxonomy {
             source,
@@ -9798,19 +10808,15 @@ fn own_local_subclass_projection(
 }
 
 fn own_local_class_assertion_projection(
+    constructor: &'static str,
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
-    if columns.node_tag(root)? != TAG_CLASS_ASSERTION {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay class-assertion envelope requires ClassAssertion roots",
-        ));
-    }
     let field_start = columns.exact_fields(root, 3)?;
-    validate_local_annotation_scope(columns, root, field_start + 2, "ClassAssertion", state)?;
+    validate_local_annotation_scope(columns, root, field_start + 2, constructor, state)?;
     match columns.class_assertion_projection(root, max_iri_bytes)? {
         ClassAssertionProjection::Edge { individual, class } => {
             Ok(OwnedOverlayDeltaProjection::ClassAssertion {
@@ -9825,6 +10831,7 @@ fn own_local_class_assertion_projection(
 }
 
 fn own_local_object_property_assertion_projection(
+    constructor: &'static str,
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
@@ -9832,13 +10839,7 @@ fn own_local_object_property_assertion_projection(
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     let field_start = columns.exact_fields(root, 4)?;
-    validate_local_annotation_scope(
-        columns,
-        root,
-        field_start + 3,
-        "ObjectPropertyAssertion",
-        state,
-    )?;
+    validate_local_annotation_scope(columns, root, field_start + 3, constructor, state)?;
     let (source, relation, destination) =
         columns.object_property_assertion_parts(root, max_iri_bytes)?;
     match (source, destination) {
@@ -9857,19 +10858,15 @@ fn own_local_object_property_assertion_projection(
 }
 
 fn own_local_equivalent_projection(
+    constructor: &'static str,
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
-    if columns.node_tag(root)? != TAG_EQUIVALENT_CLASSES {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay equivalence envelope requires EquivalentClasses roots",
-        ));
-    }
     let field_start = columns.exact_fields(root, 2)?;
-    validate_local_annotation_scope(columns, root, field_start + 1, "EquivalentClasses", state)?;
+    validate_local_annotation_scope(columns, root, field_start + 1, constructor, state)?;
     if columns.root_contains_anonymous_individual(root, state)? {
         return Err(KernelError::unsupported(
             "bounded local-overlay EquivalentClasses root requires no anonymous individuals or local scope remap",
@@ -10008,46 +11005,150 @@ fn validate_local_annotation_scope(
 }
 
 fn own_local_emitting_projection(
+    rule: RootRule,
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
-    match columns.node_tag(root)? {
-        TAG_SUB_CLASS_OF => {
-            own_local_subclass_projection(columns, root, max_iri_bytes, state, workspace)
-        }
-        TAG_CLASS_ASSERTION => {
-            own_local_class_assertion_projection(columns, root, max_iri_bytes, state, workspace)
-        }
-        TAG_OBJECT_PROPERTY_ASSERTION => own_local_object_property_assertion_projection(
+    match (rule.phase, rule.handler) {
+        (EmissionPhase::Subclasses, RootRuleHandler::Subclass) => own_local_subclass_projection(
+            rule.constructor,
             columns,
             root,
             max_iri_bytes,
             state,
             workspace,
         ),
-        TAG_EQUIVALENT_CLASSES => {
-            own_local_equivalent_projection(columns, root, max_iri_bytes, state, workspace)
+        (EmissionPhase::Equivalents, RootRuleHandler::EquivalentClasses) => {
+            own_local_equivalent_projection(
+                rule.constructor,
+                columns,
+                root,
+                max_iri_bytes,
+                state,
+                workspace,
+            )
+        }
+        (EmissionPhase::ClassAssertions, RootRuleHandler::ClassAssertion) => {
+            own_local_class_assertion_projection(
+                rule.constructor,
+                columns,
+                root,
+                max_iri_bytes,
+                state,
+                workspace,
+            )
+        }
+        (EmissionPhase::ObjectAssertions, RootRuleHandler::ObjectPropertyAssertion) => {
+            own_local_object_property_assertion_projection(
+                rule.constructor,
+                columns,
+                root,
+                max_iri_bytes,
+                state,
+                workspace,
+            )
         }
         _ => Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT)),
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DynamicTailContext {
+    paired_root: bool,
+    scope_mapped_construct: Option<(ScopeMappedCompositeKind, usize)>,
+}
+
 fn own_composite_tail_projection(
+    rule: RootRule,
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
-    scope_mapped_construct: Option<(ScopeMappedCompositeKind, usize)>,
+    context: DynamicTailContext,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
-    let tag = columns.node_tag(root)?;
+    let DynamicTailContext {
+        paired_root,
+        scope_mapped_construct,
+    } = context;
+    if scope_mapped_construct.is_some() {
+        let valid_envelope = matches!(
+            (
+                rule.root_kind,
+                rule.handler,
+                rule.annotation_policy,
+                rule.anonymous_scope_policy,
+            ),
+            (
+                ROOT_AXIOM,
+                _,
+                RootAnnotationPolicy::AxiomAnnotations,
+                RootAnonymousScopePolicy::AxiomDerived,
+            ) | (
+                ROOT_ONTOLOGY_ANNOTATION,
+                RootRuleHandler::OntologyAnnotation,
+                RootAnnotationPolicy::NestedAnnotation,
+                RootAnonymousScopePolicy::ExcludedFromAxiomIds,
+            ) | (
+                ROOT_EXTENSION,
+                RootRuleHandler::SwrlRule,
+                RootAnnotationPolicy::RuleAnnotations,
+                RootAnonymousScopePolicy::ExcludedFromAxiomIds,
+            )
+        );
+        if !valid_envelope {
+            return Err(KernelError::malformed(
+                "encoded structural root rule has the wrong annotation or anonymous-scope policy",
+            ));
+        }
+    }
+    if paired_root
+        && (rule.annotation_policy != RootAnnotationPolicy::AxiomAnnotations
+            || rule.anonymous_scope_policy != RootAnonymousScopePolicy::AxiomDerived)
+    {
+        return Err(KernelError::malformed(
+            "encoded paired ROOT proof requires an axiom annotation envelope",
+        ));
+    }
+    if rule.dynamic_action == DynamicRootAction::ScopeMappedOnly
+        && scope_mapped_construct.is_none()
+        && rule.root_kind != ROOT_AXIOM
+    {
+        return Err(KernelError::unsupported(
+            "bounded composite tail requires axiom roots or its mapped silent root",
+        ));
+    }
+    match rule.dynamic_action {
+        DynamicRootAction::PairedDeclaration if paired_root => {
+            return Ok(OwnedOverlayDeltaProjection::SilentDeclaration);
+        }
+        DynamicRootAction::PairedAnnotationOrScopeMapped if paired_root => {
+            columns.validate_annotation_assertion(root, max_iri_bytes)?;
+            return Ok(OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
+                anonymous_individuals: 0,
+            });
+        }
+        DynamicRootAction::UnsupportedDynamic
+        | DynamicRootAction::PairedDeclaration
+        | DynamicRootAction::PairedAnnotationOrScopeMapped
+            if scope_mapped_construct.is_none() =>
+        {
+            return Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT));
+        }
+        DynamicRootAction::General
+        | DynamicRootAction::ScopeMappedOnly
+        | DynamicRootAction::PairedAnnotationOrScopeMapped => {}
+        DynamicRootAction::UnsupportedDynamic | DynamicRootAction::PairedDeclaration => {
+            return Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT));
+        }
+    }
     if matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::SilentOntologyAnnotation, _))
-    ) && tag == TAG_ANNOTATION
+    ) && rule.handler == RootRuleHandler::OntologyAnnotation
     {
         columns.validate_annotation(root, max_iri_bytes)?;
         let start = columns.exact_fields(root, 3)?;
@@ -10063,7 +11164,7 @@ fn own_composite_tail_projection(
     if matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::SilentSwrl, _))
-    ) && tag == TAG_SWRL_RULE
+    ) && rule.handler == RootRuleHandler::SwrlRule
     {
         columns.validate_swrl_rule(root)?;
         if !columns.root_contains_anonymous_individual(root, state)? {
@@ -10076,7 +11177,7 @@ fn own_composite_tail_projection(
     if matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::IgnoredSubclass, _))
-    ) && tag == TAG_SUB_CLASS_OF
+    ) && rule.handler == RootRuleHandler::Subclass
     {
         match columns.subclass_projection(root, max_iri_bytes)? {
             SubclassProjection::Ignored
@@ -10094,39 +11195,37 @@ fn own_composite_tail_projection(
             }
         }
     }
-    let ignored_object_property_class = match scope_mapped_construct {
-        Some((ScopeMappedCompositeKind::IgnoredObjectPropertyDomain, _)) => Some((
-            TAG_OBJECT_PROPERTY_DOMAIN,
-            ObjectPropertyClassRuleKind::Domain,
-        )),
-        Some((ScopeMappedCompositeKind::IgnoredObjectPropertyRange, _)) => Some((
-            TAG_OBJECT_PROPERTY_RANGE,
-            ObjectPropertyClassRuleKind::Range,
-        )),
+    let ignored_object_property_class = match (scope_mapped_construct, rule.domain_range_effect) {
+        (
+            Some((ScopeMappedCompositeKind::IgnoredObjectPropertyDomain, _)),
+            RootDomainRangeEffect::Domain,
+        ) => Some(ObjectPropertyClassRuleKind::Domain),
+        (
+            Some((ScopeMappedCompositeKind::IgnoredObjectPropertyRange, _)),
+            RootDomainRangeEffect::Range,
+        ) => Some(ObjectPropertyClassRuleKind::Range),
         _ => None,
     };
-    if let Some((expected_tag, kind)) = ignored_object_property_class {
-        if tag == expected_tag {
-            if !columns.is_scope_mapped_ignored_object_property_class(
-                root,
-                expected_tag,
-                None,
-                max_iri_bytes,
-            )? {
-                return Err(KernelError::unsupported(
-                    "bounded anonymous-scope object-property domain/range requires a named outer property and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
-                ));
-            }
-            return Ok(OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass {
-                kind,
-                anonymous_individuals: 1,
-            });
+    if let Some(kind) = ignored_object_property_class {
+        if !columns.is_scope_mapped_ignored_object_property_class(
+            root,
+            rule.tag,
+            None,
+            max_iri_bytes,
+        )? {
+            return Err(KernelError::unsupported(
+                "bounded anonymous-scope object-property domain/range requires a named outer property and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
+            ));
         }
+        return Ok(OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass {
+            kind,
+            anonymous_individuals: 1,
+        });
     }
     if matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::PositiveObject, _))
-    ) && tag == TAG_OBJECT_PROPERTY_ASSERTION
+    ) && rule.handler == RootRuleHandler::ObjectPropertyAssertion
     {
         let field_start = columns.exact_fields(root, 4)?;
         let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
@@ -10169,7 +11268,7 @@ fn own_composite_tail_projection(
     if matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::NegativeObject, _))
-    ) && tag == TAG_NEGATIVE_OBJECT_PROPERTY_ASSERTION
+    ) && rule.handler == RootRuleHandler::NegativeObjectPropertyAssertion
     {
         let field_start = columns.exact_fields(root, 4)?;
         let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
@@ -10204,10 +11303,8 @@ fn own_composite_tail_projection(
             ScopeMappedCompositeKind::PositiveData | ScopeMappedCompositeKind::NegativeData,
             _
         ))
-    ) && matches!(
-        tag,
-        TAG_DATA_PROPERTY_ASSERTION | TAG_NEGATIVE_DATA_PROPERTY_ASSERTION
-    ) {
+    ) && rule.handler == RootRuleHandler::DataPropertyAssertion
+    {
         let field_start = columns.exact_fields(root, 4)?;
         let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 3, 0)?;
         if annotation_count != 0 {
@@ -10226,7 +11323,7 @@ fn own_composite_tail_projection(
         }
         return Ok(OwnedOverlayDeltaProjection::IgnoredDataPropertyAssertion {
             anonymous_individuals: 1,
-            negative: tag == TAG_NEGATIVE_DATA_PROPERTY_ASSERTION,
+            negative: rule.stats_effect.counter() == RootCounter::NegativeDataPropertyAssertions,
         });
     }
     if matches!(
@@ -10236,9 +11333,9 @@ fn own_composite_tail_projection(
                 | ScopeMappedCompositeKind::DifferentIndividuals,
             _
         ))
-    ) && matches!(tag, TAG_SAME_INDIVIDUAL | TAG_DIFFERENT_INDIVIDUALS)
+    ) && rule.handler == RootRuleHandler::IndividualSet
     {
-        columns.validate_individual_set_axiom(root, tag, max_iri_bytes)?;
+        columns.validate_individual_set_axiom(root, rule.tag, max_iri_bytes)?;
         let field_start = columns.exact_fields(root, 2)?;
         let (item_start, item_count) = columns.node_set_range(field_start, 2)?;
         let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 1, 0)?;
@@ -10257,13 +11354,13 @@ fn own_composite_tail_projection(
         }
         return Ok(OwnedOverlayDeltaProjection::IgnoredIndividualSet {
             anonymous_individuals: 1,
-            different: tag == TAG_DIFFERENT_INDIVIDUALS,
+            different: rule.stats_effect.counter() == RootCounter::DifferentIndividuals,
         });
     }
     if matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::SilentAnnotation, _))
-    ) && tag == TAG_ANNOTATION_ASSERTION
+    ) && rule.handler == RootRuleHandler::AnnotationAssertion
     {
         columns.validate_annotation_assertion(root, max_iri_bytes)?;
         let field_start = columns.exact_fields(root, 4)?;
@@ -10285,9 +11382,9 @@ fn own_composite_tail_projection(
     if !matches!(
         scope_mapped_construct,
         Some((ScopeMappedCompositeKind::IgnoredClass, _))
-    ) || tag != TAG_CLASS_ASSERTION
+    ) || rule.handler != RootRuleHandler::ClassAssertion
     {
-        return own_local_emitting_projection(columns, root, max_iri_bytes, state, workspace);
+        return own_local_emitting_projection(rule, columns, root, max_iri_bytes, state, workspace);
     }
     let field_start = columns.exact_fields(root, 3)?;
     let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
@@ -10413,6 +11510,52 @@ impl LocalOverlayWorkspace {
         }
         Ok(remaining)
     }
+}
+
+fn resolve_selected_root_rule_plan(
+    columns: DirectColumns<'_>,
+    maximum_iri: usize,
+    state: &AtomicU8,
+    workspace: &mut LocalOverlayWorkspace,
+) -> Result<SelectedRootRulePlan, KernelError> {
+    let root_count = columns.root_count();
+    let mut rule_indexes = workspace.reserve_owned::<u8>(
+        root_count,
+        "encoded structural root-rule plan allocation failed",
+    )?;
+    rule_indexes.resize(root_count, 0);
+    let mut counts = RootCounts::default();
+    let mut selected = 0_usize;
+    for (root_index, rule_slot) in rule_indexes.iter_mut().enumerate() {
+        check_cancel(state, root_index)?;
+        if !columns.root_is_selected(root_index)? {
+            continue;
+        }
+        let node_id = columns.root_id(root_index)?;
+        let encoded_index =
+            RootRule::resolve_index(columns.root_kind(root_index)?, columns.node_tag(node_id)?)?;
+        let rule = ROOT_RULES
+            .get(usize::from(encoded_index - 1))
+            .copied()
+            .ok_or_else(|| {
+                KernelError::malformed("encoded structural root-rule index is invalid")
+            })?;
+        rule.classify(columns, node_id, maximum_iri, &mut counts)?;
+        *rule_slot = encoded_index;
+        selected = selected
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
+    }
+    if selected != columns.selected_root_count()? {
+        return Err(KernelError::malformed(
+            "encoded structural root-rule plan lost a selected root",
+        ));
+    }
+    Ok(SelectedRootRulePlan {
+        rule_indexes,
+        counts,
+        selected,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -10545,6 +11688,18 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         ));
     }
     let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
+    let mut closure_rule_plans = local_workspace.reserve_owned::<SelectedRootRulePlan>(
+        member_count,
+        "encoded composite closure rule-plan allocation failed",
+    )?;
+    let mut root_rule_plans = if root_columns.is_some() {
+        local_workspace.reserve_owned::<SelectedRootRulePlan>(
+            member_count,
+            "encoded composite ROOT rule-plan allocation failed",
+        )?
+    } else {
+        Vec::new()
+    };
     let mut selected_counts = local_workspace.reserve_owned::<usize>(
         member_count,
         "encoded composite selected-count allocation failed",
@@ -10565,7 +11720,13 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     for table in 0..member_count {
         columns[table].validate_generic(state)?;
         columns[table].validate_supported_nodes(options.max_iri_bytes, state)?;
-        selected_counts[table] = columns[table].selected_root_count()?;
+        closure_rule_plans.push(resolve_selected_root_rule_plan(
+            columns[table],
+            options.max_iri_bytes,
+            state,
+            &mut local_workspace,
+        )?);
+        selected_counts[table] = closure_rule_plans[table].selected;
         selected_total = selected_total
             .checked_add(selected_counts[table])
             .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
@@ -10574,7 +11735,13 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         for table in 0..member_count {
             root_columns[table].validate_generic(state)?;
             root_columns[table].validate_supported_nodes(options.max_iri_bytes, state)?;
-            root_selected_counts[table] = root_columns[table].selected_root_count()?;
+            root_rule_plans.push(resolve_selected_root_rule_plan(
+                root_columns[table],
+                options.max_iri_bytes,
+                state,
+                &mut local_workspace,
+            )?);
+            root_selected_counts[table] = root_rule_plans[table].selected;
         }
     }
     let mut paired_columns = if root_columns.is_some() {
@@ -10743,32 +11910,14 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
                 continue;
             }
             let root = tail_columns.root_id(root_index)?;
-            let root_kind = tail_columns.root_kind(root_index)?;
-            let root_tag = tail_columns.node_tag(root)?;
+            let rule = closure_rule_plans[table].rule_at(root_index)?;
             if options.include_literals
-                && !options.asserted_taxonomy_only
+                && rule.literal_policy == RootLiteralPolicy::RootScopedAnnotation
+                && rule.disposition(options) == RootModeDisposition::LiteralConditional
                 && root_columns.is_none()
-                && root_tag == TAG_ANNOTATION_ASSERTION
             {
                 return Err(KernelError::unsupported(
                     "bounded composite literal projection requires annotation-assertion-free selected roots",
-                ));
-            }
-            let mapped_silent_root = matches!(
-                (scope_mapped_construct, root_kind, root_tag),
-                (
-                    Some(ScopeMappedCompositeKind::SilentOntologyAnnotation),
-                    ROOT_ONTOLOGY_ANNOTATION,
-                    TAG_ANNOTATION,
-                ) | (
-                    Some(ScopeMappedCompositeKind::SilentSwrl),
-                    ROOT_EXTENSION,
-                    TAG_SWRL_RULE,
-                )
-            );
-            if root_kind != ROOT_AXIOM && !mapped_silent_root {
-                return Err(KernelError::unsupported(
-                    "bounded composite tail requires axiom roots or its mapped silent root",
                 ));
             }
             let scope_mapped_context = if tail_columns.anonymous_scope_map.is_empty() {
@@ -10776,23 +11925,18 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
             } else {
                 scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[table]))
             };
-            let projection = if root_columns.is_some() && root_tag == TAG_ANNOTATION_ASSERTION {
-                tail_columns.validate_annotation_assertion(root, options.max_iri_bytes)?;
-                OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
-                    anonymous_individuals: 0,
-                }
-            } else if root_columns.is_some() && root_tag == TAG_DECLARATION {
-                OwnedOverlayDeltaProjection::SilentDeclaration
-            } else {
-                own_composite_tail_projection(
-                    *tail_columns,
-                    root,
-                    options.max_iri_bytes,
-                    state,
-                    &mut local_workspace,
-                    scope_mapped_context,
-                )?
-            };
+            let projection = own_composite_tail_projection(
+                rule,
+                *tail_columns,
+                root,
+                options.max_iri_bytes,
+                state,
+                &mut local_workspace,
+                DynamicTailContext {
+                    paired_root: root_columns.is_some(),
+                    scope_mapped_construct: scope_mapped_context,
+                },
+            )?;
             overlay_deltas.push(OwnedOverlayDelta {
                 projection,
                 insertion_scan_index: usize::MAX,
@@ -10861,6 +12005,8 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         let representative = group.roots[representative_table].ok_or_else(|| {
             KernelError::malformed("encoded composite closure lost its root representative")
         })?;
+        let representative_rule =
+            closure_rule_plans[representative_table].rule_at(representative.index)?;
         let mut root_selected = false;
         if root_columns.is_some() {
             for (table, consumed_count) in root_consumed.iter_mut().enumerate() {
@@ -10884,10 +12030,14 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
                         "encoded composite ROOT occurrence changed root kind",
                     ));
                 }
+                if root_rule_plans[table].rule_at(root.index)? != representative_rule {
+                    return Err(KernelError::malformed(
+                        "encoded composite ROOT occurrence changed structural root rule",
+                    ));
+                }
             }
         }
         let representative_node = representative.node_id;
-        let representative_tag = columns[representative_table].node_tag(representative_node)?;
         if root_columns.is_some() {
             let reachable_start = node_offsets[representative_table];
             let reachable_end = node_offsets[representative_table + 1];
@@ -10897,7 +12047,8 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
                 &mut reachability_stack,
                 state,
             )?;
-            if representative.kind == ROOT_AXIOM {
+            if representative_rule.anonymous_scope_policy == RootAnonymousScopePolicy::AxiomDerived
+            {
                 columns[representative_table].mark_root_reachable(
                     representative_node,
                     &mut axiom_reachable[reachable_start..reachable_end],
@@ -10906,7 +12057,7 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
                 )?;
             }
         }
-        if representative_tag == TAG_ANNOTATION_ASSERTION {
+        if representative_rule.literal_policy == RootLiteralPolicy::RootScopedAnnotation {
             closure_annotation_assertions = closure_annotation_assertions
                 .checked_add(1)
                 .ok_or_else(|| {
@@ -10924,7 +12075,7 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
                     root_index: representative.index,
                     node_id: representative_node,
                     root_kind: representative.kind,
-                    tag: representative_tag,
+                    tag: representative_rule.tag,
                     canonical_order: merged_canonical_index,
                 });
             }
@@ -11046,6 +12197,7 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         base_options,
         state,
         retained,
+        Some(&closure_rule_plans[0]),
         None,
     )?;
     if scope_mapped_construct == Some(ScopeMappedCompositeKind::PositiveObject)
@@ -11370,12 +12522,22 @@ fn prepare_two_table_batches_uncommitted(
                 continue;
             }
             let root = delta_columns.root_id(root_index)?;
-            if delta_columns.root_kind(root_index)? != ROOT_AXIOM {
+            let root_kind = delta_columns.root_kind(root_index)?;
+            if root_kind != ROOT_AXIOM {
                 return Err(KernelError::unsupported(
                     "bounded local-overlay emitting segment requires axiom roots",
                 ));
             }
+            let rule =
+                RootRule::resolve(root_kind, delta_columns.node_tag(root)?).map_err(|error| {
+                    if matches!(error, KernelError::Unsupported(_)) {
+                        KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT)
+                    } else {
+                        error
+                    }
+                })?;
             let projection = own_local_emitting_projection(
+                rule,
                 delta_columns,
                 root,
                 options.max_iri_bytes,
@@ -12151,6 +13313,7 @@ fn prepare_two_table_batches_uncommitted(
         options,
         state,
         retained,
+        None,
         local_role_state_axiom,
     )?;
     prepared.preparation.local_object_property_classes = local_object_property_classes;
@@ -13094,6 +14257,124 @@ fn read_usize(buffer: &[u8], index: usize, name: &str) -> Result<usize, KernelEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rule_test_options(
+        only_taxonomy: bool,
+        asserted_taxonomy_only: bool,
+    ) -> DirectCompileOptions {
+        DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only,
+            only_taxonomy,
+            include_literals: true,
+            max_edges: usize::MAX,
+            max_iri_bytes: 1024,
+        }
+    }
+
+    #[test]
+    fn structural_root_rules_are_exhaustive_unique_and_resolvable() {
+        assert_eq!(ROOT_RULES.len(), 39);
+        let mut keys = ROOT_RULES
+            .iter()
+            .map(|rule| (rule.root_kind, rule.tag))
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), ROOT_RULES.len());
+
+        for (table_index, expected) in ROOT_RULES.iter().copied().enumerate() {
+            assert_eq!(
+                RootRule::resolve(expected.root_kind, expected.tag).unwrap(),
+                expected
+            );
+            assert_eq!(
+                RootRule::resolve_index(expected.root_kind, expected.tag).unwrap(),
+                u8::try_from(table_index + 1).unwrap()
+            );
+        }
+
+        for (root_kind, tag) in [
+            (ROOT_AXIOM, TAG_ANNOTATION),
+            (ROOT_AXIOM, TAG_SWRL_RULE),
+            (ROOT_ONTOLOGY_ANNOTATION, TAG_DECLARATION),
+            (ROOT_EXTENSION, TAG_DECLARATION),
+            (u8::MAX, u16::MAX),
+        ] {
+            assert!(matches!(
+                RootRule::resolve(root_kind, tag),
+                Err(KernelError::Malformed(_))
+            ));
+        }
+        assert!(matches!(
+            RootRule::resolve(ROOT_AXIOM, TAG_ENTITY),
+            Err(KernelError::Unsupported(_))
+        ));
+    }
+
+    #[test]
+    fn structural_root_rule_modes_are_table_driven() {
+        let normal = rule_test_options(false, false);
+        let taxonomy = rule_test_options(true, false);
+        let asserted = rule_test_options(false, true);
+        let general = RootRule::resolve(ROOT_AXIOM, TAG_OBJECT_PROPERTY_ASSERTION).unwrap();
+        let skipped = RootRule::resolve(ROOT_AXIOM, TAG_HAS_KEY).unwrap();
+        let literal = RootRule::resolve(ROOT_AXIOM, TAG_ANNOTATION_ASSERTION).unwrap();
+        let role = RootRule::resolve(ROOT_AXIOM, TAG_SUB_OBJECT_PROPERTY_OF).unwrap();
+
+        assert_eq!(general.dynamic_action, DynamicRootAction::General);
+        assert_eq!(general.disposition(normal), RootModeDisposition::Project);
+        assert_eq!(general.disposition(taxonomy), RootModeDisposition::Project);
+        assert_eq!(
+            general.disposition(asserted),
+            RootModeDisposition::ValidateOnly
+        );
+
+        assert_eq!(
+            skipped.dynamic_action,
+            DynamicRootAction::UnsupportedDynamic
+        );
+        assert_eq!(
+            skipped.disposition(normal),
+            RootModeDisposition::SkipDiagnostic
+        );
+        assert_eq!(
+            skipped.disposition(taxonomy),
+            RootModeDisposition::SkipDiagnostic
+        );
+        assert_eq!(
+            skipped.disposition(asserted),
+            RootModeDisposition::ValidateOnly
+        );
+
+        assert_eq!(
+            literal.dynamic_action,
+            DynamicRootAction::PairedAnnotationOrScopeMapped
+        );
+        assert_eq!(
+            literal.disposition(normal),
+            RootModeDisposition::LiteralConditional
+        );
+        assert_eq!(
+            literal.disposition(taxonomy),
+            RootModeDisposition::LiteralConditional
+        );
+        assert_eq!(
+            literal.disposition(asserted),
+            RootModeDisposition::ValidateOnly
+        );
+
+        assert_eq!(role.role_effect, RootRoleEffect::SubPropertyOrChain);
+        assert_eq!(role.disposition(normal), RootModeDisposition::FamilyDefined);
+        assert_eq!(
+            role.disposition(taxonomy),
+            RootModeDisposition::FamilyDefined
+        );
+        assert_eq!(
+            role.disposition(asserted),
+            RootModeDisposition::ValidateOnly
+        );
+    }
 
     #[derive(Default)]
     struct Fixture {
@@ -23005,6 +24286,43 @@ mod tests {
             ),
             Err(KernelError::Resource(message)) if message.contains("workspace bytes")
         ));
+    }
+
+    #[test]
+    fn dynamic_composite_rejects_unsupported_tail_before_duplicate_elision() {
+        let cases = [
+            (
+                has_key_delta_fixture(1, 1, false, false, false),
+                has_key_delta_fixture(1, 1, false, false, false),
+            ),
+            (
+                local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 0, false, false),
+                local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 0, false, false),
+            ),
+        ];
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 0,
+            max_iri_bytes: 1024,
+        };
+        for (base, tail) in cases {
+            assert!(matches!(
+                prepare_two_member_composite_batches_uncommitted(
+                    base.columns(),
+                    tail.columns(),
+                    options,
+                    &running_state(),
+                    None,
+                    canonical_limits().max_work,
+                    canonical_limits().max_workspace_bytes,
+                ),
+                Err(KernelError::Unsupported(message))
+                    if message == LOCAL_EMITTING_OVERLAY_REQUIREMENT
+            ));
+        }
     }
 
     #[test]
