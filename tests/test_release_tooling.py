@@ -14,7 +14,13 @@ from pathlib import Path
 import pytest
 
 import _build_backend
-from tools import audit_release, generate_supply_chain, release_gate, release_support
+from tools import (
+    audit_release,
+    check_core_compatibility,
+    generate_supply_chain,
+    release_gate,
+    release_support,
+)
 from tools.audit_release import (
     _audit_metadata,
     _audit_native_payloads,
@@ -31,6 +37,7 @@ from tools.release_support import read_stable_regular_file, read_toml
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = re.compile(r"(?m)^\s*-?\s*uses:\s+([^\s#]+)")
 EXPECTED_PROVENANCE_INPUTS = {
+    ".github/workflows/ci.yml",
     ".github/workflows/native.yml",
     ".github/workflows/packaging.yml",
     ".github/workflows/release-candidate.yml",
@@ -42,10 +49,12 @@ EXPECTED_PROVENANCE_INPUTS = {
     "native/build.rs",
     "pyproject.toml",
     "release/fallback-build-requirements.txt",
+    "release/core-compatibility.json",
     "release/native-build-requirements.txt",
     "setup.py",
     "tools/audit_release.py",
     "tools/audit_runtime.py",
+    "tools/check_core_compatibility.py",
     "tools/check_dependency_dag.py",
     "tools/compare_artifacts.py",
     "tools/generate_supply_chain.py",
@@ -651,7 +660,18 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    assert compatibility["tested_source"]["commit"] == ("6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e")
+    assert compatibility["tested_source"]["commit"] == ("af9bdb0b9178766b5f15806fb6a2f00b05e00e22")
+    assert compatibility["native_ontology_redesign"] == {
+        "commit": "af9bdb0b9178766b5f15806fb6a2f00b05e00e22",
+        "classification": "behavior-preserving-native-ontology-redesign",
+        "workpackages": ["WP14", "WP15", "WP16", "WP17", "WP18"],
+        "summary": (
+            "The settled WP14-WP18 APIs and implementations include native contracts, retained "
+            "storage, streaming ingestion, native views, wire integration, and locally executable "
+            "release/performance checks while preserving the Projector consumer fixture "
+            "fingerprints and canonical edge bytes."
+        ),
+    }
     assert (
         compatibility["previous_source"]["structural_fingerprint"]
         != (fixture["structural_fingerprint"])
@@ -667,6 +687,41 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
     assert fixture["edge_digests"] == {
         case["case_id"]: case["canonical_edges_sha256"] for case in goldens["cases"]
     }
+
+
+def test_core_checkout_guard_rejects_wrong_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = "a" * 40
+
+    def git_output(_root: Path, *arguments: str) -> str:
+        if arguments[0] == "rev-parse":
+            return "b" * 40
+        return ""
+
+    monkeypatch.setattr(check_core_compatibility, "_git_output", git_output)
+    imported = tmp_path / "src/pyowl_core/__init__.py"
+    assert check_core_compatibility._checkout_errors(tmp_path, expected, imported) == [
+        f"pyOWLCore checkout is {'b' * 40}, expected exact commit {expected}",
+    ]
+
+
+def test_core_checkout_guard_rejects_unrelated_module_inside_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = "a" * 40
+
+    def git_output(_root: Path, *_arguments: str) -> str:
+        return expected if _arguments[0] == "rev-parse" else ""
+
+    monkeypatch.setattr(check_core_compatibility, "_git_output", git_output)
+    imported = tmp_path / "src/unrelated/__init__.py"
+    assert check_core_compatibility._checkout_errors(tmp_path, expected, imported) == [
+        f"imported pyowl_core from {imported.resolve()}, expected "
+        f"{(tmp_path / 'src/pyowl_core/__init__.py').resolve()}"
+    ]
 
 
 def test_native_release_audit_rejects_jvm_symbols() -> None:

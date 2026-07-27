@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
-          ref: 6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e
+          ref: af9bdb0b9178766b5f15806fb6a2f00b05e00e22
           path: .deps/pyowl-core
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
@@ -30,6 +30,9 @@ jobs:
           cache: pip
       - run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - run: python -m pip install -r release/fallback-build-requirements.txt
+      - run: python tools/check_core_compatibility.py --core-root .deps/pyowl-core
+        env:
+          PYTHONPATH: src:.deps/pyowl-core/src
       - run: python tools/generate_supply_chain.py --check
       - run: python -m build --sdist --wheel --outdir dist-a
       - run: python -m build --sdist --wheel --outdir dist-b

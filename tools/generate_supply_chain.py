@@ -35,6 +35,7 @@ _PYTHON_BUILD_LICENSES = {
     ("semantic-version", "2.10.0"): "BSD-2-Clause",
 }
 _BUILD_INPUT_PATHS = (
+    ".github/workflows/ci.yml",
     ".github/workflows/native.yml",
     ".github/workflows/packaging.yml",
     ".github/workflows/release-candidate.yml",
@@ -46,10 +47,12 @@ _BUILD_INPUT_PATHS = (
     "native/build.rs",
     "pyproject.toml",
     "release/fallback-build-requirements.txt",
+    "release/core-compatibility.json",
     "release/native-build-requirements.txt",
     "setup.py",
     "tools/audit_release.py",
     "tools/audit_runtime.py",
+    "tools/check_core_compatibility.py",
     "tools/check_dependency_dag.py",
     "tools/compare_artifacts.py",
     "tools/generate_supply_chain.py",

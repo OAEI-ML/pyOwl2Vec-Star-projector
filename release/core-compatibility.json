@@ -3,7 +3,7 @@
   "dependency_constraint": "pyowl-core>=0.1,<0.2",
   "tested_source": {
     "repository": "https://github.com/OAEI-ML/pyOWLCore",
-    "commit": "6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e",
+    "commit": "af9bdb0b9178766b5f15806fb6a2f00b05e00e22",
     "version": "0.1.0.dev0"
   },
   "previous_source": {
@@ -24,6 +24,12 @@
     "commit": "6df155e3ef83588352dbfd11bc4b15bdc0fa9c4e",
     "classification": "behavior-preserving-parser-correction",
     "summary": "Duplicate RDF and Functional operands are canonicalized while mixed DisjointClasses duplicates preserve their bottom consequence, without changing valid-input projector fingerprints or edge bytes."
+  },
+  "native_ontology_redesign": {
+    "commit": "af9bdb0b9178766b5f15806fb6a2f00b05e00e22",
+    "classification": "behavior-preserving-native-ontology-redesign",
+    "workpackages": ["WP14", "WP15", "WP16", "WP17", "WP18"],
+    "summary": "The settled WP14-WP18 APIs and implementations include native contracts, retained storage, streaming ingestion, native views, wire integration, and locally executable release/performance checks while preserving the Projector consumer fixture fingerprints and canonical edge bytes."
   },
   "consumer_fixture": {
     "sha256": "84e1b6cf5088cbb7ea4276f26b5b461a4cfe74aed257abbab20ba78c1136ef0d",
