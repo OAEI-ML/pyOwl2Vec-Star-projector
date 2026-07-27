@@ -302,7 +302,12 @@ enum SubclassProjection<'a> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ClassAssertionProjection<'a> {
-    Edge { individual: &'a str, class: &'a str },
+    Edge {
+        individual: &'a str,
+        individual_node: usize,
+        class: &'a str,
+        class_node: usize,
+    },
     Ignored,
 }
 
@@ -310,10 +315,13 @@ enum ClassAssertionProjection<'a> {
 enum EquivalentProjection<'a> {
     Pair {
         source: &'a str,
+        source_node: usize,
         destination: &'a str,
+        destination_node: usize,
     },
     Aggregate {
         source: &'a str,
+        source_node: usize,
         expression_id: usize,
     },
     Ignored,
@@ -484,60 +492,35 @@ impl RootCounts {
             .checked_add(self.inverse_object_properties)
             .ok_or_else(|| KernelError::resource("encoded role-axiom count overflow"))
     }
-
-    fn skipped_axioms(self) -> Result<usize, KernelError> {
-        [
-            self.negative_object_property_assertions,
-            self.disjoint_classes,
-            self.disjoint_unions,
-            self.has_keys,
-            self.same_individuals,
-            self.different_individuals,
-            self.equivalent_object_properties,
-            self.disjoint_object_properties,
-            self.functional_object_properties,
-            self.inverse_functional_object_properties,
-            self.reflexive_object_properties,
-            self.irreflexive_object_properties,
-            self.symmetric_object_properties,
-            self.asymmetric_object_properties,
-            self.transitive_object_properties,
-            self.sub_data_properties,
-            self.equivalent_data_properties,
-            self.disjoint_data_properties,
-            self.data_property_domains,
-            self.data_property_ranges,
-            self.functional_data_properties,
-            self.datatype_definitions,
-            self.data_property_assertions,
-            self.negative_data_property_assertions,
-            self.sub_annotation_properties,
-            self.annotation_property_domains,
-            self.annotation_property_ranges,
-        ]
-        .into_iter()
-        .try_fold(0_usize, |total, count| {
-            total
-                .checked_add(count)
-                .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))
-        })
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RootRuleHandler {
-    Simple,
     Declaration,
     Subclass,
     EquivalentClasses,
+    DisjointClasses,
+    DisjointUnion,
+    HasKey,
     SubObjectProperty,
+    ObjectPropertySet,
+    InverseObjectProperties,
     ObjectPropertyClass,
     ClassAssertion,
     ObjectPropertyAssertion,
     NegativeObjectPropertyAssertion,
+    ObjectPropertyCharacteristic,
+    BinaryDataProperty,
+    DataPropertySet,
+    DataPropertyDomain,
+    DataPropertyRange,
+    FunctionalDataProperty,
+    DatatypeDefinition,
     DataPropertyAssertion,
     IndividualSet,
     AnnotationAssertion,
+    SubAnnotationProperty,
+    AnnotationPropertyIri,
     OntologyAnnotation,
     SwrlRule,
 }
@@ -1018,10 +1001,8 @@ enum RootDomainRangeEffect {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DynamicRootAction {
     General,
-    PairedDeclaration,
-    PairedAnnotationOrScopeMapped,
-    ScopeMappedOnly,
-    UnsupportedDynamic,
+    Declaration,
+    AnnotationAssertion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1041,54 +1022,317 @@ struct RootRule {
     dynamic_action: DynamicRootAction,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PlannedRoleEffect<'a> {
+    PropertyChain,
+    Row(RoleAxiom<'a>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedRoleRoot<'a> {
+    root_index: usize,
+    effect: PlannedRoleEffect<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PlannedRootShape<'a> {
+    Subclass(SubclassProjection<'a>),
+    Equivalent(EquivalentProjection<'a>),
+    ObjectPropertyClass(Option<(&'a str, &'a str)>),
+    ClassAssertion(ClassAssertionProjection<'a>),
+    ObjectPropertyAssertion {
+        source: IndividualValue<'a>,
+        relation: &'a str,
+        destination: IndividualValue<'a>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedShapeRoot<'a> {
+    root_index: usize,
+    shape: PlannedRootShape<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedRestrictionCoordinate {
+    property_node: usize,
+    filler_node: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PlannedIndividualCoordinate {
+    Named(usize),
+    Anonymous(usize),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PlannedEmissionShape {
+    SubclassTaxonomy {
+        source_node: usize,
+        destination_node: usize,
+    },
+    SubclassRestriction {
+        source_node: usize,
+        restriction: PlannedRestrictionCoordinate,
+    },
+    SubclassIgnored,
+    EquivalentPair {
+        source_node: usize,
+        destination_node: usize,
+    },
+    EquivalentAggregate {
+        source_node: usize,
+        aggregate_plan_index: usize,
+    },
+    EquivalentIgnored,
+    ObjectPropertyClassProjected {
+        property_node: usize,
+        class_node: usize,
+    },
+    ObjectPropertyClassIgnored,
+    ClassAssertionEdge {
+        individual_node: usize,
+        class_node: usize,
+    },
+    ClassAssertionIgnored,
+    ObjectPropertyAssertion {
+        property_node: usize,
+        source: PlannedIndividualCoordinate,
+        destination: PlannedIndividualCoordinate,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedEmissionRoot {
+    root_index: usize,
+    shape: PlannedEmissionShape,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedAggregateRange {
+    start: usize,
+    length: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedAggregateRoot {
+    root_index: usize,
+    named: PlannedAggregateRange,
+    restrictions: PlannedAggregateRange,
+    ignored_shapes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedAggregateNamedOperand<'a> {
+    node_id: usize,
+    iri: &'a str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlannedAggregateRestrictionOperand<'a> {
+    node_id: usize,
+    tag: u16,
+    item_order: usize,
+    projection: Option<(&'a str, &'a str)>,
+    coordinate: Option<PlannedRestrictionCoordinate>,
+}
+
 #[derive(Debug, Eq, PartialEq)]
-struct SelectedRootRulePlan {
+struct SelectedRootRulePlan<'a> {
     rule_indexes: Vec<u8>,
+    shape_roots: Vec<PlannedShapeRoot<'a>>,
+    emission_roots: Vec<PlannedEmissionRoot>,
+    aggregate_roots: Vec<PlannedAggregateRoot>,
+    aggregate_named_operands: Vec<PlannedAggregateNamedOperand<'a>>,
+    aggregate_restriction_operands: Vec<PlannedAggregateRestrictionOperand<'a>>,
+    aggregate_emission_named_nodes: Vec<usize>,
+    aggregate_emission_restrictions: Vec<Option<PlannedRestrictionCoordinate>>,
+    role_roots: Vec<PlannedRoleRoot<'a>>,
     counts: RootCounts,
     selected: usize,
 }
 
-impl SelectedRootRulePlan {
+#[derive(Debug, Eq, PartialEq)]
+struct PreparedEmissionPlan {
+    root_rule_indexes: Vec<u8>,
+    emission_roots: Vec<PlannedEmissionRoot>,
+    aggregate_roots: Vec<PlannedAggregateRoot>,
+    aggregate_emission_named_nodes: Vec<usize>,
+    aggregate_emission_restrictions: Vec<Option<PlannedRestrictionCoordinate>>,
+}
+
+impl<'a> SelectedRootRulePlan<'a> {
     fn rule_at(&self, root_index: usize) -> Result<RootRule, KernelError> {
-        let encoded_index = self.rule_indexes.get(root_index).copied().ok_or_else(|| {
-            KernelError::malformed("encoded selected root lost its resolved structural rule")
-        })?;
-        let table_index = encoded_index.checked_sub(1).ok_or_else(|| {
-            KernelError::malformed("encoded selected root lost its resolved structural rule")
-        })?;
-        ROOT_RULES
-            .get(usize::from(table_index))
-            .copied()
-            .ok_or_else(|| {
-                KernelError::malformed("encoded selected root has an invalid structural rule index")
-            })
+        resolved_root_rule_at(&self.rule_indexes, root_index)
     }
 
-    fn skipped_axioms(&self, options: DirectCompileOptions) -> Result<usize, KernelError> {
-        self.rule_indexes
-            .iter()
-            .copied()
-            .filter(|encoded_index| *encoded_index != 0)
-            .try_fold(0_usize, |count, encoded_index| {
-                let rule = ROOT_RULES
-                    .get(usize::from(encoded_index - 1))
-                    .copied()
-                    .ok_or_else(|| {
-                        KernelError::malformed(
-                            "encoded selected root has an invalid structural rule index",
-                        )
-                    })?;
-                if matches!(rule.stats_effect, RootStatsEffect::Skipped(_))
-                    && rule.disposition(options) == RootModeDisposition::SkipDiagnostic
-                {
-                    count.checked_add(1).ok_or_else(|| {
-                        KernelError::resource("encoded skipped-axiom count overflow")
-                    })
-                } else {
-                    Ok(count)
-                }
-            })
+    fn shape_at(&self, root_index: usize) -> Option<PlannedRootShape<'a>> {
+        self.shape_roots
+            .binary_search_by_key(&root_index, |planned| planned.root_index)
+            .ok()
+            .map(|index| self.shape_roots[index].shape)
     }
+
+    #[cfg(test)]
+    fn emission_shape_at(&self, root_index: usize) -> Option<PlannedEmissionShape> {
+        self.emission_roots
+            .binary_search_by_key(&root_index, |planned| planned.root_index)
+            .ok()
+            .map(|index| self.emission_roots[index].shape)
+    }
+
+    fn aggregate_at(&self, root_index: usize) -> Option<&PlannedAggregateRoot> {
+        self.aggregate_roots
+            .binary_search_by_key(&root_index, |planned| planned.root_index)
+            .ok()
+            .map(|index| &self.aggregate_roots[index])
+    }
+
+    fn aggregate_named_operands(
+        &self,
+        plan: &PlannedAggregateRoot,
+    ) -> Result<&[PlannedAggregateNamedOperand<'_>], KernelError> {
+        checked_plan_slice(
+            &self.aggregate_named_operands,
+            plan.named,
+            "encoded aggregate named-operand plan is out of bounds",
+        )
+    }
+
+    fn aggregate_restriction_operands(
+        &self,
+        plan: &PlannedAggregateRoot,
+    ) -> Result<&[PlannedAggregateRestrictionOperand<'_>], KernelError> {
+        checked_plan_slice(
+            &self.aggregate_restriction_operands,
+            plan.restrictions,
+            "encoded aggregate restriction-operand plan is out of bounds",
+        )
+    }
+
+    fn skipped_axioms(
+        &self,
+        options: DirectCompileOptions,
+        state: &AtomicU8,
+    ) -> Result<usize, KernelError> {
+        let mut count = 0_usize;
+        for (root_index, encoded_index) in self.rule_indexes.iter().copied().enumerate() {
+            check_cancel(state, root_index)?;
+            if encoded_index == 0 {
+                continue;
+            }
+            let rule = ROOT_RULES
+                .get(usize::from(encoded_index - 1))
+                .copied()
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded selected root has an invalid structural rule index",
+                    )
+                })?;
+            if matches!(rule.stats_effect, RootStatsEffect::Skipped(_))
+                && rule.disposition(options) == RootModeDisposition::SkipDiagnostic
+            {
+                count = count
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded skipped-axiom count overflow"))?;
+            }
+        }
+        Ok(count)
+    }
+
+    fn role_effect_at(
+        &self,
+        root_index: usize,
+    ) -> Result<Option<PlannedRoleEffect<'a>>, KernelError> {
+        match self
+            .role_roots
+            .binary_search_by_key(&root_index, |planned| planned.root_index)
+        {
+            Ok(index) => Ok(Some(self.role_roots[index].effect)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn take_emission_plan(
+        &mut self,
+        state: &AtomicU8,
+    ) -> Result<PreparedEmissionPlan, KernelError> {
+        for (aggregate_index, aggregate) in self.aggregate_roots.iter().enumerate() {
+            check_cancel(state, aggregate_index)?;
+            checked_plan_slice(
+                &self.aggregate_emission_named_nodes,
+                aggregate.named,
+                "encoded aggregate named-emission plan is out of bounds",
+            )?;
+            checked_plan_slice(
+                &self.aggregate_emission_restrictions,
+                aggregate.restrictions,
+                "encoded aggregate restriction-emission plan is out of bounds",
+            )?;
+        }
+        for (emission_index, planned) in self.emission_roots.iter().enumerate() {
+            check_cancel(state, emission_index)?;
+            if let PlannedEmissionShape::EquivalentAggregate {
+                aggregate_plan_index,
+                ..
+            } = planned.shape
+            {
+                let aggregate =
+                    self.aggregate_roots
+                        .get(aggregate_plan_index)
+                        .ok_or_else(|| {
+                            KernelError::malformed(
+                        "encoded aggregate emission root references an unknown operand plan",
+                    )
+                        })?;
+                if aggregate.root_index != planned.root_index {
+                    return Err(KernelError::malformed(
+                        "encoded aggregate emission root references another root's operand plan",
+                    ));
+                }
+            }
+        }
+        Ok(PreparedEmissionPlan {
+            root_rule_indexes: std::mem::take(&mut self.rule_indexes),
+            emission_roots: std::mem::take(&mut self.emission_roots),
+            aggregate_roots: std::mem::take(&mut self.aggregate_roots),
+            aggregate_emission_named_nodes: std::mem::take(
+                &mut self.aggregate_emission_named_nodes,
+            ),
+            aggregate_emission_restrictions: std::mem::take(
+                &mut self.aggregate_emission_restrictions,
+            ),
+        })
+    }
+}
+
+fn resolved_root_rule_at(rule_indexes: &[u8], root_index: usize) -> Result<RootRule, KernelError> {
+    let encoded_index = rule_indexes.get(root_index).copied().ok_or_else(|| {
+        KernelError::malformed("encoded selected root lost its resolved structural rule")
+    })?;
+    let table_index = encoded_index.checked_sub(1).ok_or_else(|| {
+        KernelError::malformed("encoded selected root lost its resolved structural rule")
+    })?;
+    ROOT_RULES
+        .get(usize::from(table_index))
+        .copied()
+        .ok_or_else(|| {
+            KernelError::malformed("encoded selected root has an invalid structural rule index")
+        })
+}
+
+fn checked_plan_slice<'a, T>(
+    values: &'a [T],
+    range: PlannedAggregateRange,
+    message: &'static str,
+) -> Result<&'a [T], KernelError> {
+    let end = range
+        .start
+        .checked_add(range.length)
+        .ok_or_else(|| KernelError::malformed(message))?;
+    values
+        .get(range.start..end)
+        .ok_or_else(|| KernelError::malformed(message))
 }
 
 const ROOT_MODES_SILENT: [RootModeDisposition; 3] = [RootModeDisposition::ValidateOnly; 3];
@@ -1162,7 +1406,7 @@ const ROOT_RULES: &[RootRule] = &[
         Silent(Declarations),
         None,
         None,
-        PairedDeclaration
+        Declaration
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1198,7 +1442,7 @@ const ROOT_RULES: &[RootRule] = &[
         ROOT_AXIOM,
         TAG_DISJOINT_CLASSES,
         "DisjointClasses",
-        Simple,
+        DisjointClasses,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1207,13 +1451,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DisjointClasses),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_DISJOINT_UNION,
         "DisjointUnion",
-        Simple,
+        DisjointUnion,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1222,13 +1466,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DisjointUnions),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_HAS_KEY,
         "HasKey",
-        Simple,
+        HasKey,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1237,7 +1481,7 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(HasKeys),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1252,13 +1496,13 @@ const ROOT_RULES: &[RootRule] = &[
         Silent(SubObjectProperties),
         SubPropertyOrChain,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_EQUIVALENT_OBJECT_PROPERTIES,
         "EquivalentObjectProperties",
-        Simple,
+        ObjectPropertySet,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1267,13 +1511,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(EquivalentObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_DISJOINT_OBJECT_PROPERTIES,
         "DisjointObjectProperties",
-        Simple,
+        ObjectPropertySet,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1282,13 +1526,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DisjointObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_INVERSE_OBJECT_PROPERTIES,
         "InverseObjectProperties",
-        Simple,
+        InverseObjectProperties,
         ObjectAssertions,
         ROOT_MODES_ROLE,
         Never,
@@ -1297,7 +1541,7 @@ const ROOT_RULES: &[RootRule] = &[
         Silent(InverseObjectProperties),
         InverseProperties,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1312,7 +1556,7 @@ const ROOT_RULES: &[RootRule] = &[
         ShapeClassified(ObjectPropertyDomains),
         None,
         Domain,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1327,7 +1571,7 @@ const ROOT_RULES: &[RootRule] = &[
         ShapeClassified(ObjectPropertyRanges),
         None,
         Range,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1372,13 +1616,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(NegativeObjectPropertyAssertions),
         None,
         None,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_FUNCTIONAL_OBJECT_PROPERTY,
         "FunctionalObjectProperty",
-        Simple,
+        ObjectPropertyCharacteristic,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1387,13 +1631,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(FunctionalObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_INVERSE_FUNCTIONAL_OBJECT_PROPERTY,
         "InverseFunctionalObjectProperty",
-        Simple,
+        ObjectPropertyCharacteristic,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1402,13 +1646,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(InverseFunctionalObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_REFLEXIVE_OBJECT_PROPERTY,
         "ReflexiveObjectProperty",
-        Simple,
+        ObjectPropertyCharacteristic,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1417,13 +1661,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(ReflexiveObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_IRREFLEXIVE_OBJECT_PROPERTY,
         "IrreflexiveObjectProperty",
-        Simple,
+        ObjectPropertyCharacteristic,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1432,13 +1676,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(IrreflexiveObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_SYMMETRIC_OBJECT_PROPERTY,
         "SymmetricObjectProperty",
-        Simple,
+        ObjectPropertyCharacteristic,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1447,13 +1691,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(SymmetricObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_ASYMMETRIC_OBJECT_PROPERTY,
         "AsymmetricObjectProperty",
-        Simple,
+        ObjectPropertyCharacteristic,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1462,13 +1706,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(AsymmetricObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_TRANSITIVE_OBJECT_PROPERTY,
         "TransitiveObjectProperty",
-        Simple,
+        ObjectPropertyCharacteristic,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1477,13 +1721,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(TransitiveObjectProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_SUB_DATA_PROPERTY_OF,
         "SubDataPropertyOf",
-        Simple,
+        BinaryDataProperty,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1492,13 +1736,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(SubDataProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_EQUIVALENT_DATA_PROPERTIES,
         "EquivalentDataProperties",
-        Simple,
+        DataPropertySet,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1507,13 +1751,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(EquivalentDataProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_DISJOINT_DATA_PROPERTIES,
         "DisjointDataProperties",
-        Simple,
+        DataPropertySet,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1522,13 +1766,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DisjointDataProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_DATA_PROPERTY_DOMAIN,
         "DataPropertyDomain",
-        Simple,
+        DataPropertyDomain,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1537,13 +1781,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DataPropertyDomains),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_DATA_PROPERTY_RANGE,
         "DataPropertyRange",
-        Simple,
+        DataPropertyRange,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1552,13 +1796,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DataPropertyRanges),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_FUNCTIONAL_DATA_PROPERTY,
         "FunctionalDataProperty",
-        Simple,
+        FunctionalDataProperty,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1567,13 +1811,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(FunctionalDataProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_DATATYPE_DEFINITION,
         "DatatypeDefinition",
-        Simple,
+        DatatypeDefinition,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1582,7 +1826,7 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DatatypeDefinitions),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1597,7 +1841,7 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(SameIndividuals),
         None,
         None,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1612,7 +1856,7 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DifferentIndividuals),
         None,
         None,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1627,7 +1871,7 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(DataPropertyAssertions),
         None,
         None,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1642,7 +1886,7 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(NegativeDataPropertyAssertions),
         None,
         None,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
@@ -1657,13 +1901,13 @@ const ROOT_RULES: &[RootRule] = &[
         Projecting(AnnotationAssertions),
         None,
         None,
-        PairedAnnotationOrScopeMapped
+        AnnotationAssertion
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_SUB_ANNOTATION_PROPERTY_OF,
         "SubAnnotationPropertyOf",
-        Simple,
+        SubAnnotationProperty,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1672,13 +1916,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(SubAnnotationProperties),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_ANNOTATION_PROPERTY_DOMAIN,
         "AnnotationPropertyDomain",
-        Simple,
+        AnnotationPropertyIri,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1687,13 +1931,13 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(AnnotationPropertyDomains),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_AXIOM,
         TAG_ANNOTATION_PROPERTY_RANGE,
         "AnnotationPropertyRange",
-        Simple,
+        AnnotationPropertyIri,
         ObjectAssertions,
         ROOT_MODES_SKIPPED,
         Never,
@@ -1702,7 +1946,7 @@ const ROOT_RULES: &[RootRule] = &[
         Skipped(AnnotationPropertyRanges),
         None,
         None,
-        UnsupportedDynamic
+        General
     ),
     root_rule!(
         ROOT_ONTOLOGY_ANNOTATION,
@@ -1717,7 +1961,7 @@ const ROOT_RULES: &[RootRule] = &[
         Silent(OntologyAnnotations),
         None,
         None,
-        ScopeMappedOnly
+        General
     ),
     root_rule!(
         ROOT_EXTENSION,
@@ -1732,7 +1976,7 @@ const ROOT_RULES: &[RootRule] = &[
         Silent(SwrlRules),
         None,
         None,
-        ScopeMappedOnly
+        General
     ),
 ];
 
@@ -1761,6 +2005,7 @@ impl RootRule {
         }
     }
 
+    #[cfg(test)]
     fn resolve(root_kind: u8, tag: u16) -> Result<Self, KernelError> {
         let encoded_index = Self::resolve_index(root_kind, tag)?;
         ROOT_RULES
@@ -1792,75 +2037,109 @@ impl RootRule {
         Ok(())
     }
 
-    fn classify(
+    fn classify<'a>(
         self,
-        columns: DirectColumns<'_>,
+        columns: DirectColumns<'a>,
         node_id: usize,
         maximum_iri: usize,
         counts: &mut RootCounts,
-    ) -> Result<(), KernelError> {
+        canonical_order: usize,
+        planned_shape: Option<PlannedRootShape<'a>>,
+    ) -> Result<(Option<PlannedRoleEffect<'a>>, Option<PlannedRootShape<'a>>), KernelError> {
         self.stats_effect.counter().increment(counts)?;
-        match self.handler {
-            RootRuleHandler::Simple
-            | RootRuleHandler::Declaration
+        let role_effect = match self.handler {
+            RootRuleHandler::Declaration
+            | RootRuleHandler::DisjointClasses
+            | RootRuleHandler::DisjointUnion
+            | RootRuleHandler::HasKey
+            | RootRuleHandler::ObjectPropertySet
             | RootRuleHandler::NegativeObjectPropertyAssertion
+            | RootRuleHandler::ObjectPropertyCharacteristic
+            | RootRuleHandler::BinaryDataProperty
+            | RootRuleHandler::DataPropertySet
+            | RootRuleHandler::DataPropertyDomain
+            | RootRuleHandler::DataPropertyRange
+            | RootRuleHandler::FunctionalDataProperty
+            | RootRuleHandler::DatatypeDefinition
             | RootRuleHandler::DataPropertyAssertion
             | RootRuleHandler::IndividualSet
             | RootRuleHandler::AnnotationAssertion
+            | RootRuleHandler::SubAnnotationProperty
+            | RootRuleHandler::AnnotationPropertyIri
             | RootRuleHandler::OntologyAnnotation
-            | RootRuleHandler::SwrlRule => {}
-            RootRuleHandler::Subclass => match columns.subclass_projection(node_id, maximum_iri)? {
-                SubclassProjection::Restriction { .. } => {
-                    counts.restriction_subclasses = counts
-                        .restriction_subclasses
-                        .checked_add(1)
-                        .ok_or_else(|| {
-                            KernelError::resource("encoded restriction-subclass count overflow")
-                        })?;
+            | RootRuleHandler::SwrlRule => None,
+            RootRuleHandler::Subclass => {
+                let Some(PlannedRootShape::Subclass(projection)) = planned_shape else {
+                    return Err(KernelError::malformed(
+                        "encoded subclass root lost its planned semantic shape",
+                    ));
+                };
+                match projection {
+                    SubclassProjection::Restriction { .. } => {
+                        counts.restriction_subclasses = counts
+                            .restriction_subclasses
+                            .checked_add(1)
+                            .ok_or_else(|| {
+                                KernelError::resource("encoded restriction-subclass count overflow")
+                            })?;
+                        None
+                    }
+                    SubclassProjection::Ignored => {
+                        counts.ignored_subclasses =
+                            counts.ignored_subclasses.checked_add(1).ok_or_else(|| {
+                                KernelError::resource("encoded ignored-subclass count overflow")
+                            })?;
+                        None
+                    }
+                    SubclassProjection::Taxonomy { .. } => None,
                 }
-                SubclassProjection::Ignored => {
-                    counts.ignored_subclasses =
-                        counts.ignored_subclasses.checked_add(1).ok_or_else(|| {
-                            KernelError::resource("encoded ignored-subclass count overflow")
-                        })?;
-                }
-                SubclassProjection::Taxonomy { .. } => {}
-            },
+            }
             RootRuleHandler::EquivalentClasses => {
-                if matches!(
-                    columns.equivalent_projection(node_id, maximum_iri)?,
-                    EquivalentProjection::Aggregate { .. }
-                ) {
+                let Some(PlannedRootShape::Equivalent(projection)) = planned_shape else {
+                    return Err(KernelError::malformed(
+                        "encoded equivalent root lost its planned semantic shape",
+                    ));
+                };
+                if matches!(projection, EquivalentProjection::Aggregate { .. }) {
                     counts.aggregate_equivalents =
                         counts.aggregate_equivalents.checked_add(1).ok_or_else(|| {
                             KernelError::resource("encoded aggregate-equivalent count overflow")
                         })?;
                 }
+                None
             }
             RootRuleHandler::SubObjectProperty => {
-                if columns.validate_sub_object_property_of(node_id, maximum_iri)? {
+                let field_start = columns.exact_fields(node_id, 3)?;
+                let first = columns.field_node(field_start)?;
+                if columns.node_tag(first)? == TAG_OBJECT_PROPERTY_CHAIN {
+                    columns.validate_sub_object_property_of(node_id, maximum_iri)?;
                     counts.object_property_chains = counts
                         .object_property_chains
                         .checked_add(1)
                         .ok_or_else(|| {
                             KernelError::resource("encoded object-property-chain count overflow")
                         })?;
+                    Some(PlannedRoleEffect::PropertyChain)
+                } else {
+                    Some(PlannedRoleEffect::Row(columns.role_axiom_row(
+                        node_id,
+                        self.tag,
+                        maximum_iri,
+                        canonical_order,
+                        1,
+                    )?))
                 }
             }
+            RootRuleHandler::InverseObjectProperties => Some(PlannedRoleEffect::Row(
+                columns.role_axiom_row(node_id, self.tag, maximum_iri, canonical_order, 1)?,
+            )),
             RootRuleHandler::ObjectPropertyClass => {
-                let tag = match self.domain_range_effect {
-                    RootDomainRangeEffect::Domain => TAG_OBJECT_PROPERTY_DOMAIN,
-                    RootDomainRangeEffect::Range => TAG_OBJECT_PROPERTY_RANGE,
-                    RootDomainRangeEffect::None => {
-                        return Err(KernelError::malformed(
-                            "encoded object-property class rule lost its domain/range effect",
-                        ));
-                    }
+                let Some(PlannedRootShape::ObjectPropertyClass(projection)) = planned_shape else {
+                    return Err(KernelError::malformed(
+                        "encoded object-property class root lost its planned semantic shape",
+                    ));
                 };
-                if columns
-                    .object_property_class_projection(node_id, tag, maximum_iri)?
-                    .is_none()
-                {
+                if projection.is_none() {
                     let counter = match self.domain_range_effect {
                         RootDomainRangeEffect::Domain => {
                             &mut counts.ignored_object_property_domains
@@ -1874,12 +2153,15 @@ impl RootRule {
                         )
                     })?;
                 }
+                None
             }
             RootRuleHandler::ClassAssertion => {
-                if matches!(
-                    columns.class_assertion_projection(node_id, maximum_iri)?,
-                    ClassAssertionProjection::Ignored
-                ) {
+                let Some(PlannedRootShape::ClassAssertion(projection)) = planned_shape else {
+                    return Err(KernelError::malformed(
+                        "encoded class-assertion root lost its planned semantic shape",
+                    ));
+                };
+                if matches!(projection, ClassAssertionProjection::Ignored) {
                     counts.ignored_class_assertions = counts
                         .ignored_class_assertions
                         .checked_add(1)
@@ -1887,10 +2169,26 @@ impl RootRule {
                             KernelError::resource("encoded ignored-class-assertion count overflow")
                         })?;
                 }
+                None
             }
-            RootRuleHandler::ObjectPropertyAssertion => {}
+            RootRuleHandler::ObjectPropertyAssertion => {
+                if !matches!(
+                    planned_shape,
+                    Some(PlannedRootShape::ObjectPropertyAssertion { .. })
+                ) {
+                    return Err(KernelError::malformed(
+                        "encoded object-property assertion lost its planned semantic shape",
+                    ));
+                }
+                None
+            }
+        };
+        if matches!(self.role_effect, RootRoleEffect::None) != role_effect.is_none() {
+            return Err(KernelError::malformed(
+                "encoded structural root rule lost its planned role effect",
+            ));
         }
-        Ok(())
+        Ok((role_effect, planned_shape))
     }
 }
 
@@ -2030,6 +2328,7 @@ impl ObjectPropertyClassRulePlan {
         self,
         columns: DirectColumns<'a>,
         root: usize,
+        projection: Option<(&'a str, &'a str)>,
         context: LocalRuleContext,
         state: &AtomicU8,
     ) -> Result<Option<(ObjectPropertyClassRuleKind, &'a str, &'a str)>, KernelError> {
@@ -2041,11 +2340,6 @@ impl ObjectPropertyClassRulePlan {
                 self.root_rule.constructor,
             )));
         }
-        let projection = columns.object_property_class_projection(
-            root,
-            self.root_rule.tag,
-            context.max_iri_bytes,
-        )?;
         if self.ignored {
             if projection.is_some() {
                 return Err(KernelError::malformed(
@@ -2145,6 +2439,7 @@ impl LocalRoleRulePlan {
         self,
         columns: DirectColumns<'a>,
         root: usize,
+        planned_effect: Option<PlannedRoleEffect<'a>>,
         context: LocalRuleContext,
         state: &AtomicU8,
     ) -> Result<Option<RoleAxiom<'a>>, KernelError> {
@@ -2163,12 +2458,17 @@ impl LocalRoleRulePlan {
             self.root_rule.constructor,
             state,
         )?;
-        if self.mutates_role_state {
-            return columns
-                .role_axiom_row(root, self.root_rule.tag, context.max_iri_bytes, 0, 0)
-                .map(Some);
+        match (self.mutates_role_state, planned_effect) {
+            (true, Some(PlannedRoleEffect::Row(mut row))) => {
+                row.canonical_order = 0;
+                row.source_order = 0;
+                Ok(Some(row))
+            }
+            (false, Some(PlannedRoleEffect::PropertyChain)) => Ok(None),
+            _ => Err(KernelError::malformed(
+                "encoded local role root lost its planned semantic effect",
+            )),
         }
-        Ok(None)
     }
 
     fn apply_statistics(self, statistics: &mut DirectCompileStats) -> Result<(), KernelError> {
@@ -2539,6 +2839,44 @@ impl<'a> RoleState<'a> {
     }
 }
 
+fn build_role_state_from_rows<'a>(
+    mut rows: Vec<RoleAxiom<'a>>,
+    role_axiom_count: usize,
+    subrole_axioms: usize,
+    inverse_axioms: usize,
+    retained: Option<&OwnedRoleState>,
+    maximum_iri: usize,
+    state: &AtomicU8,
+) -> Result<RoleState<'a>, KernelError> {
+    let mut capacity = 16_usize;
+    while role_axiom_count > capacity / 4 * 3 {
+        capacity = capacity
+            .checked_mul(2)
+            .ok_or_else(|| KernelError::resource("encoded role-table capacity overflow"))?;
+    }
+    cancellable_sort_unstable_by(&mut rows, state, |left, right| {
+        (
+            (left.spread as usize) & (capacity - 1),
+            left.spread,
+            left.canonical_order,
+            left.source_order,
+        )
+            .cmp(&(
+                (right.spread as usize) & (capacity - 1),
+                right.spread,
+                right.canonical_order,
+                right.source_order,
+            ))
+    })?;
+    let mut role_state =
+        RoleState::with_capacity(retained, subrole_axioms, inverse_axioms, maximum_iri)?;
+    for (index, row) in rows.into_iter().enumerate() {
+        check_cancel(state, index)?;
+        role_state.apply(row)?;
+    }
+    Ok(role_state)
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 enum EmissionPhase {
     #[default]
@@ -2567,21 +2905,12 @@ enum PendingExpansion {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AggregatePhase {
-    Named,
-    Restrictions {
-        tag_index: usize,
-        item_offset: usize,
-    },
-}
-
 #[derive(Debug, Eq, PartialEq)]
 struct EquivalentAggregateCursor {
     source: String,
-    expression_id: usize,
-    phase: AggregatePhase,
-    previous_named: Option<(String, usize)>,
+    aggregate_plan_index: usize,
+    named_index: usize,
+    restriction_index: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2669,6 +2998,9 @@ enum OwnedOverlayDeltaProjection {
     IgnoredAnnotationAssertion {
         anonymous_individuals: usize,
     },
+    SilentRoot {
+        rule: RootRule,
+    },
     SilentDeclaration,
     SilentOntologyAnnotation,
     SilentSwrl,
@@ -2695,6 +3027,7 @@ impl OwnedOverlayDeltaProjection {
             | Self::SilentDeclaration
             | Self::SilentOntologyAnnotation
             | Self::SilentSwrl => EmissionPhase::ObjectAssertions,
+            Self::SilentRoot { rule } => rule.phase,
         }
     }
 
@@ -2702,6 +3035,7 @@ impl OwnedOverlayDeltaProjection {
         &self,
         role_state: &OwnedRoleState,
         options: DirectCompileOptions,
+        state: &AtomicU8,
     ) -> Result<(usize, usize), KernelError> {
         match self {
             Self::Taxonomy { .. } => Ok((
@@ -2740,7 +3074,8 @@ impl OwnedOverlayDeltaProjection {
                     .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
                 let mut role_expansion_edges = 0_usize;
                 if !options.only_taxonomy {
-                    for restriction in restrictions {
+                    for (restriction_index, restriction) in restrictions.iter().enumerate() {
+                        check_cancel(state, restriction_index)?;
                         let expanded = role_state.edge_count(&restriction.relation)?;
                         edges = edges
                             .checked_add(expanded)
@@ -2776,6 +3111,7 @@ impl OwnedOverlayDeltaProjection {
             | Self::IgnoredDataPropertyAssertion { .. }
             | Self::IgnoredIndividualSet { .. }
             | Self::IgnoredAnnotationAssertion { .. }
+            | Self::SilentRoot { .. }
             | Self::SilentDeclaration
             | Self::SilentOntologyAnnotation
             | Self::SilentSwrl => Ok((0, 0)),
@@ -3073,6 +3409,9 @@ impl OwnedOverlayDeltaProjection {
                         KernelError::resource("encoded anonymous-individual count overflow")
                     })?;
             }
+            Self::SilentRoot { rule } => {
+                rule.apply_statistics(statistics, options)?;
+            }
             Self::SilentDeclaration => {
                 statistics.declarations = statistics
                     .declarations
@@ -3105,14 +3444,33 @@ struct OwnedOverlayDelta {
     local_canonical_index: usize,
 }
 
-fn canonicalize_overlay_delta_plan(plan: &mut [OwnedOverlayDelta]) {
-    plan.sort_unstable_by_key(|delta| {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DynamicTailRootPlan<'a> {
+    table: usize,
+    root_index: usize,
+    node_id: usize,
+    rule: RootRule,
+    shape: Option<PlannedRootShape<'a>>,
+    insertion_scan_index: usize,
+    merged_canonical_index: usize,
+}
+
+fn canonicalize_overlay_delta_plan(
+    plan: &mut [OwnedOverlayDelta],
+    state: &AtomicU8,
+) -> Result<(), KernelError> {
+    cancellable_sort_unstable_by(plan, state, |left, right| {
         (
-            delta.projection.phase(),
-            delta.insertion_scan_index,
-            delta.local_canonical_index,
+            left.projection.phase(),
+            left.insertion_scan_index,
+            left.local_canonical_index,
         )
-    });
+            .cmp(&(
+                right.projection.phase(),
+                right.insertion_scan_index,
+                right.local_canonical_index,
+            ))
+    })
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -3121,6 +3479,71 @@ struct OwnedLocalObjectPropertyClass {
     property: String,
     class: String,
     insertion_position: usize,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct PreparedObjectPropertyClassOccurrence {
+    property: String,
+    kind: ObjectPropertyClassRuleKind,
+    local: bool,
+    merged_position: usize,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct PreparedObjectPropertyClassGroup {
+    property: String,
+    base_domains: usize,
+    base_ranges: usize,
+    local_domains: usize,
+    local_ranges: usize,
+    domain_positions: Vec<usize>,
+    range_positions: Vec<usize>,
+}
+
+impl PreparedObjectPropertyClassGroup {
+    fn new(property: String) -> Self {
+        Self {
+            property,
+            base_domains: 0,
+            base_ranges: 0,
+            local_domains: 0,
+            local_ranges: 0,
+            domain_positions: Vec::new(),
+            range_positions: Vec::new(),
+        }
+    }
+
+    fn push_occurrence(
+        &mut self,
+        kind: ObjectPropertyClassRuleKind,
+        local: bool,
+        merged_position: usize,
+        workspace: &mut LocalOverlayWorkspace,
+    ) -> Result<(), KernelError> {
+        let counter = match (kind, local) {
+            (ObjectPropertyClassRuleKind::Domain, false) => &mut self.base_domains,
+            (ObjectPropertyClassRuleKind::Range, false) => &mut self.base_ranges,
+            (ObjectPropertyClassRuleKind::Domain, true) => &mut self.local_domains,
+            (ObjectPropertyClassRuleKind::Range, true) => &mut self.local_ranges,
+        };
+        *counter = counter
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded domain/range count overflow"))?;
+        let positions = match kind {
+            ObjectPropertyClassRuleKind::Domain => &mut self.domain_positions,
+            ObjectPropertyClassRuleKind::Range => &mut self.range_positions,
+        };
+        workspace.push_owned(
+            positions,
+            merged_position,
+            "encoded domain/range span allocation failed",
+        )
+    }
+
+    fn has_pair(&self) -> bool {
+        (self.base_domains != 0 || self.local_domains != 0)
+            && (self.base_ranges != 0 || self.local_ranges != 0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3143,13 +3566,20 @@ struct CompositeNodeCoordinate {
 #[derive(Debug)]
 struct DirectPreparation {
     role_state: OwnedRoleState,
+    root_rule_indexes: Vec<u8>,
+    emission_roots: Vec<PlannedEmissionRoot>,
+    aggregate_roots: Vec<PlannedAggregateRoot>,
+    aggregate_emission_named_nodes: Vec<usize>,
+    aggregate_emission_restrictions: Vec<Option<PlannedRestrictionCoordinate>>,
     anonymous_ids: AnonymousIds,
     selected_annotation_nodes: Option<Vec<usize>>,
     composite_annotation_roots: Vec<CompositeRootCoordinate>,
     composite_class_nodes: Vec<CompositeNodeCoordinate>,
     composite_anonymous_nodes: Vec<CompositeNodeCoordinate>,
     overlay_deltas: Vec<OwnedOverlayDelta>,
-    local_object_property_classes: [Option<OwnedLocalObjectPropertyClass>; 2],
+    local_object_property_classes: Vec<OwnedLocalObjectPropertyClass>,
+    local_object_property_class_positions: Vec<usize>,
+    paired_object_property_class_groups: Vec<PreparedObjectPropertyClassGroup>,
     options: DirectCompileOptions,
     statistics: DirectCompileStats,
     #[cfg(test)]
@@ -3655,12 +4085,7 @@ impl<'a> DirectColumns<'a> {
     ) -> Result<bool, KernelError> {
         let start = self.exact_fields(root, 3)?;
         let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
-        if annotation_count != 0
-            || !matches!(
-                self.subclass_projection(root, maximum_iri)?,
-                SubclassProjection::Ignored
-            )
-        {
+        if annotation_count != 0 {
             return Ok(false);
         }
         let subclass = self.field_node(start)?;
@@ -3708,12 +4133,7 @@ impl<'a> DirectColumns<'a> {
     ) -> Result<bool, KernelError> {
         let start = self.exact_fields(root, 3)?;
         let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
-        if annotation_count != 0
-            || !matches!(
-                self.class_assertion_projection(root, maximum_iri)?,
-                ClassAssertionProjection::Ignored
-            )
-        {
+        if annotation_count != 0 {
             return Ok(false);
         }
         let class = self.field_node(start)?;
@@ -3815,7 +4235,14 @@ impl<'a> DirectColumns<'a> {
                     continue;
                 }
                 (ROOT_AXIOM, RootRuleHandler::Subclass) => {
-                    match self.subclass_projection(root, maximum_iri)? {
+                    let Some(PlannedRootShape::Subclass(projection)) =
+                        root_rule_plan.shape_at(root_index)
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded subclass root lost its planned semantic shape",
+                        ));
+                    };
+                    match projection {
                         SubclassProjection::Taxonomy { .. } => {}
                         SubclassProjection::Ignored
                             if construct_kind.is_none()
@@ -3846,12 +4273,21 @@ impl<'a> DirectColumns<'a> {
                             "encoded object-property class rule lost its domain/range effect",
                         )
                     })?;
-                    if !self.is_scope_mapped_ignored_object_property_class(
-                        root,
-                        rule.tag,
-                        Some(anonymous_node),
-                        maximum_iri,
-                    )? {
+                    let Some(PlannedRootShape::ObjectPropertyClass(projection)) =
+                        root_rule_plan.shape_at(root_index)
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded object-property class root lost its planned semantic shape",
+                        ));
+                    };
+                    if projection.is_some()
+                        || !self.is_scope_mapped_ignored_object_property_class(
+                            root,
+                            rule.tag,
+                            Some(anonymous_node),
+                            maximum_iri,
+                        )?
+                    {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires one unannotated ObjectPropertyDomain or ObjectPropertyRange with a named outer property and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
                         ));
@@ -3871,11 +4307,20 @@ impl<'a> DirectColumns<'a> {
                             "bounded anonymous-scope composite requires exactly one remapped construct per member",
                         ));
                     }
-                    if !self.is_scope_mapped_ignored_class_assertion(
-                        root,
-                        Some(anonymous_node),
-                        maximum_iri,
-                    )? {
+                    let Some(PlannedRootShape::ClassAssertion(projection)) =
+                        root_rule_plan.shape_at(root_index)
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded class-assertion root lost its planned semantic shape",
+                        ));
+                    };
+                    if !matches!(projection, ClassAssertionProjection::Ignored)
+                        || !self.is_scope_mapped_ignored_class_assertion(
+                            root,
+                            Some(anonymous_node),
+                            maximum_iri,
+                        )?
+                    {
                         return Err(KernelError::unsupported(
                             "bounded anonymous-scope composite requires one unannotated named-class assertion over its anonymous individual, singleton anonymous nominal over a named individual, or named-property ObjectHasValue with an anonymous value over a named individual",
                         ));
@@ -3891,8 +4336,16 @@ impl<'a> DirectColumns<'a> {
                     let start = self.exact_fields(root, 4)?;
                     let (_annotation_start, annotation_count) =
                         self.node_set_range(start + 3, 0)?;
-                    let (source, _relation, destination) =
-                        self.object_property_assertion_parts(root, maximum_iri)?;
+                    let Some(PlannedRootShape::ObjectPropertyAssertion {
+                        source,
+                        destination,
+                        ..
+                    }) = root_rule_plan.shape_at(root_index)
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded object-property assertion lost its planned semantic shape",
+                        ));
+                    };
                     if annotation_count != 0
                         || !matches!(
                             (source, destination),
@@ -4061,7 +4514,7 @@ impl<'a> DirectColumns<'a> {
     fn validate_scope_mapped_neutral_table(
         self,
         root_rule_plan: &SelectedRootRulePlan,
-        maximum_iri: usize,
+        _maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<(), KernelError> {
         if !self.included_root_ids.is_empty()
@@ -4096,8 +4549,10 @@ impl<'a> DirectColumns<'a> {
                 ));
             }
             if !matches!(
-                self.subclass_projection(root, maximum_iri)?,
-                SubclassProjection::Taxonomy { .. }
+                root_rule_plan.shape_at(root_index),
+                Some(PlannedRootShape::Subclass(
+                    SubclassProjection::Taxonomy { .. }
+                ))
             ) {
                 return Err(KernelError::unsupported(
                     "bounded anonymous-scope neutral table supports only named SubClassOf roots",
@@ -5313,6 +5768,89 @@ impl<'a> DirectColumns<'a> {
         Ok(Some((relation, self.named_class_iri(filler_id, maximum)?)))
     }
 
+    fn planned_restriction_coordinate(
+        self,
+        node_id: usize,
+    ) -> Result<PlannedRestrictionCoordinate, KernelError> {
+        let (property_index, filler_index) = match self.node_tag(node_id)? {
+            TAG_OBJECT_SOME_VALUES_FROM | TAG_OBJECT_ALL_VALUES_FROM => {
+                let start = self.exact_fields(node_id, 2)?;
+                (start, start + 1)
+            }
+            TAG_OBJECT_MIN_CARDINALITY | TAG_OBJECT_MAX_CARDINALITY => {
+                let start = self.exact_fields(node_id, 3)?;
+                (start + 1, start + 2)
+            }
+            _ => {
+                return Err(KernelError::malformed(
+                    "encoded planned restriction has the wrong constructor tag",
+                ));
+            }
+        };
+        let property_expression = self.field_node(property_index)?;
+        let property_node = match self.node_tag(property_expression)? {
+            TAG_ENTITY => property_expression,
+            TAG_OBJECT_INVERSE_OF => {
+                let start = self.exact_fields(property_expression, 1)?;
+                self.field_node(start)?
+            }
+            _ => {
+                return Err(KernelError::malformed(
+                    "encoded planned restriction property changed after classification",
+                ));
+            }
+        };
+        Ok(PlannedRestrictionCoordinate {
+            property_node,
+            filler_node: self.field_node(filler_index)?,
+        })
+    }
+
+    fn planned_individual_coordinate(
+        self,
+        value: IndividualValue<'_>,
+        node_id: usize,
+    ) -> Result<PlannedIndividualCoordinate, KernelError> {
+        match value {
+            IndividualValue::Named(_) if self.node_tag(node_id)? == TAG_ENTITY => {
+                Ok(PlannedIndividualCoordinate::Named(node_id))
+            }
+            IndividualValue::Anonymous(expected)
+                if expected == node_id && self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL =>
+            {
+                Ok(PlannedIndividualCoordinate::Anonymous(node_id))
+            }
+            _ => Err(KernelError::malformed(
+                "encoded planned individual changed after classification",
+            )),
+        }
+    }
+
+    fn planned_restriction_parts(
+        self,
+        coordinate: PlannedRestrictionCoordinate,
+        maximum: usize,
+    ) -> Result<(&'a str, &'a str), KernelError> {
+        Ok((
+            self.named_object_property_iri(coordinate.property_node, maximum)?,
+            self.named_class_iri(coordinate.filler_node, maximum)?,
+        ))
+    }
+
+    fn render_planned_individual(
+        self,
+        coordinate: PlannedIndividualCoordinate,
+        anonymous_ids: &AnonymousIds,
+        maximum: usize,
+    ) -> Result<String, KernelError> {
+        match coordinate {
+            PlannedIndividualCoordinate::Named(node_id) => {
+                clone_text(self.named_individual_iri(node_id, maximum)?)
+            }
+            PlannedIndividualCoordinate::Anonymous(node_id) => anonymous_ids.render(node_id),
+        }
+    }
+
     fn validate_facet_restriction(self, node_id: usize, maximum: usize) -> Result<(), KernelError> {
         if self.node_tag(node_id)? != TAG_FACET_RESTRICTION {
             return Err(KernelError::malformed(
@@ -5968,10 +6506,13 @@ impl<'a> DirectColumns<'a> {
         match self.node_tag(second_id)? {
             TAG_ENTITY => Ok(EquivalentProjection::Pair {
                 source,
+                source_node: first_id,
                 destination: self.named_class_iri(second_id, maximum)?,
+                destination_node: second_id,
             }),
             tag if is_aggregate_tag(tag) => Ok(EquivalentProjection::Aggregate {
                 source,
+                source_node: first_id,
                 expression_id: second_id,
             }),
             _ => Ok(EquivalentProjection::Ignored),
@@ -6034,7 +6575,9 @@ impl<'a> DirectColumns<'a> {
         if named_class && named_individual {
             Ok(ClassAssertionProjection::Edge {
                 individual: self.named_individual_iri(individual_id, maximum)?,
+                individual_node: individual_id,
                 class: self.named_class_iri(class_id, maximum)?,
+                class_node: class_id,
             })
         } else {
             Ok(ClassAssertionProjection::Ignored)
@@ -6574,23 +7117,13 @@ impl<'a> DirectColumns<'a> {
         self.validate_data_range_graph(maximum_iri, state)
     }
 
+    #[cfg(test)]
     fn classify_roots(
         self,
         maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<RootCounts, KernelError> {
-        let mut counts = RootCounts::default();
-        for index in 0..self.root_count() {
-            check_cancel(state, index)?;
-            if !self.root_is_selected(index)? {
-                continue;
-            }
-            let kind = self.root_kind(index)?;
-            let node_id = self.root_id(index)?;
-            let tag = self.node_tag(node_id)?;
-            RootRule::resolve(kind, tag)?.classify(self, node_id, maximum_iri, &mut counts)?;
-        }
-        Ok(counts)
+        Ok(resolve_selected_root_rule_plan_unbounded(self, maximum_iri, state)?.counts)
     }
 
     fn build_role_state(
@@ -6599,7 +7132,7 @@ impl<'a> DirectColumns<'a> {
         maximum_iri: usize,
         state: &AtomicU8,
         retained: Option<&OwnedRoleState>,
-        root_rule_plan: Option<&SelectedRootRulePlan>,
+        root_rule_plan: &SelectedRootRulePlan<'a>,
         local_axiom: Option<RoleAxiom<'a>>,
     ) -> Result<RoleState<'a>, KernelError> {
         let role_axiom_count = counts
@@ -6609,35 +7142,12 @@ impl<'a> DirectColumns<'a> {
         let mut rows = Vec::new();
         rows.try_reserve_exact(role_axiom_count)
             .map_err(|_| KernelError::resource("encoded role-row allocation failed"))?;
-        for canonical_order in 0..self.root_count() {
-            check_cancel(state, canonical_order)?;
-            if !self.root_is_selected(canonical_order)? {
-                continue;
+        for (index, planned) in root_rule_plan.role_roots.iter().copied().enumerate() {
+            check_cancel(state, index)?;
+            match planned.effect {
+                PlannedRoleEffect::PropertyChain => {}
+                PlannedRoleEffect::Row(row) => rows.push(row),
             }
-            let node_id = self.root_id(canonical_order)?;
-            let (tag, role_effect) = if let Some(plan) = root_rule_plan {
-                let rule = plan.rule_at(canonical_order)?;
-                if self.node_tag(node_id)? != rule.tag {
-                    return Err(KernelError::malformed(
-                        "encoded selected root changed after structural rule preflight",
-                    ));
-                }
-                (rule.tag, rule.role_effect)
-            } else {
-                let tag = self.node_tag(node_id)?;
-                let rule = RootRule::resolve(self.root_kind(canonical_order)?, tag)?;
-                (rule.tag, rule.role_effect)
-            };
-            match role_effect {
-                RootRoleEffect::None => continue,
-                RootRoleEffect::SubPropertyOrChain
-                    if self.validate_sub_object_property_of(node_id, maximum_iri)? =>
-                {
-                    continue;
-                }
-                RootRoleEffect::SubPropertyOrChain | RootRoleEffect::InverseProperties => {}
-            }
-            rows.push(self.role_axiom_row(node_id, tag, maximum_iri, canonical_order, 1)?);
         }
         if let Some(local_axiom) = local_axiom {
             rows.push(local_axiom);
@@ -6652,27 +7162,14 @@ impl<'a> DirectColumns<'a> {
                 "encoded role-axiom count changed after successful preflight",
             ));
         }
-        let mut capacity = 16_usize;
-        while role_axiom_count > capacity / 4 * 3 {
-            capacity = capacity
-                .checked_mul(2)
-                .ok_or_else(|| KernelError::resource("encoded role-table capacity overflow"))?;
-        }
-        rows.sort_unstable_by_key(|row| {
-            (
-                (row.spread as usize) & (capacity - 1),
-                row.spread,
-                row.canonical_order,
-                row.source_order,
-            )
-        });
         let local_subrole_axioms =
             usize::from(local_axiom.is_some_and(|axiom| axiom.tag == TAG_SUB_OBJECT_PROPERTY_OF));
         let local_inverse_axioms = usize::from(
             local_axiom.is_some_and(|axiom| axiom.tag == TAG_INVERSE_OBJECT_PROPERTIES),
         );
-        let mut role_state = RoleState::with_capacity(
-            retained,
+        build_role_state_from_rows(
+            rows,
+            role_axiom_count,
             counts
                 .sub_object_properties
                 .checked_sub(counts.object_property_chains)
@@ -6682,13 +7179,10 @@ impl<'a> DirectColumns<'a> {
                 .inverse_object_properties
                 .checked_add(local_inverse_axioms)
                 .ok_or_else(|| KernelError::resource("encoded inverse-role capacity overflow"))?,
+            retained,
             maximum_iri,
-        )?;
-        for (index, row) in rows.into_iter().enumerate() {
-            check_cancel(state, index)?;
-            role_state.apply(row)?;
-        }
-        Ok(role_state)
+            state,
+        )
     }
 
     fn aggregate_operand_range(self, node_id: usize) -> Result<(usize, usize), KernelError> {
@@ -6702,10 +7196,11 @@ impl<'a> DirectColumns<'a> {
 
     fn equivalent_edge_counts(
         self,
+        root_rule_plan: &SelectedRootRulePlan<'a>,
         role_state: &RoleState<'a>,
         directions: usize,
         only_taxonomy: bool,
-        maximum_iri: usize,
+        _maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<EquivalentEdgeCounts, KernelError> {
         let mut counts = EquivalentEdgeCounts::default();
@@ -6714,81 +7209,76 @@ impl<'a> DirectColumns<'a> {
             if !self.root_is_selected(root_index)? {
                 continue;
             }
-            let node_id = self.root_id(root_index)?;
-            if self.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
+            if root_rule_plan.rule_at(root_index)?.handler != RootRuleHandler::EquivalentClasses {
                 continue;
             }
-            match self.equivalent_projection(node_id, maximum_iri)? {
+            let Some(PlannedRootShape::Equivalent(projection)) =
+                root_rule_plan.shape_at(root_index)
+            else {
+                return Err(KernelError::malformed(
+                    "encoded equivalent root lost its planned semantic shape",
+                ));
+            };
+            match projection {
                 EquivalentProjection::Pair { .. } => {
                     counts.edges = counts.edges.checked_add(directions).ok_or_else(|| {
                         KernelError::resource("encoded equivalent edge-count overflow")
                     })?;
                 }
-                EquivalentProjection::Aggregate { expression_id, .. } => {
-                    let (item_start, length) = self.aggregate_operand_range(expression_id)?;
-                    for item_index in item_start..item_start + length {
-                        check_cancel(state, item_index)?;
-                        let operand_id = self.item_node(item_index)?;
-                        match self.node_tag(operand_id)? {
-                            TAG_ENTITY => {
-                                self.named_class_iri(operand_id, maximum_iri)?;
-                                counts.edges =
-                                    counts.edges.checked_add(directions).ok_or_else(|| {
-                                        KernelError::resource(
-                                            "encoded aggregate taxonomy edge-count overflow",
-                                        )
-                                    })?;
-                            }
-                            tag if is_restriction_tag(tag) && !only_taxonomy => {
-                                let Some((relation, _destination)) =
-                                    self.restriction_projection(operand_id, maximum_iri)?
-                                else {
-                                    counts.ignored_shapes =
-                                        counts.ignored_shapes.checked_add(1).ok_or_else(|| {
-                                            KernelError::resource(
-                                                "encoded equivalent ignored-shape count overflow",
-                                            )
-                                        })?;
-                                    continue;
-                                };
-                                let expanded = role_state.edge_count(relation)?;
-                                counts.edges =
-                                    counts.edges.checked_add(expanded).ok_or_else(|| {
-                                        KernelError::resource(
-                                            "encoded aggregate restriction edge-count overflow",
-                                        )
-                                    })?;
-                                counts.base_role_edges =
-                                    counts.base_role_edges.checked_add(1).ok_or_else(|| {
-                                        KernelError::resource(
-                                            "encoded aggregate base-role count overflow",
-                                        )
-                                    })?;
-                                counts.expanded_role_edges = counts
-                                    .expanded_role_edges
-                                    .checked_add(expanded)
-                                    .ok_or_else(|| {
-                                        KernelError::resource(
-                                            "encoded aggregate expanded-role count overflow",
-                                        )
-                                    })?;
-                            }
-                            tag if is_restriction_tag(tag) => {}
-                            tag if is_nonprojecting_class_tag(tag) || is_aggregate_tag(tag) => {
-                                if !only_taxonomy {
-                                    counts.ignored_shapes =
-                                        counts.ignored_shapes.checked_add(1).ok_or_else(|| {
-                                            KernelError::resource(
-                                                "encoded equivalent ignored-shape count overflow",
-                                            )
-                                        })?;
-                                }
-                            }
-                            _ => {
-                                return Err(KernelError::malformed(
-                                    "encoded aggregate operand changed after successful preflight",
-                                ));
-                            }
+                EquivalentProjection::Aggregate { .. } => {
+                    let aggregate = root_rule_plan.aggregate_at(root_index).ok_or_else(|| {
+                        KernelError::malformed(
+                            "encoded aggregate equivalent lost its planned operands",
+                        )
+                    })?;
+                    for (operand_index, _operand) in root_rule_plan
+                        .aggregate_named_operands(aggregate)?
+                        .iter()
+                        .enumerate()
+                    {
+                        check_cancel(state, operand_index)?;
+                        counts.edges = counts.edges.checked_add(directions).ok_or_else(|| {
+                            KernelError::resource("encoded aggregate taxonomy edge-count overflow")
+                        })?;
+                    }
+                    if !only_taxonomy {
+                        counts.ignored_shapes = counts
+                            .ignored_shapes
+                            .checked_add(aggregate.ignored_shapes)
+                            .ok_or_else(|| {
+                                KernelError::resource(
+                                    "encoded equivalent ignored-shape count overflow",
+                                )
+                            })?;
+                        for (restriction_index, operand) in root_rule_plan
+                            .aggregate_restriction_operands(aggregate)?
+                            .iter()
+                            .enumerate()
+                        {
+                            check_cancel(state, restriction_index)?;
+                            let Some((relation, _destination)) = operand.projection else {
+                                continue;
+                            };
+                            let expanded = role_state.edge_count(relation)?;
+                            counts.edges = counts.edges.checked_add(expanded).ok_or_else(|| {
+                                KernelError::resource(
+                                    "encoded aggregate restriction edge-count overflow",
+                                )
+                            })?;
+                            counts.base_role_edges =
+                                counts.base_role_edges.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded aggregate base-role count overflow",
+                                    )
+                                })?;
+                            counts.expanded_role_edges = counts
+                                .expanded_role_edges
+                                .checked_add(expanded)
+                                .ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded aggregate expanded-role count overflow",
+                                    )
+                                })?;
                         }
                     }
                 }
@@ -6805,6 +7295,7 @@ impl<'a> DirectColumns<'a> {
 
     fn annotation_edge_counts(
         self,
+        root_rule_indexes: &[u8],
         maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<AnnotationEdgeCounts, KernelError> {
@@ -6815,7 +7306,9 @@ impl<'a> DirectColumns<'a> {
                 continue;
             }
             let node_id = self.root_id(root_index)?;
-            if self.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
+            if resolved_root_rule_at(root_rule_indexes, root_index)?.handler
+                != RootRuleHandler::AnnotationAssertion
+            {
                 continue;
             }
             let Some(projection) = self.annotation_projection(node_id, maximum_iri, state)? else {
@@ -7036,7 +7529,9 @@ impl<'a> DirectColumns<'a> {
     /// forged root selection that is not a subset of the closure.
     fn select_root_annotation_nodes(
         self,
+        closure_rule_indexes: &[u8],
         root_columns: DirectColumns<'_>,
+        root_rule_indexes: &[u8],
         state: &AtomicU8,
     ) -> Result<Vec<usize>, KernelError> {
         let mut selected = Vec::new();
@@ -7046,11 +7541,9 @@ impl<'a> DirectColumns<'a> {
             if !root_columns.root_is_selected(root_index)? {
                 continue;
             }
-            if root_columns.root_kind(root_index)? != ROOT_AXIOM {
-                continue;
-            }
+            let root_rule = resolved_root_rule_at(root_rule_indexes, root_index)?;
             let root_node = root_columns.root_id(root_index)?;
-            if root_columns.node_tag(root_node)? != TAG_ANNOTATION_ASSERTION {
+            if root_rule.handler != RootRuleHandler::AnnotationAssertion {
                 continue;
             }
 
@@ -7061,11 +7554,9 @@ impl<'a> DirectColumns<'a> {
                 if !self.root_is_selected(candidate_index)? {
                     continue;
                 }
-                if self.root_kind(candidate_index)? != ROOT_AXIOM {
-                    continue;
-                }
                 let candidate = self.root_id(candidate_index)?;
-                if self.node_tag(candidate)? == TAG_ANNOTATION_ASSERTION
+                if resolved_root_rule_at(closure_rule_indexes, candidate_index)?.handler
+                    == RootRuleHandler::AnnotationAssertion
                     && self.structurally_equal_node(candidate, root_columns, root_node, state)?
                 {
                     matched = Some(candidate);
@@ -7085,38 +7576,10 @@ impl<'a> DirectColumns<'a> {
         Ok(selected)
     }
 
-    fn next_named_aggregate_operand<'b>(
-        self,
-        expression_id: usize,
-        after: Option<(&'b str, usize)>,
-        maximum_iri: usize,
-        state: &AtomicU8,
-    ) -> Result<Option<(&'a str, usize)>, KernelError> {
-        let (item_start, length) = self.aggregate_operand_range(expression_id)?;
-        let mut next: Option<(&str, usize)> = None;
-        for item_index in item_start..item_start + length {
-            check_cancel(state, item_index)?;
-            let operand_id = self.item_node(item_index)?;
-            if self.node_tag(operand_id)? != TAG_ENTITY {
-                continue;
-            }
-            let iri = self.named_class_iri(operand_id, maximum_iri)?;
-            let key = (iri.as_bytes(), operand_id);
-            if after
-                .is_some_and(|(previous, previous_id)| key <= (previous.as_bytes(), previous_id))
-                || next.is_some_and(|(current, current_id)| key >= (current.as_bytes(), current_id))
-            {
-                continue;
-            }
-            next = Some((iri, operand_id));
-        }
-        Ok(next)
-    }
-
     fn restriction_role_edge_count(
         self,
+        root_rule_plan: &SelectedRootRulePlan<'a>,
         role_state: &RoleState<'a>,
-        maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<usize, KernelError> {
         let mut count = 0_usize;
@@ -7125,13 +7588,16 @@ impl<'a> DirectColumns<'a> {
             if !self.root_is_selected(index)? {
                 continue;
             }
-            let node_id = self.root_id(index)?;
-            if self.node_tag(node_id)? != TAG_SUB_CLASS_OF {
+            if root_rule_plan.rule_at(index)?.handler != RootRuleHandler::Subclass {
                 continue;
             }
-            if let SubclassProjection::Restriction { relation, .. } =
-                self.subclass_projection(node_id, maximum_iri)?
-            {
+            let Some(PlannedRootShape::Subclass(projection)) = root_rule_plan.shape_at(index)
+            else {
+                return Err(KernelError::malformed(
+                    "encoded subclass root lost its planned semantic shape",
+                ));
+            };
+            if let SubclassProjection::Restriction { relation, .. } = projection {
                 count = count
                     .checked_add(role_state.edge_count(relation)?)
                     .ok_or_else(|| {
@@ -7144,8 +7610,8 @@ impl<'a> DirectColumns<'a> {
 
     fn domain_range_edge_count(
         self,
+        root_rule_plan: &SelectedRootRulePlan<'a>,
         role_state: &RoleState<'a>,
-        maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<(usize, usize), KernelError> {
         let mut products = 0_usize;
@@ -7155,16 +7621,18 @@ impl<'a> DirectColumns<'a> {
             if !self.root_is_selected(domain_index)? {
                 continue;
             }
-            let domain_id = self.root_id(domain_index)?;
-            if self.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
+            let domain_rule = root_rule_plan.rule_at(domain_index)?;
+            if domain_rule.domain_range_effect != RootDomainRangeEffect::Domain {
                 continue;
             }
-            let Some((domain_property, _domain)) = self.object_property_class_projection(
-                domain_id,
-                TAG_OBJECT_PROPERTY_DOMAIN,
-                maximum_iri,
-            )?
+            let Some(PlannedRootShape::ObjectPropertyClass(domain_projection)) =
+                root_rule_plan.shape_at(domain_index)
             else {
+                return Err(KernelError::malformed(
+                    "encoded object-property domain lost its planned semantic shape",
+                ));
+            };
+            let Some((domain_property, _domain)) = domain_projection else {
                 continue;
             };
             for range_index in 0..self.root_count() {
@@ -7172,16 +7640,18 @@ impl<'a> DirectColumns<'a> {
                 if !self.root_is_selected(range_index)? {
                     continue;
                 }
-                let range_id = self.root_id(range_index)?;
-                if self.node_tag(range_id)? != TAG_OBJECT_PROPERTY_RANGE {
+                let range_rule = root_rule_plan.rule_at(range_index)?;
+                if range_rule.domain_range_effect != RootDomainRangeEffect::Range {
                     continue;
                 }
-                let Some((range_property, _range)) = self.object_property_class_projection(
-                    range_id,
-                    TAG_OBJECT_PROPERTY_RANGE,
-                    maximum_iri,
-                )?
+                let Some(PlannedRootShape::ObjectPropertyClass(range_projection)) =
+                    root_rule_plan.shape_at(range_index)
                 else {
+                    return Err(KernelError::malformed(
+                        "encoded object-property range lost its planned semantic shape",
+                    ));
+                };
+                let Some((range_property, _range)) = range_projection else {
                     continue;
                 };
                 if domain_property == range_property {
@@ -7198,167 +7668,314 @@ impl<'a> DirectColumns<'a> {
         }
         Ok((products, edges))
     }
-
-    fn next_paired_property(
-        self,
-        after: Option<&str>,
-        maximum_iri: usize,
-        state: &AtomicU8,
-    ) -> Result<Option<&'a str>, KernelError> {
-        let mut next: Option<&str> = None;
-        for domain_index in 0..self.root_count() {
-            check_cancel(state, domain_index)?;
-            if !self.root_is_selected(domain_index)? {
-                continue;
-            }
-            let domain_id = self.root_id(domain_index)?;
-            if self.node_tag(domain_id)? != TAG_OBJECT_PROPERTY_DOMAIN {
-                continue;
-            }
-            let Some((property, _domain)) = self.object_property_class_projection(
-                domain_id,
-                TAG_OBJECT_PROPERTY_DOMAIN,
-                maximum_iri,
-            )?
-            else {
-                continue;
-            };
-            if after.is_some_and(|previous| property.as_bytes() <= previous.as_bytes())
-                || next.is_some_and(|current| property.as_bytes() >= current.as_bytes())
-                || !self.has_object_property_class_for_property(
-                    TAG_OBJECT_PROPERTY_RANGE,
-                    property,
-                    maximum_iri,
-                    state,
-                )?
-            {
-                continue;
-            }
-            next = Some(property);
-        }
-        Ok(next)
-    }
-
-    fn has_object_property_class_for_property(
-        self,
-        expected_tag: u16,
-        property: &str,
-        maximum_iri: usize,
-        state: &AtomicU8,
-    ) -> Result<bool, KernelError> {
-        if ![TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&expected_tag) {
-            return Err(KernelError::malformed(
-                "encoded object-property class match has the wrong constructor tag",
-            ));
-        }
-        for root_index in 0..self.root_count() {
-            check_cancel(state, root_index)?;
-            if !self.root_is_selected(root_index)? {
-                continue;
-            }
-            let node_id = self.root_id(root_index)?;
-            if self.node_tag(node_id)? != expected_tag {
-                continue;
-            }
-            let Some((candidate, _class)) =
-                self.object_property_class_projection(node_id, expected_tag, maximum_iri)?
-            else {
-                continue;
-            };
-            if candidate == property {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    fn object_property_class_match_count(
-        self,
-        expected_tag: u16,
-        property: &str,
-        maximum_iri: usize,
-        state: &AtomicU8,
-    ) -> Result<usize, KernelError> {
-        if ![TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&expected_tag) {
-            return Err(KernelError::malformed(
-                "encoded object-property class count has the wrong constructor tag",
-            ));
-        }
-        let mut count = 0_usize;
-        for root_index in 0..self.root_count() {
-            check_cancel(state, root_index)?;
-            if !self.root_is_selected(root_index)? {
-                continue;
-            }
-            let node_id = self.root_id(root_index)?;
-            if self.node_tag(node_id)? != expected_tag {
-                continue;
-            }
-            let Some((candidate, _class)) =
-                self.object_property_class_projection(node_id, expected_tag, maximum_iri)?
-            else {
-                continue;
-            };
-            if candidate == property {
-                count = count.checked_add(1).ok_or_else(|| {
-                    KernelError::resource("encoded object-property class count overflow")
-                })?;
-            }
-        }
-        Ok(count)
-    }
 }
 
 impl DirectPreparation {
+    fn root_rule_at(&self, root_index: usize) -> Result<RootRule, KernelError> {
+        resolved_root_rule_at(&self.root_rule_indexes, root_index)
+    }
+
+    fn emission_shape_at(&self, root_index: usize) -> Option<PlannedEmissionShape> {
+        self.emission_roots
+            .binary_search_by_key(&root_index, |planned| planned.root_index)
+            .ok()
+            .map(|index| self.emission_roots[index].shape)
+    }
+
+    fn aggregate_emission_at(
+        &self,
+        aggregate_plan_index: usize,
+    ) -> Result<&PlannedAggregateRoot, KernelError> {
+        self.aggregate_roots
+            .get(aggregate_plan_index)
+            .ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded aggregate emission cursor lost its planned operands",
+                )
+            })
+    }
+
+    fn aggregate_emission_named_nodes(
+        &self,
+        aggregate: &PlannedAggregateRoot,
+    ) -> Result<&[usize], KernelError> {
+        checked_plan_slice(
+            &self.aggregate_emission_named_nodes,
+            aggregate.named,
+            "encoded aggregate named-emission plan is out of bounds",
+        )
+    }
+
+    fn aggregate_emission_restrictions(
+        &self,
+        aggregate: &PlannedAggregateRoot,
+    ) -> Result<&[Option<PlannedRestrictionCoordinate>], KernelError> {
+        checked_plan_slice(
+            &self.aggregate_emission_restrictions,
+            aggregate.restrictions,
+            "encoded aggregate restriction-emission plan is out of bounds",
+        )
+    }
+
+    fn prepare_local_object_property_class_index(
+        &mut self,
+        columns: DirectColumns<'_>,
+        state: &AtomicU8,
+        workspace: &mut LocalOverlayWorkspace,
+    ) -> Result<(), KernelError> {
+        let local_count = self.local_object_property_classes.len();
+        if local_count == 0 {
+            self.local_object_property_class_positions.clear();
+            self.paired_object_property_class_groups.clear();
+            return Ok(());
+        }
+
+        let scan_len = columns
+            .root_count()
+            .checked_add(local_count)
+            .ok_or_else(|| KernelError::resource("encoded local domain/range scan overflow"))?;
+        let mut positions = workspace.reserve_owned::<usize>(
+            local_count,
+            "encoded local domain/range position-index allocation failed",
+        )?;
+        for local_index in 0..local_count {
+            check_cancel(state, local_index)?;
+            positions.push(local_index);
+        }
+        cancellable_sort_unstable_by(&mut positions, state, |left, right| {
+            self.local_object_property_classes[*left]
+                .insertion_position
+                .cmp(&self.local_object_property_classes[*right].insertion_position)
+                .then_with(|| left.cmp(right))
+        })?;
+        let mut previous_position = None;
+        for (position_index, local_index) in positions.iter().copied().enumerate() {
+            check_cancel(state, position_index)?;
+            let insertion_position = self
+                .local_object_property_classes
+                .get(local_index)
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded local domain/range position index is out of bounds",
+                    )
+                })?
+                .insertion_position;
+            if insertion_position >= scan_len {
+                return Err(KernelError::malformed(
+                    "encoded local domain/range insertion is out of range",
+                ));
+            }
+            if previous_position == Some(insertion_position) {
+                return Err(KernelError::malformed(
+                    "encoded local domain/range insertions share one merged position",
+                ));
+            }
+            previous_position = Some(insertion_position);
+        }
+
+        let maximum_occurrences = columns
+            .root_count()
+            .checked_add(local_count)
+            .ok_or_else(|| KernelError::resource("encoded domain/range group-count overflow"))?;
+        let mut occurrences = workspace.reserve_owned::<PreparedObjectPropertyClassOccurrence>(
+            maximum_occurrences,
+            "encoded domain/range occurrence-index allocation failed",
+        )?;
+        let mut local_position_cursor = 0_usize;
+        let mut merged_position = 0_usize;
+        for root_index in 0..columns.root_count() {
+            check_cancel(state, root_index)?;
+            while let Some(local_index) = positions.get(local_position_cursor).copied() {
+                check_cancel(state, local_position_cursor)?;
+                let local_position =
+                    self.local_object_property_classes[local_index].insertion_position;
+                if local_position != merged_position {
+                    break;
+                }
+                local_position_cursor = local_position_cursor.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local domain/range position-index overflow")
+                })?;
+                merged_position = merged_position.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded local domain/range position overflow")
+                })?;
+            }
+            let root_position = merged_position;
+            merged_position = merged_position.checked_add(1).ok_or_else(|| {
+                KernelError::resource("encoded local domain/range position overflow")
+            })?;
+            let Some((kind, property, _class)) =
+                self.base_object_property_class_at(columns, root_index)?
+            else {
+                continue;
+            };
+            occurrences.push(PreparedObjectPropertyClassOccurrence {
+                property: workspace.clone_text(property)?,
+                kind,
+                local: false,
+                merged_position: root_position,
+            });
+        }
+        for (local_index, local) in self.local_object_property_classes.iter().enumerate() {
+            check_cancel(state, local_index)?;
+            occurrences.push(PreparedObjectPropertyClassOccurrence {
+                property: workspace.clone_text(&local.property)?,
+                kind: local.kind,
+                local: true,
+                merged_position: local.insertion_position,
+            });
+        }
+        cancellable_sort_unstable_by(&mut occurrences, state, |left, right| {
+            left.property
+                .as_bytes()
+                .cmp(right.property.as_bytes())
+                .then_with(|| left.merged_position.cmp(&right.merged_position))
+        })?;
+
+        let mut groups = workspace.reserve_owned::<PreparedObjectPropertyClassGroup>(
+            maximum_occurrences,
+            "encoded domain/range property-index allocation failed",
+        )?;
+        let mut occurrence_iterator = occurrences.into_iter().peekable();
+        let mut group_index = 0_usize;
+        let mut grouped_occurrences = 0_usize;
+        while let Some(first) = occurrence_iterator.next() {
+            check_cancel(state, grouped_occurrences)?;
+            grouped_occurrences = grouped_occurrences.checked_add(1).ok_or_else(|| {
+                KernelError::resource("encoded domain/range occurrence-count overflow")
+            })?;
+            let PreparedObjectPropertyClassOccurrence {
+                property,
+                kind,
+                local,
+                merged_position,
+            } = first;
+            let mut group = PreparedObjectPropertyClassGroup::new(property);
+            group.push_occurrence(kind, local, merged_position, workspace)?;
+            while occurrence_iterator
+                .peek()
+                .is_some_and(|next| next.property == group.property)
+            {
+                check_cancel(state, grouped_occurrences)?;
+                grouped_occurrences = grouped_occurrences.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded domain/range occurrence-count overflow")
+                })?;
+                let next = occurrence_iterator.next().ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded domain/range occurrence group ended unexpectedly",
+                    )
+                })?;
+                group.push_occurrence(next.kind, next.local, next.merged_position, workspace)?;
+            }
+            if group.has_pair() {
+                groups.push(group);
+            }
+            group_index = group_index.checked_add(1).ok_or_else(|| {
+                KernelError::resource("encoded domain/range group-count overflow")
+            })?;
+        }
+
+        self.local_object_property_class_positions = positions;
+        self.paired_object_property_class_groups = groups;
+        Ok(())
+    }
+
     fn next_paired_property<'a>(
         &'a self,
         columns: DirectColumns<'a>,
         after: Option<&str>,
         state: &AtomicU8,
     ) -> Result<Option<&'a str>, KernelError> {
-        let base = columns.next_paired_property(after, self.options.max_iri_bytes, state)?;
-        let mut local_candidate = None;
-        for local in self.local_object_property_classes.iter().flatten() {
-            if after.is_some_and(|previous| local.property.as_bytes() <= previous.as_bytes()) {
-                continue;
+        if !self.local_object_property_classes.is_empty() {
+            if self.local_object_property_class_positions.len()
+                != self.local_object_property_classes.len()
+            {
+                return Err(KernelError::malformed(
+                    "encoded local domain/range position index was not prepared",
+                ));
             }
-            let counterpart_kind = match local.kind {
-                ObjectPropertyClassRuleKind::Domain => ObjectPropertyClassRuleKind::Range,
-                ObjectPropertyClassRuleKind::Range => ObjectPropertyClassRuleKind::Domain,
+            let mut lower = 0_usize;
+            let mut upper = self.paired_object_property_class_groups.len();
+            if let Some(previous) = after {
+                let mut step = 0_usize;
+                while lower < upper {
+                    check_cancel(state, step)?;
+                    step = step.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded domain/range search-work overflow")
+                    })?;
+                    let middle = lower + (upper - lower) / 2;
+                    if self.paired_object_property_class_groups[middle]
+                        .property
+                        .as_bytes()
+                        <= previous.as_bytes()
+                    {
+                        lower = middle.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded domain/range search index overflow")
+                        })?;
+                    } else {
+                        upper = middle;
+                    }
+                }
+            }
+            return Ok(self
+                .paired_object_property_class_groups
+                .get(lower)
+                .map(|group| group.property.as_str()));
+        }
+
+        let mut base = None;
+        for root_index in 0..columns.root_count() {
+            check_cancel(state, root_index)?;
+            let Some((kind, property, _class)) =
+                self.base_object_property_class_at(columns, root_index)?
+            else {
+                continue;
             };
-            let local_counterpart =
-                self.local_object_property_classes
-                    .iter()
-                    .flatten()
-                    .any(|candidate| {
-                        candidate.kind == counterpart_kind && candidate.property == local.property
-                    });
-            let base_counterpart = if local_counterpart {
-                false
-            } else {
-                let counterpart_tag = match counterpart_kind {
-                    ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_DOMAIN,
-                    ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_RANGE,
-                };
-                columns.has_object_property_class_for_property(
-                    counterpart_tag,
-                    &local.property,
-                    self.options.max_iri_bytes,
+            if kind != ObjectPropertyClassRuleKind::Domain
+                || after.is_some_and(|previous| property.as_bytes() <= previous.as_bytes())
+                || base.is_some_and(|current: &str| property.as_bytes() >= current.as_bytes())
+                || !self.base_has_object_property_class_for_property(
+                    columns,
+                    RootDomainRangeEffect::Range,
+                    property,
                     state,
                 )?
-            };
-            if (local_counterpart || base_counterpart)
-                && local_candidate
-                    .is_none_or(|candidate: &str| local.property.as_bytes() < candidate.as_bytes())
             {
-                local_candidate = Some(local.property.as_str());
+                continue;
             }
+            base = Some(property);
         }
-        let local = local_candidate;
-        Ok(match (base, local) {
-            (Some(base), Some(local)) if local.as_bytes() < base.as_bytes() => Some(local),
-            (Some(base), _) => Some(base),
-            (None, local) => local,
+        Ok(base)
+    }
+
+    fn paired_property_positions(
+        &self,
+        property: &str,
+        kind: ObjectPropertyClassRuleKind,
+    ) -> Result<&[usize], KernelError> {
+        if self.local_object_property_classes.is_empty() {
+            return Err(KernelError::malformed(
+                "encoded local domain/range property index is not active",
+            ));
+        }
+        if self.local_object_property_class_positions.len()
+            != self.local_object_property_classes.len()
+        {
+            return Err(KernelError::malformed(
+                "encoded local domain/range position index was not prepared",
+            ));
+        }
+        let group_index = self
+            .paired_object_property_class_groups
+            .binary_search_by(|group| group.property.as_bytes().cmp(property.as_bytes()))
+            .map_err(|_| {
+                KernelError::malformed(
+                    "encoded local domain/range cursor lost its prepared property group",
+                )
+            })?;
+        let group = &self.paired_object_property_class_groups[group_index];
+        Ok(match kind {
+            ObjectPropertyClassRuleKind::Domain => &group.domain_positions,
+            ObjectPropertyClassRuleKind::Range => &group.range_positions,
         })
     }
 
@@ -7368,7 +7985,7 @@ impl DirectPreparation {
     ) -> Result<usize, KernelError> {
         columns
             .root_count()
-            .checked_add(self.local_object_property_classes.iter().flatten().count())
+            .checked_add(self.local_object_property_classes.len())
             .ok_or_else(|| KernelError::resource("encoded local domain/range scan overflow"))
     }
 
@@ -7376,9 +7993,10 @@ impl DirectPreparation {
         &'a self,
         columns: DirectColumns<'a>,
         position: usize,
+        state: &AtomicU8,
     ) -> Result<Option<(ObjectPropertyClassRuleKind, &'a str, &'a str)>, KernelError> {
         let base_count = columns.root_count();
-        let local_count = self.local_object_property_classes.iter().flatten().count();
+        let local_count = self.local_object_property_classes.len();
         let scan_len = base_count
             .checked_add(local_count)
             .ok_or_else(|| KernelError::resource("encoded local domain/range scan overflow"))?;
@@ -7387,26 +8005,39 @@ impl DirectPreparation {
                 "encoded domain/range scan exceeded its merged root table",
             ));
         }
-        for local in self.local_object_property_classes.iter().flatten() {
-            if local.insertion_position >= scan_len {
-                return Err(KernelError::malformed(
-                    "encoded local domain/range insertion is out of range",
-                ));
-            }
-            if position == local.insertion_position {
+        if local_count == 0 {
+            return self.base_object_property_class_at(columns, position);
+        }
+        check_cancel(state, position)?;
+        if self.local_object_property_class_positions.len() != local_count {
+            return Err(KernelError::malformed(
+                "encoded local domain/range position index was not prepared",
+            ));
+        }
+        let position_result = self
+            .local_object_property_class_positions
+            .binary_search_by_key(&position, |local_index| {
+                self.local_object_property_classes[*local_index].insertion_position
+            });
+        let inserted_before = match position_result {
+            Ok(index_position) => {
+                let local_index = self.local_object_property_class_positions[index_position];
+                let local = self
+                    .local_object_property_classes
+                    .get(local_index)
+                    .ok_or_else(|| {
+                        KernelError::malformed(
+                            "encoded local domain/range position index is out of bounds",
+                        )
+                    })?;
                 return Ok(Some((
                     local.kind,
                     local.property.as_str(),
                     local.class.as_str(),
                 )));
             }
-        }
-        let inserted_before = self
-            .local_object_property_classes
-            .iter()
-            .flatten()
-            .filter(|local| local.insertion_position < position)
-            .count();
+            Err(inserted_before) => inserted_before,
+        };
         let base_position = position
             .checked_sub(inserted_before)
             .ok_or_else(|| KernelError::malformed("encoded local domain/range scan underflow"))?;
@@ -7415,20 +8046,18 @@ impl DirectPreparation {
                 "encoded local domain/range scan exceeded its merged root table",
             ));
         }
-        Self::base_object_property_class_at(columns, base_position, self.options.max_iri_bytes)
+        self.base_object_property_class_at(columns, base_position)
     }
 
     fn base_object_property_class_at<'a>(
+        &self,
         columns: DirectColumns<'a>,
         position: usize,
-        maximum_iri: usize,
     ) -> Result<Option<(ObjectPropertyClassRuleKind, &'a str, &'a str)>, KernelError> {
         if !columns.root_is_selected(position)? {
             return Ok(None);
         }
-        let node_id = columns.root_id(position)?;
-        let tag = columns.node_tag(node_id)?;
-        let rule = RootRule::resolve(columns.root_kind(position)?, tag)?;
+        let rule = self.root_rule_at(position)?;
         let kind = match (
             rule.handler,
             ObjectPropertyClassRuleKind::from_effect(rule.domain_range_effect),
@@ -7441,36 +8070,98 @@ impl DirectPreparation {
             }
             (_, None) => return Ok(None),
         };
-        Ok(columns
-            .object_property_class_projection(node_id, rule.tag, maximum_iri)?
-            .map(|(property, class)| (kind, property, class)))
+        match self.emission_shape_at(position) {
+            Some(PlannedEmissionShape::ObjectPropertyClassProjected {
+                property_node,
+                class_node,
+            }) => Ok(Some((
+                kind,
+                columns.named_object_property_iri(property_node, self.options.max_iri_bytes)?,
+                columns.named_class_iri(class_node, self.options.max_iri_bytes)?,
+            ))),
+            Some(PlannedEmissionShape::ObjectPropertyClassIgnored) => Ok(None),
+            Some(_) | None => Err(KernelError::malformed(
+                "encoded object-property class root lost its prepared emission shape",
+            )),
+        }
+    }
+
+    fn base_has_object_property_class_for_property(
+        &self,
+        columns: DirectColumns<'_>,
+        expected_effect: RootDomainRangeEffect,
+        property: &str,
+        state: &AtomicU8,
+    ) -> Result<bool, KernelError> {
+        let expected_kind =
+            ObjectPropertyClassRuleKind::from_effect(expected_effect).ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded object-property class match has the wrong constructor tag",
+                )
+            })?;
+        for root_index in 0..columns.root_count() {
+            check_cancel(state, root_index)?;
+            let Some((kind, candidate, _class)) =
+                self.base_object_property_class_at(columns, root_index)?
+            else {
+                continue;
+            };
+            if kind == expected_kind && candidate == property {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn local_object_property_class_edge_counts(
         &self,
-        columns: DirectColumns<'_>,
         state: &AtomicU8,
     ) -> Result<(usize, usize), KernelError> {
+        if self.local_object_property_classes.is_empty() {
+            return Ok((0, 0));
+        }
+        if self.local_object_property_class_positions.len()
+            != self.local_object_property_classes.len()
+        {
+            return Err(KernelError::malformed(
+                "encoded local domain/range property index was not prepared",
+            ));
+        }
         let mut products = 0_usize;
         let mut edges = 0_usize;
-        for local in self.local_object_property_classes.iter().flatten() {
-            let counterpart_tag = match local.kind {
-                ObjectPropertyClassRuleKind::Domain => TAG_OBJECT_PROPERTY_RANGE,
-                ObjectPropertyClassRuleKind::Range => TAG_OBJECT_PROPERTY_DOMAIN,
-            };
-            let base_products = columns.object_property_class_match_count(
-                counterpart_tag,
-                &local.property,
-                self.options.max_iri_bytes,
-                state,
-            )?;
-            products = products.checked_add(base_products).ok_or_else(|| {
+        for (group_index, group) in self.paired_object_property_class_groups.iter().enumerate() {
+            check_cancel(state, group_index)?;
+            let total_domains = group
+                .base_domains
+                .checked_add(group.local_domains)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded domain/range domain-count overflow")
+                })?;
+            let total_ranges = group
+                .base_ranges
+                .checked_add(group.local_ranges)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded domain/range range-count overflow")
+                })?;
+            let all_products = total_domains.checked_mul(total_ranges).ok_or_else(|| {
+                KernelError::resource("encoded local domain/range product-count overflow")
+            })?;
+            let base_products = group
+                .base_domains
+                .checked_mul(group.base_ranges)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded local domain/range product-count overflow")
+                })?;
+            let local_products = all_products.checked_sub(base_products).ok_or_else(|| {
+                KernelError::malformed("encoded local domain/range counts are inconsistent")
+            })?;
+            products = products.checked_add(local_products).ok_or_else(|| {
                 KernelError::resource("encoded local domain/range product-count overflow")
             })?;
             edges = edges
                 .checked_add(
-                    base_products
-                        .checked_mul(self.role_state.edge_count(&local.property)?)
+                    local_products
+                        .checked_mul(self.role_state.edge_count(&group.property)?)
                         .ok_or_else(|| {
                             KernelError::resource("encoded local domain/range edge-count overflow")
                         })?,
@@ -7478,31 +8169,6 @@ impl DirectPreparation {
                 .ok_or_else(|| {
                     KernelError::resource("encoded local domain/range edge-count overflow")
                 })?;
-        }
-        for domain in self
-            .local_object_property_classes
-            .iter()
-            .flatten()
-            .filter(|local| local.kind == ObjectPropertyClassRuleKind::Domain)
-        {
-            for range in self
-                .local_object_property_classes
-                .iter()
-                .flatten()
-                .filter(|local| local.kind == ObjectPropertyClassRuleKind::Range)
-            {
-                if domain.property != range.property {
-                    continue;
-                }
-                products = products.checked_add(1).ok_or_else(|| {
-                    KernelError::resource("encoded local domain/range product-count overflow")
-                })?;
-                edges = edges
-                    .checked_add(self.role_state.edge_count(&domain.property)?)
-                    .ok_or_else(|| {
-                        KernelError::resource("encoded local domain/range edge-count overflow")
-                    })?;
-            }
         }
         Ok((products, edges))
     }
@@ -9335,13 +10001,9 @@ impl EquivalentAggregateCursor {
     fn try_clone(&self) -> Result<Self, KernelError> {
         Ok(Self {
             source: clone_text(&self.source)?,
-            expression_id: self.expression_id,
-            phase: self.phase,
-            previous_named: self
-                .previous_named
-                .as_ref()
-                .map(|(value, node_id)| Ok((clone_text(value)?, *node_id)))
-                .transpose()?,
+            aggregate_plan_index: self.aggregate_plan_index,
+            named_index: self.named_index,
+            restriction_index: self.restriction_index,
         })
     }
 }
@@ -9538,6 +10200,7 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
                             }
+                            | OwnedOverlayDeltaProjection::SilentRoot { .. }
                             | OwnedOverlayDeltaProjection::SilentDeclaration
                             | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
                             | OwnedOverlayDeltaProjection::SilentSwrl => false,
@@ -9561,29 +10224,49 @@ impl DirectEmissionCursor {
                     if !columns.root_is_selected(index)? {
                         continue;
                     }
-                    let node_id = columns.root_id(index)?;
-                    if columns.node_tag(node_id)? != TAG_SUB_CLASS_OF {
+                    if preparation.root_rule_at(index)?.handler != RootRuleHandler::Subclass {
                         continue;
                     }
-                    match columns.subclass_projection(node_id, preparation.options.max_iri_bytes)? {
-                        SubclassProjection::Taxonomy {
-                            source,
-                            destination,
-                        } => self.set_taxonomy(
-                            source,
-                            destination,
-                            preparation.options.bidirectional,
-                        )?,
-                        SubclassProjection::Restriction {
-                            source,
-                            relation,
-                            destination,
-                        } if !preparation.options.asserted_taxonomy_only
+                    match preparation.emission_shape_at(index) {
+                        Some(PlannedEmissionShape::SubclassTaxonomy {
+                            source_node,
+                            destination_node,
+                        }) => {
+                            let source = columns
+                                .named_class_iri(source_node, preparation.options.max_iri_bytes)?;
+                            let destination = columns.named_class_iri(
+                                destination_node,
+                                preparation.options.max_iri_bytes,
+                            )?;
+                            self.set_taxonomy(
+                                source,
+                                destination,
+                                preparation.options.bidirectional,
+                            )?;
+                        }
+                        Some(PlannedEmissionShape::SubclassRestriction {
+                            source_node,
+                            restriction,
+                        }) if !preparation.options.asserted_taxonomy_only
                             && !preparation.options.only_taxonomy =>
                         {
+                            let source = columns
+                                .named_class_iri(source_node, preparation.options.max_iri_bytes)?;
+                            let (relation, destination) = columns.planned_restriction_parts(
+                                restriction,
+                                preparation.options.max_iri_bytes,
+                            )?;
                             self.set_role(source, relation, destination)?;
                         }
-                        SubclassProjection::Restriction { .. } | SubclassProjection::Ignored => {}
+                        Some(
+                            PlannedEmissionShape::SubclassRestriction { .. }
+                            | PlannedEmissionShape::SubclassIgnored,
+                        ) => {}
+                        Some(_) | None => {
+                            return Err(KernelError::malformed(
+                                "encoded subclass root lost its prepared emission shape",
+                            ));
+                        }
                     }
                 }
                 EmissionPhase::Equivalents => {
@@ -9644,85 +10327,74 @@ impl DirectEmissionCursor {
                         }
                     }
                     if let Some(mut aggregate) = self.aggregate.take() {
-                        if aggregate.phase == AggregatePhase::Named {
-                            let after = aggregate
-                                .previous_named
-                                .as_ref()
-                                .map(|(value, node_id)| (value.as_str(), *node_id));
-                            if let Some((destination, node_id)) = columns
-                                .next_named_aggregate_operand(
-                                    aggregate.expression_id,
-                                    after,
-                                    preparation.options.max_iri_bytes,
-                                    state,
-                                )?
-                            {
-                                aggregate.previous_named =
-                                    Some((clone_text(destination)?, node_id));
-                                self.set_taxonomy(
-                                    &aggregate.source,
-                                    destination,
-                                    preparation.options.bidirectional,
-                                )?;
-                                self.aggregate = Some(aggregate);
-                                continue;
-                            }
-                            if preparation.options.only_taxonomy {
-                                continue;
-                            }
-                            aggregate.phase = AggregatePhase::Restrictions {
-                                tag_index: 0,
-                                item_offset: 0,
-                            };
+                        let plan =
+                            preparation.aggregate_emission_at(aggregate.aggregate_plan_index)?;
+                        let named_nodes = preparation.aggregate_emission_named_nodes(plan)?;
+                        if let Some(destination_node) =
+                            named_nodes.get(aggregate.named_index).copied()
+                        {
+                            let work_index = plan
+                                .named
+                                .start
+                                .checked_add(aggregate.named_index)
+                                .ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded aggregate named-emission cursor overflow",
+                                    )
+                                })?;
+                            check_cancel(state, work_index)?;
+                            aggregate.named_index =
+                                aggregate.named_index.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded aggregate named-emission cursor overflow",
+                                    )
+                                })?;
+                            let destination = columns.named_class_iri(
+                                destination_node,
+                                preparation.options.max_iri_bytes,
+                            )?;
+                            self.set_taxonomy(
+                                &aggregate.source,
+                                destination,
+                                preparation.options.bidirectional,
+                            )?;
+                            self.aggregate = Some(aggregate);
+                            continue;
                         }
-
-                        let (item_start, length) =
-                            columns.aggregate_operand_range(aggregate.expression_id)?;
-                        let tags = [
-                            TAG_OBJECT_SOME_VALUES_FROM,
-                            TAG_OBJECT_ALL_VALUES_FROM,
-                            TAG_OBJECT_MIN_CARDINALITY,
-                            TAG_OBJECT_MAX_CARDINALITY,
-                        ];
-                        let AggregatePhase::Restrictions {
-                            mut tag_index,
-                            mut item_offset,
-                        } = aggregate.phase
-                        else {
-                            return Err(KernelError::malformed(
-                                "encoded aggregate emission phase is inconsistent",
-                            ));
-                        };
+                        if preparation.options.only_taxonomy {
+                            continue;
+                        }
+                        let restrictions = preparation.aggregate_emission_restrictions(plan)?;
                         let mut selected = None;
-                        while tag_index < tags.len() && selected.is_none() {
-                            while item_offset < length {
-                                let item_index = item_start + item_offset;
-                                item_offset += 1;
-                                check_cancel(state, item_index)?;
-                                let operand_id = columns.item_node(item_index)?;
-                                if columns.node_tag(operand_id)? != tags[tag_index] {
-                                    continue;
-                                }
-                                if let Some((relation, destination)) = columns
-                                    .restriction_projection(
-                                        operand_id,
-                                        preparation.options.max_iri_bytes,
-                                    )?
-                                {
-                                    selected = Some((relation, destination));
-                                    break;
-                                }
-                            }
-                            if selected.is_none() {
-                                tag_index += 1;
-                                item_offset = 0;
-                            }
+                        while let Some(coordinate) =
+                            restrictions.get(aggregate.restriction_index).copied()
+                        {
+                            let work_index = plan
+                                .restrictions
+                                .start
+                                .checked_add(aggregate.restriction_index)
+                                .ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded aggregate restriction-emission cursor overflow",
+                                    )
+                                })?;
+                            check_cancel(state, work_index)?;
+                            aggregate.restriction_index =
+                                aggregate.restriction_index.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded aggregate restriction-emission cursor overflow",
+                                    )
+                                })?;
+                            let Some(coordinate) = coordinate else {
+                                continue;
+                            };
+                            selected = Some(columns.planned_restriction_parts(
+                                coordinate,
+                                preparation.options.max_iri_bytes,
+                            )?);
+                            break;
                         }
                         if let Some((relation, destination)) = selected {
-                            aggregate.phase = AggregatePhase::Restrictions {
-                                tag_index,
-                                item_offset,
-                            };
                             self.set_role(&aggregate.source, relation, destination)?;
                             self.aggregate = Some(aggregate);
                         }
@@ -9788,33 +10460,47 @@ impl DirectEmissionCursor {
                     if !columns.root_is_selected(index)? {
                         continue;
                     }
-                    let node_id = columns.root_id(index)?;
-                    if columns.node_tag(node_id)? != TAG_EQUIVALENT_CLASSES {
+                    if preparation.root_rule_at(index)?.handler
+                        != RootRuleHandler::EquivalentClasses
+                    {
                         continue;
                     }
-                    match columns
-                        .equivalent_projection(node_id, preparation.options.max_iri_bytes)?
-                    {
-                        EquivalentProjection::Pair {
-                            source,
-                            destination,
-                        } => self.set_taxonomy(
-                            source,
-                            destination,
-                            preparation.options.bidirectional,
-                        )?,
-                        EquivalentProjection::Aggregate {
-                            source,
-                            expression_id,
-                        } => {
+                    match preparation.emission_shape_at(index) {
+                        Some(PlannedEmissionShape::EquivalentPair {
+                            source_node,
+                            destination_node,
+                        }) => {
+                            let source = columns
+                                .named_class_iri(source_node, preparation.options.max_iri_bytes)?;
+                            let destination = columns.named_class_iri(
+                                destination_node,
+                                preparation.options.max_iri_bytes,
+                            )?;
+                            self.set_taxonomy(
+                                source,
+                                destination,
+                                preparation.options.bidirectional,
+                            )?;
+                        }
+                        Some(PlannedEmissionShape::EquivalentAggregate {
+                            source_node,
+                            aggregate_plan_index,
+                        }) => {
+                            let source = columns
+                                .named_class_iri(source_node, preparation.options.max_iri_bytes)?;
                             self.aggregate = Some(EquivalentAggregateCursor {
                                 source: clone_text(source)?,
-                                expression_id,
-                                phase: AggregatePhase::Named,
-                                previous_named: None,
+                                aggregate_plan_index,
+                                named_index: 0,
+                                restriction_index: 0,
                             });
                         }
-                        EquivalentProjection::Ignored => {}
+                        Some(PlannedEmissionShape::EquivalentIgnored) => {}
+                        Some(_) | None => {
+                            return Err(KernelError::malformed(
+                                "encoded equivalent root lost its prepared emission shape",
+                            ));
+                        }
                     }
                 }
                 EmissionPhase::Annotations => {
@@ -9867,7 +10553,9 @@ impl DirectEmissionCursor {
                                     continue;
                                 }
                                 let candidate = columns.root_id(index)?;
-                                if columns.node_tag(candidate)? == TAG_ANNOTATION_ASSERTION {
+                                if preparation.root_rule_at(index)?.handler
+                                    == RootRuleHandler::AnnotationAssertion
+                                {
                                     selected = Some(candidate);
                                     break;
                                 }
@@ -9931,21 +10619,35 @@ impl DirectEmissionCursor {
                     if !columns.root_is_selected(index)? {
                         continue;
                     }
-                    let node_id = columns.root_id(index)?;
-                    if columns.node_tag(node_id)? != TAG_CLASS_ASSERTION {
+                    if preparation.root_rule_at(index)?.handler != RootRuleHandler::ClassAssertion {
                         continue;
                     }
-                    if let ClassAssertionProjection::Edge { individual, class } = columns
-                        .class_assertion_projection(node_id, preparation.options.max_iri_bytes)?
-                    {
-                        return self.publish(
-                            DirectEdge {
-                                source: clone_text(individual)?,
-                                relation: clone_text(RDF_TYPE)?,
-                                destination: clone_text(class)?,
-                            },
-                            preparation,
-                        );
+                    match preparation.emission_shape_at(index) {
+                        Some(PlannedEmissionShape::ClassAssertionEdge {
+                            individual_node,
+                            class_node,
+                        }) => {
+                            let individual = columns.named_individual_iri(
+                                individual_node,
+                                preparation.options.max_iri_bytes,
+                            )?;
+                            let class = columns
+                                .named_class_iri(class_node, preparation.options.max_iri_bytes)?;
+                            return self.publish(
+                                DirectEdge {
+                                    source: clone_text(individual)?,
+                                    relation: clone_text(RDF_TYPE)?,
+                                    destination: clone_text(class)?,
+                                },
+                                preparation,
+                            );
+                        }
+                        Some(PlannedEmissionShape::ClassAssertionIgnored) => {}
+                        Some(_) | None => {
+                            return Err(KernelError::malformed(
+                                "encoded class assertion lost its prepared emission shape",
+                            ));
+                        }
                     }
                 }
                 EmissionPhase::ObjectAssertions => {
@@ -9984,6 +10686,7 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
                             }
+                            | OwnedOverlayDeltaProjection::SilentRoot { .. }
                             | OwnedOverlayDeltaProjection::SilentDeclaration
                             | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
                             | OwnedOverlayDeltaProjection::SilentSwrl => {
@@ -10009,25 +10712,44 @@ impl DirectEmissionCursor {
                     if !columns.root_is_selected(index)? {
                         continue;
                     }
-                    let node_id = columns.root_id(index)?;
-                    if columns.node_tag(node_id)? != TAG_OBJECT_PROPERTY_ASSERTION {
+                    if preparation.root_rule_at(index)?.handler
+                        != RootRuleHandler::ObjectPropertyAssertion
+                    {
                         continue;
                     }
-                    let (source, relation, destination) = columns.object_property_assertion_parts(
-                        node_id,
-                        preparation.options.max_iri_bytes,
-                    )?;
-                    return self.publish(
-                        DirectEdge {
-                            source: render_individual(source, &preparation.anonymous_ids)?,
-                            relation: clone_text(relation)?,
-                            destination: render_individual(
-                                destination,
-                                &preparation.anonymous_ids,
-                            )?,
-                        },
-                        preparation,
-                    );
+                    match preparation.emission_shape_at(index) {
+                        Some(PlannedEmissionShape::ObjectPropertyAssertion {
+                            property_node,
+                            source,
+                            destination,
+                        }) => {
+                            let relation = columns.named_object_property_iri(
+                                property_node,
+                                preparation.options.max_iri_bytes,
+                            )?;
+                            return self.publish(
+                                DirectEdge {
+                                    source: columns.render_planned_individual(
+                                        source,
+                                        &preparation.anonymous_ids,
+                                        preparation.options.max_iri_bytes,
+                                    )?,
+                                    relation: clone_text(relation)?,
+                                    destination: columns.render_planned_individual(
+                                        destination,
+                                        &preparation.anonymous_ids,
+                                        preparation.options.max_iri_bytes,
+                                    )?,
+                                },
+                                preparation,
+                            );
+                        }
+                        Some(_) | None => {
+                            return Err(KernelError::malformed(
+                                "encoded object property assertion lost its prepared emission shape",
+                            ));
+                        }
+                    }
                 }
                 EmissionPhase::DomainRanges => {
                     if self.active_property.is_none() {
@@ -10050,24 +10772,69 @@ impl DirectEmissionCursor {
                         clone_text(self.active_property.as_deref().ok_or_else(|| {
                             KernelError::malformed("encoded domain/range cursor lost its property")
                         })?)?;
-                    let scan_len = preparation.object_property_class_scan_len(columns)?;
+                    let indexed = !preparation.local_object_property_classes.is_empty();
+                    let scan_len = if indexed {
+                        0
+                    } else {
+                        preparation.object_property_class_scan_len(columns)?
+                    };
                     if self.current_domain.is_none() {
-                        let mut selected = None;
-                        while self.domain_index < scan_len {
-                            let position = self.domain_index;
-                            self.domain_index += 1;
-                            check_cancel(state, position)?;
-                            let Some((kind, candidate, domain)) =
-                                preparation.object_property_class_at(columns, position)?
-                            else {
+                        let selected = if indexed {
+                            let positions = preparation.paired_property_positions(
+                                &property,
+                                ObjectPropertyClassRuleKind::Domain,
+                            )?;
+                            let span_index = self.domain_index;
+                            let Some(position) = positions.get(span_index).copied() else {
+                                self.active_property = None;
                                 continue;
                             };
-                            if kind == ObjectPropertyClassRuleKind::Domain && candidate == property
+                            check_cancel(state, span_index)?;
+                            self.domain_index =
+                                self.domain_index.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded domain/range domain cursor overflow",
+                                    )
+                                })?;
+                            let Some((kind, candidate, domain)) =
+                                preparation.object_property_class_at(columns, position, state)?
+                            else {
+                                return Err(KernelError::malformed(
+                                    "encoded domain/range domain span references a silent root",
+                                ));
+                            };
+                            if kind != ObjectPropertyClassRuleKind::Domain || candidate != property
                             {
-                                selected = Some(clone_text(domain)?);
-                                break;
+                                return Err(KernelError::malformed(
+                                    "encoded domain/range domain span changed after preparation",
+                                ));
+                            };
+                            Some(clone_text(domain)?)
+                        } else {
+                            let mut selected = None;
+                            while self.domain_index < scan_len {
+                                let position = self.domain_index;
+                                self.domain_index =
+                                    self.domain_index.checked_add(1).ok_or_else(|| {
+                                        KernelError::resource(
+                                            "encoded domain/range domain cursor overflow",
+                                        )
+                                    })?;
+                                check_cancel(state, position)?;
+                                let Some((kind, candidate, domain)) = preparation
+                                    .object_property_class_at(columns, position, state)?
+                                else {
+                                    continue;
+                                };
+                                if kind == ObjectPropertyClassRuleKind::Domain
+                                    && candidate == property
+                                {
+                                    selected = Some(clone_text(domain)?);
+                                    break;
+                                }
                             }
-                        }
+                            selected
+                        };
                         let Some(domain) = selected else {
                             self.active_property = None;
                             continue;
@@ -10075,21 +10842,56 @@ impl DirectEmissionCursor {
                         self.current_domain = Some(domain);
                         self.range_index = 0;
                     }
-                    let mut selected_range = None;
-                    while self.range_index < scan_len {
-                        let position = self.range_index;
-                        self.range_index += 1;
-                        check_cancel(state, position)?;
-                        let Some((kind, candidate, range)) =
-                            preparation.object_property_class_at(columns, position)?
-                        else {
+                    let selected_range = if indexed {
+                        let positions = preparation.paired_property_positions(
+                            &property,
+                            ObjectPropertyClassRuleKind::Range,
+                        )?;
+                        let span_index = self.range_index;
+                        let Some(position) = positions.get(span_index).copied() else {
+                            self.current_domain = None;
                             continue;
                         };
-                        if kind == ObjectPropertyClassRuleKind::Range && candidate == property {
-                            selected_range = Some(range);
-                            break;
+                        check_cancel(state, span_index)?;
+                        self.range_index = self.range_index.checked_add(1).ok_or_else(|| {
+                            KernelError::resource("encoded domain/range range cursor overflow")
+                        })?;
+                        let Some((kind, candidate, range)) =
+                            preparation.object_property_class_at(columns, position, state)?
+                        else {
+                            return Err(KernelError::malformed(
+                                "encoded domain/range range span references a silent root",
+                            ));
+                        };
+                        if kind != ObjectPropertyClassRuleKind::Range || candidate != property {
+                            return Err(KernelError::malformed(
+                                "encoded domain/range range span changed after preparation",
+                            ));
+                        };
+                        Some(range)
+                    } else {
+                        let mut selected_range = None;
+                        while self.range_index < scan_len {
+                            let position = self.range_index;
+                            self.range_index =
+                                self.range_index.checked_add(1).ok_or_else(|| {
+                                    KernelError::resource(
+                                        "encoded domain/range range cursor overflow",
+                                    )
+                                })?;
+                            check_cancel(state, position)?;
+                            let Some((kind, candidate, range)) =
+                                preparation.object_property_class_at(columns, position, state)?
+                            else {
+                                continue;
+                            };
+                            if kind == ObjectPropertyClassRuleKind::Range && candidate == property {
+                                selected_range = Some(range);
+                                break;
+                            }
                         }
-                    }
+                        selected_range
+                    };
                     if let Some(range) = selected_range {
                         let domain =
                             clone_text(self.current_domain.as_deref().ok_or_else(|| {
@@ -10201,13 +11003,15 @@ pub(crate) fn compile_direct_with_options(
     compile_direct_with_retained_role_state(columns, None, options, state, None)
 }
 
+#[allow(clippy::too_many_arguments)] // The transactional preparation contract keeps each input explicit.
 fn prepare_direct<'a>(
     columns: DirectColumns<'a>,
     root_annotation_columns: Option<DirectColumns<'_>>,
     options: DirectCompileOptions,
     state: &AtomicU8,
     retained: Option<&OwnedRoleState>,
-    preclassified_root_plan: Option<&SelectedRootRulePlan>,
+    role_state_override: Option<RoleState<'a>>,
+    preclassified_root_plan: Option<&mut SelectedRootRulePlan<'a>>,
     local_role_axiom: Option<RoleAxiom<'a>>,
 ) -> Result<DirectPreparation, KernelError> {
     let DirectCompileOptions {
@@ -10221,7 +11025,8 @@ fn prepare_direct<'a>(
     check_cancel(state, 0)?;
     columns.validate_generic(state)?;
     columns.validate_supported_nodes(max_iri_bytes, state)?;
-    let counts = if let Some(plan) = preclassified_root_plan {
+    let mut generated_root_plan = None;
+    let root_rule_plan = if let Some(plan) = preclassified_root_plan.as_deref() {
         if plan.rule_indexes.len() != columns.root_count()
             || plan.selected != columns.selected_root_count()?
         {
@@ -10229,16 +11034,30 @@ fn prepare_direct<'a>(
                 "encoded structural root-rule plan does not match its base table",
             ));
         }
-        plan.counts
+        plan
     } else {
-        columns.classify_roots(max_iri_bytes, state)?
+        generated_root_plan = Some(resolve_selected_root_rule_plan_unbounded(
+            columns,
+            max_iri_bytes,
+            state,
+        )?);
+        generated_root_plan.as_ref().ok_or_else(|| {
+            KernelError::malformed("encoded structural root-rule plan was not retained")
+        })?
     };
+    let counts = root_rule_plan.counts;
     let selected_annotation_nodes = if let Some(root_columns) = root_annotation_columns {
         root_columns.validate_generic(state)?;
         root_columns.validate_supported_nodes(max_iri_bytes, state)?;
-        let root_counts = root_columns.classify_roots(max_iri_bytes, state)?;
-        let selected = columns.select_root_annotation_nodes(root_columns, state)?;
-        if selected.len() != root_counts.annotation_assertions {
+        let root_annotation_rule_plan =
+            resolve_selected_root_rule_plan_unbounded(root_columns, max_iri_bytes, state)?;
+        let selected = columns.select_root_annotation_nodes(
+            &root_rule_plan.rule_indexes,
+            root_columns,
+            &root_annotation_rule_plan.rule_indexes,
+            state,
+        )?;
+        if selected.len() != root_annotation_rule_plan.counts.annotation_assertions {
             return Err(KernelError::malformed(
                 "encoded root annotation selection count changed after preflight",
             ));
@@ -10258,13 +11077,20 @@ fn prepare_direct<'a>(
         .unwrap_or(0);
     let role_state = if asserted_taxonomy_only {
         RoleState::default()
+    } else if let Some(role_state) = role_state_override {
+        if local_role_axiom.is_some() {
+            return Err(KernelError::malformed(
+                "encoded role-state override cannot carry a local role row",
+            ));
+        }
+        role_state
     } else {
         columns.build_role_state(
             counts,
             max_iri_bytes,
             state,
             retained,
-            preclassified_root_plan,
+            root_rule_plan,
             local_role_axiom,
         )?
     };
@@ -10281,6 +11107,7 @@ fn prepare_direct<'a>(
         EquivalentEdgeCounts::default()
     } else {
         columns.equivalent_edge_counts(
+            root_rule_plan,
             &role_state,
             directions,
             only_taxonomy,
@@ -10303,7 +11130,7 @@ fn prepare_direct<'a>(
     let subclass_restriction_edges = if asserted_taxonomy_only || only_taxonomy {
         0
     } else {
-        columns.restriction_role_edge_count(&role_state, max_iri_bytes, state)?
+        columns.restriction_role_edge_count(root_rule_plan, &role_state, state)?
     };
     let class_assertion_edges = if asserted_taxonomy_only {
         0
@@ -10325,19 +11152,17 @@ fn prepare_direct<'a>(
     } else if let Some(selected) = selected_annotation_nodes.as_deref() {
         columns.selected_annotation_edge_counts(selected, max_iri_bytes, state)?
     } else {
-        columns.annotation_edge_counts(max_iri_bytes, state)?
+        columns.annotation_edge_counts(&root_rule_plan.rule_indexes, max_iri_bytes, state)?
     };
     let skipped_axioms = if asserted_taxonomy_only {
         0
-    } else if let Some(plan) = preclassified_root_plan {
-        plan.skipped_axioms(options)?
     } else {
-        counts.skipped_axioms()?
+        root_rule_plan.skipped_axioms(options, state)?
     };
     let (domain_range_edges, expanded_domain_range_edges) = if asserted_taxonomy_only {
         (0, 0)
     } else {
-        columns.domain_range_edge_count(&role_state, max_iri_bytes, state)?
+        columns.domain_range_edge_count(root_rule_plan, &role_state, state)?
     };
     let base_role_edges = if asserted_taxonomy_only {
         0
@@ -10436,15 +11261,38 @@ fn prepare_direct<'a>(
         buffer_bytes,
         root_provenance_buffer_bytes,
     };
+    let PreparedEmissionPlan {
+        root_rule_indexes,
+        emission_roots,
+        aggregate_roots,
+        aggregate_emission_named_nodes,
+        aggregate_emission_restrictions,
+    } = if let Some(plan) = preclassified_root_plan {
+        plan.take_emission_plan(state)?
+    } else {
+        generated_root_plan
+            .as_mut()
+            .ok_or_else(|| {
+                KernelError::malformed("encoded structural root-rule plan was not retained")
+            })?
+            .take_emission_plan(state)?
+    };
     let preparation = DirectPreparation {
         role_state: role_state.to_owned()?,
+        root_rule_indexes,
+        emission_roots,
+        aggregate_roots,
+        aggregate_emission_named_nodes,
+        aggregate_emission_restrictions,
         anonymous_ids,
         selected_annotation_nodes,
         composite_annotation_roots: Vec::new(),
         composite_class_nodes: Vec::new(),
         composite_anonymous_nodes: Vec::new(),
         overlay_deltas: Vec::new(),
-        local_object_property_classes: [None, None],
+        local_object_property_classes: Vec::new(),
+        local_object_property_class_positions: Vec::new(),
+        paired_object_property_class_groups: Vec::new(),
         options,
         statistics: stats,
         #[cfg(test)]
@@ -10468,16 +11316,19 @@ pub(crate) fn prepare_direct_batches_uncommitted(
         retained,
         None,
         None,
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)] // The transactional preparation contract keeps each input explicit.
 fn prepare_direct_batches_with_local_role_uncommitted<'a>(
     columns: DirectColumns<'a>,
     root_annotation_columns: Option<DirectColumns<'_>>,
     options: DirectCompileOptions,
     state: &AtomicU8,
     retained: Option<&OwnedRoleState>,
-    preclassified_root_plan: Option<&SelectedRootRulePlan>,
+    role_state_override: Option<RoleState<'a>>,
+    preclassified_root_plan: Option<&mut SelectedRootRulePlan<'a>>,
     local_role_axiom: Option<RoleAxiom<'a>>,
 ) -> Result<PreparedDirectBatches, KernelError> {
     let preparation = prepare_direct(
@@ -10486,6 +11337,7 @@ fn prepare_direct_batches_with_local_role_uncommitted<'a>(
         options,
         state,
         retained,
+        role_state_override,
         preclassified_root_plan,
         local_role_axiom,
     )?;
@@ -10500,15 +11352,15 @@ fn prepare_direct_batches_with_local_role_uncommitted<'a>(
 
 fn own_local_subclass_projection(
     constructor: &'static str,
+    projection: SubclassProjection<'_>,
     columns: DirectColumns<'_>,
     root: usize,
-    max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     let field_start = columns.exact_fields(root, 3)?;
     validate_local_annotation_scope(columns, root, field_start + 2, constructor, state)?;
-    match columns.subclass_projection(root, max_iri_bytes)? {
+    match projection {
         SubclassProjection::Taxonomy {
             source,
             destination,
@@ -10533,39 +11385,40 @@ fn own_local_subclass_projection(
 
 fn own_local_class_assertion_projection(
     constructor: &'static str,
+    projection: ClassAssertionProjection<'_>,
     columns: DirectColumns<'_>,
     root: usize,
-    max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     let field_start = columns.exact_fields(root, 3)?;
     validate_local_annotation_scope(columns, root, field_start + 2, constructor, state)?;
-    match columns.class_assertion_projection(root, max_iri_bytes)? {
-        ClassAssertionProjection::Edge { individual, class } => {
-            Ok(OwnedOverlayDeltaProjection::ClassAssertion {
-                individual: workspace.clone_text(individual)?,
-                class: workspace.clone_text(class)?,
-            })
-        }
+    match projection {
+        ClassAssertionProjection::Edge {
+            individual, class, ..
+        } => Ok(OwnedOverlayDeltaProjection::ClassAssertion {
+            individual: workspace.clone_text(individual)?,
+            class: workspace.clone_text(class)?,
+        }),
         ClassAssertionProjection::Ignored => {
             Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT))
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)] // The planned projection and bounded ownership inputs stay explicit.
 fn own_local_object_property_assertion_projection(
     constructor: &'static str,
+    source: IndividualValue<'_>,
+    relation: &str,
+    destination: IndividualValue<'_>,
     columns: DirectColumns<'_>,
     root: usize,
-    max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     let field_start = columns.exact_fields(root, 4)?;
     validate_local_annotation_scope(columns, root, field_start + 3, constructor, state)?;
-    let (source, relation, destination) =
-        columns.object_property_assertion_parts(root, max_iri_bytes)?;
     match (source, destination) {
         (IndividualValue::Named(source), IndividualValue::Named(destination)) => {
             Ok(OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
@@ -10581,11 +11434,14 @@ fn own_local_object_property_assertion_projection(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // The cached aggregate plan and bounded ownership inputs stay explicit.
 fn own_local_equivalent_projection(
     constructor: &'static str,
+    projection: EquivalentProjection<'_>,
+    root_rule_plan: &SelectedRootRulePlan<'_>,
+    root_index: usize,
     columns: DirectColumns<'_>,
     root: usize,
-    max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
@@ -10596,117 +11452,50 @@ fn own_local_equivalent_projection(
             "bounded local-overlay EquivalentClasses root requires no anonymous individuals or local scope remap",
         ));
     }
-    match columns.equivalent_projection(root, max_iri_bytes)? {
+    match projection {
         EquivalentProjection::Pair {
             source,
             destination,
+            ..
         } => Ok(OwnedOverlayDeltaProjection::EquivalentPair {
             source: workspace.clone_text(source)?,
             destination: workspace.clone_text(destination)?,
         }),
         EquivalentProjection::Ignored => Ok(OwnedOverlayDeltaProjection::IgnoredEquivalent),
-        EquivalentProjection::Aggregate {
-            source,
-            expression_id,
-        } => {
-            let (item_start, item_count) = columns.aggregate_operand_range(expression_id)?;
-            let mut named_count = 0_usize;
-            let mut restriction_count = 0_usize;
-            let mut ignored_shapes = 0_usize;
-            for item_index in item_start..item_start + item_count {
-                check_cancel(state, item_index)?;
-                let operand_id = columns.item_node(item_index)?;
-                let tag = columns.node_tag(operand_id)?;
-                if tag == TAG_ENTITY {
-                    columns.named_class_iri(operand_id, max_iri_bytes)?;
-                    named_count = named_count.checked_add(1).ok_or_else(|| {
-                        KernelError::resource("encoded aggregate named-operand count overflow")
-                    })?;
-                } else if is_restriction_tag(tag) {
-                    restriction_count = restriction_count.checked_add(1).ok_or_else(|| {
-                        KernelError::resource(
-                            "encoded aggregate restriction-operand count overflow",
-                        )
-                    })?;
-                    if columns
-                        .restriction_projection(operand_id, max_iri_bytes)?
-                        .is_none()
-                    {
-                        ignored_shapes = ignored_shapes.checked_add(1).ok_or_else(|| {
-                            KernelError::resource("encoded equivalent ignored-shape count overflow")
-                        })?;
-                    }
-                } else if is_nonprojecting_class_tag(tag) || is_aggregate_tag(tag) {
-                    ignored_shapes = ignored_shapes.checked_add(1).ok_or_else(|| {
-                        KernelError::resource("encoded equivalent ignored-shape count overflow")
-                    })?;
-                } else {
-                    return Err(KernelError::malformed(
-                        "encoded aggregate operand changed after successful preflight",
-                    ));
-                }
-            }
-
+        EquivalentProjection::Aggregate { source, .. } => {
+            let aggregate = root_rule_plan.aggregate_at(root_index).ok_or_else(|| {
+                KernelError::malformed("encoded aggregate equivalent lost its planned operands")
+            })?;
+            let planned_named = root_rule_plan.aggregate_named_operands(aggregate)?;
+            let planned_restrictions = root_rule_plan.aggregate_restriction_operands(aggregate)?;
             let mut named_destinations = workspace.reserve_owned::<String>(
-                named_count,
+                planned_named.len(),
                 "encoded aggregate named-operand allocation failed",
             )?;
-            let mut previous_node_id = None;
-            loop {
-                let after = named_destinations
-                    .last()
-                    .zip(previous_node_id)
-                    .map(|(value, node_id)| (value.as_str(), node_id));
-                let Some((destination, node_id)) = columns.next_named_aggregate_operand(
-                    expression_id,
-                    after,
-                    max_iri_bytes,
-                    state,
-                )?
-                else {
-                    break;
-                };
-                named_destinations.push(workspace.clone_text(destination)?);
-                previous_node_id = Some(node_id);
-            }
-            if named_destinations.len() != named_count {
-                return Err(KernelError::malformed(
-                    "encoded aggregate named-operand selection changed after preflight",
-                ));
+            for (operand_index, operand) in planned_named.iter().enumerate() {
+                check_cancel(state, operand_index)?;
+                named_destinations.push(workspace.clone_text(operand.iri)?);
             }
 
             let mut restrictions = workspace.reserve_owned::<OwnedEquivalentRestriction>(
-                restriction_count,
+                planned_restrictions.len(),
                 "encoded aggregate restriction-operand allocation failed",
             )?;
-            for tag in [
-                TAG_OBJECT_SOME_VALUES_FROM,
-                TAG_OBJECT_ALL_VALUES_FROM,
-                TAG_OBJECT_MIN_CARDINALITY,
-                TAG_OBJECT_MAX_CARDINALITY,
-            ] {
-                for item_index in item_start..item_start + item_count {
-                    check_cancel(state, item_index)?;
-                    let operand_id = columns.item_node(item_index)?;
-                    if columns.node_tag(operand_id)? != tag {
-                        continue;
-                    }
-                    let Some((relation, destination)) =
-                        columns.restriction_projection(operand_id, max_iri_bytes)?
-                    else {
-                        continue;
-                    };
-                    restrictions.push(OwnedEquivalentRestriction {
-                        relation: workspace.clone_text(relation)?,
-                        destination: workspace.clone_text(destination)?,
-                    });
-                }
+            for (restriction_index, operand) in planned_restrictions.iter().enumerate() {
+                check_cancel(state, restriction_index)?;
+                let Some((relation, destination)) = operand.projection else {
+                    continue;
+                };
+                restrictions.push(OwnedEquivalentRestriction {
+                    relation: workspace.clone_text(relation)?,
+                    destination: workspace.clone_text(destination)?,
+                });
             }
             Ok(OwnedOverlayDeltaProjection::EquivalentAggregate {
                 source: workspace.clone_text(source)?,
                 named_destinations,
                 restrictions,
-                ignored_shapes,
+                ignored_shapes: aggregate.ignored_shapes,
             })
         }
     }
@@ -10728,75 +11517,137 @@ fn validate_local_annotation_scope(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // The rule-plan transfer keeps semantic inputs explicit.
 fn own_local_emitting_projection(
     rule: RootRule,
+    planned_shape: Option<PlannedRootShape<'_>>,
+    root_rule_plan: &SelectedRootRulePlan<'_>,
+    root_index: usize,
     columns: DirectColumns<'_>,
     root: usize,
-    max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
-    match (rule.phase, rule.handler) {
-        (EmissionPhase::Subclasses, RootRuleHandler::Subclass) => own_local_subclass_projection(
+    match (rule.phase, rule.handler, planned_shape) {
+        (
+            EmissionPhase::Subclasses,
+            RootRuleHandler::Subclass,
+            Some(PlannedRootShape::Subclass(projection)),
+        ) => own_local_subclass_projection(
             rule.constructor,
+            projection,
             columns,
             root,
-            max_iri_bytes,
             state,
             workspace,
         ),
-        (EmissionPhase::Equivalents, RootRuleHandler::EquivalentClasses) => {
-            own_local_equivalent_projection(
-                rule.constructor,
-                columns,
-                root,
-                max_iri_bytes,
-                state,
-                workspace,
-            )
-        }
-        (EmissionPhase::ClassAssertions, RootRuleHandler::ClassAssertion) => {
-            own_local_class_assertion_projection(
-                rule.constructor,
-                columns,
-                root,
-                max_iri_bytes,
-                state,
-                workspace,
-            )
-        }
-        (EmissionPhase::ObjectAssertions, RootRuleHandler::ObjectPropertyAssertion) => {
-            own_local_object_property_assertion_projection(
-                rule.constructor,
-                columns,
-                root,
-                max_iri_bytes,
-                state,
-                workspace,
-            )
-        }
+        (
+            EmissionPhase::Equivalents,
+            RootRuleHandler::EquivalentClasses,
+            Some(PlannedRootShape::Equivalent(projection)),
+        ) => own_local_equivalent_projection(
+            rule.constructor,
+            projection,
+            root_rule_plan,
+            root_index,
+            columns,
+            root,
+            state,
+            workspace,
+        ),
+        (
+            EmissionPhase::ClassAssertions,
+            RootRuleHandler::ClassAssertion,
+            Some(PlannedRootShape::ClassAssertion(projection)),
+        ) => own_local_class_assertion_projection(
+            rule.constructor,
+            projection,
+            columns,
+            root,
+            state,
+            workspace,
+        ),
+        (
+            EmissionPhase::ObjectAssertions,
+            RootRuleHandler::ObjectPropertyAssertion,
+            Some(PlannedRootShape::ObjectPropertyAssertion {
+                source,
+                relation,
+                destination,
+            }),
+        ) => own_local_object_property_assertion_projection(
+            rule.constructor,
+            source,
+            relation,
+            destination,
+            columns,
+            root,
+            state,
+            workspace,
+        ),
         _ => Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT)),
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct DynamicTailContext {
-    paired_root: bool,
+struct DynamicTailContext<'a> {
     scope_mapped_construct: Option<(ScopeMappedCompositeKind, usize)>,
+    table: usize,
+    composite_anonymous_nodes: &'a [CompositeNodeCoordinate],
 }
 
+fn composite_anonymous_position(
+    coordinates: &[CompositeNodeCoordinate],
+    table: usize,
+    node_id: usize,
+    missing_message: &'static str,
+) -> Result<usize, KernelError> {
+    coordinates
+        .binary_search_by_key(&(table, node_id), |coordinate| {
+            (coordinate.table, coordinate.node_id)
+        })
+        .ok()
+        .map(|index| coordinates[index].canonical_order)
+        .ok_or_else(|| KernelError::malformed(missing_message))
+}
+
+fn own_composite_individual(
+    value: IndividualValue<'_>,
+    table: usize,
+    composite_anonymous_nodes: &[CompositeNodeCoordinate],
+    workspace: &mut LocalOverlayWorkspace,
+) -> Result<String, KernelError> {
+    match value {
+        IndividualValue::Named(iri) => workspace.clone_text(iri),
+        IndividualValue::Anonymous(node_id) => {
+            let position = composite_anonymous_position(
+                composite_anonymous_nodes,
+                table,
+                node_id,
+                "encoded composite anonymous individual lost its global position",
+            )?;
+            workspace.anonymous_identifier(position)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // The dynamic tail plan keeps source and ownership inputs explicit.
 fn own_composite_tail_projection(
     rule: RootRule,
+    planned_shape: Option<PlannedRootShape<'_>>,
+    root_rule_plan: &SelectedRootRulePlan<'_>,
+    root_index: usize,
     columns: DirectColumns<'_>,
     root: usize,
     max_iri_bytes: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
-    context: DynamicTailContext,
+    context: DynamicTailContext<'_>,
 ) -> Result<OwnedOverlayDeltaProjection, KernelError> {
     let DynamicTailContext {
-        paired_root,
         scope_mapped_construct,
+        table,
+        composite_anonymous_nodes,
     } = context;
     if scope_mapped_construct.is_some() {
         let valid_envelope = matches!(
@@ -10829,45 +11680,22 @@ fn own_composite_tail_projection(
             ));
         }
     }
-    if paired_root
-        && (rule.annotation_policy != RootAnnotationPolicy::AxiomAnnotations
-            || rule.anonymous_scope_policy != RootAnonymousScopePolicy::AxiomDerived)
-    {
-        return Err(KernelError::malformed(
-            "encoded paired ROOT proof requires an axiom annotation envelope",
-        ));
-    }
-    if rule.dynamic_action == DynamicRootAction::ScopeMappedOnly
-        && scope_mapped_construct.is_none()
-        && rule.root_kind != ROOT_AXIOM
-    {
-        return Err(KernelError::unsupported(
-            "bounded composite tail requires axiom roots or its mapped silent root",
-        ));
-    }
     match rule.dynamic_action {
-        DynamicRootAction::PairedDeclaration if paired_root => {
+        DynamicRootAction::Declaration => {
             return Ok(OwnedOverlayDeltaProjection::SilentDeclaration);
         }
-        DynamicRootAction::PairedAnnotationOrScopeMapped if paired_root => {
+        DynamicRootAction::AnnotationAssertion
+            if matches!(
+                scope_mapped_construct,
+                Some((ScopeMappedCompositeKind::SilentAnnotation, _))
+            ) => {}
+        DynamicRootAction::AnnotationAssertion => {
             columns.validate_annotation_assertion(root, max_iri_bytes)?;
             return Ok(OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                 anonymous_individuals: 0,
             });
         }
-        DynamicRootAction::UnsupportedDynamic
-        | DynamicRootAction::PairedDeclaration
-        | DynamicRootAction::PairedAnnotationOrScopeMapped
-            if scope_mapped_construct.is_none() =>
-        {
-            return Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT));
-        }
-        DynamicRootAction::General
-        | DynamicRootAction::ScopeMappedOnly
-        | DynamicRootAction::PairedAnnotationOrScopeMapped => {}
-        DynamicRootAction::UnsupportedDynamic | DynamicRootAction::PairedDeclaration => {
-            return Err(KernelError::unsupported(LOCAL_EMITTING_OVERLAY_REQUIREMENT));
-        }
+        DynamicRootAction::General => {}
     }
     if matches!(
         scope_mapped_construct,
@@ -10903,7 +11731,12 @@ fn own_composite_tail_projection(
         Some((ScopeMappedCompositeKind::IgnoredSubclass, _))
     ) && rule.handler == RootRuleHandler::Subclass
     {
-        match columns.subclass_projection(root, max_iri_bytes)? {
+        let Some(PlannedRootShape::Subclass(projection)) = planned_shape else {
+            return Err(KernelError::malformed(
+                "encoded subclass root lost its planned semantic shape",
+            ));
+        };
+        match projection {
             SubclassProjection::Ignored
                 if columns.is_scope_mapped_ignored_subclass(root, None, max_iri_bytes)? =>
             {
@@ -10931,12 +11764,19 @@ fn own_composite_tail_projection(
         _ => None,
     };
     if let Some(kind) = ignored_object_property_class {
-        if !columns.is_scope_mapped_ignored_object_property_class(
-            root,
-            rule.tag,
-            None,
-            max_iri_bytes,
-        )? {
+        let Some(PlannedRootShape::ObjectPropertyClass(projection)) = planned_shape else {
+            return Err(KernelError::malformed(
+                "encoded object-property class root lost its planned semantic shape",
+            ));
+        };
+        if projection.is_some()
+            || !columns.is_scope_mapped_ignored_object_property_class(
+                root,
+                rule.tag,
+                None,
+                max_iri_bytes,
+            )?
+        {
             return Err(KernelError::unsupported(
                 "bounded anonymous-scope object-property domain/range requires a named outer property and a singleton anonymous nominal or named-property ObjectHasValue carrying the anonymous individual",
             ));
@@ -10958,8 +11798,16 @@ fn own_composite_tail_projection(
                 "bounded anonymous-scope ObjectPropertyAssertion requires an empty annotation set",
             ));
         }
-        let (source, relation, destination) =
-            columns.object_property_assertion_parts(root, max_iri_bytes)?;
+        let Some(PlannedRootShape::ObjectPropertyAssertion {
+            source,
+            relation,
+            destination,
+        }) = planned_shape
+        else {
+            return Err(KernelError::malformed(
+                "encoded object-property assertion lost its planned semantic shape",
+            ));
+        };
         let position = scope_mapped_construct
             .map(|(_kind, position)| position)
             .ok_or_else(|| {
@@ -11108,7 +11956,95 @@ fn own_composite_tail_projection(
         Some((ScopeMappedCompositeKind::IgnoredClass, _))
     ) || rule.handler != RootRuleHandler::ClassAssertion
     {
-        return own_local_emitting_projection(rule, columns, root, max_iri_bytes, state, workspace);
+        if rule.handler == RootRuleHandler::ObjectPropertyClass {
+            let kind = ObjectPropertyClassRuleKind::from_effect(rule.domain_range_effect)
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded object-property class rule lost its domain/range effect",
+                    )
+                })?;
+            let Some(PlannedRootShape::ObjectPropertyClass(projection)) = planned_shape else {
+                return Err(KernelError::malformed(
+                    "encoded object-property class root lost its planned semantic shape",
+                ));
+            };
+            return if projection.is_some() {
+                Ok(OwnedOverlayDeltaProjection::SilentRoot { rule })
+            } else {
+                Ok(OwnedOverlayDeltaProjection::IgnoredObjectPropertyClass {
+                    kind,
+                    anonymous_individuals: 0,
+                })
+            };
+        }
+        if rule.handler == RootRuleHandler::ObjectPropertyAssertion {
+            let Some(PlannedRootShape::ObjectPropertyAssertion {
+                source,
+                relation,
+                destination,
+            }) = planned_shape
+            else {
+                return Err(KernelError::malformed(
+                    "encoded object-property assertion lost its planned semantic shape",
+                ));
+            };
+            return Ok(OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
+                source: own_composite_individual(
+                    source,
+                    table,
+                    composite_anonymous_nodes,
+                    workspace,
+                )?,
+                relation: workspace.clone_text(relation)?,
+                destination: own_composite_individual(
+                    destination,
+                    table,
+                    composite_anonymous_nodes,
+                    workspace,
+                )?,
+                anonymous_individuals: 0,
+            });
+        }
+        if rule.handler == RootRuleHandler::Subclass
+            && matches!(
+                planned_shape,
+                Some(PlannedRootShape::Subclass(SubclassProjection::Ignored))
+            )
+        {
+            return Ok(OwnedOverlayDeltaProjection::IgnoredSubclass {
+                anonymous_individuals: 0,
+            });
+        }
+        if rule.handler == RootRuleHandler::ClassAssertion
+            && matches!(
+                planned_shape,
+                Some(PlannedRootShape::ClassAssertion(
+                    ClassAssertionProjection::Ignored
+                ))
+            )
+        {
+            return Ok(OwnedOverlayDeltaProjection::IgnoredClassAssertion {
+                anonymous_individuals: 0,
+            });
+        }
+        if matches!(
+            rule.handler,
+            RootRuleHandler::Subclass
+                | RootRuleHandler::EquivalentClasses
+                | RootRuleHandler::ClassAssertion
+        ) {
+            return own_local_emitting_projection(
+                rule,
+                planned_shape,
+                root_rule_plan,
+                root_index,
+                columns,
+                root,
+                state,
+                workspace,
+            );
+        }
+        return Ok(OwnedOverlayDeltaProjection::SilentRoot { rule });
     }
     let field_start = columns.exact_fields(root, 3)?;
     let (_annotation_start, annotation_count) = columns.node_set_range(field_start + 2, 0)?;
@@ -11117,9 +12053,15 @@ fn own_composite_tail_projection(
             "bounded anonymous-scope ClassAssertion requires an empty annotation set",
         ));
     }
-    let projection = columns.class_assertion_projection(root, max_iri_bytes)?;
+    let Some(PlannedRootShape::ClassAssertion(projection)) = planned_shape else {
+        return Err(KernelError::malformed(
+            "encoded class-assertion root lost its planned semantic shape",
+        ));
+    };
     match projection {
-        ClassAssertionProjection::Edge { individual, class } => {
+        ClassAssertionProjection::Edge {
+            individual, class, ..
+        } => {
             Ok(OwnedOverlayDeltaProjection::ClassAssertion {
                 individual: workspace.clone_text(individual)?,
                 class: workspace.clone_text(class)?,
@@ -11214,6 +12156,43 @@ impl LocalOverlayWorkspace {
         Ok(items)
     }
 
+    fn push_owned<T>(
+        &mut self,
+        items: &mut Vec<T>,
+        item: T,
+        allocation_error: &'static str,
+    ) -> Result<(), KernelError> {
+        use std::mem::size_of;
+
+        if items.len() == items.capacity() {
+            let claimed_before = self.claimed;
+            let previous_capacity = items.capacity();
+            let required = size_of::<T>();
+            self.claim(required)?;
+            if items.try_reserve_exact(1).is_err() {
+                self.claimed = claimed_before;
+                return Err(KernelError::resource(allocation_error));
+            }
+            let additional = items
+                .capacity()
+                .checked_sub(previous_capacity)
+                .and_then(|capacity| capacity.checked_mul(size_of::<T>()))
+                .ok_or_else(|| KernelError::resource("encoded local-overlay workspace overflow"))?;
+            if additional > required {
+                if let Err(error) = self.claim(additional - required) {
+                    self.claimed = claimed_before;
+                    return Err(error);
+                }
+            } else {
+                self.claimed = claimed_before.checked_add(additional).ok_or_else(|| {
+                    KernelError::resource("encoded local-overlay workspace overflow")
+                })?;
+            }
+        }
+        items.push(item);
+        Ok(())
+    }
+
     fn reserve_overlay_deltas(
         &mut self,
         root_count: usize,
@@ -11236,19 +12215,432 @@ impl LocalOverlayWorkspace {
     }
 }
 
-fn resolve_selected_root_rule_plan(
-    columns: DirectColumns<'_>,
+fn push_planned<T>(
+    items: &mut Vec<T>,
+    item: T,
+    workspace: &mut Option<&mut LocalOverlayWorkspace>,
+    allocation_error: &'static str,
+) -> Result<(), KernelError> {
+    if let Some(workspace) = workspace.as_deref_mut() {
+        workspace.push_owned(items, item, allocation_error)
+    } else {
+        items
+            .try_reserve(1)
+            .map_err(|_| KernelError::resource(allocation_error))?;
+        items.push(item);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PlannedExpressionKey<'a> {
+    node_id: usize,
+    rank: u16,
+    named_iri: Option<&'a str>,
+}
+
+impl PlannedExpressionKey<'_> {
+    fn precedes(self, other: Self) -> bool {
+        if self.rank != other.rank {
+            return self.rank < other.rank;
+        }
+        match (self.named_iri, other.named_iri) {
+            (Some(left), Some(right)) => {
+                (left.as_bytes(), self.node_id) < (right.as_bytes(), other.node_id)
+            }
+            _ => self.node_id < other.node_id,
+        }
+    }
+}
+
+fn planned_expression_key<'a>(
+    columns: DirectColumns<'a>,
+    node_id: usize,
+    maximum_iri: usize,
+) -> Result<PlannedExpressionKey<'a>, KernelError> {
+    let tag = columns.node_tag(node_id)?;
+    let (rank, named_iri) = match tag {
+        TAG_ENTITY => (1001, Some(columns.named_class_iri(node_id, maximum_iri)?)),
+        TAG_OBJECT_INTERSECTION_OF => (3001, None),
+        TAG_OBJECT_UNION_OF => (3002, None),
+        TAG_OBJECT_SOME_VALUES_FROM => (3005, None),
+        TAG_OBJECT_ALL_VALUES_FROM => (3006, None),
+        TAG_OBJECT_MIN_CARDINALITY => (3008, None),
+        TAG_OBJECT_MAX_CARDINALITY => (3010, None),
+        tag if is_nonprojecting_class_tag(tag) => (3999, None),
+        tag if SCHEMA_TAGS.contains(&tag) => {
+            return Err(KernelError::unsupported(
+                "direct native equivalent expression is outside the bounded class envelope",
+            ));
+        }
+        tag => {
+            return Err(KernelError::malformed(format!(
+                "encoded equivalent expression tag {tag} is outside structural-columns v1",
+            )));
+        }
+    };
+    Ok(PlannedExpressionKey {
+        node_id,
+        rank,
+        named_iri,
+    })
+}
+
+#[allow(clippy::too_many_arguments)] // The flat aggregate arenas keep ownership and budgeting explicit.
+fn plan_equivalent_shape<'a>(
+    columns: DirectColumns<'a>,
+    root_index: usize,
+    node_id: usize,
+    maximum_iri: usize,
+    state: &AtomicU8,
+    workspace: &mut Option<&mut LocalOverlayWorkspace>,
+    aggregate_roots: &mut Vec<PlannedAggregateRoot>,
+    named_operands: &mut Vec<PlannedAggregateNamedOperand<'a>>,
+    restriction_operands: &mut Vec<PlannedAggregateRestrictionOperand<'a>>,
+    emission_named_nodes: &mut Vec<usize>,
+    emission_restrictions: &mut Vec<Option<PlannedRestrictionCoordinate>>,
+) -> Result<(PlannedRootShape<'a>, PlannedEmissionShape), KernelError> {
+    let start = columns.exact_fields(node_id, 2)?;
+    let (item_start, length) = columns.node_set_range(start, 2)?;
+    let mut first = None;
+    let mut second = None;
+    for item_index in item_start..item_start + length {
+        check_cancel(state, item_index)?;
+        let candidate =
+            planned_expression_key(columns, columns.item_node(item_index)?, maximum_iri)?;
+        match first {
+            None => first = Some(candidate),
+            Some(current) if candidate.precedes(current) => {
+                second = first;
+                first = Some(candidate);
+            }
+            _ if second.is_none_or(|current| candidate.precedes(current)) => {
+                second = Some(candidate);
+            }
+            _ => {}
+        }
+    }
+    columns.validate_annotation_set(start + 1)?;
+    let (Some(first), Some(second)) = (first, second) else {
+        return Err(KernelError::malformed(
+            "encoded EquivalentClasses has too few expressions",
+        ));
+    };
+    let Some(source) = first.named_iri else {
+        return Ok((
+            PlannedRootShape::Equivalent(EquivalentProjection::Ignored),
+            PlannedEmissionShape::EquivalentIgnored,
+        ));
+    };
+    if let Some(destination) = second.named_iri {
+        return Ok((
+            PlannedRootShape::Equivalent(EquivalentProjection::Pair {
+                source,
+                source_node: first.node_id,
+                destination,
+                destination_node: second.node_id,
+            }),
+            PlannedEmissionShape::EquivalentPair {
+                source_node: first.node_id,
+                destination_node: second.node_id,
+            },
+        ));
+    }
+    if !is_aggregate_tag(columns.node_tag(second.node_id)?) {
+        return Ok((
+            PlannedRootShape::Equivalent(EquivalentProjection::Ignored),
+            PlannedEmissionShape::EquivalentIgnored,
+        ));
+    }
+
+    let (aggregate_start, aggregate_length) = columns.aggregate_operand_range(second.node_id)?;
+    let named_start = named_operands.len();
+    let restriction_start = restriction_operands.len();
+    let mut ignored_shapes = 0_usize;
+    for item_index in aggregate_start..aggregate_start + aggregate_length {
+        check_cancel(state, item_index)?;
+        let operand_id = columns.item_node(item_index)?;
+        let tag = columns.node_tag(operand_id)?;
+        if tag == TAG_ENTITY {
+            let iri = columns.named_class_iri(operand_id, maximum_iri)?;
+            push_planned(
+                named_operands,
+                PlannedAggregateNamedOperand {
+                    node_id: operand_id,
+                    iri,
+                },
+                workspace,
+                "encoded aggregate named-operand plan allocation failed",
+            )?;
+            push_planned(
+                emission_named_nodes,
+                operand_id,
+                workspace,
+                "encoded aggregate named-emission plan allocation failed",
+            )?;
+        } else if is_restriction_tag(tag) {
+            let projection = columns.restriction_projection(operand_id, maximum_iri)?;
+            let coordinate = projection
+                .is_some()
+                .then(|| columns.planned_restriction_coordinate(operand_id))
+                .transpose()?;
+            if projection.is_none() {
+                ignored_shapes = ignored_shapes.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded equivalent ignored-shape count overflow")
+                })?;
+            }
+            push_planned(
+                restriction_operands,
+                PlannedAggregateRestrictionOperand {
+                    node_id: operand_id,
+                    tag,
+                    item_order: item_index - aggregate_start,
+                    projection,
+                    coordinate,
+                },
+                workspace,
+                "encoded aggregate restriction-operand plan allocation failed",
+            )?;
+            push_planned(
+                emission_restrictions,
+                coordinate,
+                workspace,
+                "encoded aggregate restriction-emission plan allocation failed",
+            )?;
+        } else if is_nonprojecting_class_tag(tag) || is_aggregate_tag(tag) {
+            ignored_shapes = ignored_shapes.checked_add(1).ok_or_else(|| {
+                KernelError::resource("encoded equivalent ignored-shape count overflow")
+            })?;
+        } else {
+            return Err(KernelError::malformed(
+                "encoded aggregate operand changed after successful preflight",
+            ));
+        }
+    }
+    cancellable_sort_unstable_by(&mut named_operands[named_start..], state, |left, right| {
+        left.iri
+            .as_bytes()
+            .cmp(right.iri.as_bytes())
+            .then_with(|| left.node_id.cmp(&right.node_id))
+    })?;
+    for (alignment_index, (emission_node, operand)) in emission_named_nodes[named_start..]
+        .iter_mut()
+        .zip(&named_operands[named_start..])
+        .enumerate()
+    {
+        check_cancel(state, alignment_index)?;
+        *emission_node = operand.node_id;
+    }
+    let tag_order = |tag| match tag {
+        TAG_OBJECT_SOME_VALUES_FROM => 0_u8,
+        TAG_OBJECT_ALL_VALUES_FROM => 1,
+        TAG_OBJECT_MIN_CARDINALITY => 2,
+        TAG_OBJECT_MAX_CARDINALITY => 3,
+        _ => u8::MAX,
+    };
+    cancellable_sort_unstable_by(
+        &mut restriction_operands[restriction_start..],
+        state,
+        |left, right| {
+            (tag_order(left.tag), left.item_order).cmp(&(tag_order(right.tag), right.item_order))
+        },
+    )?;
+    for (alignment_index, (emission_coordinate, operand)) in emission_restrictions
+        [restriction_start..]
+        .iter_mut()
+        .zip(&restriction_operands[restriction_start..])
+        .enumerate()
+    {
+        check_cancel(state, alignment_index)?;
+        *emission_coordinate = operand.coordinate;
+    }
+    let named = PlannedAggregateRange {
+        start: named_start,
+        length: named_operands.len() - named_start,
+    };
+    let restrictions = PlannedAggregateRange {
+        start: restriction_start,
+        length: restriction_operands.len() - restriction_start,
+    };
+    let aggregate_plan_index = aggregate_roots.len();
+    push_planned(
+        aggregate_roots,
+        PlannedAggregateRoot {
+            root_index,
+            named,
+            restrictions,
+            ignored_shapes,
+        },
+        workspace,
+        "encoded aggregate root-plan allocation failed",
+    )?;
+    Ok((
+        PlannedRootShape::Equivalent(EquivalentProjection::Aggregate {
+            source,
+            source_node: first.node_id,
+            expression_id: second.node_id,
+        }),
+        PlannedEmissionShape::EquivalentAggregate {
+            source_node: first.node_id,
+            aggregate_plan_index,
+        },
+    ))
+}
+
+#[allow(clippy::too_many_arguments)] // Root planning writes the shared flat semantic arenas.
+fn plan_root_shape<'a>(
+    rule: RootRule,
+    columns: DirectColumns<'a>,
+    root_index: usize,
+    node_id: usize,
+    maximum_iri: usize,
+    state: &AtomicU8,
+    workspace: &mut Option<&mut LocalOverlayWorkspace>,
+    aggregate_roots: &mut Vec<PlannedAggregateRoot>,
+    named_operands: &mut Vec<PlannedAggregateNamedOperand<'a>>,
+    restriction_operands: &mut Vec<PlannedAggregateRestrictionOperand<'a>>,
+    emission_named_nodes: &mut Vec<usize>,
+    emission_restrictions: &mut Vec<Option<PlannedRestrictionCoordinate>>,
+) -> Result<Option<(PlannedRootShape<'a>, PlannedEmissionShape)>, KernelError> {
+    let planned = match rule.handler {
+        RootRuleHandler::Subclass => {
+            let projection = columns.subclass_projection(node_id, maximum_iri)?;
+            let start = columns.exact_fields(node_id, 3)?;
+            let sub_node = columns.field_node(start)?;
+            let super_node = columns.field_node(start + 1)?;
+            let emission = match projection {
+                SubclassProjection::Taxonomy { .. } => PlannedEmissionShape::SubclassTaxonomy {
+                    source_node: sub_node,
+                    destination_node: super_node,
+                },
+                SubclassProjection::Restriction { .. } => {
+                    let (source_node, restriction_node) =
+                        if columns.node_tag(sub_node)? == TAG_ENTITY {
+                            (sub_node, super_node)
+                        } else {
+                            (super_node, sub_node)
+                        };
+                    PlannedEmissionShape::SubclassRestriction {
+                        source_node,
+                        restriction: columns.planned_restriction_coordinate(restriction_node)?,
+                    }
+                }
+                SubclassProjection::Ignored => PlannedEmissionShape::SubclassIgnored,
+            };
+            Some((PlannedRootShape::Subclass(projection), emission))
+        }
+        RootRuleHandler::EquivalentClasses => Some(plan_equivalent_shape(
+            columns,
+            root_index,
+            node_id,
+            maximum_iri,
+            state,
+            workspace,
+            aggregate_roots,
+            named_operands,
+            restriction_operands,
+            emission_named_nodes,
+            emission_restrictions,
+        )?),
+        RootRuleHandler::ObjectPropertyClass => {
+            let projection =
+                columns.object_property_class_projection(node_id, rule.tag, maximum_iri)?;
+            let emission = if projection.is_some() {
+                let start = columns.exact_fields(node_id, 3)?;
+                PlannedEmissionShape::ObjectPropertyClassProjected {
+                    property_node: columns.field_node(start)?,
+                    class_node: columns.field_node(start + 1)?,
+                }
+            } else {
+                PlannedEmissionShape::ObjectPropertyClassIgnored
+            };
+            Some((PlannedRootShape::ObjectPropertyClass(projection), emission))
+        }
+        RootRuleHandler::ClassAssertion => {
+            let projection = columns.class_assertion_projection(node_id, maximum_iri)?;
+            let emission = match projection {
+                ClassAssertionProjection::Edge {
+                    individual_node,
+                    class_node,
+                    ..
+                } => PlannedEmissionShape::ClassAssertionEdge {
+                    individual_node,
+                    class_node,
+                },
+                ClassAssertionProjection::Ignored => PlannedEmissionShape::ClassAssertionIgnored,
+            };
+            Some((PlannedRootShape::ClassAssertion(projection), emission))
+        }
+        RootRuleHandler::ObjectPropertyAssertion => {
+            let (source, relation, destination) =
+                columns.object_property_assertion_parts(node_id, maximum_iri)?;
+            let start = columns.exact_fields(node_id, 4)?;
+            let source_node = columns.field_node(start + 1)?;
+            let destination_node = columns.field_node(start + 2)?;
+            Some((
+                PlannedRootShape::ObjectPropertyAssertion {
+                    source,
+                    relation,
+                    destination,
+                },
+                PlannedEmissionShape::ObjectPropertyAssertion {
+                    property_node: columns.field_node(start)?,
+                    source: columns.planned_individual_coordinate(source, source_node)?,
+                    destination: columns
+                        .planned_individual_coordinate(destination, destination_node)?,
+                },
+            ))
+        }
+        _ => None,
+    };
+    Ok(planned)
+}
+
+fn resolve_selected_root_rule_plan<'a>(
+    columns: DirectColumns<'a>,
     maximum_iri: usize,
     state: &AtomicU8,
     workspace: &mut LocalOverlayWorkspace,
-) -> Result<SelectedRootRulePlan, KernelError> {
+) -> Result<SelectedRootRulePlan<'a>, KernelError> {
     let root_count = columns.root_count();
     let mut rule_indexes = workspace.reserve_owned::<u8>(
         root_count,
         "encoded structural root-rule plan allocation failed",
     )?;
     rule_indexes.resize(root_count, 0);
+    populate_selected_root_rule_plan(columns, maximum_iri, state, rule_indexes, Some(workspace))
+}
+
+fn resolve_selected_root_rule_plan_unbounded<'a>(
+    columns: DirectColumns<'a>,
+    maximum_iri: usize,
+    state: &AtomicU8,
+) -> Result<SelectedRootRulePlan<'a>, KernelError> {
+    let root_count = columns.root_count();
+    let mut rule_indexes = Vec::new();
+    rule_indexes.try_reserve_exact(root_count).map_err(|_| {
+        KernelError::resource("encoded structural root-rule plan allocation failed")
+    })?;
+    rule_indexes.resize(root_count, 0);
+    populate_selected_root_rule_plan(columns, maximum_iri, state, rule_indexes, None)
+}
+
+fn populate_selected_root_rule_plan<'a>(
+    columns: DirectColumns<'a>,
+    maximum_iri: usize,
+    state: &AtomicU8,
+    mut rule_indexes: Vec<u8>,
+    mut workspace: Option<&mut LocalOverlayWorkspace>,
+) -> Result<SelectedRootRulePlan<'a>, KernelError> {
     let mut counts = RootCounts::default();
+    let mut role_roots = Vec::new();
+    let mut shape_roots = Vec::new();
+    let mut emission_roots = Vec::new();
+    let mut aggregate_roots = Vec::new();
+    let mut aggregate_named_operands = Vec::new();
+    let mut aggregate_restriction_operands = Vec::new();
+    let mut aggregate_emission_named_nodes = Vec::new();
+    let mut aggregate_emission_restrictions = Vec::new();
     let mut selected = 0_usize;
     for (root_index, rule_slot) in rule_indexes.iter_mut().enumerate() {
         check_cancel(state, root_index)?;
@@ -11264,7 +12656,67 @@ fn resolve_selected_root_rule_plan(
             .ok_or_else(|| {
                 KernelError::malformed("encoded structural root-rule index is invalid")
             })?;
-        rule.classify(columns, node_id, maximum_iri, &mut counts)?;
+        let (planned_shape, emission_shape) = match plan_root_shape(
+            rule,
+            columns,
+            root_index,
+            node_id,
+            maximum_iri,
+            state,
+            &mut workspace,
+            &mut aggregate_roots,
+            &mut aggregate_named_operands,
+            &mut aggregate_restriction_operands,
+            &mut aggregate_emission_named_nodes,
+            &mut aggregate_emission_restrictions,
+        )? {
+            Some((shape, emission)) => (Some(shape), Some(emission)),
+            None => (None, None),
+        };
+        let (role_effect, classified_shape) = rule.classify(
+            columns,
+            node_id,
+            maximum_iri,
+            &mut counts,
+            root_index,
+            planned_shape,
+        )?;
+        if classified_shape != planned_shape {
+            return Err(KernelError::malformed(
+                "encoded structural root changed its planned semantic shape",
+            ));
+        }
+        if let Some(effect) = role_effect {
+            let planned = PlannedRoleRoot { root_index, effect };
+            if let Some(workspace) = workspace.as_deref_mut() {
+                workspace.push_owned(
+                    &mut role_roots,
+                    planned,
+                    "encoded structural role-plan allocation failed",
+                )?;
+            } else {
+                role_roots.try_reserve(1).map_err(|_| {
+                    KernelError::resource("encoded structural role-plan allocation failed")
+                })?;
+                role_roots.push(planned);
+            }
+        }
+        if let Some(shape) = planned_shape {
+            push_planned(
+                &mut shape_roots,
+                PlannedShapeRoot { root_index, shape },
+                &mut workspace,
+                "encoded structural shape-plan allocation failed",
+            )?;
+        }
+        if let Some(shape) = emission_shape {
+            push_planned(
+                &mut emission_roots,
+                PlannedEmissionRoot { root_index, shape },
+                &mut workspace,
+                "encoded structural emission-plan allocation failed",
+            )?;
+        }
         *rule_slot = encoded_index;
         selected = selected
             .checked_add(1)
@@ -11277,6 +12729,14 @@ fn resolve_selected_root_rule_plan(
     }
     Ok(SelectedRootRulePlan {
         rule_indexes,
+        shape_roots,
+        emission_roots,
+        aggregate_roots,
+        aggregate_named_operands,
+        aggregate_restriction_operands,
+        aggregate_emission_named_nodes,
+        aggregate_emission_restrictions,
+        role_roots,
         counts,
         selected,
     })
@@ -11562,31 +13022,23 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
             "bounded composite requires at least one selected root",
         ));
     }
-    let mut node_offsets = if root_columns.is_some() {
-        local_workspace.reserve_owned::<usize>(
-            member_count
-                .checked_add(1)
-                .ok_or_else(|| KernelError::resource("encoded composite table count overflow"))?,
-            "encoded composite node-offset allocation failed",
-        )?
-    } else {
-        Vec::new()
-    };
-    if root_columns.is_some() {
-        node_offsets.push(0);
-    }
+    let mut node_offsets = local_workspace.reserve_owned::<usize>(
+        member_count
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded composite table count overflow"))?,
+        "encoded composite node-offset allocation failed",
+    )?;
+    node_offsets.push(0);
     let mut total_node_slots = 0_usize;
     let mut maximum_node_count = 0_usize;
-    if root_columns.is_some() {
-        for member in columns {
-            maximum_node_count = maximum_node_count.max(member.node_count());
-            total_node_slots = total_node_slots
-                .checked_add(member.node_count().checked_add(1).ok_or_else(|| {
-                    KernelError::resource("encoded composite reachability length overflow")
-                })?)
-                .ok_or_else(|| KernelError::resource("encoded composite reachability overflow"))?;
-            node_offsets.push(total_node_slots);
-        }
+    for member in columns {
+        maximum_node_count = maximum_node_count.max(member.node_count());
+        total_node_slots = total_node_slots
+            .checked_add(member.node_count().checked_add(1).ok_or_else(|| {
+                KernelError::resource("encoded composite reachability length overflow")
+            })?)
+            .ok_or_else(|| KernelError::resource("encoded composite reachability overflow"))?;
+        node_offsets.push(total_node_slots);
     }
     let mut reachable = local_workspace.reserve_owned::<bool>(
         total_node_slots,
@@ -11621,7 +13073,10 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
             .checked_add(*selected_count)
             .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
     }
-    let mut overlay_deltas = local_workspace.reserve_overlay_deltas(tail_root_count)?;
+    let mut tail_root_plans = local_workspace.reserve_owned::<DynamicTailRootPlan>(
+        tail_root_count,
+        "encoded composite tail rule-plan allocation failed",
+    )?;
     let mut tail_offsets = local_workspace.reserve_owned::<usize>(
         member_count,
         "encoded composite tail-offset allocation failed",
@@ -11651,31 +13106,18 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
                     "bounded composite literal projection requires annotation-assertion-free selected roots",
                 ));
             }
-            let scope_mapped_context = if tail_columns.anonymous_scope_map.is_empty() {
-                None
-            } else {
-                scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[table]))
-            };
-            let projection = own_composite_tail_projection(
+            tail_root_plans.push(DynamicTailRootPlan {
+                table,
+                root_index,
+                node_id: root,
                 rule,
-                *tail_columns,
-                root,
-                options.max_iri_bytes,
-                state,
-                &mut local_workspace,
-                DynamicTailContext {
-                    paired_root: root_columns.is_some(),
-                    scope_mapped_construct: scope_mapped_context,
-                },
-            )?;
-            overlay_deltas.push(OwnedOverlayDelta {
-                projection,
+                shape: closure_rule_plans[table].shape_at(root_index),
                 insertion_scan_index: usize::MAX,
-                local_canonical_index: root_index,
+                merged_canonical_index: usize::MAX,
             });
         }
     }
-    if overlay_deltas.len() != tail_root_count {
+    if tail_root_plans.len() != tail_root_count {
         return Err(KernelError::malformed(
             "encoded bounded selection lost a tail root",
         ));
@@ -11711,6 +13153,22 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     if root_columns.is_some() {
         root_consumed.resize(member_count, 0);
     }
+    let maximum_role_axioms = closure_rule_plans.iter().try_fold(
+        0_usize,
+        |total, plan| -> Result<usize, KernelError> {
+            total
+                .checked_add(plan.counts.role_axioms()?)
+                .ok_or_else(|| KernelError::resource("encoded composite role count overflow"))
+        },
+    )?;
+    let mut global_role_rows = local_workspace.reserve_owned::<RoleAxiom<'_>>(
+        maximum_role_axioms,
+        "encoded composite role-row allocation failed",
+    )?;
+    let mut global_role_axiom_count = 0_usize;
+    let mut global_subrole_axioms = 0_usize;
+    let mut global_inverse_axioms = 0_usize;
+    let mut global_property_chains = 0_usize;
     let mut merger = canonical_merge::CanonicalKWayRootMerger::new(
         merge_columns,
         canonical_merge::CanonicalMergeLimits {
@@ -11738,6 +13196,55 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         })?;
         let representative_rule =
             closure_rule_plans[representative_table].rule_at(representative.index)?;
+        let planned_role =
+            closure_rule_plans[representative_table].role_effect_at(representative.index)?;
+        match (representative_rule.role_effect, planned_role) {
+            (RootRoleEffect::None, None) => {}
+            (RootRoleEffect::SubPropertyOrChain, Some(PlannedRoleEffect::PropertyChain)) => {
+                global_role_axiom_count =
+                    global_role_axiom_count.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded composite role count overflow")
+                    })?;
+                global_property_chains =
+                    global_property_chains.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded composite property-chain count overflow")
+                    })?;
+            }
+            (
+                RootRoleEffect::SubPropertyOrChain | RootRoleEffect::InverseProperties,
+                Some(PlannedRoleEffect::Row(mut row)),
+            ) => {
+                global_role_axiom_count =
+                    global_role_axiom_count.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded composite role count overflow")
+                    })?;
+                match representative_rule.role_effect {
+                    RootRoleEffect::SubPropertyOrChain => {
+                        global_subrole_axioms =
+                            global_subrole_axioms.checked_add(1).ok_or_else(|| {
+                                KernelError::resource("encoded composite subrole count overflow")
+                            })?;
+                    }
+                    RootRoleEffect::InverseProperties => {
+                        global_inverse_axioms =
+                            global_inverse_axioms.checked_add(1).ok_or_else(|| {
+                                KernelError::resource(
+                                    "encoded composite inverse-role count overflow",
+                                )
+                            })?;
+                    }
+                    RootRoleEffect::None => unreachable!(),
+                }
+                row.canonical_order = merged_canonical_index;
+                row.source_order = 1;
+                global_role_rows.push(row);
+            }
+            _ => {
+                return Err(KernelError::malformed(
+                    "encoded structural root rule has an inconsistent planned role effect",
+                ));
+            }
+        }
         let mut root_selected = false;
         if root_columns.is_some() {
             for (table, consumed_count) in root_consumed.iter_mut().enumerate() {
@@ -11769,24 +13276,21 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
             }
         }
         let representative_node = representative.node_id;
-        if root_columns.is_some() {
-            let reachable_start = node_offsets[representative_table];
-            let reachable_end = node_offsets[representative_table + 1];
+        let reachable_start = node_offsets[representative_table];
+        let reachable_end = node_offsets[representative_table + 1];
+        columns[representative_table].mark_root_reachable(
+            representative_node,
+            &mut reachable[reachable_start..reachable_end],
+            &mut reachability_stack,
+            state,
+        )?;
+        if representative_rule.anonymous_scope_policy == RootAnonymousScopePolicy::AxiomDerived {
             columns[representative_table].mark_root_reachable(
                 representative_node,
-                &mut reachable[reachable_start..reachable_end],
+                &mut axiom_reachable[reachable_start..reachable_end],
                 &mut reachability_stack,
                 state,
             )?;
-            if representative_rule.anonymous_scope_policy == RootAnonymousScopePolicy::AxiomDerived
-            {
-                columns[representative_table].mark_root_reachable(
-                    representative_node,
-                    &mut axiom_reachable[reachable_start..reachable_end],
-                    &mut reachability_stack,
-                    state,
-                )?;
-            }
         }
         if representative_rule.literal_policy == RootLiteralPolicy::RootScopedAnnotation {
             closure_annotation_assertions = closure_annotation_assertions
@@ -11832,23 +13336,27 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
             let plan_index = tail_offsets[table]
                 .checked_add(consumed[table])
                 .ok_or_else(|| KernelError::resource("encoded composite plan-index overflow"))?;
-            let delta = overlay_deltas.get_mut(plan_index).ok_or_else(|| {
+            let plan = tail_root_plans.get_mut(plan_index).ok_or_else(|| {
                 KernelError::malformed("encoded bounded merge produced an inconsistent tail root")
             })?;
-            if delta.local_canonical_index != root.index {
+            if plan.table != table
+                || plan.root_index != root.index
+                || plan.node_id != root.node_id
+                || plan.rule != representative_rule
+            {
                 return Err(KernelError::malformed(
                     "encoded bounded merge reordered one source-local root group",
                 ));
             }
             if retained_tail {
-                delta.insertion_scan_index = DEDUPLICATED_OVERLAY_SCAN_INDEX;
+                plan.insertion_scan_index = DEDUPLICATED_OVERLAY_SCAN_INDEX;
                 deduplicated_tail_roots =
                     deduplicated_tail_roots.checked_add(1).ok_or_else(|| {
                         KernelError::resource("encoded deduplicated-root counter overflow")
                     })?;
             } else {
-                delta.insertion_scan_index = next_base_scan_index;
-                delta.local_canonical_index = merged_canonical_index;
+                plan.insertion_scan_index = next_base_scan_index;
+                plan.merged_canonical_index = merged_canonical_index;
                 unique_tail_roots = unique_tail_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded composite root counter overflow")
                 })?;
@@ -11862,36 +13370,36 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
             .checked_add(1)
             .ok_or_else(|| KernelError::resource("encoded canonical root-position overflow"))?;
     }
-    if root_columns.is_some() {
-        let mut coordinate_order = 0_usize;
-        for table in 0..member_count {
-            let offset = node_offsets[table];
-            for node_id in 1..=columns[table].node_count() {
-                check_cancel(state, node_id)?;
-                if reachable[offset + node_id] && columns[table].node_tag(node_id)? == TAG_ENTITY {
-                    let (kind, _iri) = columns[table].entity(node_id)?;
-                    if kind == b"class" {
-                        composite_class_nodes.push(CompositeNodeCoordinate {
-                            table,
-                            node_id,
-                            canonical_order: coordinate_order,
-                        });
-                        coordinate_order = coordinate_order.checked_add(1).ok_or_else(|| {
-                            KernelError::resource(
-                                "encoded composite class-coordinate counter overflow",
-                            )
-                        })?;
-                    }
-                }
-                if axiom_reachable[offset + node_id]
-                    && columns[table].node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL
-                {
-                    composite_anonymous_nodes.push(CompositeNodeCoordinate {
+    let mut coordinate_order = 0_usize;
+    let mut coordinate_work = 0_usize;
+    for table in 0..member_count {
+        let offset = node_offsets[table];
+        for node_id in 1..=columns[table].node_count() {
+            check_cancel(state, coordinate_work)?;
+            coordinate_work = coordinate_work.checked_add(1).ok_or_else(|| {
+                KernelError::resource("encoded composite coordinate-work counter overflow")
+            })?;
+            if reachable[offset + node_id] && columns[table].node_tag(node_id)? == TAG_ENTITY {
+                let (kind, _iri) = columns[table].entity(node_id)?;
+                if kind == b"class" {
+                    composite_class_nodes.push(CompositeNodeCoordinate {
                         table,
                         node_id,
-                        canonical_order: usize::MAX,
+                        canonical_order: coordinate_order,
                     });
+                    coordinate_order = coordinate_order.checked_add(1).ok_or_else(|| {
+                        KernelError::resource("encoded composite class-coordinate counter overflow")
+                    })?;
                 }
+            }
+            if axiom_reachable[offset + node_id]
+                && columns[table].node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL
+            {
+                composite_anonymous_nodes.push(CompositeNodeCoordinate {
+                    table,
+                    node_id,
+                    canonical_order: usize::MAX,
+                });
             }
         }
     }
@@ -11915,8 +13423,108 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         ));
     }
     drop(merger);
-    overlay_deltas.retain(|delta| delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX);
-    canonicalize_overlay_delta_plan(&mut overlay_deltas);
+    if global_role_rows
+        .len()
+        .checked_add(global_property_chains)
+        .ok_or_else(|| KernelError::resource("encoded composite role count overflow"))?
+        != global_role_axiom_count
+    {
+        return Err(KernelError::malformed(
+            "encoded composite role rows changed after successful preflight",
+        ));
+    }
+    let global_role_state = if options.asserted_taxonomy_only {
+        RoleState::default()
+    } else {
+        build_role_state_from_rows(
+            global_role_rows,
+            global_role_axiom_count,
+            global_subrole_axioms,
+            global_inverse_axioms,
+            retained,
+            options.max_iri_bytes,
+            state,
+        )?
+    };
+
+    cancellable_retain(&mut tail_root_plans, state, |plan| {
+        plan.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX
+    })?;
+    cancellable_sort_unstable_by(&mut tail_root_plans, state, |left, right| {
+        left.merged_canonical_index
+            .cmp(&right.merged_canonical_index)
+    })?;
+    if tail_root_plans.len() != unique_tail_roots {
+        return Err(KernelError::malformed(
+            "encoded bounded merge lost a unique tail root",
+        ));
+    }
+    let mut overlay_deltas = local_workspace.reserve_overlay_deltas(unique_tail_roots)?;
+    let mut local_object_property_classes = local_workspace
+        .reserve_owned::<OwnedLocalObjectPropertyClass>(
+            unique_tail_roots,
+            "encoded composite object-property class allocation failed",
+        )?;
+    for (plan_index, plan) in tail_root_plans.iter().enumerate() {
+        check_cancel(state, plan_index)?;
+        let tail_columns = columns[plan.table];
+        let scope_mapped_context = if tail_columns.anonymous_scope_map.is_empty() {
+            None
+        } else {
+            scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[plan.table]))
+        };
+        if plan.rule.handler == RootRuleHandler::ObjectPropertyClass {
+            let kind = ObjectPropertyClassRuleKind::from_effect(plan.rule.domain_range_effect)
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded object-property class rule lost its domain/range effect",
+                    )
+                })?;
+            let Some(PlannedRootShape::ObjectPropertyClass(projection)) = plan.shape else {
+                return Err(KernelError::malformed(
+                    "encoded object-property class root lost its planned semantic shape",
+                ));
+            };
+            if let Some((property, class)) = projection {
+                let insertion_position = plan
+                    .insertion_scan_index
+                    .checked_add(local_object_property_classes.len())
+                    .ok_or_else(|| {
+                        KernelError::resource(
+                            "encoded composite object-property class position overflow",
+                        )
+                    })?;
+                local_object_property_classes.push(OwnedLocalObjectPropertyClass {
+                    kind,
+                    property: local_workspace.clone_text(property)?,
+                    class: local_workspace.clone_text(class)?,
+                    insertion_position,
+                });
+            }
+        }
+        let projection = own_composite_tail_projection(
+            plan.rule,
+            plan.shape,
+            &closure_rule_plans[plan.table],
+            plan.root_index,
+            tail_columns,
+            plan.node_id,
+            options.max_iri_bytes,
+            state,
+            &mut local_workspace,
+            DynamicTailContext {
+                scope_mapped_construct: scope_mapped_context,
+                table: plan.table,
+                composite_anonymous_nodes: &composite_anonymous_nodes,
+            },
+        )?;
+        overlay_deltas.push(OwnedOverlayDelta {
+            projection,
+            insertion_scan_index: plan.insertion_scan_index,
+            local_canonical_index: plan.merged_canonical_index,
+        });
+    }
+    canonicalize_overlay_delta_plan(&mut overlay_deltas, state)?;
 
     let mut base_options = options;
     if root_columns.is_some() {
@@ -11928,9 +13536,14 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         base_options,
         state,
         retained,
-        Some(&closure_rule_plans[0]),
+        Some(global_role_state),
+        Some(&mut closure_rule_plans[0]),
         None,
     )?;
+    prepared.preparation.local_object_property_classes = local_object_property_classes;
+    prepared
+        .preparation
+        .prepare_local_object_property_class_index(columns[0], state, &mut local_workspace)?;
     if scope_mapped_construct == Some(ScopeMappedCompositeKind::PositiveObject)
         && !columns[0].anonymous_scope_map.is_empty()
     {
@@ -11941,21 +13554,26 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         }
         prepared.preparation.anonymous_ids.single_position = Some(scope_mapped_positions[0]);
     }
-    if root_columns.is_some() && !prepared.preparation.anonymous_ids.node_ids.is_empty() {
+    if !prepared.preparation.anonymous_ids.node_ids.is_empty() {
         let mut global_positions = local_workspace.reserve_owned::<usize>(
             prepared.preparation.anonymous_ids.node_ids.len(),
             "encoded composite base anonymous-position allocation failed",
         )?;
-        for node_id in prepared.preparation.anonymous_ids.node_ids.iter().copied() {
-            let position = composite_anonymous_nodes
-                .iter()
-                .find(|coordinate| coordinate.table == 0 && coordinate.node_id == node_id)
-                .map(|coordinate| coordinate.canonical_order)
-                .ok_or_else(|| {
-                    KernelError::malformed(
-                        "encoded composite base anonymous individual lost its global position",
-                    )
-                })?;
+        for (anonymous_index, node_id) in prepared
+            .preparation
+            .anonymous_ids
+            .node_ids
+            .iter()
+            .copied()
+            .enumerate()
+        {
+            check_cancel(state, anonymous_index)?;
+            let position = composite_anonymous_position(
+                &composite_anonymous_nodes,
+                0,
+                node_id,
+                "encoded composite base anonymous individual lost its global position",
+            )?;
             global_positions.push(position);
         }
         prepared.preparation.anonymous_ids.single_position = None;
@@ -11975,10 +13593,12 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         };
     let mut projection_edges = 0_usize;
     let mut projection_role_expansion_edges = 0_usize;
-    for local_delta in &overlay_deltas {
-        let (edges, role_expansion_edges) = local_delta
-            .projection
-            .edge_counts(&prepared.preparation.role_state, options)?;
+    for (delta_index, local_delta) in overlay_deltas.iter().enumerate() {
+        check_cancel(state, delta_index)?;
+        let (edges, role_expansion_edges) =
+            local_delta
+                .projection
+                .edge_counts(&prepared.preparation.role_state, options, state)?;
         projection_edges = projection_edges
             .checked_add(edges)
             .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
@@ -11986,11 +13606,25 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
             .checked_add(role_expansion_edges)
             .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
     }
+    let (additional_domain_range_edges, expanded_local_domain_range_edges) =
+        if options.asserted_taxonomy_only {
+            (0, 0)
+        } else {
+            prepared
+                .preparation
+                .local_object_property_class_edge_counts(state)?
+        };
+    let local_domain_range_role_expansion_edges = expanded_local_domain_range_edges
+        .checked_sub(additional_domain_range_edges)
+        .ok_or_else(|| {
+            KernelError::malformed("encoded composite domain/range counters are inconsistent")
+        })?;
     let projected = prepared
         .preparation
         .statistics
         .edges
         .checked_add(projection_edges)
+        .and_then(|edges| edges.checked_add(expanded_local_domain_range_edges))
         .and_then(|edges| edges.checked_add(composite_annotation_counts.edges))
         .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
     if projected > options.max_edges {
@@ -12004,27 +13638,36 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         .roots
         .checked_add(unique_tail_roots)
         .ok_or_else(|| KernelError::resource("encoded root-count overflow"))?;
-    for tail_columns in columns.iter().skip(1) {
+    for (table, tail_columns) in columns.iter().enumerate().skip(1) {
+        check_cancel(state, table)?;
         statistics.nodes = statistics
             .nodes
             .checked_add(tail_columns.node_count())
             .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
     }
-    for local_delta in &overlay_deltas {
+    for (delta_index, local_delta) in overlay_deltas.iter().enumerate() {
+        check_cancel(state, delta_index)?;
         local_delta
             .projection
             .apply_statistics(statistics, options)?;
     }
-    if root_columns.is_some() {
-        statistics.annotation_assertions = closure_annotation_assertions;
-        statistics.selected_annotation_assertions = composite_annotation_roots.len();
-        statistics.annotation_edges = composite_annotation_counts.edges;
-        statistics.non_string_literal_renderings = composite_annotation_counts.non_string_literals;
-        statistics.anonymous_individuals = unique_anonymous_individuals;
-        statistics.root_provenance_buffer_bytes = root_columns
-            .unwrap_or_default()
-            .iter()
-            .try_fold(0_usize, |total, member| {
+    statistics.sub_object_properties = global_subrole_axioms
+        .checked_add(global_property_chains)
+        .ok_or_else(|| KernelError::resource("encoded sub-object-property count overflow"))?;
+    statistics.object_property_chains = global_property_chains;
+    statistics.inverse_object_properties = global_inverse_axioms;
+    statistics.annotation_assertions = closure_annotation_assertions;
+    statistics.selected_annotation_assertions = if root_columns.is_some() {
+        composite_annotation_roots.len()
+    } else {
+        closure_annotation_assertions
+    };
+    statistics.annotation_edges = composite_annotation_counts.edges;
+    statistics.non_string_literal_renderings = composite_annotation_counts.non_string_literals;
+    statistics.anonymous_individuals = unique_anonymous_individuals;
+    if let Some(root_columns) = root_columns {
+        statistics.root_provenance_buffer_bytes =
+            root_columns.iter().try_fold(0_usize, |total, member| {
                 total.checked_add(member.buffer_bytes()?).ok_or_else(|| {
                     KernelError::resource("encoded root-provenance buffer-byte total overflow")
                 })
@@ -12033,9 +13676,15 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     statistics.role_expansion_edges = statistics
         .role_expansion_edges
         .checked_add(projection_role_expansion_edges)
+        .and_then(|count| count.checked_add(local_domain_range_role_expansion_edges))
         .ok_or_else(|| KernelError::resource("encoded role-expansion edge-count overflow"))?;
+    statistics.domain_range_edges = statistics
+        .domain_range_edges
+        .checked_add(additional_domain_range_edges)
+        .ok_or_else(|| KernelError::resource("encoded domain/range edge-count overflow"))?;
     statistics.edges = projected;
-    for tail_columns in columns.iter().skip(1) {
+    for (table, tail_columns) in columns.iter().enumerate().skip(1) {
+        check_cancel(state, table)?;
         statistics.buffer_bytes = statistics
             .buffer_bytes
             .checked_add(tail_columns.buffer_bytes()?)
@@ -12079,6 +13728,8 @@ fn prepare_two_table_batches_uncommitted(
         ));
     }
 
+    base_columns.validate_generic(state)?;
+    base_columns.validate_supported_nodes(options.max_iri_bytes, state)?;
     delta_columns.validate_generic(state)?;
     delta_columns.validate_supported_nodes(options.max_iri_bytes, state)?;
     let delta_root_count = delta_columns.selected_root_count()?;
@@ -12088,6 +13739,12 @@ fn prepare_two_table_batches_uncommitted(
         ));
     }
     let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
+    let mut base_rule_plan = resolve_selected_root_rule_plan(
+        base_columns,
+        options.max_iri_bytes,
+        state,
+        &mut local_workspace,
+    )?;
     let delta_rule_plan = resolve_selected_root_rule_plan(
         delta_columns,
         options.max_iri_bytes,
@@ -12183,8 +13840,21 @@ fn prepare_two_table_batches_uncommitted(
                         "bounded two-root local overlay requires ObjectPropertyDomain and ObjectPropertyRange roots",
                     )
                 })?;
+            let Some(PlannedRootShape::ObjectPropertyClass(projection)) =
+                delta_rule_plan.shape_at(root_index)
+            else {
+                return Err(KernelError::malformed(
+                    "encoded object-property class root lost its planned semantic shape",
+                ));
+            };
             let (kind, property, class) = rule
-                .validate(delta_columns, root, local_rule_context, state)?
+                .validate(
+                    delta_columns,
+                    root,
+                    projection,
+                    local_rule_context,
+                    state,
+                )?
                 .ok_or_else(|| {
                     KernelError::unsupported(
                         "bounded two-root local overlay requires named object properties and classes",
@@ -12251,9 +13921,11 @@ fn prepare_two_table_batches_uncommitted(
             }
             let projection = own_local_emitting_projection(
                 rule,
+                delta_rule_plan.shape_at(root_index),
+                &delta_rule_plan,
+                root_index,
                 delta_columns,
                 root,
-                options.max_iri_bytes,
                 state,
                 &mut local_workspace,
             )?;
@@ -12301,8 +13973,8 @@ fn prepare_two_table_batches_uncommitted(
         match handler {
             RootRuleHandler::Subclass => {
                 if !matches!(
-                    delta_columns.subclass_projection(delta_root, options.max_iri_bytes)?,
-                    SubclassProjection::Ignored
+                    delta_rule_plan.shape_at(delta_root_index),
+                    Some(PlannedRootShape::Subclass(SubclassProjection::Ignored))
                 ) {
                     return Err(KernelError::malformed(
                         "encoded local-overlay ignored SubClassOf root changed projection",
@@ -12311,8 +13983,10 @@ fn prepare_two_table_batches_uncommitted(
             }
             RootRuleHandler::ClassAssertion => {
                 if !matches!(
-                    delta_columns.class_assertion_projection(delta_root, options.max_iri_bytes,)?,
-                    ClassAssertionProjection::Ignored
+                    delta_rule_plan.shape_at(delta_root_index),
+                    Some(PlannedRootShape::ClassAssertion(
+                        ClassAssertionProjection::Ignored
+                    ))
                 ) {
                     return Err(KernelError::malformed(
                         "encoded local-overlay ignored ClassAssertion root changed projection",
@@ -12347,8 +14021,8 @@ fn prepare_two_table_batches_uncommitted(
             ));
         }
         if !matches!(
-            delta_columns.equivalent_projection(delta_root, options.max_iri_bytes)?,
-            EquivalentProjection::Ignored
+            delta_rule_plan.shape_at(delta_root_index),
+            Some(PlannedRootShape::Equivalent(EquivalentProjection::Ignored))
         ) {
             return Err(KernelError::unsupported(
                 "bounded local-overlay EquivalentClasses root requires an ignored complete direct projection",
@@ -12365,8 +14039,21 @@ fn prepare_two_table_batches_uncommitted(
         }
         None
     } else if let Some(rule) = object_property_class_rule {
+        let Some(PlannedRootShape::ObjectPropertyClass(projection)) =
+            delta_rule_plan.shape_at(delta_root_index)
+        else {
+            return Err(KernelError::malformed(
+                "encoded object-property class root lost its planned semantic shape",
+            ));
+        };
         local_object_property_classes[0] = rule
-            .validate(delta_columns, delta_root, local_rule_context, state)?
+            .validate(
+                delta_columns,
+                delta_root,
+                projection,
+                local_rule_context,
+                state,
+            )?
             .map(|(kind, property, class)| {
                 Ok(OwnedLocalObjectPropertyClass {
                     kind,
@@ -12378,8 +14065,13 @@ fn prepare_two_table_batches_uncommitted(
             .transpose()?;
         None
     } else if let Some(rule) = local_role_rule {
-        local_role_state_axiom =
-            rule.validate(delta_columns, delta_root, local_rule_context, state)?;
+        local_role_state_axiom = rule.validate(
+            delta_columns,
+            delta_root,
+            delta_rule_plan.role_effect_at(delta_root_index)?,
+            local_rule_context,
+            state,
+        )?;
         None
     } else if delta_rule.handler == RootRuleHandler::NegativeObjectPropertyAssertion {
         let field_start = delta_columns.exact_fields(delta_root, 4)?;
@@ -12787,8 +14479,8 @@ fn prepare_two_table_batches_uncommitted(
         match root {
             MergedCanonicalRoot::Left(root) => {
                 base_selected_annotation_assertion |= options.include_literals
-                    && base_columns.node_tag(base_columns.root_id(root.index)?)?
-                        == TAG_ANNOTATION_ASSERTION;
+                    && base_rule_plan.rule_at(root.index)?.handler
+                        == RootRuleHandler::AnnotationAssertion;
                 left_roots = left_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root counter overflow")
                 })?;
@@ -12848,8 +14540,8 @@ fn prepare_two_table_batches_uncommitted(
             }
             MergedCanonicalRoot::Both { left, right } => {
                 base_selected_annotation_assertion |= options.include_literals
-                    && base_columns.node_tag(base_columns.root_id(left.index)?)?
-                        == TAG_ANNOTATION_ASSERTION;
+                    && base_rule_plan.rule_at(left.index)?.handler
+                        == RootRuleHandler::AnnotationAssertion;
                 if duplicate_policy == CrossTableDuplicatePolicy::Reject {
                     return Err(KernelError::unsupported(
                         "bounded local-overlay root duplicates its direct source",
@@ -12939,8 +14631,10 @@ fn prepare_two_table_batches_uncommitted(
             "bounded segmented literal projection requires annotation-assertion-free selected roots",
         ));
     }
-    overlay_deltas.retain(|delta| delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX);
-    canonicalize_overlay_delta_plan(&mut overlay_deltas);
+    cancellable_retain(&mut overlay_deltas, state, |delta| {
+        delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX
+    })?;
+    canonicalize_overlay_delta_plan(&mut overlay_deltas, state)?;
 
     if let Some(axiom) = local_role_state_axiom.as_mut() {
         axiom.canonical_order = insertion_position;
@@ -12954,6 +14648,18 @@ fn prepare_two_table_batches_uncommitted(
             })?;
         }
     }
+    let local_object_property_class_count = local_object_property_classes.iter().flatten().count();
+    let mut prepared_local_object_property_classes = local_workspace
+        .reserve_owned::<OwnedLocalObjectPropertyClass>(
+        local_object_property_class_count,
+        "encoded local object-property class transfer allocation failed",
+    )?;
+    for (local_index, local) in local_object_property_classes.into_iter().enumerate() {
+        check_cancel(state, local_index)?;
+        if let Some(local) = local {
+            prepared_local_object_property_classes.push(local);
+        }
+    }
     let mut prepared = prepare_direct_batches_with_local_role_uncommitted(
         base_columns,
         None,
@@ -12961,16 +14667,21 @@ fn prepare_two_table_batches_uncommitted(
         state,
         retained,
         None,
+        Some(&mut base_rule_plan),
         local_role_state_axiom,
     )?;
-    prepared.preparation.local_object_property_classes = local_object_property_classes;
+    prepared.preparation.local_object_property_classes = prepared_local_object_property_classes;
+    prepared
+        .preparation
+        .prepare_local_object_property_class_index(base_columns, state, &mut local_workspace)?;
 
     let mut projection_edges = 0_usize;
     let mut projection_role_expansion_edges = 0_usize;
-    for local_delta in &overlay_deltas {
+    for (delta_index, local_delta) in overlay_deltas.iter().enumerate() {
+        check_cancel(state, delta_index)?;
         let local_projection = &local_delta.projection;
         let (edges, role_expansion_edges) =
-            local_projection.edge_counts(&prepared.preparation.role_state, options)?;
+            local_projection.edge_counts(&prepared.preparation.role_state, options, state)?;
         projection_edges = projection_edges
             .checked_add(edges)
             .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
@@ -12984,7 +14695,7 @@ fn prepare_two_table_batches_uncommitted(
         } else {
             prepared
                 .preparation
-                .local_object_property_class_edge_counts(base_columns, state)?
+                .local_object_property_class_edge_counts(state)?
         };
     let local_domain_range_role_expansion_edges = expanded_local_domain_range_edges
         .checked_sub(additional_domain_range_edges)
@@ -13015,7 +14726,8 @@ fn prepare_two_table_batches_uncommitted(
         .nodes
         .checked_add(delta_columns.node_count())
         .ok_or_else(|| KernelError::resource("encoded node-count overflow"))?;
-    for local_delta in &overlay_deltas {
+    for (delta_index, local_delta) in overlay_deltas.iter().enumerate() {
+        check_cancel(state, delta_index)?;
         local_delta
             .projection
             .apply_statistics(statistics, options)?;
@@ -13325,16 +15037,6 @@ fn clone_retained_role_iri(value: &str, maximum: usize) -> Result<String, Kernel
     clone_text(value)
 }
 
-fn render_individual(
-    value: IndividualValue<'_>,
-    anonymous_ids: &AnonymousIds,
-) -> Result<String, KernelError> {
-    match value {
-        IndividualValue::Named(iri) => clone_text(iri),
-        IndividualValue::Anonymous(node_id) => anonymous_ids.render(node_id),
-    }
-}
-
 fn render_typed_annotation_literal(lexical: &str, datatype: &str) -> Result<String, KernelError> {
     let datatype_capacity = datatype
         .len()
@@ -13477,15 +15179,13 @@ fn composite_annotation_edge(
     let destination = match projection.value {
         AnnotationValue::Borrowed(value) => clone_text(value)?,
         AnnotationValue::Anonymous(node_id) => {
-            let coordinate = anonymous_nodes
-                .iter()
-                .find(|coordinate| coordinate.table == table && coordinate.node_id == node_id)
-                .ok_or_else(|| {
-                    KernelError::malformed(
-                        "encoded anonymous annotation value lost its closure-wide identifier",
-                    )
-                })?;
-            render_anonymous_identifier(coordinate.canonical_order)?
+            let position = composite_anonymous_position(
+                anonymous_nodes,
+                table,
+                node_id,
+                "encoded anonymous annotation value lost its closure-wide identifier",
+            )?;
+            render_anonymous_identifier(position)?
         }
         AnnotationValue::Typed { lexical, datatype } => {
             render_typed_annotation_literal(lexical, datatype)?
@@ -13586,6 +15286,101 @@ fn check_cancel(state: &AtomicU8, index: usize) -> Result<(), KernelError> {
     }
 }
 
+fn cancellable_sort_unstable_by<T, F>(
+    values: &mut [T],
+    state: &AtomicU8,
+    mut compare: F,
+) -> Result<(), KernelError>
+where
+    F: FnMut(&T, &T) -> std::cmp::Ordering,
+{
+    fn poll_work(state: &AtomicU8, work: &mut usize) -> Result<(), KernelError> {
+        *work = work
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded sort-work counter overflow"))?;
+        check_cancel(state, *work)
+    }
+
+    fn sift_down<T, F>(
+        values: &mut [T],
+        mut root: usize,
+        end: usize,
+        state: &AtomicU8,
+        work: &mut usize,
+        compare: &mut F,
+    ) -> Result<(), KernelError>
+    where
+        F: FnMut(&T, &T) -> std::cmp::Ordering,
+    {
+        loop {
+            let left = root
+                .checked_mul(2)
+                .and_then(|index| index.checked_add(1))
+                .ok_or_else(|| KernelError::resource("encoded sort index overflow"))?;
+            if left >= end {
+                return Ok(());
+            }
+            let mut child = left;
+            let right = left
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded sort index overflow"))?;
+            if right < end {
+                poll_work(state, work)?;
+                if compare(&values[left], &values[right]) == std::cmp::Ordering::Less {
+                    child = right;
+                }
+            }
+            poll_work(state, work)?;
+            if compare(&values[root], &values[child]) != std::cmp::Ordering::Less {
+                return Ok(());
+            }
+            values.swap(root, child);
+            root = child;
+        }
+    }
+
+    check_cancel(state, 0)?;
+    let length = values.len();
+    if length < 2 {
+        return Ok(());
+    }
+    let mut work = 0_usize;
+    for root in (0..length / 2).rev() {
+        sift_down(values, root, length, state, &mut work, &mut compare)?;
+    }
+    for end in (1..length).rev() {
+        values.swap(0, end);
+        sift_down(values, 0, end, state, &mut work, &mut compare)?;
+    }
+    check_cancel(state, 0)
+}
+
+fn cancellable_retain<T, F>(
+    values: &mut Vec<T>,
+    state: &AtomicU8,
+    mut retain: F,
+) -> Result<(), KernelError>
+where
+    F: FnMut(&T) -> bool,
+{
+    let mut write = 0_usize;
+    let length = values.len();
+    for read in 0..length {
+        check_cancel(state, read)?;
+        if !retain(&values[read]) {
+            continue;
+        }
+        if read != write {
+            values.swap(read, write);
+        }
+        write = write
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded retain counter overflow"))?;
+    }
+    values.truncate(write);
+    check_cancel(state, 0)
+}
+
 fn read_u16(buffer: &[u8], index: usize, name: &str) -> Result<u16, KernelError> {
     let start = index
         .checked_mul(2)
@@ -13639,6 +15434,23 @@ mod tests {
             max_edges: usize::MAX,
             max_iri_bytes: 1024,
         }
+    }
+
+    #[test]
+    fn cancellable_sort_observes_cancellation_during_comparison_work() {
+        let state = AtomicU8::new(STATE_RUNNING);
+        let mut values = (0_usize..1024).rev().collect::<Vec<_>>();
+        let mut comparisons = 0_usize;
+        let result = cancellable_sort_unstable_by(&mut values, &state, |left, right| {
+            comparisons += 1;
+            if comparisons == 8 {
+                state.store(STATE_CANCELLED, Ordering::Release);
+            }
+            left.cmp(right)
+        });
+        assert!(matches!(result, Err(KernelError::Cancelled)));
+        assert!(comparisons >= 8);
+        assert!(comparisons < values.len() * values.len());
     }
 
     #[test]
@@ -13715,10 +15527,7 @@ mod tests {
             RootModeDisposition::ValidateOnly
         );
 
-        assert_eq!(
-            skipped.dynamic_action,
-            DynamicRootAction::UnsupportedDynamic
-        );
+        assert_eq!(skipped.dynamic_action, DynamicRootAction::General);
         assert_eq!(
             skipped.disposition(normal),
             RootModeDisposition::SkipDiagnostic
@@ -13734,7 +15543,7 @@ mod tests {
 
         assert_eq!(
             literal.dynamic_action,
-            DynamicRootAction::PairedAnnotationOrScopeMapped
+            DynamicRootAction::AnnotationAssertion
         );
         assert_eq!(
             literal.disposition(normal),
@@ -14729,6 +16538,70 @@ mod tests {
             fixture.root_ids.extend_from_slice(&root_id.to_le_bytes());
         }
         fixture
+    }
+
+    fn named_object_property_class_delta_fixture(
+        root_tag: u16,
+        property_iri: &[u8],
+        class_iri: &[u8],
+    ) -> Fixture {
+        assert!([TAG_OBJECT_PROPERTY_DOMAIN, TAG_OBJECT_PROPERTY_RANGE].contains(&root_tag));
+        let mut fixture = Fixture::default();
+        for iri in [class_iri, property_iri] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=2
+        }
+        fixture.push_scalar(COMPONENT_ENUM, b"class");
+        fixture.push_node_ref(1);
+        fixture.finish_node(TAG_ENTITY); // 3
+        fixture.push_scalar(COMPONENT_ENUM, b"object_property");
+        fixture.push_node_ref(2);
+        fixture.finish_node(TAG_ENTITY); // 4
+        fixture.push_node_ref(4);
+        fixture.push_node_ref(3);
+        fixture.push_empty_set();
+        fixture.finish_node(root_tag); // 5
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&5_u32.to_le_bytes());
+        fixture
+    }
+
+    fn many_local_object_property_class_fixtures() -> (Fixture, [Fixture; 6]) {
+        (
+            overlay_role_base_fixture(),
+            [
+                named_object_property_class_delta_fixture(
+                    TAG_OBJECT_PROPERTY_RANGE,
+                    b"urn:q",
+                    b"urn:QR",
+                ),
+                named_object_property_class_delta_fixture(
+                    TAG_OBJECT_PROPERTY_DOMAIN,
+                    b"urn:p",
+                    b"urn:D2",
+                ),
+                named_object_property_class_delta_fixture(
+                    TAG_OBJECT_PROPERTY_DOMAIN,
+                    b"urn:q",
+                    b"urn:QD",
+                ),
+                named_object_property_class_delta_fixture(
+                    TAG_OBJECT_PROPERTY_RANGE,
+                    b"urn:p",
+                    b"urn:R2",
+                ),
+                named_object_property_class_delta_fixture(
+                    TAG_OBJECT_PROPERTY_DOMAIN,
+                    b"urn:p",
+                    b"urn:D1",
+                ),
+                named_object_property_class_delta_fixture(
+                    TAG_OBJECT_PROPERTY_RANGE,
+                    b"urn:p",
+                    b"urn:R1",
+                ),
+            ],
+        )
     }
 
     fn named_class_assertions_fixture(
@@ -16515,6 +18388,41 @@ mod tests {
         fixture.finish_node(TAG_EQUIVALENT_CLASSES); // 32
         fixture.root_kinds.push(ROOT_AXIOM);
         fixture.root_ids.extend_from_slice(&32_u32.to_le_bytes());
+        fixture
+    }
+
+    fn permuted_same_tag_aggregate_fixture() -> Fixture {
+        let mut fixture = Fixture::default();
+        for iri in [b"urn:A".as_slice(), b"urn:z", b"urn:a", b"urn:B", b"urn:C"] {
+            fixture.push_scalar(COMPONENT_TEXT, iri);
+            fixture.finish_node(TAG_IRI); // 1..=5
+        }
+        for (kind, iri_id) in [
+            (b"class".as_slice(), 1_u64),
+            (b"object_property".as_slice(), 2),
+            (b"object_property".as_slice(), 3),
+            (b"class".as_slice(), 4),
+            (b"class".as_slice(), 5),
+        ] {
+            fixture.push_scalar(COMPONENT_ENUM, kind);
+            fixture.push_node_ref(iri_id);
+            fixture.finish_node(TAG_ENTITY); // 6..=10
+        }
+        fixture.push_node_ref(7);
+        fixture.push_node_ref(9);
+        fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM); // 11: urn:z / urn:B
+        fixture.push_node_ref(8);
+        fixture.push_node_ref(10);
+        fixture.finish_node(TAG_OBJECT_SOME_VALUES_FROM); // 12: urn:a / urn:C
+                                                          // Structural sets remain dense-ID canonical. Emission must preserve
+                                                          // that encoded item order instead of re-sorting by relation IRI.
+        fixture.push_node_set(&[11, 12]);
+        fixture.finish_node(TAG_OBJECT_INTERSECTION_OF); // 13
+        fixture.push_node_set(&[6, 13]);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_EQUIVALENT_CLASSES); // 14
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&14_u32.to_le_bytes());
         fixture
     }
 
@@ -18605,7 +20513,7 @@ mod tests {
             },
         ];
 
-        canonicalize_overlay_delta_plan(&mut plan);
+        canonicalize_overlay_delta_plan(&mut plan, &running_state()).unwrap();
 
         assert_eq!(
             plan.iter()
@@ -21717,10 +23625,15 @@ mod tests {
             .unwrap();
             assert!(!plan.ignored);
             let root = projecting.columns().root_id(0).unwrap();
+            let projection = projecting
+                .columns()
+                .object_property_class_projection(root, root_tag, options.max_iri_bytes)
+                .unwrap();
             let projected = plan
                 .validate(
                     projecting.columns(),
                     root,
+                    projection,
                     LocalRuleContext::new(options, false),
                     &running_state(),
                 )
@@ -21909,15 +23822,7 @@ mod tests {
                 assert_eq!(statistics.edges, if projects { 6 } else { 0 });
                 assert_eq!(prepared.emission_attempts(), 0);
                 assert!(prepared.preparation.overlay_deltas.is_empty());
-                assert_eq!(
-                    prepared
-                        .preparation
-                        .local_object_property_classes
-                        .iter()
-                        .flatten()
-                        .count(),
-                    1
-                );
+                assert_eq!(prepared.preparation.local_object_property_classes.len(), 1);
 
                 let mut edges = Vec::new();
                 while prepared.remaining_edges() != 0 {
@@ -22098,15 +24003,7 @@ mod tests {
             assert_eq!(statistics.edges, if projects { 3 } else { 0 });
             assert_eq!(prepared.emission_attempts(), 0);
             assert!(prepared.preparation.overlay_deltas.is_empty());
-            assert_eq!(
-                prepared
-                    .preparation
-                    .local_object_property_classes
-                    .iter()
-                    .flatten()
-                    .count(),
-                2
-            );
+            assert_eq!(prepared.preparation.local_object_property_classes.len(), 2);
 
             let mut edges = Vec::new();
             if projects {
@@ -22287,6 +24184,212 @@ mod tests {
             ),
             Err(KernelError::Resource(message)) if message.contains("workspace")
         ));
+    }
+
+    #[test]
+    fn dynamic_composite_indexes_many_local_domain_ranges_by_property_and_position() {
+        let (base, tails) = many_local_object_property_class_fixtures();
+        let mut columns = vec![base.columns()];
+        columns.extend(tails.iter().map(Fixture::columns));
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 13,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_dynamic_composite_batches_uncommitted(
+            &columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+
+        assert_eq!(prepared.preparation.local_object_property_classes.len(), 6);
+        assert_eq!(
+            prepared
+                .preparation
+                .paired_object_property_class_groups
+                .iter()
+                .map(|group| (
+                    group.property.as_str(),
+                    group.base_domains,
+                    group.base_ranges,
+                    group.local_domains,
+                    group.local_ranges,
+                ))
+                .collect::<Vec<_>>(),
+            vec![("urn:p", 0, 0, 2, 2), ("urn:q", 0, 0, 1, 1)],
+        );
+        for group in &prepared.preparation.paired_object_property_class_groups {
+            assert!(group
+                .domain_positions
+                .windows(2)
+                .all(|pair| pair[0] < pair[1]));
+            assert!(group
+                .range_positions
+                .windows(2)
+                .all(|pair| pair[0] < pair[1]));
+        }
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 8);
+        assert_eq!(statistics.object_property_domains, 3);
+        assert_eq!(statistics.object_property_ranges, 3);
+        assert_eq!(statistics.domain_range_edges, 5);
+        assert_eq!(statistics.role_expansion_edges, 8);
+        assert_eq!(statistics.edges, 13);
+
+        let mut edges = Vec::new();
+        while prepared.remaining_edges() != 0 {
+            let (batch, cursor) = prepared
+                .prepare_next_composite_batch(&columns, &state, 1)
+                .unwrap();
+            assert_eq!(batch.len(), 1);
+            edges.extend(batch);
+            prepared.commit_cursor(cursor);
+        }
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:D1".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:R1".into(),
+                },
+                DirectEdge {
+                    source: "urn:D1".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:R1".into(),
+                },
+                DirectEdge {
+                    source: "urn:R1".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:D1".into(),
+                },
+                DirectEdge {
+                    source: "urn:D1".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:R2".into(),
+                },
+                DirectEdge {
+                    source: "urn:D1".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:R2".into(),
+                },
+                DirectEdge {
+                    source: "urn:R2".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:D1".into(),
+                },
+                DirectEdge {
+                    source: "urn:D2".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:R1".into(),
+                },
+                DirectEdge {
+                    source: "urn:D2".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:R1".into(),
+                },
+                DirectEdge {
+                    source: "urn:R1".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:D2".into(),
+                },
+                DirectEdge {
+                    source: "urn:D2".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:R2".into(),
+                },
+                DirectEdge {
+                    source: "urn:D2".into(),
+                    relation: "urn:child".into(),
+                    destination: "urn:R2".into(),
+                },
+                DirectEdge {
+                    source: "urn:R2".into(),
+                    relation: "urn:pinv".into(),
+                    destination: "urn:D2".into(),
+                },
+                DirectEdge {
+                    source: "urn:QD".into(),
+                    relation: "urn:q".into(),
+                    destination: "urn:QR".into(),
+                },
+            ],
+        );
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn dynamic_domain_range_index_obeys_exact_workspace_boundary_before_output() {
+        let (base, tails) = many_local_object_property_class_fixtures();
+        let mut columns = vec![base.columns()];
+        columns.extend(tails.iter().map(Fixture::columns));
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 13,
+            max_iri_bytes: 1024,
+        };
+        let succeeds = |workspace| {
+            prepare_dynamic_composite_batches_uncommitted(
+                &columns,
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                workspace,
+            )
+            .is_ok()
+        };
+        let mut lower = 1_usize;
+        let mut upper = canonical_limits().max_workspace_bytes;
+        assert!(succeeds(upper));
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2;
+            if succeeds(middle) {
+                upper = middle;
+            } else {
+                lower = middle + 1;
+            }
+        }
+        let minimum_workspace = lower;
+        assert!(minimum_workspace > 1);
+        assert!(matches!(
+            prepare_dynamic_composite_batches_uncommitted(
+                &columns,
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                minimum_workspace - 1,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("workspace")
+        ));
+
+        let retry = prepare_dynamic_composite_batches_uncommitted(
+            &columns,
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            minimum_workspace,
+        )
+        .unwrap();
+        assert_eq!(retry.emission_attempts(), 0);
+        assert_eq!(retry.preparation.local_object_property_classes.len(), 6);
+        assert_eq!(
+            retry.preparation.paired_object_property_class_groups.len(),
+            2
+        );
     }
 
     #[test]
@@ -23656,15 +25759,17 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_composite_rejects_unsupported_tail_before_duplicate_elision() {
+    fn dynamic_composite_activates_and_deduplicates_silent_and_role_roots() {
         let cases = [
             (
                 has_key_delta_fixture(1, 1, false, false, false),
                 has_key_delta_fixture(1, 1, false, false, false),
+                RootCounter::HasKeys,
             ),
             (
                 local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 0, false, false),
                 local_role_delta_fixture(TAG_SUB_OBJECT_PROPERTY_OF, 0, false, false),
+                RootCounter::SubObjectProperties,
             ),
         ];
         let options = DirectCompileOptions {
@@ -23675,20 +25780,21 @@ mod tests {
             max_edges: 0,
             max_iri_bytes: 1024,
         };
-        for (base, tail) in cases {
-            assert!(matches!(
-                prepare_two_member_composite_batches_uncommitted(
-                    base.columns(),
-                    tail.columns(),
-                    options,
-                    &running_state(),
-                    None,
-                    canonical_limits().max_work,
-                    canonical_limits().max_workspace_bytes,
-                ),
-                Err(KernelError::Unsupported(message))
-                    if message == LOCAL_EMITTING_OVERLAY_REQUIREMENT
-            ));
+        for (base, tail, counter) in cases {
+            let prepared = prepare_two_member_composite_batches_uncommitted(
+                base.columns(),
+                tail.columns(),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            assert_eq!(prepared.statistics().roots, 1);
+            assert_eq!(counter.statistics_count(&prepared.statistics()), 1);
+            assert_eq!(prepared.statistics().edges, 0);
+            assert_eq!(prepared.remaining_edges(), 0);
         }
     }
 
@@ -24120,7 +26226,15 @@ mod tests {
         assert_eq!(statistics.object_property_assertions, 2);
         assert_eq!(statistics.anonymous_individuals, 2);
         assert_eq!(statistics.edges, 3);
-        assert_eq!(prepared.preparation.anonymous_ids.single_position, Some(1));
+        assert_eq!(prepared.preparation.anonymous_ids.single_position, None);
+        assert_eq!(
+            prepared
+                .preparation
+                .anonymous_ids
+                .global_positions
+                .as_deref(),
+            Some([1].as_slice())
+        );
         assert!(matches!(
             &prepared.preparation.overlay_deltas[0].projection,
             OwnedOverlayDeltaProjection::ObjectPropertyAssertion {
@@ -25132,7 +27246,15 @@ mod tests {
         assert_eq!(statistics.object_property_assertions, 2);
         assert_eq!(statistics.anonymous_individuals, 2);
         assert_eq!(statistics.edges, 3);
-        assert_eq!(prepared.preparation.anonymous_ids.single_position, Some(1));
+        assert_eq!(prepared.preparation.anonymous_ids.single_position, None);
+        assert_eq!(
+            prepared
+                .preparation
+                .anonymous_ids
+                .global_positions
+                .as_deref(),
+            Some([1].as_slice())
+        );
         assert_eq!(prepared.preparation.overlay_deltas.len(), 1);
         assert!(matches!(
             &prepared.preparation.overlay_deltas[0].projection,
@@ -26690,6 +28812,123 @@ mod tests {
         assert_eq!(asserted.len(), 2);
         assert_eq!(stats.ignored_subclasses, 4);
         assert_eq!(stats.ignored_class_assertions, 3);
+    }
+
+    #[test]
+    fn selected_root_shape_plan_covers_every_shape_classified_handler() {
+        let fixtures = [
+            named_aggregate_role_fixture(),
+            nonprojecting_class_fixture(),
+            named_class_assertions_fixture(&[(b"urn:Type", b"urn:i")], false),
+            named_object_assertion_fixture(),
+            ignored_equivalent_classes_delta_fixture(2, false, false, false),
+        ];
+        let mut covered_handlers = [false; 5];
+        for fixture in &fixtures {
+            let columns = fixture.columns();
+            let plan =
+                resolve_selected_root_rule_plan_unbounded(columns, 1024, &running_state()).unwrap();
+            let mut planned_shapes = 0_usize;
+            for root_index in 0..columns.root_count() {
+                if !columns.root_is_selected(root_index).unwrap() {
+                    continue;
+                }
+                let handler = plan.rule_at(root_index).unwrap().handler;
+                let handler_index = match handler {
+                    RootRuleHandler::Subclass => Some(0),
+                    RootRuleHandler::EquivalentClasses => Some(1),
+                    RootRuleHandler::ObjectPropertyClass => Some(2),
+                    RootRuleHandler::ClassAssertion => Some(3),
+                    RootRuleHandler::ObjectPropertyAssertion => Some(4),
+                    _ => None,
+                };
+                assert_eq!(
+                    plan.shape_at(root_index).is_some(),
+                    handler_index.is_some(),
+                    "semantic shape coverage disagrees for {handler:?}",
+                );
+                assert_eq!(
+                    plan.emission_shape_at(root_index).is_some(),
+                    handler_index.is_some(),
+                    "emission shape coverage disagrees for {handler:?}",
+                );
+                if let Some(handler_index) = handler_index {
+                    covered_handlers[handler_index] = true;
+                    planned_shapes += 1;
+                }
+                if matches!(
+                    plan.shape_at(root_index),
+                    Some(PlannedRootShape::Equivalent(
+                        EquivalentProjection::Aggregate { .. }
+                    ))
+                ) {
+                    let aggregate = plan.aggregate_at(root_index).unwrap();
+                    assert_eq!(
+                        plan.aggregate_named_operands(aggregate).unwrap().len(),
+                        aggregate.named.length,
+                    );
+                    assert_eq!(
+                        plan.aggregate_restriction_operands(aggregate)
+                            .unwrap()
+                            .len(),
+                        aggregate.restrictions.length,
+                    );
+                    assert!(matches!(
+                        plan.emission_shape_at(root_index),
+                        Some(PlannedEmissionShape::EquivalentAggregate { .. })
+                    ));
+                }
+            }
+            assert_eq!(plan.shape_roots.len(), planned_shapes);
+            assert_eq!(plan.emission_roots.len(), planned_shapes);
+        }
+        assert_eq!(covered_handlers, [true; 5]);
+    }
+
+    #[test]
+    fn same_tag_aggregate_restrictions_preserve_encoded_item_order() {
+        let fixture = permuted_same_tag_aggregate_fixture();
+        let plan =
+            resolve_selected_root_rule_plan_unbounded(fixture.columns(), 1024, &running_state())
+                .unwrap();
+        let aggregate = plan.aggregate_at(0).unwrap();
+        assert_eq!(
+            plan.aggregate_restriction_operands(aggregate)
+                .unwrap()
+                .iter()
+                .map(|operand| (operand.node_id, operand.item_order))
+                .collect::<Vec<_>>(),
+            vec![(11, 0), (12, 1)],
+        );
+
+        let (edges, stats) = compile_direct(
+            fixture.columns(),
+            false,
+            false,
+            false,
+            2,
+            1024,
+            &running_state(),
+        )
+        .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "urn:z".into(),
+                    destination: "urn:B".into(),
+                },
+                DirectEdge {
+                    source: "urn:A".into(),
+                    relation: "urn:a".into(),
+                    destination: "urn:C".into(),
+                },
+            ],
+        );
+        assert_eq!(stats.aggregate_equivalents, 1);
+        assert_eq!(stats.equivalent_base_edges, 2);
+        assert_eq!(stats.role_expansion_edges, 0);
     }
 
     #[test]
