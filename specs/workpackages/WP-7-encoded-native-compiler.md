@@ -79,7 +79,13 @@ then permits the nested overlay's mapped base to carry an exact source-local `EX
 only unannotated named-to-named `SubClassOf` roots. The mapped anonymous construct must remain
 selected, and the base selector composes independently with the v124/v125 local-delta and neutral
 sibling selectors. `INCLUDE`, an excluded mapped construct, annotated or non-taxonomy base roots,
-a third mapped member, and broader recursive scope-mapped plans remain fail-closed. Kernel v31
+a third mapped member, and broader recursive scope-mapped plans remain fail-closed. Kernel v127
+applies the same exact source-local rule independently to the second scope-mapped direct member
+through the existing third-selector input. Its mapped anonymous construct must remain selected,
+and the selector composes with the mapped-base, local-delta, and neutral-sibling selectors without
+expanding the private ABI. `INCLUDE`, an excluded mapped construct, annotated or non-taxonomy
+mapped-member roots, a third mapped member, and broader recursive scope-mapped plans remain
+fail-closed. Kernel v31
 additionally
 rejects cycles in nested annotation metadata
 with an iterative preflight over both closure and retained root tables. This closes a hostile

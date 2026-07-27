@@ -42,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 126;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 127;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -1723,7 +1723,8 @@ impl EncodedDirectCompiler {
                     && !(exact_nested_member || exact_four_table_nested_member))
                 || (right_excluded_root_ids.is_some()
                     && !(exact_nested_member || exact_four_table_nested_member))
-                || third_excluded_root_ids.is_some()
+                || (third_excluded_root_ids.is_some()
+                    && !(exact_nested_member || exact_four_table_nested_member))
                 || (fourth_excluded_root_ids.is_some() && !exact_four_table_nested_member)
             {
                 return Err(EncodedDirectUnsupportedError::new_err(

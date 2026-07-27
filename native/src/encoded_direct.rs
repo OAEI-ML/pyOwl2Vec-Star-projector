@@ -27502,7 +27502,7 @@ mod tests {
     }
 
     #[test]
-    fn four_table_nested_member_selects_named_roots_from_one_mapped_table() {
+    fn four_table_nested_member_selects_named_roots_from_both_mapped_tables() {
         let left = scope_mapped_object_property_assertion_fixture();
         let local_neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
         let mut right = scope_mapped_object_property_assertion_fixture();
@@ -27581,6 +27581,32 @@ mod tests {
         assert!(prepared.is_exhausted());
 
         let excluded_construct = 2_u32.to_le_bytes();
+        let selected_right = scope_mapped_object_property_assertion_fixture();
+        let selected_right_columns = selected_right
+            .columns()
+            .with_excluded_root_ids(&excluded_left_root)
+            .with_anonymous_scope_map(&right_scope_map);
+        let selected_prepared = prepare_four_table_composite_batches_uncommitted(
+            [
+                left_columns,
+                local_neutral_columns,
+                selected_right_columns,
+                direct_neutral_columns,
+            ],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let selected_statistics = selected_prepared.statistics();
+        assert_eq!(selected_statistics.roots, 2);
+        assert_eq!(selected_statistics.subclasses, 0);
+        assert_eq!(selected_statistics.object_property_assertions, 2);
+        assert_eq!(selected_statistics.anonymous_individuals, 2);
+        assert_eq!(selected_statistics.edges, 2);
+
         let error = prepare_four_table_composite_batches_uncommitted(
             [
                 left.columns()
@@ -27598,6 +27624,24 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(error, KernelError::Unsupported(_)));
+        let right_error = prepare_four_table_composite_batches_uncommitted(
+            [
+                left_columns,
+                local_neutral_columns,
+                selected_right
+                    .columns()
+                    .with_excluded_root_ids(&excluded_construct)
+                    .with_anonymous_scope_map(&right_scope_map),
+                direct_neutral_columns,
+            ],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap_err();
+        assert!(matches!(right_error, KernelError::Unsupported(_)));
     }
 
     #[test]

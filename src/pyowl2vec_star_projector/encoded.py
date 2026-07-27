@@ -1673,6 +1673,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         EncodedStructuralLease,
         memoryview | None,
         memoryview | None,
+        memoryview | None,
         memoryview,
         memoryview,
         int | None,
@@ -1694,7 +1695,11 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
     ):
         return None
     overlay_row: tuple[EncodedStructuralLease, memoryview | None, memoryview] | None = None
-    direct_row: tuple[EncodedStructuralLease, memoryview] | None = None
+    direct_row: tuple[
+        EncodedStructuralLease,
+        memoryview | None,
+        memoryview,
+    ] | None = None
     for source, _included, excluded, scope_map in rows:
         assert scope_map is not None
         roles = tuple(cast(Any, segment).role for segment in source.segments)
@@ -1703,15 +1708,15 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
                 return None
             overlay_row = (source, excluded, scope_map)
         elif roles == (_SEGMENT_DIRECT,):
-            if direct_row is not None or excluded is not None:
+            if direct_row is not None:
                 return None
-            direct_row = (source, scope_map)
+            direct_row = (source, excluded, scope_map)
         else:
             return None
     if overlay_row is None or direct_row is None:
         return None
     nested_overlay, nested_excluded_root_ids, nested_scope_map = overlay_row
-    direct_member, direct_scope_map = direct_row
+    direct_member, direct_excluded_root_ids, direct_scope_map = direct_row
     if nested_excluded_root_ids is not None and not _selects_every_root(
         nested_overlay,
         nested_excluded_root_ids,
@@ -1725,6 +1730,13 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         (
             excluded_root_ids is not None
             and not _selects_only_named_subclass_roots(base, excluded_root_ids)
+        )
+        or (
+            direct_excluded_root_ids is not None
+            and not _selects_only_named_subclass_roots(
+                direct_member,
+                direct_excluded_root_ids,
+            )
         )
         or base.encoded_view is direct_member.encoded_view
         or base.owner is direct_member.owner
@@ -1753,6 +1765,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         direct_member,
         excluded_root_ids,
         nested_excluded_root_ids,
+        direct_excluded_root_ids,
         nested_scope_map,
         direct_scope_map,
         _public_limit(lease.owner, "max_canonical_work"),
@@ -1768,6 +1781,7 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
         EncodedStructuralLease,
         EncodedStructuralLease,
         EncodedStructuralLease,
+        memoryview | None,
         memoryview | None,
         memoryview | None,
         memoryview | None,
@@ -1789,7 +1803,11 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
     if rows is None or any(included is not None for _source, included, _excluded, _map in rows):
         return None
     overlay_row: tuple[EncodedStructuralLease, memoryview | None, memoryview] | None = None
-    mapped_row: tuple[EncodedStructuralLease, memoryview] | None = None
+    mapped_row: tuple[
+        EncodedStructuralLease,
+        memoryview | None,
+        memoryview,
+    ] | None = None
     neutral_row: tuple[EncodedStructuralLease, memoryview | None] | None = None
     for source, _included, excluded, scope_map in rows:
         roles = tuple(cast(Any, segment).role for segment in source.segments)
@@ -1798,9 +1816,9 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
                 return None
             overlay_row = (source, excluded, scope_map)
         elif roles == (_SEGMENT_DIRECT,) and scope_map is not None:
-            if mapped_row is not None or excluded is not None:
+            if mapped_row is not None:
                 return None
-            mapped_row = (source, scope_map)
+            mapped_row = (source, excluded, scope_map)
         elif roles == (_SEGMENT_DIRECT,):
             if neutral_row is not None:
                 return None
@@ -1811,7 +1829,7 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
         return None
 
     nested_overlay, nested_excluded_root_ids, nested_scope_map = overlay_row
-    mapped_direct, direct_scope_map = mapped_row
+    mapped_direct, mapped_excluded_root_ids, direct_scope_map = mapped_row
     neutral_direct, neutral_excluded_root_ids = neutral_row
     for source, selector in (
         (nested_overlay, nested_excluded_root_ids),
@@ -1829,6 +1847,13 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
         (
             excluded_root_ids is not None
             and not _selects_only_named_subclass_roots(base, excluded_root_ids)
+        )
+        or (
+            mapped_excluded_root_ids is not None
+            and not _selects_only_named_subclass_roots(
+                mapped_direct,
+                mapped_excluded_root_ids,
+            )
         )
         or any(
             base.encoded_view is direct.encoded_view or base.owner is direct.owner
@@ -1862,6 +1887,7 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
         neutral_direct,
         excluded_root_ids,
         nested_excluded_root_ids,
+        mapped_excluded_root_ids,
         neutral_excluded_root_ids,
         nested_scope_map,
         direct_scope_map,
