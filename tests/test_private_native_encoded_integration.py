@@ -64,7 +64,6 @@ from pyowl2vec_star_projector.native import (
     NativeEncodedDirectCancelled,
     NativeEncodedDirectCompilation,
     NativeEncodedDirectCompiler,
-    NativeEncodedDirectUnsupported,
     load_native_module,
     prepare_native_encoded_direct,
 )
@@ -284,6 +283,50 @@ _ALL_DYNAMIC_ROOT_ROWS = (
     "SWRLRule((ClassAtom(:RuleClass Variable(:value))) ())",
 )
 
+_ALL_DYNAMIC_STATISTIC_FIELDS = (
+    "ontology_annotations",
+    "swrl_rules",
+    "declarations",
+    "subclasses",
+    "equivalents",
+    "aggregate_equivalents",
+    "disjoint_classes",
+    "disjoint_unions",
+    "has_keys",
+    "same_individuals",
+    "different_individuals",
+    "class_assertions",
+    "object_property_assertions",
+    "negative_object_property_assertions",
+    "sub_object_properties",
+    "equivalent_object_properties",
+    "disjoint_object_properties",
+    "inverse_object_properties",
+    "functional_object_properties",
+    "inverse_functional_object_properties",
+    "reflexive_object_properties",
+    "irreflexive_object_properties",
+    "symmetric_object_properties",
+    "asymmetric_object_properties",
+    "transitive_object_properties",
+    "sub_data_properties",
+    "equivalent_data_properties",
+    "disjoint_data_properties",
+    "data_property_domains",
+    "data_property_ranges",
+    "functional_data_properties",
+    "datatype_definitions",
+    "data_property_assertions",
+    "negative_data_property_assertions",
+    "annotation_assertions",
+    "selected_annotation_assertions",
+    "sub_annotation_properties",
+    "annotation_property_domains",
+    "annotation_property_ranges",
+    "object_property_domains",
+    "object_property_ranges",
+)
+
 
 def _all_dynamic_root_composite(member_count: int) -> pyowl_core.OntologyView:
     assert member_count in {3, 5, 8}
@@ -313,6 +356,40 @@ def _all_dynamic_root_composite(member_count: int) -> pyowl_core.OntologyView:
             )
         )
     return cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+
+
+def _recursive_all_dynamic_root_composite() -> pyowl_core.OntologyView:
+    """Keep the complete root-rule table behind a real segmented reference."""
+
+    return cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(
+            _all_dynamic_root_composite(8),
+            pyowl_core.OntologyDelta(),
+        ),
+    )
+
+
+def _all_dynamic_root_snapshot() -> pyowl_core.OntologyView:
+    """Build one scalar ROOT-capable oracle for the recursive literal join."""
+
+    options = pyowl_core.LoadOptions(
+        imports=pyowl_core.ImportPolicy.IGNORE,
+        backend=pyowl_core.BackendPreference.PYTHON,
+    )
+    source = (
+        "Prefix(:=<urn:all-dynamic-rules#>) "
+        f"Ontology(<urn:all-dynamic-rules-oracle> {' '.join(_ALL_DYNAMIC_ROOT_ROWS)})"
+    )
+    document = PythonParser().parse(
+        source.encode(),
+        options=options,
+        allow_swrl=True,
+    )
+    return cast(
+        pyowl_core.OntologyView,
+        pyowl_core.load_snapshot(document, options=options),
+    )
 
 
 def _completed_report(projector: Projector) -> ProjectionReport:
@@ -1293,6 +1370,196 @@ def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> Non
             "urn:native-integration#otherInverse": "urn:native-integration#p",
         },
     )
+
+
+def test_recursive_composites_retain_scala_instance_role_lifecycle_natively() -> None:
+    def recursive(left_body: str, right_body: str) -> pyowl_core.OntologyView:
+        members = (
+            cast(pyowl_core.OntologyView, _snapshot(left_body)),
+            cast(pyowl_core.OntologyView, _snapshot(right_body)),
+        )
+        return cast(
+            pyowl_core.OntologyView,
+            pyowl_core.apply_delta(
+                cast(
+                    pyowl_core.OntologyView,
+                    pyowl_core.compose_views(*members),
+                ),
+                pyowl_core.OntologyDelta(),
+            ),
+        )
+
+    role_view = recursive(
+        "SubObjectPropertyOf(:child :p)",
+        "InverseObjectProperties(:p :pinv)",
+    )
+    consumer_view = recursive(
+        "SubClassOf(:A ObjectSomeValuesFrom(:p :B))",
+        "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R) "
+        "SubObjectPropertyOf(ObjectPropertyChain(:left :right) :p)",
+    )
+    conflict_view = recursive(
+        "SubObjectPropertyOf(:other :p)",
+        "InverseObjectProperties(:p :otherInverse) "
+        "SubClassOf(:X ObjectSomeValuesFrom(:p :Y))",
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        compatibility_state="scala-instance",
+    )
+    scalar_reports: list[ProjectionReport] = []
+    scalar_projector = Projector()
+    expected: list[list[Edge]] = []
+    for view in (role_view, consumer_view, conflict_view):
+        expected.append(scalar_projector.project(view, options=python_options))
+        scalar_reports.append(_completed_report(scalar_projector))
+
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    native_projector = Projector()
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "recursive scala-instance projection reached scalar traversal"
+            ),
+        ),
+    ):
+        actual: list[list[Edge]] = []
+        actual_reports: list[ProjectionReport] = []
+        for view in (role_view, consumer_view, conflict_view):
+            actual.append(
+                list(
+                    native_projector._iter_native_encoded_edges(
+                        view,
+                        options=replace(python_options, backend="native"),
+                        buffer_edges=1,
+                    )
+                )
+            )
+            actual_reports.append(_completed_report(native_projector))
+
+    assert actual == expected
+    for scalar_report, native_report in zip(
+        scalar_reports,
+        actual_reports,
+        strict=True,
+    ):
+        _assert_semantic_report_parity(scalar_report, native_report)
+        assert native_report.provenance.ingestion.path == "encoded-native"
+    assert len(captured) == 3
+    assert all(compilation.composite_member_paths for compilation in captured)
+    assert captured[1].native_statistics.object_property_chains == 1
+    assert actual_reports[-1].provenance.invocation_count == 3
+    assert native_projector._scala_state == scalar_projector._scala_state
+    assert native_projector._scala_state == RoleState(
+        {"urn:native-integration#p": ("urn:native-integration#other",)},
+        {
+            "urn:native-integration#p": "urn:native-integration#otherInverse",
+            "urn:native-integration#pinv": "urn:native-integration#p",
+            "urn:native-integration#otherInverse": "urn:native-integration#p",
+        },
+    )
+
+
+def test_recursive_scala_state_does_not_commit_failed_output_and_retries() -> None:
+    members = (
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                "SubObjectPropertyOf(:other :p) "
+                "InverseObjectProperties(:p :otherInverse)"
+            ),
+        ),
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                "SubClassOf(:X ObjectSomeValuesFrom(:p :Y)) "
+                "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
+            ),
+        ),
+    )
+    recursive = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(
+            cast(
+                pyowl_core.OntologyView,
+                pyowl_core.compose_views(*members),
+            ),
+            pyowl_core.OntologyDelta(),
+        ),
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        compatibility_state="scala-instance",
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(recursive, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    projector = Projector()
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "recursive failed-output retry reached scalar traversal"
+            ),
+        ),
+        pytest.raises(ProjectionResourceError),
+    ):
+        list(
+            projector._iter_native_encoded_edges(
+                recursive,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+                streaming_limits=StreamingLimits(max_total_edges=1),
+            )
+        )
+
+    assert projector.last_report is None
+    assert projector._scala_state == RoleState({}, {})
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError(
+            "recursive failed-output retry reached scalar traversal"
+        ),
+    ):
+        actual = list(
+            projector._iter_native_encoded_edges(
+                recursive,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.provenance.counts == expected_report.provenance.counts
+    assert report.diagnostics == expected_report.diagnostics
+    assert report.provenance.invocation_count == 1
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert projector._scala_state == expected_projector._scala_state
 
 
 def test_hidden_iterator_transitions_retained_scala_state_to_scalar_once(
@@ -2323,10 +2590,19 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
         nested_excluded,
         direct_excluded,
         nested_scope_map,
-        direct_scope_map,
+        _direct_scope_map,
         _max_work,
         _max_workspace,
     ) = resolved
+    recursive = encoded_module._resolve_private_recursive_leaf_plan(top_lease)
+    assert recursive is not None
+    (
+        expected_rows,
+        expected_paths,
+        _retained,
+        _recursive_work,
+        _recursive_workspace,
+    ) = recursive
     assert (base_excluded is not None) is exclude_base_named
     assert nested_excluded is not None
     assert (direct_excluded is not None) is exclude_direct_named
@@ -2403,11 +2679,27 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
-    assert compilation.excluded_root_ids is base_excluded
-    assert compilation.right_excluded_root_ids is nested_excluded
-    assert compilation.third_excluded_root_ids is direct_excluded
-    assert compilation.anonymous_scope_map is nested_scope_map
-    assert compilation.right_anonymous_scope_map is direct_scope_map
+    assert compilation.composite_member_leases == tuple(row[0] for row in expected_rows)
+    assert compilation.composite_included_root_ids == tuple(row[1] for row in expected_rows)
+    assert compilation.composite_excluded_root_ids == tuple(row[2] for row in expected_rows)
+    assert compilation.composite_anonymous_scope_maps == tuple(
+        row[3] for row in expected_rows
+    )
+    assert compilation.composite_member_paths == expected_paths
+    assert compiler.composite_member_leases == compilation.composite_member_leases
+    assert (
+        compiler.composite_included_root_ids
+        == compilation.composite_included_root_ids
+    )
+    assert (
+        compiler.composite_excluded_root_ids
+        == compilation.composite_excluded_root_ids
+    )
+    assert (
+        compiler.composite_anonymous_scope_maps
+        == compilation.composite_anonymous_scope_maps
+    )
+    assert compiler.composite_member_paths == compilation.composite_member_paths
     assert compilation.native_statistics.roots == 2
     assert compilation.native_statistics.object_property_assertions == 2
     assert compilation.native_statistics.anonymous_individuals == 2
@@ -2422,7 +2714,7 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
     assert ingestion.counters["encoded_buffer_count"] == 44
     assert ingestion.counters["encoded_detached_buffer_count"] == 36 + selector_count
     assert ingestion.counters["encoded_zero_copy_buffers"] == 44
-    assert ingestion.counters["encoded_referenced_view_count"] == 3
+    assert ingestion.counters["encoded_referenced_view_count"] == 4
     assert ingestion.counters["encoded_segment_count"] == 6
     assert ingestion.counters["encoded_posting_bytes"] == 132 + 4 * selector_count
     assert ingestion.counters["encoded_indexed_buffer_count"] == 0
@@ -2488,10 +2780,19 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
         mapped_excluded,
         neutral_excluded,
         nested_scope_map,
-        direct_scope_map,
+        _direct_scope_map,
         _max_work,
         _max_workspace,
     ) = resolved
+    recursive = encoded_module._resolve_private_recursive_leaf_plan(top_lease)
+    assert recursive is not None
+    (
+        expected_rows,
+        expected_paths,
+        _retained,
+        _recursive_work,
+        _recursive_workspace,
+    ) = recursive
     assert (base_excluded is not None) is exclude_base_named
     assert (nested_excluded is not None) is exclude_nested_delta
     assert (mapped_excluded is not None) is exclude_mapped_direct_named
@@ -2588,12 +2889,27 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
-    assert compilation.excluded_root_ids is base_excluded
-    assert compilation.right_excluded_root_ids is nested_excluded
-    assert compilation.third_excluded_root_ids is mapped_excluded
-    assert compilation.fourth_excluded_root_ids is neutral_excluded
-    assert compilation.anonymous_scope_map is nested_scope_map
-    assert compilation.right_anonymous_scope_map is direct_scope_map
+    assert compilation.composite_member_leases == tuple(row[0] for row in expected_rows)
+    assert compilation.composite_included_root_ids == tuple(row[1] for row in expected_rows)
+    assert compilation.composite_excluded_root_ids == tuple(row[2] for row in expected_rows)
+    assert compilation.composite_anonymous_scope_maps == tuple(
+        row[3] for row in expected_rows
+    )
+    assert compilation.composite_member_paths == expected_paths
+    assert compiler.composite_member_leases == compilation.composite_member_leases
+    assert (
+        compiler.composite_included_root_ids
+        == compilation.composite_included_root_ids
+    )
+    assert (
+        compiler.composite_excluded_root_ids
+        == compilation.composite_excluded_root_ids
+    )
+    assert (
+        compiler.composite_anonymous_scope_maps
+        == compilation.composite_anonymous_scope_maps
+    )
+    assert compiler.composite_member_paths == compilation.composite_member_paths
     assert compilation.native_statistics.roots == expected_edges
     assert compilation.native_statistics.subclasses == 2 - outer_selected_count
     assert compilation.native_statistics.object_property_assertions == 2
@@ -2608,7 +2924,7 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
     assert ingestion.counters["encoded_buffer_count"] == 55
     assert ingestion.counters["encoded_detached_buffer_count"] == 46 + selector_count
     assert ingestion.counters["encoded_zero_copy_buffers"] == 55
-    assert ingestion.counters["encoded_referenced_view_count"] == 4
+    assert ingestion.counters["encoded_referenced_view_count"] == 5
     assert ingestion.counters["encoded_segment_count"] == 8
     assert ingestion.counters["encoded_posting_bytes"] == 128 + 4 * selector_count
     assert ingestion.counters["encoded_indexed_buffer_count"] == 0
@@ -13918,49 +14234,7 @@ def test_dynamic_composite_activates_all_root_rules_in_every_mode(
         assert report.provenance.ingestion.counters["per_row_ffi_calls"] == 0
 
     assert statistics.roots == 39
-    for field in (
-        "ontology_annotations",
-        "swrl_rules",
-        "declarations",
-        "subclasses",
-        "equivalents",
-        "aggregate_equivalents",
-        "disjoint_classes",
-        "disjoint_unions",
-        "has_keys",
-        "same_individuals",
-        "different_individuals",
-        "class_assertions",
-        "object_property_assertions",
-        "negative_object_property_assertions",
-        "sub_object_properties",
-        "equivalent_object_properties",
-        "disjoint_object_properties",
-        "inverse_object_properties",
-        "functional_object_properties",
-        "inverse_functional_object_properties",
-        "reflexive_object_properties",
-        "irreflexive_object_properties",
-        "symmetric_object_properties",
-        "asymmetric_object_properties",
-        "transitive_object_properties",
-        "sub_data_properties",
-        "equivalent_data_properties",
-        "disjoint_data_properties",
-        "data_property_domains",
-        "data_property_ranges",
-        "functional_data_properties",
-        "datatype_definitions",
-        "data_property_assertions",
-        "negative_data_property_assertions",
-        "annotation_assertions",
-        "selected_annotation_assertions",
-        "sub_annotation_properties",
-        "annotation_property_domains",
-        "annotation_property_ranges",
-        "object_property_domains",
-        "object_property_ranges",
-    ):
+    for field in _ALL_DYNAMIC_STATISTIC_FIELDS:
         assert getattr(statistics, field) == 1, field
     assert statistics.object_property_chains == 0
     assert statistics.ignored_subclasses == 0
@@ -13977,6 +14251,529 @@ def test_dynamic_composite_activates_all_root_rules_in_every_mode(
         0 if mode == "asserted-taxonomy" else 2 if mode == "only-taxonomy" else 4
     )
     assert statistics.edges == len(actual)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["normal", "only-taxonomy", "asserted-taxonomy"],
+)
+def test_recursive_composite_activates_all_root_rules_in_every_mode(
+    mode: str,
+) -> None:
+    recursive = _recursive_all_dynamic_root_composite()
+    paths = tuple((0, member_index, 0) for member_index in range(8))
+    statistics: Any
+    compilation: NativeEncodedDirectCompilation
+
+    if mode == "asserted-taxonomy":
+        expected = Projector().project_taxonomy(
+            recursive,
+            bidirectional=False,
+            duplicates="preserve",
+            order="encounter",
+            backend="python",
+            buffer_edges=1,
+        )
+        manifest = select_private_direct_ingestion(
+            recursive,
+            selected_backend="native",
+        ).lease
+        assert manifest is not None
+        prepared, reason = native_module.prepare_native_encoded_compilation(
+            recursive,
+            manifest,
+            ProjectionOptions(
+                backend="native",
+                order="encounter",
+                only_taxonomy=True,
+            ),
+            batch_edges=1,
+            max_total_edges=None,
+            cancellation_token=None,
+            asserted_taxonomy_only=True,
+        )
+        assert reason is None
+        assert prepared is not None
+        compilation = prepared
+        actual = list(compilation.iter_raw_edges(None))
+        statistics = compilation.native_statistics
+    else:
+        options = ProjectionOptions(
+            backend="python",
+            order="encounter",
+            only_taxonomy=mode == "only-taxonomy",
+        )
+        expected_projector = Projector()
+        expected = expected_projector.project(recursive, options=options)
+        expected_report = _completed_report(expected_projector)
+        captured: list[NativeEncodedDirectCompilation] = []
+        real_prepare = native_module.prepare_native_encoded_compilation
+
+        def capture_compilation(
+            *args: Any,
+            **kwargs: Any,
+        ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+            result = real_prepare(*args, **kwargs)
+            if result[0] is not None:
+                captured.append(result[0])
+            return result
+
+        with (
+            patch.object(
+                api_module,
+                "prepare_native_encoded_compilation",
+                side_effect=capture_compilation,
+            ),
+            patch.object(
+                api_module,
+                "prepare_streaming_compilation",
+                side_effect=AssertionError(
+                    "recursive all-rule composite reached scalar traversal"
+                ),
+            ),
+        ):
+            projector = Projector()
+            actual = list(
+                projector._iter_native_encoded_edges(
+                    recursive,
+                    options=replace(options, backend="native"),
+                    buffer_edges=1,
+                )
+            )
+        report = _completed_report(projector)
+        assert actual == expected
+        _assert_semantic_report_parity(expected_report, report)
+        assert report.provenance.ingestion.path == "encoded-native"
+        assert len(captured) == 1
+        compilation = captured[0]
+        statistics = compilation.native_statistics
+
+    assert actual == expected
+    assert compilation.composite_member_paths == paths
+    assert compilation.composite_root_member_paths == ()
+    assert statistics.roots == 39
+    for field in _ALL_DYNAMIC_STATISTIC_FIELDS:
+        assert getattr(statistics, field) == 1, field
+    assert statistics.object_property_chains == 0
+    assert statistics.skipped_axioms == (
+        0 if mode == "asserted-taxonomy" else 27
+    )
+    assert statistics.equivalent_base_edges == (
+        0 if mode == "asserted-taxonomy" else 1 if mode == "only-taxonomy" else 2
+    )
+    assert statistics.domain_range_edges == (
+        0 if mode == "asserted-taxonomy" else 1
+    )
+    assert statistics.role_expansion_edges == (
+        0 if mode == "asserted-taxonomy" else 2 if mode == "only-taxonomy" else 4
+    )
+    assert statistics.edges == len(actual)
+
+
+@pytest.mark.parametrize("only_taxonomy", [False, True], ids=["normal", "only-taxonomy"])
+def test_recursive_composite_pairs_root_annotations_without_flattening(
+    only_taxonomy: bool,
+) -> None:
+    recursive = _recursive_all_dynamic_root_composite()
+    oracle = _all_dynamic_root_snapshot()
+    python_options = ProjectionOptions(
+        backend="python",
+        order="canonical",
+        only_taxonomy=only_taxonomy,
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(oracle, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "recursive ROOT-rule composite reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                recursive,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.provenance.counts == expected_report.provenance.counts
+    assert report.diagnostics == expected_report.diagnostics
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert len(captured) == 1
+    compilation = captured[0]
+    paths = tuple((0, member_index, 0) for member_index in range(8))
+    assert compilation.composite_member_paths == paths
+    assert compilation.composite_root_member_paths == paths
+    assert len(compilation.composite_root_member_leases) == 8
+    statistics = compilation.native_statistics
+    assert statistics.roots == 39
+    for field in _ALL_DYNAMIC_STATISTIC_FIELDS:
+        assert getattr(statistics, field) == 1, field
+    assert statistics.annotation_edges == 1
+    assert statistics.root_provenance_buffer_bytes > 0
+    assert statistics.edges == len(actual)
+    assert [
+        edge.destination for edge in actual if edge.relation == "rdfs:label"
+    ] == ["label"]
+
+
+def test_recursive_root_pair_binds_omitted_overlay_delta_to_empty_table() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("Declaration(Class(:A))"),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)"),
+    )
+    overlay = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(
+            base,
+            pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(addition.iter_axioms())),
+            ),
+        ),
+    )
+    annotation = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "AnnotationAssertion("
+            "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+            '"label")'
+        ),
+    )
+    top = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, annotation),
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    oracle = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) SubClassOf(:B :Top) "
+            "AnnotationAssertion("
+            "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+            '"label")'
+        ),
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(oracle, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("omitted ROOT delta reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                top,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.provenance.counts == expected_report.provenance.counts
+    assert report.diagnostics == expected_report.diagnostics
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert len(captured) == 1
+    compilation = captured[0]
+    paths = ((0, 0), (1, 0, 0), (1, 1))
+    assert compilation.composite_member_paths == paths
+    assert compilation.composite_root_member_paths == paths
+    delta_index = paths.index((1, 1))
+    assert (
+        compilation.composite_member_leases[delta_index]
+        .buffers["root_kinds"]
+        .nbytes
+        == 1
+    )
+    omitted_root = compilation.composite_root_member_leases[delta_index]
+    assert omitted_root.owner is overlay
+    assert omitted_root.buffers["root_kinds"].nbytes == 0
+    assert tuple(cast(Any, segment).role for segment in omitted_root.segments) == (2,)
+    assert Edge(
+        "urn:native-integration#B",
+        "http://subclassof",
+        "urn:native-integration#Top",
+    ) in actual
+    assert Edge("urn:native-integration#A", "rdfs:label", "label") in actual
+
+
+def test_recursive_root_pair_binds_omitted_composite_bridge_to_empty_table() -> None:
+    declaration = cast(
+        pyowl_core.OntologyView,
+        _snapshot("Declaration(Class(:A))"),
+    )
+    annotation = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "AnnotationAssertion("
+            "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+            '"label")'
+        ),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)"),
+    )
+    top = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(
+            declaration,
+            annotation,
+            delta=pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(addition.iter_axioms())),
+            ),
+        ),
+    )
+    closure_lease = select_private_direct_ingestion(
+        top,
+        selected_backend="native",
+    ).lease
+    assert closure_lease is not None
+    root_lease = encoded_module._acquire_root_encoded_lease(
+        top,
+        closure_lease,
+    )
+    assert root_lease is not None
+    assert tuple(cast(Any, segment).role for segment in root_lease.segments) == (
+        4,
+        4,
+        5,
+    )
+    member_segments = root_lease.segments[:-1]
+    empty_buffers = {
+        name: memoryview(b"\0" * 8 if name == "node_field_offsets" else b"")
+        for name in root_lease.buffers
+    }
+    forged_root_view = replace(
+        cast(Any, root_lease.encoded_view),
+        buffers=MappingProxyType(empty_buffers),
+        segments=member_segments,
+    )
+    forged_root_lease = replace(
+        root_lease,
+        encoded_view=forged_root_view,
+        buffers=MappingProxyType(empty_buffers),
+        segments=member_segments,
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    oracle = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) SubClassOf(:B :Top) "
+            "AnnotationAssertion("
+            "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+            '"label")'
+        ),
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(oracle, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            native_module,
+            "_acquire_root_encoded_lease",
+            return_value=forged_root_lease,
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("omitted ROOT bridge reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                top,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.provenance.counts == expected_report.provenance.counts
+    assert report.diagnostics == expected_report.diagnostics
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert len(captured) == 1
+    compilation = captured[0]
+    paths = ((0, 0), (1, 0), (2,))
+    assert compilation.composite_member_paths == paths
+    assert compilation.composite_root_member_paths == paths
+    bridge_index = paths.index((2,))
+    assert (
+        compilation.composite_member_leases[bridge_index]
+        .buffers["root_kinds"]
+        .nbytes
+        == 1
+    )
+    omitted_root = compilation.composite_root_member_leases[bridge_index]
+    assert omitted_root.owner is top
+    assert omitted_root.buffers["root_kinds"].nbytes == 0
+    assert tuple(cast(Any, segment).role for segment in omitted_root.segments) == (4, 4)
+    assert Edge(
+        "urn:native-integration#B",
+        "http://subclassof",
+        "urn:native-integration#Top",
+    ) in actual
+    assert Edge("urn:native-integration#A", "rdfs:label", "label") in actual
+
+
+def test_recursive_paired_manifests_share_one_native_validation_budget() -> None:
+    recursive = _recursive_all_dynamic_root_composite()
+    manifest = select_private_direct_ingestion(
+        recursive,
+        selected_backend="native",
+    ).lease
+    assert manifest is not None
+    compilation, reason = native_module.prepare_native_encoded_compilation(
+        recursive,
+        manifest,
+        ProjectionOptions(
+            backend="native",
+            order="encounter",
+            include_literals=True,
+        ),
+        batch_edges=1,
+        max_total_edges=None,
+        cancellation_token=None,
+    )
+    assert reason is None
+    assert compilation is not None
+    source_compiler = compilation.batches._compiler
+    assert source_compiler is not None
+    assert source_compiler.merge_manifest_lease is not None
+    assert source_compiler.root_merge_manifest_lease is not None
+
+    retained = (
+        source_compiler.merge_manifest_lease,
+        source_compiler.root_merge_manifest_lease,
+        *compilation.composite_member_leases,
+        *compilation.composite_root_member_leases,
+        *compilation.container_leases,
+    )
+    by_scope: dict[object, dict[int, EncodedStructuralLease]] = {}
+    for retained_lease in retained:
+        by_scope.setdefault(retained_lease.scope, {})[
+            id(retained_lease.encoded_view)
+        ] = retained_lease
+    closure_work = sum(
+        encoded_module._private_encoded_lease_validation_work(retained_lease)
+        for retained_lease in by_scope[pyowl_core.AxiomScope.CLOSURE].values()
+    )
+    root_work = sum(
+        encoded_module._private_encoded_lease_validation_work(retained_lease)
+        for retained_lease in by_scope[pyowl_core.AxiomScope.ROOT].values()
+    )
+    hostile_limit = max(closure_work, root_work)
+    assert closure_work <= hostile_limit
+    assert root_work <= hostile_limit
+    assert closure_work + root_work > hostile_limit
+
+    with pytest.raises(ProjectionResourceError) as captured:
+        prepare_native_encoded_direct(
+            compilation.composite_member_leases[0],
+            composite_member_leases=compilation.composite_member_leases,
+            composite_included_root_ids=compilation.composite_included_root_ids,
+            composite_excluded_root_ids=compilation.composite_excluded_root_ids,
+            composite_anonymous_scope_maps=compilation.composite_anonymous_scope_maps,
+            composite_member_paths=compilation.composite_member_paths,
+            composite_root_member_leases=compilation.composite_root_member_leases,
+            composite_root_included_root_ids=(
+                compilation.composite_root_included_root_ids
+            ),
+            composite_root_excluded_root_ids=(
+                compilation.composite_root_excluded_root_ids
+            ),
+            composite_root_anonymous_scope_maps=(
+                compilation.composite_root_anonymous_scope_maps
+            ),
+            composite_root_member_paths=compilation.composite_root_member_paths,
+            merge_manifest_lease=source_compiler.merge_manifest_lease,
+            root_merge_manifest_lease=source_compiler.root_merge_manifest_lease,
+            canonical_work_limit=hostile_limit,
+            canonical_workspace_limit=1 << 34,
+        )
+    assert captured.value.__cause__ is not None
+    assert "paired recursive validation exceeds max_canonical_work" in str(
+        captured.value.__cause__
+    )
+    source_compiler.cancel()
 
 
 @pytest.mark.parametrize(
@@ -14167,24 +14964,25 @@ def test_hidden_iterator_projects_dynamic_root_literals_with_global_class_signat
             )
         assert cancelled.state == "cancelled"
 
-        for work, workspace, expected_message in [
-            (1, 1 << 34, "work"),
-            (1_000_000_000, 1, "workspace"),
-        ]:
-            limited = paired_compiler(work=work, workspace=workspace)
-            with pytest.raises(ProjectionResourceError) as captured_limit:
-                limited.iter_batches(
-                    bidirectional=False,
-                    max_edges=len(expected),
-                    max_iri_bytes=1 << 20,
-                    batch_edges=1,
-                    include_literals=True,
-                )
-            assert captured_limit.value.__cause__ is not None
-            assert expected_message in str(captured_limit.value.__cause__)
-            assert limited.state == "failed"
-            assert limited.retained_buffer_count == 22 * member_count
-            assert limited.coarse_output_chunks == 0
+        with pytest.raises(ProjectionResourceError) as captured_limit:
+            paired_compiler(work=1)
+        assert captured_limit.value.__cause__ is not None
+        assert "work" in str(captured_limit.value.__cause__)
+
+        limited = paired_compiler(workspace=1)
+        with pytest.raises(ProjectionResourceError) as captured_limit:
+            limited.iter_batches(
+                bidirectional=False,
+                max_edges=len(expected),
+                max_iri_bytes=1 << 20,
+                batch_edges=1,
+                include_literals=True,
+            )
+        assert captured_limit.value.__cause__ is not None
+        assert "workspace" in str(captured_limit.value.__cause__)
+        assert limited.state == "failed"
+        assert limited.retained_buffer_count == 22 * member_count
+        assert limited.coarse_output_chunks == 0
 
         coarse = paired_compiler()
         coarse_edges, coarse_statistics = coarse.compile_batch(
@@ -14662,10 +15460,33 @@ def test_dynamic_paired_validation_uses_one_aggregate_work_budget() -> None:
             replace(root_lease, owner=limited_owner),
             root_rows,
         )
-    assert captured.value.details == {
-        "allowed": individual_limit,
-        "actual": closure_work + root_work,
-    }
+    assert captured.value.details["allowed"] == individual_limit
+    assert (
+        individual_limit
+        < captured.value.details["actual"]
+        <= closure_work + root_work
+    )
+
+    with pytest.raises(ProjectionResourceError) as native_captured:
+        prepare_native_encoded_direct(
+            closure_rows[0][0],
+            composite_member_leases=tuple(row[0] for row in closure_rows),
+            composite_included_root_ids=tuple(row[1] for row in closure_rows),
+            composite_excluded_root_ids=tuple(row[2] for row in closure_rows),
+            composite_anonymous_scope_maps=tuple(row[3] for row in closure_rows),
+            composite_root_member_leases=tuple(row[0] for row in root_rows),
+            composite_root_included_root_ids=tuple(row[1] for row in root_rows),
+            composite_root_excluded_root_ids=tuple(row[2] for row in root_rows),
+            composite_root_anonymous_scope_maps=tuple(row[3] for row in root_rows),
+            merge_manifest_lease=closure_lease,
+            root_merge_manifest_lease=root_lease,
+            canonical_work_limit=individual_limit,
+            canonical_workspace_limit=1 << 34,
+        )
+    assert native_captured.value.__cause__ is not None
+    assert "paired direct validation exceeds max_canonical_work" in str(
+        native_captured.value.__cause__
+    )
 
 
 @pytest.mark.parametrize(
@@ -14729,24 +15550,25 @@ def test_dynamic_composite_preserves_mixed_selectors_cancel_limits_and_retry(
     assert cancelled.state == "cancelled"
     assert cancelled.retained_buffer_count == 57
 
-    for work, workspace, expected_message in [
-        (1, workspace_limit, "work"),
-        (work_limit, 1, "workspace"),
-    ]:
-        limited = compiler(work=work, workspace=workspace)
-        with pytest.raises(ProjectionResourceError) as captured_limit:
-            limited.iter_batches(
-                bidirectional=False,
-                max_edges=6,
-                max_iri_bytes=1024,
-                batch_edges=1,
-            )
-        assert captured_limit.value.__cause__ is not None
-        assert expected_message in str(captured_limit.value.__cause__)
-        assert limited.state == "failed"
-        assert limited.retained_buffer_count == 57
-        assert limited.coarse_output_chunks == 0
-        assert limited.peak_buffered_coarse_edges == 0
+    with pytest.raises(ProjectionResourceError) as captured_limit:
+        compiler(work=1)
+    assert captured_limit.value.__cause__ is not None
+    assert "work" in str(captured_limit.value.__cause__)
+
+    limited = compiler(workspace=1)
+    with pytest.raises(ProjectionResourceError) as captured_limit:
+        limited.iter_batches(
+            bidirectional=False,
+            max_edges=6,
+            max_iri_bytes=1024,
+            batch_edges=1,
+        )
+    assert captured_limit.value.__cause__ is not None
+    assert "workspace" in str(captured_limit.value.__cause__)
+    assert limited.state == "failed"
+    assert limited.retained_buffer_count == 57
+    assert limited.coarse_output_chunks == 0
+    assert limited.peak_buffered_coarse_edges == 0
 
     retry = compiler()
     edges, statistics = retry.compile_batch(
@@ -15168,13 +15990,14 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
         canonical_work_limit=max_work,
         canonical_workspace_limit=max_workspace,
     )
-    with pytest.raises(NativeEncodedDirectUnsupported, match="mapped-member exclusions"):
-        mapped_construct.compile_batch(
-            bidirectional=False,
-            max_edges=2,
-            max_iri_bytes=1024,
-        )
-    assert mapped_construct.state == "failed"
+    mapped_edges, mapped_statistics = mapped_construct.compile_batch(
+        bidirectional=False,
+        max_edges=2,
+        max_iri_bytes=1024,
+    )
+    assert len(mapped_edges) == 2
+    assert mapped_statistics.roots == mapped_statistics.edges == 2
+    assert mapped_construct.state == "finished"
 
 
 def test_selected_scope_mapped_four_table_views_live_until_compiler_release() -> None:
@@ -15405,7 +16228,7 @@ def test_dynamic_scope_mapped_composite_accepts_neutral_manifest_base(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
-def test_dynamic_scope_mapped_composite_fails_closed_before_scalar_fallback(
+def test_dynamic_scope_mapped_composite_supports_arbitrary_mapped_members(
     provider_backend: pyowl_core.BackendPreference,
 ) -> None:
     members = [
@@ -15456,13 +16279,18 @@ def test_dynamic_scope_mapped_composite_fails_closed_before_scalar_fallback(
             max_total_edges=None,
             cancellation_token=None,
         )
-    assert compilation is None
-    assert reason is not None
-    assert "exactly two mapped members and at most two neutral tables" in reason
+    assert compilation is not None
+    assert reason is None
+    assert compilation.native_statistics.roots == 5
+    assert compilation.native_statistics.class_assertions == 5
+    assert compilation.native_statistics.ignored_class_assertions == 5
+    assert compilation.native_statistics.anonymous_individuals == 5
+    assert compilation.native_statistics.edges == 0
     assert len(captured_compilers) == 1
-    assert captured_compilers[0].state == "failed"
+    assert captured_compilers[0].state == "finished"
     assert captured_compilers[0].coarse_output_chunks == 0
     assert captured_compilers[0].peak_buffered_coarse_edges == 0
+    assert captured_compilers[0].cancel() is False
 
     projector = Projector()
     actual = list(
@@ -15476,13 +16304,11 @@ def test_dynamic_scope_mapped_composite_fails_closed_before_scalar_fallback(
     assert actual == expected
     _assert_semantic_report_parity(expected_report, report)
     ingestion = report.provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert ingestion.reason is not None
-    assert "exactly two mapped members and at most two neutral tables" in ingestion.reason
-    assert ingestion.counters["encoded_buffer_count"] == 0
-    assert ingestion.counters["encoded_detached_buffer_count"] == 0
-    assert ingestion.counters["encoded_referenced_view_count"] == 0
-    assert ingestion.counters.get("native_compiled_edges", 0) == 0
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] > 0
+    assert ingestion.counters["encoded_referenced_view_count"] == 5
+    assert ingestion.counters["native_compiled_edges"] == 0
 
 
 @pytest.mark.parametrize("member_count", [3, 4], ids=["three-members", "four-members"])
@@ -16269,6 +17095,15 @@ def test_hidden_iterator_applies_each_four_table_exclusion_locally(
         _max_work,
         _max_workspace,
     ) = resolved
+    recursive = encoded_module._resolve_private_recursive_leaf_plan(top_lease)
+    assert recursive is not None
+    (
+        expected_rows,
+        expected_paths,
+        _retained,
+        _recursive_work,
+        _recursive_workspace,
+    ) = recursive
     assert base_excluded is not None
     assert (nested_excluded is not None) is exclude_nested_delta
     assert (first_excluded is not None) is exclude_first
@@ -16340,11 +17175,28 @@ def test_hidden_iterator_applies_each_four_table_exclusion_locally(
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
-    assert compilation.excluded_root_ids is base_excluded
-    assert compilation.right_excluded_root_ids is nested_excluded
-    assert compilation.third_excluded_root_ids is first_excluded
-    assert compilation.fourth_excluded_root_ids is second_excluded
-    assert compilation.included_root_ids is None
+    assert compilation.composite_member_leases == tuple(row[0] for row in expected_rows)
+    assert compilation.composite_included_root_ids == tuple(row[1] for row in expected_rows)
+    assert compilation.composite_excluded_root_ids == tuple(row[2] for row in expected_rows)
+    assert compilation.composite_anonymous_scope_maps == tuple(
+        row[3] for row in expected_rows
+    )
+    assert compilation.composite_member_paths == expected_paths
+    assert all(value is None for value in compilation.composite_included_root_ids)
+    assert compiler.composite_member_leases == compilation.composite_member_leases
+    assert (
+        compiler.composite_included_root_ids
+        == compilation.composite_included_root_ids
+    )
+    assert (
+        compiler.composite_excluded_root_ids
+        == compilation.composite_excluded_root_ids
+    )
+    assert (
+        compiler.composite_anonymous_scope_maps
+        == compilation.composite_anonymous_scope_maps
+    )
+    assert compiler.composite_member_paths == compilation.composite_member_paths
     assert compilation.native_statistics.roots == len(expected_sources)
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.edges == len(expected_sources)
@@ -16359,7 +17211,7 @@ def test_hidden_iterator_applies_each_four_table_exclusion_locally(
     assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
     assert ingestion.counters["encoded_detached_buffer_count"] == 45 + selected_count
     assert ingestion.counters["encoded_zero_copy_buffers"] == 55
-    assert ingestion.counters["encoded_referenced_view_count"] == 4
+    assert ingestion.counters["encoded_referenced_view_count"] == 5
     assert ingestion.counters["encoded_segment_count"] == 8
     assert ingestion.counters["encoded_posting_bytes"] == 4 * (1 + selected_count)
     assert ingestion.counters["encoded_indexed_buffer_count"] == 0
@@ -17178,16 +18030,10 @@ def test_hidden_iterator_routes_adjacent_three_member_shapes_atomically(
 
     assert actual == expected
     ingestion = report.provenance.ingestion
-    if shape == "nested":
-        assert ingestion.path == "encoded-native"
-        assert ingestion.reason is None
-        assert ingestion.counters["native_compiled_edges"] == 4
-        assert ingestion.counters["encoded_buffer_count"] > 0
-    else:
-        assert ingestion.path == "scalar-native"
-        assert ingestion.reason is not None
-        assert ingestion.counters.get("native_compiled_edges", 0) == 0
-        assert ingestion.counters["encoded_buffer_count"] == 0
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["native_compiled_edges"] == len(actual)
+    assert ingestion.counters["encoded_buffer_count"] > 0
 
 
 @pytest.mark.parametrize(
@@ -17239,26 +18085,42 @@ def test_scope_mapped_annotation_literals_activate_flat_and_reject_nested(
             max_total_edges=None,
             cancellation_token=None,
         )
-        assert compilation is None
-        assert reason is not None
-        assert "annotation-assertion-free selected roots" in reason
+        assert compilation is not None
+        assert reason is None
+        statistics = compilation.native_statistics
+        assert statistics.roots == statistics.edges == 3
+        assert statistics.subclasses == 1
+        assert statistics.annotation_assertions == 2
+        assert statistics.selected_annotation_assertions == 2
+        assert statistics.annotation_edges == 2
+        assert statistics.anonymous_individuals == 2
 
-        with pytest.raises(
-            ValueError,
-            match="composite views support CLOSURE scope only",
-        ):
-            Projector().project(composite, options=python_options)
-        with pytest.raises(
-            ValueError,
-            match="composite views support CLOSURE scope only",
-        ):
-            list(
-                Projector()._iter_native_encoded_edges(
-                    composite,
-                    options=native_options,
-                    buffer_edges=1,
-                )
+        reference = _snapshot(
+            "SubClassOf(:B :Top) "
+            "AnnotationAssertion("
+            "<http://www.w3.org/2000/01/rdf-schema#label> :B _:first"
+            ") "
+            "AnnotationAssertion("
+            "<http://www.w3.org/2000/01/rdf-schema#label> :B _:second"
+            ")",
+            backend=provider_backend,
+        )
+        expected_projector = Projector()
+        expected = expected_projector.project(reference, options=python_options)
+        expected_report = _completed_report(expected_projector)
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=native_options,
+                buffer_edges=1,
             )
+        )
+        report = _completed_report(projector)
+        assert actual == expected
+        assert report.provenance.counts == expected_report.provenance.counts
+        assert report.diagnostics == expected_report.diagnostics
+        assert report.provenance.ingestion.path == "encoded-native"
         return
 
     reference = _snapshot(
@@ -17514,21 +18376,17 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     compilation = captured[0]
     compiler = captured_compilers[0]
     assert compilation.view is composite
-    assert compiler.merge_manifest_lease is compilation.container_leases[0]
     assert compiler.merge_manifest_lease is not None
-    assert compilation.local_delta_lease is compilation.container_leases[1]
-    assert compilation.third_member_lease is compilation.container_leases[2]
-    assert compilation.nested_member_lease is compilation.local_delta_lease
-    assert compiler.nested_member_lease is compilation.nested_member_lease
-    assert compilation.lease.encoded_view is nested_base_encoded
-    assert compilation.local_delta_lease is not None
-    assert compilation.third_member_lease is not None
-    nested_base_segment = cast(Any, compilation.local_delta_lease.segments[0])
-    assert nested_base_segment.source is compilation.lease.encoded_view
-    assert compilation.excluded_root_ids is nested_base_segment.root_ids
-    assert compilation.included_root_ids is None
-    assert compilation.right_excluded_root_ids is None
-    assert compilation.third_excluded_root_ids is None
+    assert len(compilation.composite_member_leases) == 3
+    assert len(compilation.composite_member_paths) == 3
+    assert compiler.composite_member_leases == compilation.composite_member_leases
+    assert compiler.composite_member_paths == compilation.composite_member_paths
+    nested_base_selector = cast(Any, nested_encoded.segments[0]).root_ids
+    assert any(
+        selector is nested_base_selector
+        for selector in compilation.composite_excluded_root_ids
+    )
+    assert all(value is None for value in compilation.composite_included_root_ids)
     statistics = compilation.native_statistics
     assert statistics.roots == 4
     assert statistics.subclasses == 4
@@ -17690,18 +18548,20 @@ def test_hidden_iterator_merges_nested_and_sibling_exclusions_in_one_native_pass
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
-    assert compilation.nested_member_lease is compilation.local_delta_lease
-    assert compilation.local_delta_lease is not None
-    nested_base_segment = cast(Any, compilation.local_delta_lease.segments[0])
-    assert compilation.excluded_root_ids is nested_base_segment.root_ids
-    assert (
-        compilation.right_excluded_root_ids is nested_segment.root_ids
-        if exclude_nested_delta
-        else compilation.right_excluded_root_ids is None
-    )
-    assert compilation.third_excluded_root_ids is sibling_segment.root_ids
-    assert compilation.included_root_ids is None
-    assert compilation.fourth_excluded_root_ids is None
+    assert len(compilation.composite_member_leases) == 3
+    assert len(compilation.composite_member_paths) == 3
+    assert compiler.composite_member_leases == compilation.composite_member_leases
+    assert compiler.composite_member_paths == compilation.composite_member_paths
+    nested_base_selector = cast(Any, nested_encoded.segments[0]).root_ids
+    expected_selectors = [nested_base_selector, sibling_segment.root_ids]
+    if exclude_nested_delta:
+        expected_selectors.append(nested_segment.root_ids)
+    for selector in expected_selectors:
+        assert any(
+            actual_selector is selector
+            for actual_selector in compilation.composite_excluded_root_ids
+        )
+    assert all(value is None for value in compilation.composite_included_root_ids)
     assert compilation.native_statistics.roots == len(expected_sources)
     assert compilation.native_statistics.subclasses == len(expected_sources)
     assert compilation.native_statistics.edges == len(expected_sources)
@@ -17715,7 +18575,7 @@ def test_hidden_iterator_merges_nested_and_sibling_exclusions_in_one_native_pass
     assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
     assert ingestion.counters["encoded_detached_buffer_count"] == retained_count
     assert ingestion.counters["encoded_zero_copy_buffers"] == 44
-    assert ingestion.counters["encoded_referenced_view_count"] == 3
+    assert ingestion.counters["encoded_referenced_view_count"] == 4
     assert ingestion.counters["encoded_segment_count"] == 6
     assert ingestion.counters["encoded_posting_bytes"] == posting_bytes
     assert ingestion.counters["encoded_indexed_buffer_count"] == 0
@@ -17903,12 +18763,65 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     compilation = captured[0]
     compiler = captured_compilers[0]
     assert compilation.view is composite
-    assert compilation.lease.encoded_view is nested_base_encoded
-    assert compilation.local_delta_lease is compilation.container_leases[1]
-    assert compilation.third_member_lease is compilation.container_leases[2]
-    assert compilation.nested_member_lease is compilation.local_delta_lease
-    assert compilation.anonymous_scope_map is nested_segment.anonymous_scope_map
-    assert compilation.right_anonymous_scope_map is direct_segment.anonymous_scope_map
+    nested_index = top_encoded.segments.index(nested_segment)
+    direct_index = top_encoded.segments.index(direct_segment)
+    if nested_index < direct_index:
+        expected_paths = (
+            (nested_index, 0, 0),
+            (nested_index, 1),
+            (direct_index, 0),
+        )
+        expected_members = (
+            nested_base_encoded,
+            nested_encoded,
+            direct_encoded,
+        )
+        expected_scope_maps = (
+            (nested_segment.anonymous_scope_map,),
+            (),
+            (direct_segment.anonymous_scope_map,),
+        )
+        retained_views = (
+            top_encoded,
+            nested_encoded,
+            nested_base_encoded,
+            direct_encoded,
+        )
+    else:
+        expected_paths = (
+            (direct_index, 0),
+            (nested_index, 0, 0),
+            (nested_index, 1),
+        )
+        expected_members = (
+            direct_encoded,
+            nested_base_encoded,
+            nested_encoded,
+        )
+        expected_scope_maps = (
+            (direct_segment.anonymous_scope_map,),
+            (nested_segment.anonymous_scope_map,),
+            (),
+        )
+        retained_views = (
+            top_encoded,
+            direct_encoded,
+            nested_encoded,
+            nested_base_encoded,
+        )
+    assert compilation.composite_member_paths == expected_paths
+    assert tuple(
+        member.encoded_view for member in compilation.composite_member_leases
+    ) == expected_members
+    assert tuple(
+        member.encoded_view for member in compilation.container_leases
+    ) == tuple(
+        retained
+        for retained in retained_views
+        if retained is not expected_members[0]
+    )
+    assert compilation.lease is compilation.composite_member_leases[0]
+    assert compilation.composite_anonymous_scope_maps == expected_scope_maps
     statistics = compilation.native_statistics
     assert statistics.roots == 3
     assert statistics.subclasses == (3 if ignored_subclass else 1)
@@ -18097,12 +19010,17 @@ def test_hidden_iterator_remaps_nested_silent_scopes_in_one_native_pass(
     compilation = captured[0]
     compiler = captured_compilers[0]
     assert compilation.view is composite
-    assert compilation.lease.encoded_view is nested_base_encoded
-    assert compilation.local_delta_lease is compilation.container_leases[1]
-    assert compilation.third_member_lease is compilation.container_leases[2]
-    assert compilation.nested_member_lease is compilation.local_delta_lease
-    assert compilation.anonymous_scope_map is nested_segment.anonymous_scope_map
-    assert compilation.right_anonymous_scope_map is direct_segment.anonymous_scope_map
+    assert len(compilation.composite_member_leases) == 3
+    assert len(compilation.composite_member_paths) == 3
+    assert compiler.composite_member_leases == compilation.composite_member_leases
+    assert compiler.composite_member_paths == compilation.composite_member_paths
+    retained_scope_maps = tuple(
+        scope_map
+        for chain in compilation.composite_anonymous_scope_maps
+        for scope_map in chain
+    )
+    assert nested_segment.anonymous_scope_map in retained_scope_maps
+    assert direct_segment.anonymous_scope_map in retained_scope_maps
     statistics = compilation.native_statistics
     assert statistics.roots == 3
     assert statistics.subclasses == 1
@@ -18656,13 +19574,28 @@ def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
         canonical_work_limit=max_work,
         canonical_workspace_limit=max_workspace,
     )
-    with pytest.raises(NativeEncodedDirectUnsupported, match="mapped-member exclusions"):
-        direct_construct.compile_batch(
-            bidirectional=False,
-            max_edges=2,
-            max_iri_bytes=1024,
-        )
-    assert direct_construct.state == "failed"
+    direct_edges, direct_statistics = direct_construct.compile_batch(
+        bidirectional=False,
+        max_edges=2,
+        max_iri_bytes=1024,
+    )
+    assert direct_edges == [
+        Edge(
+            "urn:native-integration#DropMapped",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+        Edge(
+            "_:genid2147483648",
+            "urn:native-integration#p",
+            "urn:native-integration#j",
+        ),
+    ]
+    assert direct_statistics.roots == direct_statistics.edges == 2
+    assert direct_statistics.object_property_assertions == 1
+    assert direct_statistics.anonymous_individuals == 1
+    assert direct_construct.state == "finished"
+    assert direct_construct.retained_buffer_count == 38
 
 
 def test_selected_scope_mapped_nested_views_live_until_compiler_release() -> None:
@@ -19148,31 +20081,14 @@ def test_hidden_iterator_flattens_nested_overlay_with_two_direct_siblings(
     compilation = captured[0]
     compiler = captured_compilers[0]
     assert compilation.view is composite
-    assert compilation.lease.encoded_view is base_lease.encoded_view
-    expected_container_views = (
-        top_lease.encoded_view,
-        nested_lease.encoded_view,
-        first_direct_lease.encoded_view,
-        second_direct_lease.encoded_view,
+    assert len(compilation.composite_member_leases) == 4
+    assert len(compilation.composite_member_paths) == 4
+    assert compiler.composite_member_leases == compilation.composite_member_leases
+    assert compiler.composite_member_paths == compilation.composite_member_paths
+    assert any(
+        selector is excluded for selector in compilation.composite_excluded_root_ids
     )
-    assert all(
-        retained.encoded_view is expected_view
-        for retained, expected_view in zip(
-            compilation.container_leases,
-            expected_container_views,
-            strict=True,
-        )
-    )
-    assert compilation.local_delta_lease is compilation.container_leases[1]
-    assert compilation.nested_member_lease is compilation.local_delta_lease
-    assert compilation.third_member_lease is compilation.container_leases[2]
-    assert compilation.fourth_member_lease is compilation.container_leases[3]
-    assert compiler.fourth_member_lease is compilation.fourth_member_lease
-    assert compilation.excluded_root_ids is excluded
-    assert compilation.included_root_ids is None
-    assert compilation.right_excluded_root_ids is None
-    assert compilation.third_excluded_root_ids is None
-    assert compilation.fourth_excluded_root_ids is None
+    assert all(value is None for value in compilation.composite_included_root_ids)
     statistics = compilation.native_statistics
     assert statistics.roots == 5
     assert statistics.subclasses == 5
@@ -19776,16 +20692,10 @@ def test_hidden_iterator_activates_supported_nested_shapes_and_rejects_others(
     expected_projector = Projector()
     expected = expected_projector.project(composite, options=python_options)
     expected_report = _completed_report(expected_projector)
-    encoded_shapes = {
-        "annotated-scoped-annotation",
-        "mixed-nominal-object-property-class-scope-remap",
-        "silent-local",
-    }
     captured: list[NativeEncodedDirectCompilation] = []
     captured_compilers: list[NativeEncodedDirectCompiler] = []
     captured_top_leases: list[EncodedStructuralLease] = []
     real_prepare = native_module.prepare_native_encoded_compilation
-    real_scalar = api_module.prepare_streaming_compilation
 
     def capture_compilation(
         *args: Any,
@@ -19801,9 +20711,7 @@ def test_hidden_iterator_activates_supported_nested_shapes_and_rejects_others(
         return result
 
     def guarded_scalar(*args: Any, **kwargs: Any) -> Any:
-        if shape in encoded_shapes:
-            raise AssertionError(f"{shape} reached scalar traversal")
-        return real_scalar(*args, **kwargs)
+        raise AssertionError(f"{shape} reached scalar traversal")
 
     with (
         patch.object(
@@ -19830,18 +20738,12 @@ def test_hidden_iterator_activates_supported_nested_shapes_and_rejects_others(
     assert actual == expected
     _assert_semantic_report_parity(expected_report, report)
     ingestion = report.provenance.ingestion
-    if shape in encoded_shapes:
-        assert ingestion.path == "encoded-native"
-        assert ingestion.reason is None
-        assert len(captured) == len(captured_compilers) == len(captured_top_leases) == 1
-    else:
-        assert ingestion.path == "scalar-native"
-        assert ingestion.reason is not None
-        assert not captured
-        assert not captured_compilers
-        assert not captured_top_leases
-        assert ingestion.counters.get("native_compiled_edges", 0) == 0
-        assert ingestion.counters["encoded_buffer_count"] == 0
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert len(captured) == len(captured_compilers) == len(captured_top_leases) == 1
+    if shape != "annotated-scoped-annotation":
+        assert ingestion.counters["native_compiled_edges"] == len(actual)
+        assert ingestion.counters["encoded_buffer_count"] > 0
         return
 
     if shape == "annotated-scoped-annotation":
@@ -20219,15 +21121,10 @@ def test_hidden_iterator_activates_supported_composite_shapes_and_rejects_others
     expected_projector = Projector()
     expected = expected_projector.project(composite, options=python_options)
     expected_report = _completed_report(expected_projector)
-    encoded_shapes = {
-        "annotated-annotation-assertion",
-        "mixed-nominal-object-property-class",
-    }
     captured: list[NativeEncodedDirectCompilation] = []
     captured_compilers: list[NativeEncodedDirectCompiler] = []
     captured_top_leases: list[EncodedStructuralLease] = []
     real_prepare = native_module.prepare_native_encoded_compilation
-    real_scalar = api_module.prepare_streaming_compilation
 
     def capture_compilation(
         *args: Any,
@@ -20243,9 +21140,7 @@ def test_hidden_iterator_activates_supported_composite_shapes_and_rejects_others
         return result
 
     def guarded_scalar(*args: Any, **kwargs: Any) -> Any:
-        if shape in encoded_shapes:
-            raise AssertionError(f"{shape} reached scalar traversal")
-        return real_scalar(*args, **kwargs)
+        raise AssertionError(f"{shape} reached scalar traversal")
 
     with (
         patch.object(
@@ -20272,18 +21167,15 @@ def test_hidden_iterator_activates_supported_composite_shapes_and_rejects_others
     assert actual == expected
     _assert_semantic_report_parity(expected_report, report)
     ingestion = report.provenance.ingestion
-    if shape in encoded_shapes:
-        assert ingestion.path == "encoded-native"
-        assert ingestion.reason is None
-        assert len(captured) == len(captured_compilers) == len(captured_top_leases) == 1
-    else:
-        assert ingestion.path == "scalar-native"
-        assert ingestion.reason is not None
-        assert not captured
-        assert not captured_compilers
-        assert not captured_top_leases
-        assert ingestion.counters.get("native_compiled_edges", 0) == 0
-        assert ingestion.counters["encoded_buffer_count"] == 0
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert len(captured) == len(captured_compilers) == len(captured_top_leases) == 1
+    if shape not in {
+        "annotated-annotation-assertion",
+        "mixed-nominal-object-property-class",
+    }:
+        assert ingestion.counters["native_compiled_edges"] == len(actual)
+        assert ingestion.counters["encoded_buffer_count"] > 0
         return
 
     if shape == "annotated-annotation-assertion":
@@ -21121,19 +22013,14 @@ def test_nested_composite_preserves_excluded_annotation_fallback_parity(
     assert resolved is not None
     assert resolved[3] is not None
 
-    with patch.object(
-        native_module,
-        "prepare_native_encoded_direct",
-        side_effect=AssertionError("excluded annotation reached native compilation"),
-    ):
-        compilation, reason = native_module.prepare_native_encoded_compilation(
-            composite,
-            top_lease,
-            replace(options, backend="native"),
-            batch_edges=1,
-            max_total_edges=None,
-            cancellation_token=None,
-        )
+    compilation, reason = native_module.prepare_native_encoded_compilation(
+        composite,
+        top_lease,
+        replace(options, backend="native"),
+        batch_edges=1,
+        max_total_edges=None,
+        cancellation_token=None,
+    )
 
     assert compilation is None
     assert reason is not None
@@ -21371,6 +22258,849 @@ def test_one_root_mixed_overlay_fails_before_output_on_canonical_resource_bounds
     assert compiler.state == "failed"
     assert compiler.retained_buffer_count == 23
     assert compiler.cancel() is False
+
+
+def _recursive_repeated_source_dag() -> tuple[
+    pyowl_core.OntologyView,
+    EncodedStructuralLease,
+    object,
+]:
+    """Forge one valid private manifest with two paths to the same leaf table."""
+
+    shared_left = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Shared :Top)"),
+    )
+    shared_right = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Shared :Top)"),
+    )
+    left_unique = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Left :Top)"),
+    )
+    right_unique = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Right :Top)"),
+    )
+    left_inner = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(shared_left, left_unique),
+    )
+    right_inner = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(shared_right, right_unique),
+    )
+    left = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(left_inner, pyowl_core.OntologyDelta()),
+    )
+    right = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(right_inner, pyowl_core.OntologyDelta()),
+    )
+    top = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(left, right),
+    )
+    lease = select_private_direct_ingestion(
+        top,
+        selected_backend="native",
+    ).lease
+    assert lease is not None
+    top_encoded = cast(Any, lease.encoded_view)
+    top_segments = list(cast(Any, top_encoded).segments)
+    left_index = next(
+        index
+        for index, segment in enumerate(top_segments)
+        if cast(Any, segment).owner is left
+    )
+    right_index = next(
+        index
+        for index, segment in enumerate(top_segments)
+        if cast(Any, segment).owner is right
+    )
+    left_overlay_encoded = cast(Any, top_segments[left_index]).source
+    right_overlay_encoded = cast(Any, top_segments[right_index]).source
+    left_inner_encoded = cast(Any, left_overlay_encoded.segments[0]).source
+    right_inner_encoded = cast(Any, right_overlay_encoded.segments[0]).source
+    left_shared_encoded = next(
+        cast(Any, segment).source
+        for segment in left_inner_encoded.segments
+        if cast(Any, segment).owner is shared_left
+    )
+    right_inner_segments = list(right_inner_encoded.segments)
+    right_shared_index = next(
+        index
+        for index, segment in enumerate(right_inner_segments)
+        if cast(Any, segment).owner is shared_right
+    )
+    right_inner_segments[right_shared_index] = replace(
+        cast(Any, right_inner_segments[right_shared_index]),
+        owner=shared_left,
+        source=left_shared_encoded,
+    )
+    repeated_inner_encoded = replace(
+        right_inner_encoded,
+        segments=tuple(right_inner_segments),
+    )
+    right_overlay_segment = replace(
+        cast(Any, right_overlay_encoded.segments[0]),
+        source=repeated_inner_encoded,
+    )
+    repeated_overlay_encoded = replace(
+        right_overlay_encoded,
+        segments=(right_overlay_segment,),
+    )
+    top_segments[right_index] = replace(
+        cast(Any, top_segments[right_index]),
+        source=repeated_overlay_encoded,
+    )
+    repeated_top_encoded = replace(
+        top_encoded,
+        segments=tuple(top_segments),
+    )
+    return (
+        top,
+        replace(
+            lease,
+            encoded_view=repeated_top_encoded,
+            segments=tuple(top_segments),
+        ),
+        repeated_inner_encoded,
+    )
+
+
+def test_recursive_leaf_plan_reuses_dag_sources_at_distinct_paths() -> None:
+    top, lease, _cycle_container = _recursive_repeated_source_dag()
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(top, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+    real_validate = encoded_module._validate_encoded_view
+    validation_counts: dict[int, int] = {}
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    def count_validation(*args: Any, **kwargs: Any) -> EncodedStructuralLease:
+        encoded_view = args[1]
+        identity = id(encoded_view)
+        validation_counts[identity] = validation_counts.get(identity, 0) + 1
+        return real_validate(*args, **kwargs)
+
+    with patch.object(
+        encoded_module,
+        "_validate_encoded_view",
+        side_effect=count_validation,
+    ):
+        resolved = encoded_module._resolve_private_recursive_leaf_plan(lease)
+    assert resolved is not None
+    assert validation_counts
+    assert set(validation_counts.values()) == {1}
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("recursive DAG reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                top,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert len(compilation.composite_member_paths) == 4
+    assert len(set(compilation.composite_member_paths)) == 4
+    source_identities = [
+        id(member.encoded_view) for member in compilation.composite_member_leases
+    ]
+    repeated_identity = next(
+        identity
+        for identity in source_identities
+        if source_identities.count(identity) == 2
+    )
+    repeated_paths = {
+        path
+        for identity, path in zip(
+            source_identities,
+            compilation.composite_member_paths,
+            strict=True,
+        )
+        if identity == repeated_identity
+    }
+    assert len(repeated_paths) == 2
+    retained_source_identities = [
+        id(retained.encoded_view)
+        for retained in (compilation.lease, *compilation.container_leases)
+    ]
+    assert len(retained_source_identities) == len(set(retained_source_identities))
+    assert retained_source_identities.count(repeated_identity) == 1
+    assert compilation.native_statistics.roots == 3
+    assert compilation.native_statistics.subclasses == 3
+    assert compilation.native_statistics.edges == 3
+
+
+def _recursive_shallow_then_deep_dag(
+    *,
+    max_overlay_depth: int,
+) -> EncodedStructuralLease:
+    """Forge one source first at depth zero and then below three overlays."""
+
+    limits = replace(
+        pyowl_core.ParseLimits(),
+        max_overlay_depth=max_overlay_depth,
+    )
+
+    def load(body: str) -> pyowl_core.OntologyView:
+        source = (
+            "Prefix(:=<urn:native-integration#>) "
+            f"Ontology(<urn:native-integration> {body})"
+        )
+        return cast(
+            pyowl_core.OntologyView,
+            pyowl_core.load_snapshot(
+                source.encode(),
+                options=pyowl_core.LoadOptions(
+                    imports=pyowl_core.ImportPolicy.IGNORE,
+                    backend=pyowl_core.BackendPreference.PYTHON,
+                    limits=limits,
+                ),
+            ),
+        )
+
+    shallow = load("SubClassOf(:Shallow :Top)")
+    deep_base = load("SubClassOf(:Deep :Top)")
+    deep_view, _deep_lease, deep_chain, _deep_direct = (
+        _recursive_empty_overlay_lease(
+            deep_base,
+            depth=3,
+        )
+    )
+    top = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(shallow, deep_view),
+    )
+    top_lease = select_private_direct_ingestion(
+        top,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+
+    shallow_encoded = shallow.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    deep_source = shallow_encoded
+    deep_owner: object = shallow
+    for container in deep_chain:
+        base_segment = replace(
+            cast(Any, container.segments[0]),
+            owner=deep_owner,
+            source=deep_source,
+        )
+        deep_source = replace(
+            cast(Any, container.encoded_view),
+            segments=(base_segment,),
+        )
+        deep_owner = container.owner
+
+    top_segments = list(top_lease.segments)
+    member_indices = [
+        index
+        for index, segment in enumerate(top_segments)
+        if cast(Any, segment).role == 4
+    ]
+    assert len(member_indices) == 2
+    shallow_index, deep_index = member_indices
+    top_segments[shallow_index] = replace(
+        cast(Any, top_segments[shallow_index]),
+        owner=shallow,
+        source=shallow_encoded,
+    )
+    top_segments[deep_index] = replace(
+        cast(Any, top_segments[deep_index]),
+        owner=deep_owner,
+        source=deep_source,
+    )
+    top_encoded = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(top_segments),
+    )
+    return replace(
+        top_lease,
+        encoded_view=top_encoded,
+        segments=tuple(top_segments),
+    )
+
+
+def test_recursive_leaf_plan_enforces_depth_on_deeper_dag_cache_hit() -> None:
+    lease = _recursive_shallow_then_deep_dag(max_overlay_depth=8)
+    real_public_limit = encoded_module._public_limit
+
+    def public_limit(owner: object, name: str) -> int | None:
+        if name == "max_overlay_depth":
+            return 2
+        return real_public_limit(owner, name)
+
+    with (
+        patch.object(
+            encoded_module,
+            "_public_limit",
+            side_effect=public_limit,
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match="public max_overlay_depth",
+        ),
+    ):
+        encoded_module._resolve_private_recursive_leaf_plan(lease)
+
+
+def test_recursive_native_constructor_enforces_hostile_overlay_depth() -> None:
+    lease = _recursive_shallow_then_deep_dag(max_overlay_depth=8)
+    resolved = encoded_module._resolve_private_recursive_leaf_plan(lease)
+    assert resolved is not None
+    rows, paths, _containers, max_work, max_workspace = resolved
+    assert max_work is not None
+    assert max_workspace is not None
+    members = tuple(row[0] for row in rows)
+
+    with pytest.raises(SnapshotCompatibilityError) as captured:
+        prepare_native_encoded_direct(
+            members[0],
+            composite_member_leases=members,
+            composite_included_root_ids=tuple(row[1] for row in rows),
+            composite_excluded_root_ids=tuple(row[2] for row in rows),
+            composite_anonymous_scope_maps=tuple(row[3] for row in rows),
+            composite_member_paths=paths,
+            merge_manifest_lease=lease,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+            max_overlay_depth=2,
+        )
+    assert captured.value.__cause__ is not None
+    assert "exceeds max_overlay_depth" in str(captured.value)
+
+
+def test_recursive_native_constructor_rejects_cross_scope_reference() -> None:
+    lease = _recursive_shallow_then_deep_dag(max_overlay_depth=8)
+    resolved = encoded_module._resolve_private_recursive_leaf_plan(lease)
+    assert resolved is not None
+    rows, paths, _containers, max_work, max_workspace = resolved
+    assert max_work is not None
+    assert max_workspace is not None
+    members = tuple(row[0] for row in rows)
+    manifest = cast(Any, lease.encoded_view)
+    segments = list(manifest.segments)
+    reference_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).role in {1, 4}
+    )
+    reference = cast(Any, segments[reference_index])
+    segments[reference_index] = replace(
+        reference,
+        source=replace(
+            cast(Any, reference.source),
+            scope=pyowl_core.AxiomScope.ROOT,
+        ),
+    )
+    hostile_manifest = replace(manifest, segments=tuple(segments))
+    hostile_lease = replace(
+        lease,
+        encoded_view=hostile_manifest,
+        segments=tuple(segments),
+    )
+
+    with pytest.raises(SnapshotCompatibilityError) as captured:
+        prepare_native_encoded_direct(
+            members[0],
+            composite_member_leases=members,
+            composite_included_root_ids=tuple(row[1] for row in rows),
+            composite_excluded_root_ids=tuple(row[2] for row in rows),
+            composite_anonymous_scope_maps=tuple(row[3] for row in rows),
+            composite_member_paths=paths,
+            merge_manifest_lease=hostile_lease,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+            max_overlay_depth=8,
+        )
+    assert captured.value.__cause__ is not None
+    assert "changed its exact source scope" in str(captured.value.__cause__)
+
+
+def _recursive_include_pruned_deep_member() -> EncodedStructuralLease:
+    deep_base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Deep :Top)"),
+    )
+    deep_view, _deep_lease, deep_chain, _deep_direct = (
+        _recursive_empty_overlay_lease(
+            deep_base,
+            depth=5,
+        )
+    )
+    sibling = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Sibling :Top)"),
+    )
+    local = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Local :Top)"),
+    )
+    source = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(
+            deep_view,
+            sibling,
+            delta=pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(local.iter_axioms())),
+            ),
+        ),
+    )
+    source_lease = select_private_direct_ingestion(
+        source,
+        selected_backend="native",
+    ).lease
+    assert source_lease is not None
+
+    deep_source = deep_base.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    deep_owner: object = deep_base
+    for container in deep_chain:
+        base_segment = replace(
+            cast(Any, container.segments[0]),
+            owner=deep_owner,
+            source=deep_source,
+        )
+        deep_source = replace(
+            cast(Any, container.encoded_view),
+            segments=(base_segment,),
+        )
+        deep_owner = container.owner
+
+    source_segments = list(source_lease.segments)
+    assert tuple(cast(Any, segment).role for segment in source_segments) == (
+        4,
+        4,
+        5,
+    )
+    sibling_encoded = sibling.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    source_segments[0] = replace(
+        cast(Any, source_segments[0]),
+        owner=deep_owner,
+        source=deep_source,
+    )
+    source_segments[1] = replace(
+        cast(Any, source_segments[1]),
+        owner=sibling,
+        source=sibling_encoded,
+    )
+    source_encoded = replace(
+        cast(Any, source_lease.encoded_view),
+        segments=tuple(source_segments),
+    )
+
+    other = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Other :Top)"),
+    )
+    outer = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(source, other),
+    )
+    outer_lease = select_private_direct_ingestion(
+        outer,
+        selected_backend="native",
+    ).lease
+    assert outer_lease is not None
+    outer_segments = list(outer_lease.segments)
+    assert tuple(cast(Any, segment).role for segment in outer_segments) == (4, 4)
+    other_encoded = other.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    outer_segments[0] = replace(
+        cast(Any, outer_segments[0]),
+        owner=source,
+        source=source_encoded,
+        posting_mode=1,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    outer_segments[1] = replace(
+        cast(Any, outer_segments[1]),
+        owner=other,
+        source=other_encoded,
+    )
+    outer_encoded = replace(
+        cast(Any, outer_lease.encoded_view),
+        segments=tuple(outer_segments),
+    )
+    return replace(
+        outer_lease,
+        encoded_view=outer_encoded,
+        segments=tuple(outer_segments),
+    )
+
+
+def test_recursive_include_prunes_deep_descendants_before_limits_and_native() -> None:
+    lease = _recursive_include_pruned_deep_member()
+    resolved = encoded_module._resolve_private_recursive_leaf_plan(lease)
+    assert resolved is not None
+    rows, paths, containers, _max_work, max_workspace = resolved
+    assert paths == ((0, 2), (1, 0))
+    assert len({id(container.encoded_view) for container in containers}) == 3
+    selected_work = sum(
+        encoded_module._private_encoded_lease_validation_work(container)
+        for container in containers
+    )
+    assert max_workspace is not None
+    real_public_limit = encoded_module._public_limit
+
+    def limited_public(
+        owner: object,
+        name: str,
+        *,
+        depth: int,
+        work: int,
+    ) -> int | None:
+        if name == "max_overlay_depth":
+            return depth
+        if name == "max_canonical_work":
+            return work
+        return real_public_limit(owner, name)
+
+    with patch.object(
+        encoded_module,
+        "_public_limit",
+        side_effect=lambda owner, name: limited_public(
+            owner,
+            name,
+            depth=1,
+            work=selected_work,
+        ),
+    ):
+        limited = encoded_module._resolve_private_recursive_leaf_plan(lease)
+    assert limited is not None
+    assert limited[1] == paths
+
+    all_segments = list(lease.segments)
+    all_segments[0] = replace(
+        cast(Any, all_segments[0]),
+        posting_mode=0,
+        root_ids=memoryview(b""),
+    )
+    all_view = replace(
+        cast(Any, lease.encoded_view),
+        segments=tuple(all_segments),
+    )
+    all_lease = replace(
+        lease,
+        encoded_view=all_view,
+        segments=tuple(all_segments),
+    )
+    with (
+        patch.object(
+            encoded_module,
+            "_public_limit",
+            side_effect=lambda owner, name: limited_public(
+                owner,
+                name,
+                depth=1,
+                work=sys.maxsize,
+            ),
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match="public max_overlay_depth",
+        ),
+    ):
+        encoded_module._resolve_private_recursive_leaf_plan(all_lease)
+    with (
+        patch.object(
+            encoded_module,
+            "_public_limit",
+            side_effect=lambda owner, name: limited_public(
+                owner,
+                name,
+                depth=8,
+                work=selected_work,
+            ),
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match="public max_canonical_work",
+        ),
+    ):
+        encoded_module._resolve_private_recursive_leaf_plan(all_lease)
+
+    members = tuple(row[0] for row in rows)
+    compiler = prepare_native_encoded_direct(
+        members[0],
+        composite_member_leases=members,
+        composite_included_root_ids=tuple(row[1] for row in rows),
+        composite_excluded_root_ids=tuple(row[2] for row in rows),
+        composite_anonymous_scope_maps=tuple(row[3] for row in rows),
+        composite_member_paths=paths,
+        merge_manifest_lease=lease,
+        canonical_work_limit=selected_work,
+        canonical_workspace_limit=max_workspace,
+        max_overlay_depth=1,
+    )
+    actual = [
+        edge
+        for batch in compiler.iter_batches(
+            bidirectional=False,
+            max_edges=2,
+            max_iri_bytes=1024,
+            batch_edges=1,
+        )
+        for edge in batch
+    ]
+    assert actual == [
+        Edge(
+            "urn:native-integration#Local",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+        Edge(
+            "urn:native-integration#Other",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+    ]
+
+
+def test_recursive_leaf_plan_composes_scope_maps_inner_to_outer() -> None:
+    left = cast(
+        pyowl_core.OntologyView,
+        _snapshot("ObjectPropertyAssertion(:p _:same :j)"),
+    )
+    right = cast(
+        pyowl_core.OntologyView,
+        _snapshot("ObjectPropertyAssertion(:p _:same :j)"),
+    )
+    inner = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(left, right),
+    )
+    wrapped = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(inner, pyowl_core.OntologyDelta()),
+    )
+    plain = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:C :Top)"),
+    )
+    top = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(wrapped, plain),
+    )
+    selection = select_private_direct_ingestion(
+        top,
+        selected_backend="native",
+    )
+    assert selection.lease is not None
+    top_lease = selection.lease
+    top_segments = list(top_lease.segments)
+    wrapped_index = next(
+        index
+        for index, segment in enumerate(top_segments)
+        if cast(Any, segment).owner is wrapped
+    )
+    wrapped_segment = cast(Any, top_segments[wrapped_index])
+    wrapped_encoded = wrapped_segment.source
+    inner_encoded = cast(Any, wrapped_encoded.segments[0]).source
+    inner_targets = sorted(
+        bytes(cast(Any, segment).anonymous_scope_map[32:64])
+        for segment in inner_encoded.segments
+    )
+    outer_scope_map = memoryview(
+        b"".join(
+            source_scope + (index + 1).to_bytes(32, "big")
+            for index, source_scope in enumerate(inner_targets)
+        )
+    )
+    top_segments[wrapped_index] = replace(
+        wrapped_segment,
+        anonymous_scope_map=outer_scope_map,
+    )
+    top_encoded = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(top_segments),
+    )
+    top_lease = replace(
+        top_lease,
+        encoded_view=top_encoded,
+        segments=tuple(top_segments),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(top, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("recursive map chain reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                top,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert report.provenance.ingestion.counters["scalar_axiom_materializations"] == 0
+    assert report.provenance.ingestion.counters["per_row_ffi_calls"] == 0
+    assert len(captured) == 1
+    compilation = captured[0]
+    expected_rows: list[
+        tuple[tuple[int, ...], object, tuple[memoryview, ...]]
+    ] = []
+    for top_index, segment in enumerate(top_segments):
+        typed_segment = cast(Any, segment)
+        if typed_segment.owner is plain:
+            expected_rows.append(
+                ((top_index, 0), typed_segment.source, ())
+            )
+            continue
+        assert typed_segment.owner is wrapped
+        for inner_index, inner_segment in enumerate(inner_encoded.segments):
+            typed_inner = cast(Any, inner_segment)
+            expected_rows.append(
+                (
+                    (top_index, 0, inner_index, 0),
+                    typed_inner.source,
+                    (
+                        typed_inner.anonymous_scope_map,
+                        outer_scope_map,
+                    ),
+                )
+            )
+    assert compilation.composite_member_paths == tuple(
+        path for path, _source, _maps in expected_rows
+    )
+    assert tuple(
+        member.encoded_view for member in compilation.composite_member_leases
+    ) == tuple(source for _path, source, _maps in expected_rows)
+    assert compilation.composite_anonymous_scope_maps == tuple(
+        maps for _path, _source, maps in expected_rows
+    )
+    assertion_edges = [
+        edge for edge in actual if edge.relation == "urn:native-integration#p"
+    ]
+    assert len(assertion_edges) == 2
+    assert len({edge.source for edge in assertion_edges}) == 2
+
+
+def test_recursive_leaf_plan_rejects_active_path_cycle_in_a_dag_container() -> None:
+    top, lease, cycle_container = _recursive_repeated_source_dag()
+    cycle_segments = list(cast(Any, cycle_container).segments)
+    cycle_segments[0] = replace(
+        cast(Any, cycle_segments[0]),
+        owner=top,
+        source=lease.encoded_view,
+    )
+    object.__setattr__(
+        cycle_container,
+        "segments",
+        tuple(cycle_segments),
+    )
+    projector = Projector()
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("recursive cycle reached scalar traversal"),
+        ),
+        pytest.raises(
+            SnapshotCompatibilityError,
+            match="recursive leaf graph is cyclic",
+        ),
+    ):
+        list(
+            projector._iter_native_encoded_edges(
+                top,
+                options=ProjectionOptions(backend="native", order="encounter"),
+                buffer_edges=1,
+            )
+        )
+    assert projector.last_report is None
 
 
 def _recursive_empty_overlay_lease(

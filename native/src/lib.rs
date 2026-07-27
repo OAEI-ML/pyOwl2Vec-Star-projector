@@ -14,7 +14,7 @@
 
 mod encoded_direct;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,10 +25,10 @@ use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
     prepare_dynamic_composite_batches_uncommitted,
     prepare_dynamic_composite_batches_with_root_uncommitted,
-    prepare_single_overlay_delta_batches_uncommitted, DirectColumns, DirectCompileOptions,
-    DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState,
-    PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED,
-    STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
+    prepare_single_overlay_delta_batches_uncommitted, AnonymousScopeMapChain, DirectColumns,
+    DirectCompileOptions, DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot,
+    OwnedRoleState, PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED,
+    STATE_FAILED, STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyValueError};
@@ -42,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 127;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 128;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -52,6 +52,7 @@ const DIRECT_SEGMENT: usize = 1;
 const OVERLAY_BASE_SEGMENT: usize = 2;
 const OVERLAY_DELTA_SEGMENT: usize = 3;
 const COMPOSITE_MEMBER_SEGMENT: usize = 4;
+const COMPOSITE_BRIDGE_SEGMENT: usize = 5;
 const POSTINGS_ALL: usize = 0;
 const POSTINGS_INCLUDE: usize = 1;
 const POSTINGS_EXCLUDE: usize = 2;
@@ -456,6 +457,56 @@ impl RetainedRoleState {
         )
         .map_err(kernel_error)
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_dynamic_batches_uncommitted_claimed(
+        &self,
+        columns: &[DirectColumns<'_>],
+        root_columns: Option<&[DirectColumns<'_>]>,
+        options: DirectCompileOptions,
+        compiler_state: &AtomicU8,
+        max_work: usize,
+        max_workspace_bytes: usize,
+    ) -> PyResult<PreparedDirectBatches> {
+        let roles = self.roles.lock().map_err(|_| {
+            PyRuntimeError::new_err("encoded direct role state is permanently failed")
+        })?;
+        prepare_dynamic_composite_batches_with_root_uncommitted(
+            columns,
+            root_columns,
+            options,
+            compiler_state,
+            Some(&roles),
+            max_work,
+            max_workspace_bytes,
+        )
+        .map_err(kernel_error)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_overlay_batches_uncommitted_claimed(
+        &self,
+        columns: DirectColumns<'_>,
+        delta_columns: DirectColumns<'_>,
+        options: DirectCompileOptions,
+        compiler_state: &AtomicU8,
+        max_work: usize,
+        max_workspace_bytes: usize,
+    ) -> PyResult<PreparedDirectBatches> {
+        let roles = self.roles.lock().map_err(|_| {
+            PyRuntimeError::new_err("encoded direct role state is permanently failed")
+        })?;
+        prepare_single_overlay_delta_batches_uncommitted(
+            columns,
+            delta_columns,
+            options,
+            compiler_state,
+            Some(&roles),
+            max_work,
+            max_workspace_bytes,
+        )
+        .map_err(kernel_error)
+    }
 }
 
 /// Private retained role maps for explicit Scala-instance compatibility calls.
@@ -549,6 +600,21 @@ impl RetainedDirectBuffer {
     }
 }
 
+#[derive(Default)]
+struct RetainedAnonymousScopeMaps {
+    buffers: Vec<RetainedDirectBuffer>,
+}
+
+impl AnonymousScopeMapChain for RetainedAnonymousScopeMaps {
+    fn scope_map_count(&self) -> usize {
+        self.buffers.len()
+    }
+
+    fn scope_map_at(&self, index: usize) -> Option<&[u8]> {
+        self.buffers.get(index).map(RetainedDirectBuffer::as_slice)
+    }
+}
+
 impl DirectBatchOutput {
     fn install(&mut self, stream: PreparedDirectBatches, batch_edges: usize) {
         let remaining_edges = stream.remaining_edges();
@@ -610,7 +676,7 @@ struct RetainedCompositeMember {
     buffers: Option<Vec<RetainedDirectBuffer>>,
     included_root_ids: Option<RetainedDirectBuffer>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
-    anonymous_scope_map: Option<RetainedDirectBuffer>,
+    anonymous_scope_maps: RetainedAnonymousScopeMaps,
     root: Option<RetainedCompositeRootMember>,
 }
 
@@ -620,7 +686,7 @@ struct RetainedCompositeRootMember {
     buffers: Vec<RetainedDirectBuffer>,
     included_root_ids: Option<RetainedDirectBuffer>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
-    anonymous_scope_map: Option<RetainedDirectBuffer>,
+    anonymous_scope_maps: RetainedAnonymousScopeMaps,
 }
 
 struct DynamicCompositeColumns<'a> {
@@ -745,14 +811,10 @@ impl EncodedDirectCompiler {
                 .excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            let anonymous_scope_map = first
-                .anonymous_scope_map
-                .as_ref()
-                .map_or(&[][..], RetainedDirectBuffer::as_slice);
             return Ok(base_columns
                 .with_included_root_ids(included_root_ids)
                 .with_excluded_root_ids(excluded_root_ids)
-                .with_anonymous_scope_map(anonymous_scope_map));
+                .with_anonymous_scope_map_chain(&first.anonymous_scope_maps));
         }
         let included_root_ids = self
             .included_root_ids
@@ -792,10 +854,6 @@ impl EncodedDirectCompiler {
                 .excluded_root_ids
                 .as_ref()
                 .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            let anonymous_scope_map = member
-                .anonymous_scope_map
-                .as_ref()
-                .map_or(&[][..], RetainedDirectBuffer::as_slice);
             let member_columns = if index == 0 {
                 self.retained_base_columns(base_columns)?
             } else {
@@ -810,7 +868,7 @@ impl EncodedDirectCompiler {
                 member_columns
                     .with_included_root_ids(included_root_ids)
                     .with_excluded_root_ids(excluded_root_ids)
-                    .with_anonymous_scope_map(anonymous_scope_map),
+                    .with_anonymous_scope_map_chain(&member.anonymous_scope_maps),
             );
         }
         let has_root = members.iter().any(|member| member.root.is_some());
@@ -833,15 +891,11 @@ impl EncodedDirectCompiler {
                     .excluded_root_ids
                     .as_ref()
                     .map_or(&[][..], RetainedDirectBuffer::as_slice);
-                let anonymous_scope_map = root
-                    .anonymous_scope_map
-                    .as_ref()
-                    .map_or(&[][..], RetainedDirectBuffer::as_slice);
                 root_columns.push(
                     DirectColumns::from_ordered(slices)
                         .with_included_root_ids(included_root_ids)
                         .with_excluded_root_ids(excluded_root_ids)
-                        .with_anonymous_scope_map(anonymous_scope_map),
+                        .with_anonymous_scope_map_chain(&root.anonymous_scope_maps),
                 );
             }
             Some(root_columns)
@@ -920,13 +974,6 @@ impl EncodedDirectCompiler {
                 std::array::from_fn(|index| buffers[index].as_slice());
             DirectColumns::from_ordered(slices)
         });
-        if (overlay_delta_columns.is_some() || dynamic_composite_columns.is_some())
-            && retained_role_state.is_some()
-        {
-            return self.finish_result(Err(EncodedDirectUnsupportedError::new_err(
-                "bounded local-overlay compilation does not bind retained role state",
-            )));
-        }
         let retained_role_use = match retained_role_state.as_ref() {
             Some(retained) => match retained.claim() {
                 Ok(role_use) => Some(role_use),
@@ -943,16 +990,27 @@ impl EncodedDirectCompiler {
                                 "encoded dynamic composite lost its canonical limits",
                             )
                         })?;
-                    prepare_dynamic_composite_batches_with_root_uncommitted(
-                        &composite_columns.closure,
-                        composite_columns.root.as_deref(),
-                        options,
-                        &self.state,
-                        None,
-                        max_work,
-                        max_workspace_bytes,
-                    )
-                    .map_err(kernel_error)
+                    if let Some(retained) = retained_role_state.as_ref() {
+                        retained.prepare_dynamic_batches_uncommitted_claimed(
+                            &composite_columns.closure,
+                            composite_columns.root.as_deref(),
+                            options,
+                            &self.state,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                    } else {
+                        prepare_dynamic_composite_batches_with_root_uncommitted(
+                            &composite_columns.closure,
+                            composite_columns.root.as_deref(),
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                        .map_err(kernel_error)
+                    }
                 } else if let Some(delta_columns) = overlay_delta_columns {
                     let (max_work, max_workspace_bytes) =
                         self.canonical_merge_limits.ok_or_else(|| {
@@ -970,26 +1028,49 @@ impl EncodedDirectCompiler {
                             third_member_columns.unwrap_or(columns),
                             fourth_member_columns.unwrap_or(columns),
                         ];
-                        prepare_dynamic_composite_batches_uncommitted(
-                            &composite_columns[..member_count],
-                            options,
-                            &self.state,
-                            None,
-                            max_work,
-                            max_workspace_bytes,
-                        )
+                        if let Some(retained) = retained_role_state.as_ref() {
+                            retained.prepare_dynamic_batches_uncommitted_claimed(
+                                &composite_columns[..member_count],
+                                None,
+                                options,
+                                &self.state,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        } else {
+                            prepare_dynamic_composite_batches_uncommitted(
+                                &composite_columns[..member_count],
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                            .map_err(kernel_error)
+                        }
                     } else {
-                        prepare_single_overlay_delta_batches_uncommitted(
-                            columns,
-                            delta_columns,
-                            options,
-                            &self.state,
-                            None,
-                            max_work,
-                            max_workspace_bytes,
-                        )
+                        if let Some(retained) = retained_role_state.as_ref() {
+                            retained.prepare_overlay_batches_uncommitted_claimed(
+                                columns,
+                                delta_columns,
+                                options,
+                                &self.state,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        } else {
+                            prepare_single_overlay_delta_batches_uncommitted(
+                                columns,
+                                delta_columns,
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                            .map_err(kernel_error)
+                        }
                     }
-                    .map_err(kernel_error)
                 } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
                         columns,
@@ -1046,6 +1127,7 @@ impl EncodedDirectCompiler {
         overlay_delta_descriptor_sha256=None,
         canonical_work_limit=None,
         canonical_workspace_limit=None,
+        max_overlay_depth=None,
         merge_manifest_view=None,
         merge_manifest_owner=None,
         merge_manifest_descriptor_sha256=None,
@@ -1083,6 +1165,7 @@ impl EncodedDirectCompiler {
         overlay_delta_descriptor_sha256: Option<&Bound<'_, PyAny>>,
         canonical_work_limit: Option<usize>,
         canonical_workspace_limit: Option<usize>,
+        max_overlay_depth: Option<usize>,
         merge_manifest_view: Option<&Bound<'_, PyAny>>,
         merge_manifest_owner: Option<&Bound<'_, PyAny>>,
         merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
@@ -1107,7 +1190,42 @@ impl EncodedDirectCompiler {
         anonymous_scope_map: Option<&Bound<'_, PyAny>>,
         right_anonymous_scope_map: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let buffers = retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?;
+        let dynamic_composite_inputs = composite_members
+            .map(parse_dynamic_composite_members)
+            .transpose()?;
+        let dynamic_composite_root_inputs = composite_root_members
+            .map(parse_dynamic_composite_members)
+            .transpose()?;
+        let recursive_leaf_plan = dynamic_composite_inputs
+            .as_deref()
+            .is_some_and(|inputs| inputs.iter().any(|input| input.path.is_some()));
+        if recursive_leaf_plan
+            && dynamic_composite_inputs
+                .as_deref()
+                .is_some_and(|inputs| inputs.iter().any(|input| input.path.is_none()))
+        {
+            return Err(encoded_buffer_error(
+                "encoded recursive leaf plan requires one exact path per retained table",
+            ));
+        }
+        let recursive_max_overlay_depth = if recursive_leaf_plan {
+            max_overlay_depth.ok_or_else(|| {
+                encoded_buffer_error("encoded recursive leaf plan requires max_overlay_depth")
+            })?
+        } else {
+            if max_overlay_depth.is_some() {
+                return Err(encoded_buffer_error(
+                    "max_overlay_depth requires an encoded recursive leaf plan",
+                ));
+            }
+            0
+        };
+        let buffers = if recursive_leaf_plan {
+            validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
+            retained_structural_buffers(encoded_view)?
+        } else {
+            retained_direct_buffers(encoded_view, expected_owner, descriptor_sha256)?
+        };
         let included_root_ids_view = included_root_ids;
         let included_root_ids = included_root_ids_view
             .map(|value| retained_exact_bytes_buffer(value, "included_root_ids"))
@@ -1187,12 +1305,6 @@ impl EncodedDirectCompiler {
                 ));
             }
         };
-        let dynamic_composite_inputs = composite_members
-            .map(parse_dynamic_composite_members)
-            .transpose()?;
-        let dynamic_composite_root_inputs = composite_root_members
-            .map(parse_dynamic_composite_members)
-            .transpose()?;
         let third_member = match (
             third_member_view,
             third_member_owner,
@@ -1293,13 +1405,36 @@ impl EncodedDirectCompiler {
                     input.anonymous_scope_map.as_ref(),
                 ));
             }
-            validate_direct_member_composite_manifest(
-                manifest,
-                manifest_owner,
-                manifest_digest,
-                &bindings,
-                true,
-            )?;
+            let mut direct_validation_identities = HashSet::new();
+            let closure_validation_work = if recursive_leaf_plan {
+                validate_recursive_leaf_plan(
+                    manifest,
+                    manifest_owner,
+                    manifest_digest,
+                    inputs,
+                    max_work,
+                    recursive_max_overlay_depth,
+                )?
+            } else {
+                validate_direct_member_composite_manifest(
+                    manifest,
+                    manifest_owner,
+                    manifest_digest,
+                    &bindings,
+                    true,
+                )?;
+                let work = direct_composite_validation_work(
+                    manifest,
+                    inputs,
+                    &mut direct_validation_identities,
+                )?;
+                if work > max_work {
+                    return Err(PyMemoryError::new_err(
+                        "encoded direct composite validation exceeds max_canonical_work",
+                    ));
+                }
+                work
+            };
             let root_inputs = dynamic_composite_root_inputs.as_deref();
             if let Some(root_inputs) = root_inputs {
                 if root_inputs.len() != inputs.len() {
@@ -1314,6 +1449,39 @@ impl EncodedDirectCompiler {
                         "encoded composite ROOT plan requires its exact manifest",
                     ));
                 };
+                let root_recursive_leaf_plan = root_inputs
+                    .first()
+                    .is_some_and(|input| input.path.is_some());
+                if root_inputs
+                    .iter()
+                    .any(|input| input.path.is_some() != root_recursive_leaf_plan)
+                    || root_recursive_leaf_plan != recursive_leaf_plan
+                {
+                    return Err(encoded_buffer_error(
+                        "encoded composite ROOT rows use another path form",
+                    ));
+                }
+                if recursive_leaf_plan {
+                    let root_work_limit = max_work
+                        .checked_sub(closure_validation_work)
+                        .filter(|remaining| *remaining != 0)
+                        .ok_or_else(|| {
+                            PyMemoryError::new_err(
+                                "encoded paired recursive validation exceeds max_canonical_work",
+                            )
+                        })?;
+                    validate_recursive_root_plan(
+                        manifest,
+                        manifest_owner,
+                        inputs,
+                        root_manifest,
+                        root_manifest_owner,
+                        root_manifest_digest,
+                        root_inputs,
+                        root_work_limit,
+                        recursive_max_overlay_depth,
+                    )?;
+                }
                 let mut root_bindings = Vec::new();
                 root_bindings
                     .try_reserve_exact(root_inputs.len())
@@ -1329,20 +1497,39 @@ impl EncodedDirectCompiler {
                         input.anonymous_scope_map.as_ref(),
                     ));
                 }
-                validate_direct_member_composite_manifest(
-                    root_manifest,
-                    root_manifest_owner,
-                    root_manifest_digest,
-                    &root_bindings,
-                    true,
-                )?;
-                validate_paired_composite_manifests(
-                    manifest,
-                    manifest_owner,
-                    root_manifest,
-                    root_manifest_owner,
-                    inputs.len(),
-                )?;
+                if !recursive_leaf_plan {
+                    validate_direct_member_composite_manifest(
+                        root_manifest,
+                        root_manifest_owner,
+                        root_manifest_digest,
+                        &root_bindings,
+                        true,
+                    )?;
+                    let root_validation_work = direct_composite_validation_work(
+                        root_manifest,
+                        root_inputs,
+                        &mut direct_validation_identities,
+                    )?;
+                    let paired_validation_work = closure_validation_work
+                        .checked_add(root_validation_work)
+                        .ok_or_else(|| {
+                            PyMemoryError::new_err(
+                                "encoded paired direct validation-work counter overflow",
+                            )
+                        })?;
+                    if paired_validation_work > max_work {
+                        return Err(PyMemoryError::new_err(
+                            "encoded paired direct validation exceeds max_canonical_work",
+                        ));
+                    }
+                    validate_paired_composite_manifests(
+                        manifest,
+                        manifest_owner,
+                        root_manifest,
+                        root_manifest_owner,
+                        inputs.len(),
+                    )?;
+                }
             } else if root_merge_manifest.is_some() {
                 return Err(encoded_buffer_error(
                     "encoded composite ROOT manifest requires its member plan",
@@ -1365,8 +1552,17 @@ impl EncodedDirectCompiler {
                         &input.owner,
                         &input.descriptor_sha256,
                     )?;
-                    validate_direct_segment(&input.view, &input.owner)?;
+                    if !recursive_leaf_plan {
+                        validate_direct_segment(&input.view, &input.owner)?;
+                    }
                     None
+                } else if recursive_leaf_plan {
+                    validate_encoded_view_header(
+                        &input.view,
+                        &input.owner,
+                        &input.descriptor_sha256,
+                    )?;
+                    Some(retained_structural_buffers(&input.view)?)
                 } else {
                     Some(retained_direct_buffers(
                         &input.view,
@@ -1384,14 +1580,24 @@ impl EncodedDirectCompiler {
                                 "encoded composite ROOT member cannot combine INCLUDE and EXCLUDE tables",
                             ));
                         }
-                        Ok(RetainedCompositeRootMember {
-                            _view: root_input.view.clone().unbind(),
-                            _owner: root_input.owner.clone().unbind(),
-                            buffers: retained_direct_buffers(
+                        let root_buffers = if recursive_leaf_plan {
+                            validate_encoded_view_header(
                                 &root_input.view,
                                 &root_input.owner,
                                 &root_input.descriptor_sha256,
-                            )?,
+                            )?;
+                            retained_structural_buffers(&root_input.view)?
+                        } else {
+                            retained_direct_buffers(
+                                &root_input.view,
+                                &root_input.owner,
+                                &root_input.descriptor_sha256,
+                            )?
+                        };
+                        Ok(RetainedCompositeRootMember {
+                            _view: root_input.view.clone().unbind(),
+                            _owner: root_input.owner.clone().unbind(),
+                            buffers: root_buffers,
                             included_root_ids: root_input
                                 .included_root_ids
                                 .as_ref()
@@ -1412,16 +1618,10 @@ impl EncodedDirectCompiler {
                                     )
                                 })
                                 .transpose()?,
-                            anonymous_scope_map: root_input
-                                .anonymous_scope_map
-                                .as_ref()
-                                .map(|value| {
-                                    retained_exact_bytes_buffer(
-                                        value,
-                                        "composite ROOT anonymous_scope_map",
-                                    )
-                                })
-                                .transpose()?,
+                            anonymous_scope_maps: retain_dynamic_scope_maps(
+                                root_input,
+                                "composite ROOT anonymous_scope_map",
+                            )?,
                         })
                     })
                     .transpose()?;
@@ -1443,13 +1643,10 @@ impl EncodedDirectCompiler {
                             retained_exact_bytes_buffer(value, "composite excluded_root_ids")
                         })
                         .transpose()?,
-                    anonymous_scope_map: input
-                        .anonymous_scope_map
-                        .as_ref()
-                        .map(|value| {
-                            retained_exact_bytes_buffer(value, "composite anonymous_scope_map")
-                        })
-                        .transpose()?,
+                    anonymous_scope_maps: retain_dynamic_scope_maps(
+                        input,
+                        "composite anonymous_scope_map",
+                    )?,
                     root,
                 });
             }
@@ -1876,13 +2073,6 @@ impl EncodedDirectCompiler {
                 std::array::from_fn(|index| buffers[index].as_slice());
             DirectColumns::from_ordered(slices)
         });
-        if (overlay_delta_columns.is_some() || dynamic_composite_columns.is_some())
-            && retained_role_state.is_some()
-        {
-            return self.finish_result(Err(EncodedDirectUnsupportedError::new_err(
-                "bounded local-overlay compilation does not bind retained role state",
-            )));
-        }
         let retained_role_use = match retained_role_state.as_ref() {
             Some(retained) => match retained.claim() {
                 Ok(role_use) => Some(role_use),
@@ -1919,16 +2109,27 @@ impl EncodedDirectCompiler {
                                 "encoded dynamic composite lost its canonical limits",
                             )
                         })?;
-                    prepare_dynamic_composite_batches_with_root_uncommitted(
-                        &composite_columns.closure,
-                        composite_columns.root.as_deref(),
-                        options,
-                        &self.state,
-                        None,
-                        max_work,
-                        max_workspace_bytes,
-                    )
-                    .map_err(kernel_error)
+                    if let Some(retained) = retained_role_state.as_ref() {
+                        retained.prepare_dynamic_batches_uncommitted_claimed(
+                            &composite_columns.closure,
+                            composite_columns.root.as_deref(),
+                            options,
+                            &self.state,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                    } else {
+                        prepare_dynamic_composite_batches_with_root_uncommitted(
+                            &composite_columns.closure,
+                            composite_columns.root.as_deref(),
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                        .map_err(kernel_error)
+                    }
                 } else if let Some(delta_columns) = overlay_delta_columns {
                     let (max_work, max_workspace_bytes) =
                         self.canonical_merge_limits.ok_or_else(|| {
@@ -1946,26 +2147,49 @@ impl EncodedDirectCompiler {
                             third_member_columns.unwrap_or(columns),
                             fourth_member_columns.unwrap_or(columns),
                         ];
-                        prepare_dynamic_composite_batches_uncommitted(
-                            &composite_columns[..member_count],
-                            options,
-                            &self.state,
-                            None,
-                            max_work,
-                            max_workspace_bytes,
-                        )
+                        if let Some(retained) = retained_role_state.as_ref() {
+                            retained.prepare_dynamic_batches_uncommitted_claimed(
+                                &composite_columns[..member_count],
+                                None,
+                                options,
+                                &self.state,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        } else {
+                            prepare_dynamic_composite_batches_uncommitted(
+                                &composite_columns[..member_count],
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                            .map_err(kernel_error)
+                        }
                     } else {
-                        prepare_single_overlay_delta_batches_uncommitted(
-                            columns,
-                            delta_columns,
-                            options,
-                            &self.state,
-                            None,
-                            max_work,
-                            max_workspace_bytes,
-                        )
+                        if let Some(retained) = retained_role_state.as_ref() {
+                            retained.prepare_overlay_batches_uncommitted_claimed(
+                                columns,
+                                delta_columns,
+                                options,
+                                &self.state,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                        } else {
+                            prepare_single_overlay_delta_batches_uncommitted(
+                                columns,
+                                delta_columns,
+                                options,
+                                &self.state,
+                                None,
+                                max_work,
+                                max_workspace_bytes,
+                            )
+                            .map_err(kernel_error)
+                        }
                     }
-                    .map_err(kernel_error)
                 } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
                         columns,
@@ -2619,12 +2843,12 @@ impl EncodedDirectCompiler {
                     member.buffers.as_ref().map_or(0, Vec::len)
                         + usize::from(member.included_root_ids.is_some())
                         + usize::from(member.excluded_root_ids.is_some())
-                        + usize::from(member.anonymous_scope_map.is_some())
+                        + member.anonymous_scope_maps.buffers.len()
                         + member.root.as_ref().map_or(0, |root| {
                             root.buffers.len()
                                 + usize::from(root.included_root_ids.is_some())
                                 + usize::from(root.excluded_root_ids.is_some())
-                                + usize::from(root.anonymous_scope_map.is_some())
+                                + root.anonymous_scope_maps.buffers.len()
                         })
                 })
                 .sum()
@@ -3438,6 +3662,8 @@ struct DynamicCompositeMemberInput<'py> {
     included_root_ids: Option<Bound<'py, PyAny>>,
     excluded_root_ids: Option<Bound<'py, PyAny>>,
     anonymous_scope_map: Option<Bound<'py, PyAny>>,
+    anonymous_scope_map_chain: Option<Bound<'py, PyTuple>>,
+    path: Option<Bound<'py, PyAny>>,
 }
 
 fn optional_composite_row_item<'py>(
@@ -3483,11 +3709,40 @@ fn parse_dynamic_composite_members<'py>(
         let row = value
             .cast::<PyTuple>()
             .map_err(|_| encoded_buffer_error("encoded dynamic composite row is inaccessible"))?;
-        if row.len() != 6 {
+        if !matches!(row.len(), 6 | 7) {
             return Err(encoded_buffer_error(
-                "encoded dynamic composite rows require six fields",
+                "encoded dynamic composite rows require six fields or one recursive path",
             ));
         }
+        let recursive = row.len() == 7;
+        let (anonymous_scope_map, anonymous_scope_map_chain) = if recursive {
+            let value = row.get_item(5).map_err(|_| {
+                encoded_buffer_error("encoded recursive anonymous scope-map chain is inaccessible")
+            })?;
+            if !value.is_exact_instance_of::<PyTuple>() {
+                return Err(encoded_buffer_error(
+                    "encoded recursive anonymous scope-map chain must be an exact tuple",
+                ));
+            }
+            (
+                None,
+                Some(
+                    value
+                        .cast::<PyTuple>()
+                        .map_err(|_| {
+                            encoded_buffer_error(
+                                "encoded recursive anonymous scope-map chain is inaccessible",
+                            )
+                        })?
+                        .clone(),
+                ),
+            )
+        } else {
+            (
+                optional_composite_row_item(row, 5, "member anonymous scope map")?,
+                None,
+            )
+        };
         members.push(DynamicCompositeMemberInput {
             view: row.get_item(0).map_err(|_| {
                 encoded_buffer_error("encoded composite member view is inaccessible")
@@ -3500,10 +3755,1279 @@ fn parse_dynamic_composite_members<'py>(
             })?,
             included_root_ids: optional_composite_row_item(row, 3, "member INCLUDE selection")?,
             excluded_root_ids: optional_composite_row_item(row, 4, "member EXCLUDE selection")?,
-            anonymous_scope_map: optional_composite_row_item(row, 5, "member anonymous scope map")?,
+            anonymous_scope_map,
+            anonymous_scope_map_chain,
+            path: if recursive {
+                Some(row.get_item(6).map_err(|_| {
+                    encoded_buffer_error("encoded recursive leaf path is inaccessible")
+                })?)
+            } else {
+                None
+            },
         });
     }
     Ok(members)
+}
+
+fn retain_dynamic_scope_maps(
+    input: &DynamicCompositeMemberInput<'_>,
+    label: &'static str,
+) -> PyResult<RetainedAnonymousScopeMaps> {
+    let mut buffers = Vec::new();
+    if let Some(chain) = input.anonymous_scope_map_chain.as_ref() {
+        buffers.try_reserve_exact(chain.len()).map_err(|_| {
+            PyMemoryError::new_err("encoded recursive scope-map retention allocation failed")
+        })?;
+        for index in 0..chain.len() {
+            let value = chain.get_item(index).map_err(|_| {
+                encoded_buffer_error("encoded recursive scope-map chain is inaccessible")
+            })?;
+            let buffer = retained_exact_bytes_buffer(&value, label)?;
+            if buffer.as_slice().is_empty() || buffer.as_slice().len() % 64 != 0 {
+                return Err(encoded_buffer_error(
+                    "encoded recursive scope-map chain contains an invalid map",
+                ));
+            }
+            buffers.push(buffer);
+        }
+    } else if let Some(value) = input.anonymous_scope_map.as_ref() {
+        buffers.push(retained_exact_bytes_buffer(value, label)?);
+    }
+    Ok(RetainedAnonymousScopeMaps { buffers })
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum RecursiveLeafSelection {
+    All,
+    LocalOnly,
+}
+
+#[derive(Clone)]
+struct RecursiveTopologyChild<'py> {
+    segment_index: usize,
+    view: Bound<'py, PyAny>,
+    owner: Bound<'py, PyAny>,
+    selection: RecursiveLeafSelection,
+}
+
+#[derive(Clone)]
+struct RecursiveValidatedTopologyNode<'py> {
+    owner: Bound<'py, PyAny>,
+    overlay_increment: usize,
+    local_leaf_index: Option<usize>,
+    children: Vec<RecursiveTopologyChild<'py>>,
+}
+
+#[derive(Clone)]
+struct RecursiveResolvedTopology {
+    paths: Vec<Vec<usize>>,
+    overlay_span: usize,
+}
+
+struct RecursiveTopologyFrame<'py> {
+    identity: usize,
+    selection: RecursiveLeafSelection,
+    node: RecursiveValidatedTopologyNode<'py>,
+    next_child: usize,
+    pending_child_index: Option<usize>,
+    paths: Vec<Vec<usize>>,
+    overlay_span: usize,
+    absolute_overlay_depth: usize,
+}
+
+struct RecursiveReference<'py> {
+    source: Bound<'py, PyAny>,
+    owner: Bound<'py, PyAny>,
+    posting_mode: usize,
+    root_ids: Bound<'py, PyAny>,
+    scope_map: Bound<'py, PyAny>,
+}
+
+fn recursive_segments<'py>(view: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyTuple>> {
+    let raw = required_attribute(view, "segments")?;
+    if !raw.is_exact_instance_of::<PyTuple>() {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf segment manifest must be an exact tuple",
+        ));
+    }
+    raw.cast::<PyTuple>()
+        .cloned()
+        .map_err(|_| encoded_buffer_error("encoded recursive leaf manifest is inaccessible"))
+}
+
+fn recursive_segment_role(segment: &Bound<'_, PyAny>) -> PyResult<usize> {
+    exact_nonnegative_integer(&required_attribute(segment, "role")?, "segment role")
+}
+
+fn recursive_source_root_count(source: &Bound<'_, PyAny>) -> PyResult<usize> {
+    let buffers = required_attribute(source, "buffers")?;
+    let mapping = buffers
+        .cast::<PyMapping>()
+        .map_err(|_| encoded_buffer_error("encoded recursive source buffers must be a mapping"))?;
+    let root_kinds = mapping
+        .get_item("root_kinds")
+        .map_err(|_| encoded_buffer_error("encoded recursive source has no root_kinds buffer"))?;
+    checked_memoryview_length(&root_kinds, "root_kinds")
+}
+
+fn validate_recursive_posting_rows(
+    root_ids: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    let rows = retained_exact_bytes_buffer(root_ids, "recursive root_ids")?;
+    let source_root_count = recursive_source_root_count(source)?;
+    let mut previous = 0_usize;
+    for row in rows.as_slice().chunks_exact(4) {
+        let position =
+            usize::try_from(u32::from_le_bytes(row.try_into().map_err(|_| {
+                encoded_buffer_error("encoded recursive posting row is truncated")
+            })?))
+            .map_err(|_| {
+                encoded_buffer_error("encoded recursive posting row does not fit usize")
+            })?;
+        if position == 0 || position <= previous || position > source_root_count {
+            return Err(encoded_buffer_error(
+                "encoded recursive postings are not sorted unique in-range local positions",
+            ));
+        }
+        previous = position;
+    }
+    Ok(())
+}
+
+fn validate_recursive_scope_map_rows(scope_map: &Bound<'_, PyAny>) -> PyResult<()> {
+    let rows = retained_exact_bytes_buffer(scope_map, "recursive anonymous_scope_map")?;
+    let mut previous_source: Option<&[u8]> = None;
+    for row in rows.as_slice().chunks_exact(64) {
+        let (source, target) = row.split_at(32);
+        if source == target {
+            return Err(encoded_buffer_error(
+                "encoded recursive scope map contains an identity row",
+            ));
+        }
+        if previous_source.is_some_and(|previous| previous >= source) {
+            return Err(encoded_buffer_error(
+                "encoded recursive scope-map sources are not sorted unique",
+            ));
+        }
+        previous_source = Some(source);
+    }
+    Ok(())
+}
+
+fn validate_recursive_reference<'py>(
+    current_view: &Bound<'py, PyAny>,
+    segment: &Bound<'py, PyAny>,
+    role: usize,
+    validate_reference_rows: bool,
+) -> PyResult<RecursiveReference<'py>> {
+    if !matches!(role, OVERLAY_BASE_SEGMENT | COMPOSITE_MEMBER_SEGMENT) {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf path contains a non-reference segment",
+        ));
+    }
+    let source = required_attribute(segment, "source")?;
+    if source.is_none() || source.is(current_view) {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf reference is absent or cyclic",
+        ));
+    }
+    let owner = required_attribute(segment, "owner")?;
+    if !required_attribute(&source, "owner")?.is(&owner) {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf reference lost its exact source owner",
+        ));
+    }
+    let current_scope = required_attribute(current_view, "scope")?;
+    if !required_attribute(&source, "scope")?.is(&current_scope) {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf reference changed its exact source scope",
+        ));
+    }
+    let posting_mode = exact_nonnegative_integer(
+        &required_attribute(segment, "posting_mode")?,
+        "segment posting_mode",
+    )?;
+    if role == OVERLAY_BASE_SEGMENT && !matches!(posting_mode, POSTINGS_ALL | POSTINGS_EXCLUDE) {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded recursive overlay base supports only ALL or EXCLUDE selection",
+        ));
+    }
+    if role == COMPOSITE_MEMBER_SEGMENT
+        && !matches!(
+            posting_mode,
+            POSTINGS_ALL | POSTINGS_INCLUDE | POSTINGS_EXCLUDE
+        )
+    {
+        return Err(encoded_buffer_error(
+            "encoded recursive composite member posting mode is invalid",
+        ));
+    }
+    let root_ids = required_attribute(segment, "root_ids")?;
+    let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
+    if root_id_bytes % 4 != 0 {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf postings contain a partial u32 row",
+        ));
+    }
+    if (posting_mode == POSTINGS_ALL) != (root_id_bytes == 0) {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf posting mode and table disagree",
+        ));
+    }
+    if validate_reference_rows {
+        validate_recursive_posting_rows(&root_ids, &source)?;
+    }
+    let scope_map = required_attribute(segment, "anonymous_scope_map")?;
+    if checked_memoryview_length(&scope_map, "anonymous_scope_map")? % 64 != 0 {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf scope map contains a partial row",
+        ));
+    }
+    if validate_reference_rows {
+        validate_recursive_scope_map_rows(&scope_map)?;
+    }
+    let token = required_attribute(segment, "member_token")?;
+    if role == COMPOSITE_MEMBER_SEGMENT {
+        if !token.is_exact_instance_of::<PyBytes>()
+            || token
+                .cast::<PyBytes>()
+                .map_err(|_| {
+                    encoded_buffer_error("encoded recursive composite member token is inaccessible")
+                })?
+                .as_bytes()
+                .len()
+                != 32
+        {
+            return Err(encoded_buffer_error(
+                "encoded recursive composite member token must be exact bytes32",
+            ));
+        }
+    } else if !token.is_none() {
+        return Err(encoded_buffer_error(
+            "encoded recursive overlay base unexpectedly has a member token",
+        ));
+    }
+    Ok(RecursiveReference {
+        source,
+        owner,
+        posting_mode,
+        root_ids,
+        scope_map,
+    })
+}
+
+fn validate_recursive_empty_local_buffers(
+    buffers: &[RetainedDirectBuffer],
+    label: &str,
+) -> PyResult<()> {
+    for (name, buffer) in BUFFER_NAMES.into_iter().zip(buffers) {
+        let bytes = buffer.as_slice();
+        if name == "node_field_offsets" {
+            if bytes != [0_u8; 8] {
+                return Err(EncodedDirectUnsupportedError::new_err(format!(
+                    "encoded recursive {label} requires empty local columns",
+                )));
+            }
+        } else if !bytes.is_empty() {
+            return Err(EncodedDirectUnsupportedError::new_err(format!(
+                "encoded recursive {label} contains roots without a local leaf segment",
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn recursive_manifest_validation_work(
+    buffers: &[RetainedDirectBuffer],
+    segments: &Bound<'_, PyTuple>,
+) -> PyResult<usize> {
+    let mut work = buffers.iter().try_fold(0_usize, |total, buffer| {
+        total
+            .checked_add(buffer.as_slice().len())
+            .ok_or_else(|| PyMemoryError::new_err("encoded recursive validation-work overflow"))
+    })?;
+    for index in 0..segments.len() {
+        let segment = segments
+            .get_item(index)
+            .map_err(|_| encoded_buffer_error("encoded recursive segment is inaccessible"))?;
+        let root_ids = required_attribute(&segment, "root_ids")?;
+        let scope_map = required_attribute(&segment, "anonymous_scope_map")?;
+        let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
+        let scope_map_bytes = checked_memoryview_length(&scope_map, "anonymous_scope_map")?;
+        let segment_work = 128_usize
+            .checked_add(root_id_bytes)
+            .and_then(|value| value.checked_add(scope_map_bytes))
+            .ok_or_else(|| {
+                PyMemoryError::new_err("encoded recursive segment-work counter overflow")
+            })?;
+        work = work.checked_add(segment_work).ok_or_else(|| {
+            PyMemoryError::new_err("encoded recursive validation-work counter overflow")
+        })?;
+    }
+    Ok(work)
+}
+
+fn direct_composite_validation_work(
+    manifest: &Bound<'_, PyAny>,
+    inputs: &[DynamicCompositeMemberInput<'_>],
+    validated: &mut HashSet<usize>,
+) -> PyResult<usize> {
+    let mut work = 0_usize;
+    for view in std::iter::once(manifest).chain(inputs.iter().map(|input| &input.view)) {
+        if !validated.insert(view.as_ptr() as usize) {
+            continue;
+        }
+        let buffers = retained_structural_buffers(view)?;
+        let segments = recursive_segments(view)?;
+        work = work
+            .checked_add(recursive_manifest_validation_work(&buffers, &segments)?)
+            .ok_or_else(|| {
+                PyMemoryError::new_err("encoded direct validation-work counter overflow")
+            })?;
+    }
+    Ok(work)
+}
+
+fn validate_recursive_topology_node<'py>(
+    view: &Bound<'py, PyAny>,
+    owner: &Bound<'py, PyAny>,
+    buffers: &[RetainedDirectBuffer],
+    segments: &Bound<'py, PyTuple>,
+) -> PyResult<RecursiveValidatedTopologyNode<'py>> {
+    let local_root_count = buffers[0].as_slice().len();
+    let mut roles = Vec::new();
+    roles
+        .try_reserve_exact(segments.len())
+        .map_err(|_| PyMemoryError::new_err("encoded recursive role allocation failed"))?;
+    for index in 0..segments.len() {
+        roles.push(recursive_segment_role(&segments.get_item(index).map_err(
+            |_| encoded_buffer_error("encoded recursive segment is inaccessible"),
+        )?)?);
+    }
+
+    if roles == [DIRECT_SEGMENT] {
+        validate_direct_segment(view, owner)?;
+        return Ok(RecursiveValidatedTopologyNode {
+            owner: owner.clone(),
+            overlay_increment: 0,
+            local_leaf_index: (local_root_count != 0).then_some(0),
+            children: Vec::new(),
+        });
+    }
+
+    if matches!(
+        roles.as_slice(),
+        [OVERLAY_BASE_SEGMENT] | [OVERLAY_BASE_SEGMENT, OVERLAY_DELTA_SEGMENT]
+    ) {
+        let base = segments
+            .get_item(0)
+            .map_err(|_| encoded_buffer_error("encoded recursive overlay base is inaccessible"))?;
+        let reference = validate_recursive_reference(view, &base, OVERLAY_BASE_SEGMENT, true)?;
+        let mut children = Vec::new();
+        children
+            .try_reserve_exact(1)
+            .map_err(|_| PyMemoryError::new_err("encoded recursive child allocation failed"))?;
+        children.push(RecursiveTopologyChild {
+            segment_index: 0,
+            view: reference.source,
+            owner: reference.owner,
+            selection: RecursiveLeafSelection::All,
+        });
+        let local_leaf_index = if roles.len() == 2 {
+            let delta = segments.get_item(1).map_err(|_| {
+                encoded_buffer_error("encoded recursive overlay delta is inaccessible")
+            })?;
+            validate_all_segment(
+                &delta,
+                OVERLAY_DELTA_SEGMENT,
+                owner,
+                None,
+                "recursive overlay delta",
+            )?;
+            if local_root_count == 0 {
+                return Err(encoded_buffer_error(
+                    "encoded recursive overlay delta has no local roots",
+                ));
+            }
+            Some(1)
+        } else {
+            validate_recursive_empty_local_buffers(buffers, "overlay alias")?;
+            None
+        };
+        return Ok(RecursiveValidatedTopologyNode {
+            owner: owner.clone(),
+            overlay_increment: 1,
+            local_leaf_index,
+            children,
+        });
+    }
+
+    let member_count = roles
+        .iter()
+        .take_while(|role| **role == COMPOSITE_MEMBER_SEGMENT)
+        .count();
+    let bridge_count = usize::from(
+        roles.len() == member_count + 1 && roles.last() == Some(&COMPOSITE_BRIDGE_SEGMENT),
+    );
+    if member_count < 2 || member_count + bridge_count != roles.len() {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded recursive leaf manifest has an unsupported segment family",
+        ));
+    }
+    let mut children = Vec::new();
+    children
+        .try_reserve_exact(member_count)
+        .map_err(|_| PyMemoryError::new_err("encoded recursive child allocation failed"))?;
+    let mut previous_token: Option<[u8; 32]> = None;
+    for index in 0..member_count {
+        let member = segments.get_item(index).map_err(|_| {
+            encoded_buffer_error("encoded recursive composite member is inaccessible")
+        })?;
+        let reference =
+            validate_recursive_reference(view, &member, COMPOSITE_MEMBER_SEGMENT, true)?;
+        let token = required_attribute(&member, "member_token")?;
+        let token: [u8; 32] = token
+            .cast::<PyBytes>()
+            .map_err(|_| {
+                encoded_buffer_error("encoded recursive composite member token is inaccessible")
+            })?
+            .as_bytes()
+            .try_into()
+            .map_err(|_| {
+                encoded_buffer_error(
+                    "encoded recursive composite member token must be exact bytes32",
+                )
+            })?;
+        if previous_token.is_some_and(|previous| previous >= token) {
+            return Err(encoded_buffer_error(
+                "encoded recursive composite member tokens are not sorted unique",
+            ));
+        }
+        previous_token = Some(token);
+        children.push(RecursiveTopologyChild {
+            segment_index: index,
+            view: reference.source,
+            owner: reference.owner,
+            selection: if reference.posting_mode == POSTINGS_INCLUDE {
+                RecursiveLeafSelection::LocalOnly
+            } else {
+                RecursiveLeafSelection::All
+            },
+        });
+    }
+    let local_leaf_index = if bridge_count == 1 {
+        let bridge = segments.get_item(member_count).map_err(|_| {
+            encoded_buffer_error("encoded recursive composite bridge is inaccessible")
+        })?;
+        validate_all_segment(
+            &bridge,
+            COMPOSITE_BRIDGE_SEGMENT,
+            owner,
+            None,
+            "recursive composite bridge",
+        )?;
+        if local_root_count == 0 {
+            return Err(encoded_buffer_error(
+                "encoded recursive composite bridge has no local roots",
+            ));
+        }
+        Some(member_count)
+    } else {
+        validate_recursive_empty_local_buffers(buffers, "composite")?;
+        None
+    };
+    Ok(RecursiveValidatedTopologyNode {
+        owner: owner.clone(),
+        overlay_increment: 0,
+        local_leaf_index,
+        children,
+    })
+}
+
+fn recursive_topology_node<'py>(
+    validated: &mut HashMap<usize, RecursiveValidatedTopologyNode<'py>>,
+    view: &Bound<'py, PyAny>,
+    owner: &Bound<'py, PyAny>,
+    descriptor_sha256: &Bound<'py, PyAny>,
+    validation_work: &mut usize,
+    max_work: usize,
+) -> PyResult<RecursiveValidatedTopologyNode<'py>> {
+    let identity = view.as_ptr() as usize;
+    if let Some(node) = validated.get(&identity) {
+        if !node.owner.is(owner) {
+            return Err(encoded_buffer_error(
+                "encoded recursive DAG source changed its exact owner",
+            ));
+        }
+        return Ok(node.clone());
+    }
+    validate_encoded_view_header(view, owner, descriptor_sha256)?;
+    let buffers = retained_structural_buffers(view)?;
+    let segments = recursive_segments(view)?;
+    if segments.is_empty() {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf manifest cannot be empty",
+        ));
+    }
+    let node_work = recursive_manifest_validation_work(&buffers, &segments)?;
+    *validation_work = validation_work.checked_add(node_work).ok_or_else(|| {
+        PyMemoryError::new_err("encoded recursive validation-work counter overflow")
+    })?;
+    if *validation_work > max_work {
+        return Err(PyMemoryError::new_err(
+            "encoded recursive validation exceeds max_canonical_work",
+        ));
+    }
+    let node = validate_recursive_topology_node(view, owner, &buffers, &segments)?;
+    validated.insert(identity, node.clone());
+    Ok(node)
+}
+
+fn recursive_topology_frame<'py>(
+    identity: usize,
+    selection: RecursiveLeafSelection,
+    node: RecursiveValidatedTopologyNode<'py>,
+    parent_overlay_depth: usize,
+    max_overlay_depth: usize,
+    max_leaves: usize,
+) -> PyResult<RecursiveTopologyFrame<'py>> {
+    let absolute_overlay_depth = parent_overlay_depth
+        .checked_add(node.overlay_increment)
+        .ok_or_else(|| {
+            PyMemoryError::new_err("encoded recursive overlay-depth counter overflow")
+        })?;
+    if absolute_overlay_depth > max_overlay_depth {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf graph exceeds max_overlay_depth",
+        ));
+    }
+    let mut paths = Vec::new();
+    if let Some(local_leaf_index) = node.local_leaf_index {
+        paths
+            .try_reserve_exact(1)
+            .map_err(|_| PyMemoryError::new_err("encoded recursive path allocation failed"))?;
+        paths.push(vec![local_leaf_index]);
+    }
+    if paths.len() > max_leaves {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded recursive leaf graph exceeds its retained-table plan",
+        ));
+    }
+    let next_child = if selection == RecursiveLeafSelection::All {
+        0
+    } else {
+        node.children.len()
+    };
+    Ok(RecursiveTopologyFrame {
+        identity,
+        selection,
+        overlay_span: node.overlay_increment,
+        node,
+        next_child,
+        pending_child_index: None,
+        paths,
+        absolute_overlay_depth,
+    })
+}
+
+fn merge_recursive_topology(
+    frame: &mut RecursiveTopologyFrame<'_>,
+    segment_index: usize,
+    child: &RecursiveResolvedTopology,
+    max_overlay_depth: usize,
+    max_leaves: usize,
+) -> PyResult<()> {
+    let deepest_overlay = frame
+        .absolute_overlay_depth
+        .checked_add(child.overlay_span)
+        .ok_or_else(|| {
+            PyMemoryError::new_err("encoded recursive overlay-depth counter overflow")
+        })?;
+    if deepest_overlay > max_overlay_depth {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf graph exceeds max_overlay_depth",
+        ));
+    }
+    let relative_overlay_span = frame
+        .node
+        .overlay_increment
+        .checked_add(child.overlay_span)
+        .ok_or_else(|| {
+            PyMemoryError::new_err("encoded recursive overlay-depth counter overflow")
+        })?;
+    frame.overlay_span = frame.overlay_span.max(relative_overlay_span);
+    let resulting_count = frame
+        .paths
+        .len()
+        .checked_add(child.paths.len())
+        .ok_or_else(|| PyMemoryError::new_err("encoded recursive leaf-count overflow"))?;
+    if resulting_count > max_leaves {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded recursive leaf graph exceeds its retained-table plan",
+        ));
+    }
+    frame
+        .paths
+        .try_reserve_exact(child.paths.len())
+        .map_err(|_| PyMemoryError::new_err("encoded recursive path allocation failed"))?;
+    for suffix in &child.paths {
+        let mut path = Vec::new();
+        path.try_reserve_exact(suffix.len().saturating_add(1))
+            .map_err(|_| PyMemoryError::new_err("encoded recursive path allocation failed"))?;
+        path.push(segment_index);
+        path.extend_from_slice(suffix);
+        frame.paths.push(path);
+    }
+    Ok(())
+}
+
+fn enumerate_recursive_leaf_paths<'py>(
+    manifest: &Bound<'py, PyAny>,
+    manifest_owner: &Bound<'py, PyAny>,
+    descriptor_sha256: &Bound<'py, PyAny>,
+    max_work: usize,
+    max_overlay_depth: usize,
+    max_leaves: usize,
+) -> PyResult<(HashSet<Vec<usize>>, usize)> {
+    let mut validation_work = 0_usize;
+    let mut validated_nodes = HashMap::new();
+    let mut resolved_topologies = HashMap::new();
+    let root_identity = manifest.as_ptr() as usize;
+    let root_node = recursive_topology_node(
+        &mut validated_nodes,
+        manifest,
+        manifest_owner,
+        descriptor_sha256,
+        &mut validation_work,
+        max_work,
+    )?;
+    let mut active = HashSet::new();
+    active.insert(root_identity);
+    let mut stack = vec![recursive_topology_frame(
+        root_identity,
+        RecursiveLeafSelection::All,
+        root_node,
+        0,
+        max_overlay_depth,
+        max_leaves,
+    )?];
+    let root_topology = loop {
+        let child = {
+            let frame = stack
+                .last_mut()
+                .ok_or_else(|| encoded_buffer_error("encoded recursive stack is empty"))?;
+            if frame.next_child < frame.node.children.len() {
+                let child = frame.node.children[frame.next_child].clone();
+                frame.next_child += 1;
+                Some(child)
+            } else {
+                None
+            }
+        };
+        if let Some(child) = child {
+            let child_identity = child.view.as_ptr() as usize;
+            if active.contains(&child_identity) {
+                return Err(encoded_buffer_error(
+                    "encoded recursive leaf graph contains an active-path cycle",
+                ));
+            }
+            let child_node = recursive_topology_node(
+                &mut validated_nodes,
+                &child.view,
+                &child.owner,
+                descriptor_sha256,
+                &mut validation_work,
+                max_work,
+            )?;
+            let cache_key = (child_identity, child.selection);
+            if let Some(cached) = resolved_topologies.get(&cache_key).cloned() {
+                let frame = stack
+                    .last_mut()
+                    .ok_or_else(|| encoded_buffer_error("encoded recursive stack is empty"))?;
+                merge_recursive_topology(
+                    frame,
+                    child.segment_index,
+                    &cached,
+                    max_overlay_depth,
+                    max_leaves,
+                )?;
+                continue;
+            }
+            let parent_overlay_depth = stack
+                .last()
+                .ok_or_else(|| encoded_buffer_error("encoded recursive stack is empty"))?
+                .absolute_overlay_depth;
+            stack
+                .last_mut()
+                .ok_or_else(|| encoded_buffer_error("encoded recursive stack is empty"))?
+                .pending_child_index = Some(child.segment_index);
+            active.insert(child_identity);
+            stack.push(recursive_topology_frame(
+                child_identity,
+                child.selection,
+                child_node,
+                parent_overlay_depth,
+                max_overlay_depth,
+                max_leaves,
+            )?);
+            continue;
+        }
+
+        let frame = stack
+            .pop()
+            .ok_or_else(|| encoded_buffer_error("encoded recursive stack is empty"))?;
+        active.remove(&frame.identity);
+        let resolved = RecursiveResolvedTopology {
+            paths: frame.paths,
+            overlay_span: frame.overlay_span,
+        };
+        resolved_topologies.insert((frame.identity, frame.selection), resolved.clone());
+        let Some(parent) = stack.last_mut() else {
+            break resolved;
+        };
+        let segment_index = parent.pending_child_index.take().ok_or_else(|| {
+            encoded_buffer_error("encoded recursive parent lost its child coordinate")
+        })?;
+        merge_recursive_topology(
+            parent,
+            segment_index,
+            &resolved,
+            max_overlay_depth,
+            max_leaves,
+        )?;
+    };
+
+    let mut expected = HashSet::new();
+    expected
+        .try_reserve(root_topology.paths.len())
+        .map_err(|_| PyMemoryError::new_err("encoded recursive path-set allocation failed"))?;
+    for path in root_topology.paths {
+        if !expected.insert(path) {
+            return Err(EncodedDirectUnsupportedError::new_err(
+                "encoded recursive leaf graph repeats one exact leaf path",
+            ));
+        }
+    }
+    if expected.len() > max_leaves {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded recursive leaf graph exceeds its retained-table plan",
+        ));
+    }
+    Ok((expected, validation_work))
+}
+
+fn optional_recursive_binding_matches(
+    observed: Option<&Bound<'_, PyAny>>,
+    expected: Option<&Bound<'_, PyAny>>,
+) -> bool {
+    match (observed, expected) {
+        (None, None) => true,
+        (Some(observed), Some(expected)) => observed.is(expected),
+        _ => false,
+    }
+}
+
+fn recursive_u64_at(bytes: &[u8], index: usize) -> Option<usize> {
+    let offset = index.checked_mul(8)?;
+    let end = offset.checked_add(8)?;
+    let row: [u8; 8] = bytes.get(offset..end)?.try_into().ok()?;
+    usize::try_from(u64::from_le_bytes(row)).ok()
+}
+
+fn recursive_scope_map_applies(
+    view: &Bound<'_, PyAny>,
+    prior_maps: &[Bound<'_, PyAny>],
+    scope_map: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let buffers = retained_structural_buffers(view)?;
+    let map = retained_exact_bytes_buffer(scope_map, "recursive anonymous_scope_map")?;
+    let node_tags = buffers[2].as_slice();
+    let node_offsets = buffers[3].as_slice();
+    let field_kinds = buffers[4].as_slice();
+    let field_values = buffers[5].as_slice();
+    let field_lengths = buffers[6].as_slice();
+    let scalar_bytes = buffers[10].as_slice();
+    for node_index in 0..node_tags.len() / 2 {
+        let tag = u16::from_le_bytes([node_tags[node_index * 2], node_tags[node_index * 2 + 1]]);
+        if tag != 3 {
+            continue;
+        }
+        let Some(start) = recursive_u64_at(node_offsets, node_index) else {
+            return Err(encoded_buffer_error(
+                "encoded recursive node offsets are inaccessible",
+            ));
+        };
+        let Some(end) = recursive_u64_at(node_offsets, node_index + 1) else {
+            return Err(encoded_buffer_error(
+                "encoded recursive node offsets are inaccessible",
+            ));
+        };
+        if end <= start
+            || field_kinds.get(start).copied() != Some(3)
+            || recursive_u64_at(field_lengths, start) != Some(32)
+        {
+            continue;
+        }
+        let Some(scope_offset) = recursive_u64_at(field_values, start) else {
+            return Err(encoded_buffer_error(
+                "encoded recursive anonymous scope offset is inaccessible",
+            ));
+        };
+        let Some(scope) = scalar_bytes.get(scope_offset..scope_offset.saturating_add(32)) else {
+            return Err(encoded_buffer_error(
+                "encoded recursive anonymous scope is out of range",
+            ));
+        };
+        let mut effective: [u8; 32] = scope.try_into().map_err(|_| {
+            encoded_buffer_error("encoded recursive anonymous scope is not bytes32")
+        })?;
+        for prior in prior_maps {
+            let prior = retained_exact_bytes_buffer(prior, "recursive anonymous_scope_map")?;
+            if let Some(row) = prior
+                .as_slice()
+                .chunks_exact(64)
+                .find(|row| row[..32] == effective)
+            {
+                effective.copy_from_slice(&row[32..]);
+            }
+        }
+        if map
+            .as_slice()
+            .chunks_exact(64)
+            .any(|row| row[..32] == effective)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn recursive_scope_chain_matches(
+    input: &DynamicCompositeMemberInput<'_>,
+    expected: &[Bound<'_, PyAny>],
+) -> PyResult<bool> {
+    let Some(observed) = input.anonymous_scope_map_chain.as_ref() else {
+        return Ok(false);
+    };
+    if observed.len() != expected.len() {
+        return Ok(false);
+    }
+    for (index, expected) in expected.iter().enumerate() {
+        let observed = observed.get_item(index).map_err(|_| {
+            encoded_buffer_error("encoded recursive scope-map chain is inaccessible")
+        })?;
+        if !observed.is(expected) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn recursive_input_path(input: &DynamicCompositeMemberInput<'_>) -> PyResult<Vec<usize>> {
+    let raw_path = input.path.as_ref().ok_or_else(|| {
+        encoded_buffer_error("encoded recursive retained table lost its exact path")
+    })?;
+    if !raw_path.is_exact_instance_of::<PyTuple>() {
+        return Err(encoded_buffer_error(
+            "encoded recursive retained-table path must be an exact tuple",
+        ));
+    }
+    let path = raw_path
+        .cast::<PyTuple>()
+        .map_err(|_| encoded_buffer_error("encoded recursive path is inaccessible"))?;
+    if path.is_empty() {
+        return Err(encoded_buffer_error(
+            "encoded recursive retained-table path cannot be empty",
+        ));
+    }
+    let mut result = Vec::new();
+    result
+        .try_reserve_exact(path.len())
+        .map_err(|_| PyMemoryError::new_err("encoded recursive path allocation failed"))?;
+    for index in 0..path.len() {
+        let coordinate = path
+            .get_item(index)
+            .map_err(|_| encoded_buffer_error("encoded recursive path is inaccessible"))?;
+        if !coordinate.is_exact_instance_of::<PyInt>() {
+            return Err(encoded_buffer_error(
+                "encoded recursive path coordinates must be exact integers",
+            ));
+        }
+        result.push(coordinate.extract::<usize>().map_err(|_| {
+            encoded_buffer_error("encoded recursive path coordinate is out of range")
+        })?);
+    }
+    Ok(result)
+}
+
+fn validate_recursive_missing_local_leaf(
+    view: &Bound<'_, PyAny>,
+    owner: &Bound<'_, PyAny>,
+    segment_index: usize,
+    input: &DynamicCompositeMemberInput<'_>,
+) -> PyResult<()> {
+    if !view.is(&input.view) || !owner.is(&input.owner) {
+        return Err(encoded_buffer_error(
+            "encoded recursive missing ROOT leaf ended at another retained table",
+        ));
+    }
+    let segments = recursive_segments(view)?;
+    let mut roles = Vec::new();
+    roles
+        .try_reserve_exact(segments.len())
+        .map_err(|_| PyMemoryError::new_err("encoded recursive role allocation failed"))?;
+    for index in 0..segments.len() {
+        roles.push(recursive_segment_role(&segments.get_item(index).map_err(
+            |_| encoded_buffer_error("encoded recursive segment is inaccessible"),
+        )?)?);
+    }
+    let missing_delta = segment_index == 1 && roles.as_slice() == [OVERLAY_BASE_SEGMENT];
+    let member_count = roles
+        .iter()
+        .take_while(|role| **role == COMPOSITE_MEMBER_SEGMENT)
+        .count();
+    let missing_bridge =
+        member_count >= 2 && segment_index == member_count && member_count == roles.len();
+    if !missing_delta && !missing_bridge {
+        return Err(encoded_buffer_error(
+            "encoded recursive ROOT path lost a noncanonical local segment",
+        ));
+    }
+    let buffers = retained_structural_buffers(view)?;
+    validate_recursive_empty_local_buffers(&buffers, "paired ROOT container")
+}
+
+fn validate_recursive_member_path<'py>(
+    manifest: &Bound<'py, PyAny>,
+    manifest_owner: &Bound<'py, PyAny>,
+    input: &DynamicCompositeMemberInput<'py>,
+    expected_paths: &mut HashSet<Vec<usize>>,
+    allow_missing_local_leaf: bool,
+) -> PyResult<()> {
+    let path_identity = recursive_input_path(input)?;
+    if !expected_paths.remove(&path_identity) {
+        return Err(encoded_buffer_error(
+            "encoded recursive retained-table path is absent or duplicated",
+        ));
+    }
+
+    let mut current_view = manifest.clone();
+    let mut current_owner = manifest_owner.clone();
+    let mut expected_include: Option<Bound<'py, PyAny>> = None;
+    let mut expected_exclude: Option<Bound<'py, PyAny>> = None;
+    let mut expected_scope_maps: Vec<Bound<'py, PyAny>> = Vec::new();
+    let mut encountered_scope_maps: Vec<Bound<'py, PyAny>> = Vec::new();
+    for (index, segment_index) in path_identity.iter().copied().enumerate() {
+        let segments = recursive_segments(&current_view)?;
+        let terminal = index + 1 == path_identity.len();
+        let segment = match segments.get_item(segment_index) {
+            Ok(segment) => segment,
+            Err(_) if terminal && allow_missing_local_leaf => {
+                validate_recursive_missing_local_leaf(
+                    &current_view,
+                    &current_owner,
+                    segment_index,
+                    input,
+                )?;
+                break;
+            }
+            Err(_) => {
+                return Err(encoded_buffer_error(
+                    "encoded recursive path coordinate is absent from its exact container",
+                ))
+            }
+        };
+        let role = recursive_segment_role(&segment)?;
+        if terminal {
+            if !current_view.is(&input.view) || !current_owner.is(&input.owner) {
+                return Err(encoded_buffer_error(
+                    "encoded recursive leaf path ended at another retained table",
+                ));
+            }
+            if !matches!(
+                role,
+                DIRECT_SEGMENT | OVERLAY_DELTA_SEGMENT | COMPOSITE_BRIDGE_SEGMENT
+            ) {
+                return Err(encoded_buffer_error(
+                    "encoded recursive path does not end at a local leaf segment",
+                ));
+            }
+            validate_all_segment(
+                &segment,
+                role,
+                &current_owner,
+                None,
+                "recursive retained leaf",
+            )?;
+            break;
+        }
+
+        let reference = validate_recursive_reference(&current_view, &segment, role, false)?;
+        if reference.posting_mode == POSTINGS_INCLUDE {
+            if !reference.source.is(&input.view) || index + 2 != path_identity.len() {
+                return Err(encoded_buffer_error(
+                    "encoded recursive INCLUDE selected a nonlocal descendant leaf",
+                ));
+            }
+            if expected_include.is_some() || expected_exclude.is_some() {
+                return Err(encoded_buffer_error(
+                    "encoded recursive leaf received multiple selectors",
+                ));
+            }
+            expected_include = Some(reference.root_ids.clone());
+        } else if reference.posting_mode == POSTINGS_EXCLUDE && reference.source.is(&input.view) {
+            if expected_include.is_some() || expected_exclude.is_some() {
+                return Err(encoded_buffer_error(
+                    "encoded recursive leaf received multiple selectors",
+                ));
+            }
+            expected_exclude = Some(reference.root_ids.clone());
+        }
+        if checked_memoryview_length(&reference.scope_map, "anonymous_scope_map")? != 0 {
+            encountered_scope_maps.push(reference.scope_map.clone());
+        }
+        current_view = reference.source;
+        current_owner = reference.owner;
+    }
+    expected_scope_maps
+        .try_reserve_exact(encountered_scope_maps.len())
+        .map_err(|_| {
+            PyMemoryError::new_err("encoded recursive scope-map plan allocation failed")
+        })?;
+    for scope_map in encountered_scope_maps.into_iter().rev() {
+        if recursive_scope_map_applies(&input.view, &expected_scope_maps, &scope_map)? {
+            expected_scope_maps.push(scope_map);
+        }
+    }
+
+    if !optional_recursive_binding_matches(
+        input.included_root_ids.as_ref(),
+        expected_include.as_ref(),
+    ) || !optional_recursive_binding_matches(
+        input.excluded_root_ids.as_ref(),
+        expected_exclude.as_ref(),
+    ) || !recursive_scope_chain_matches(input, &expected_scope_maps)?
+    {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf parameters lost exact source-local identity",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_recursive_leaf_plan<'py>(
+    manifest: &Bound<'py, PyAny>,
+    manifest_owner: &Bound<'py, PyAny>,
+    descriptor_sha256: &Bound<'py, PyAny>,
+    inputs: &[DynamicCompositeMemberInput<'py>],
+    max_work: usize,
+    max_overlay_depth: usize,
+) -> PyResult<usize> {
+    if inputs.len() < 2 {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded recursive leaf plan requires at least two retained tables",
+        ));
+    }
+    let (mut expected_paths, validation_work) = enumerate_recursive_leaf_paths(
+        manifest,
+        manifest_owner,
+        descriptor_sha256,
+        max_work,
+        max_overlay_depth,
+        inputs.len(),
+    )?;
+    for input in inputs {
+        validate_recursive_member_path(
+            manifest,
+            manifest_owner,
+            input,
+            &mut expected_paths,
+            false,
+        )?;
+    }
+    if !expected_paths.is_empty() {
+        return Err(encoded_buffer_error(
+            "encoded recursive leaf plan omitted one selected local table",
+        ));
+    }
+    Ok(validation_work)
+}
+
+fn validate_recursive_manifest_pair(
+    closure_manifest: &Bound<'_, PyAny>,
+    closure_manifest_owner: &Bound<'_, PyAny>,
+    closure_inputs: &[DynamicCompositeMemberInput<'_>],
+    root_manifest: &Bound<'_, PyAny>,
+    root_manifest_owner: &Bound<'_, PyAny>,
+    root_inputs: &[DynamicCompositeMemberInput<'_>],
+) -> PyResult<()> {
+    if !closure_manifest_owner.is(root_manifest_owner) || closure_inputs.len() != root_inputs.len()
+    {
+        return Err(encoded_buffer_error(
+            "encoded recursive ROOT manifest lost its CLOSURE owner or row pairing",
+        ));
+    }
+    for (closure_input, root_input) in closure_inputs.iter().zip(root_inputs) {
+        let closure_path = recursive_input_path(closure_input)?;
+        let root_path = recursive_input_path(root_input)?;
+        if closure_path != root_path || !closure_input.owner.is(&root_input.owner) {
+            return Err(encoded_buffer_error(
+                "encoded recursive ROOT leaf lost its stable CLOSURE coordinate or owner",
+            ));
+        }
+        let mut closure_view = closure_manifest.clone();
+        let mut closure_owner = closure_manifest_owner.clone();
+        let mut root_view = root_manifest.clone();
+        let mut root_owner = root_manifest_owner.clone();
+        for (depth, coordinate) in closure_path.iter().copied().enumerate() {
+            let terminal = depth + 1 == closure_path.len();
+            let closure_segments = recursive_segments(&closure_view)?;
+            let closure_segment = closure_segments.get_item(coordinate).map_err(|_| {
+                encoded_buffer_error(
+                    "encoded recursive CLOSURE coordinate is absent from its container",
+                )
+            })?;
+            let closure_role = recursive_segment_role(&closure_segment)?;
+            let root_segments = recursive_segments(&root_view)?;
+            let root_segment = match root_segments.get_item(coordinate) {
+                Ok(segment) => segment,
+                Err(_) if terminal => {
+                    validate_recursive_missing_local_leaf(
+                        &root_view,
+                        &root_owner,
+                        coordinate,
+                        root_input,
+                    )?;
+                    break;
+                }
+                Err(_) => {
+                    return Err(encoded_buffer_error(
+                        "encoded recursive ROOT reference coordinate is absent",
+                    ))
+                }
+            };
+            let root_role = recursive_segment_role(&root_segment)?;
+            if closure_role != root_role {
+                return Err(encoded_buffer_error(
+                    "encoded recursive ROOT coordinate changed its CLOSURE role",
+                ));
+            }
+            if terminal {
+                break;
+            }
+            if !matches!(
+                closure_role,
+                OVERLAY_BASE_SEGMENT | COMPOSITE_MEMBER_SEGMENT
+            ) {
+                return Err(encoded_buffer_error(
+                    "encoded recursive paired path crosses a nonreference segment",
+                ));
+            }
+            let closure_reference =
+                validate_recursive_reference(&closure_view, &closure_segment, closure_role, false)?;
+            let root_reference =
+                validate_recursive_reference(&root_view, &root_segment, root_role, false)?;
+            if !closure_reference.owner.is(&root_reference.owner) {
+                return Err(encoded_buffer_error(
+                    "encoded recursive ROOT reference changed its CLOSURE source owner",
+                ));
+            }
+            if closure_role == COMPOSITE_MEMBER_SEGMENT {
+                let closure_token = required_attribute(&closure_segment, "member_token")?;
+                let root_token = required_attribute(&root_segment, "member_token")?;
+                let closure_token = closure_token.cast::<PyBytes>().map_err(|_| {
+                    encoded_buffer_error("encoded recursive CLOSURE member token is inaccessible")
+                })?;
+                let root_token = root_token.cast::<PyBytes>().map_err(|_| {
+                    encoded_buffer_error("encoded recursive ROOT member token is inaccessible")
+                })?;
+                if closure_token.as_bytes() != root_token.as_bytes() {
+                    return Err(encoded_buffer_error(
+                        "encoded recursive ROOT member changed its CLOSURE token",
+                    ));
+                }
+            }
+            closure_view = closure_reference.source;
+            closure_owner = closure_reference.owner;
+            root_view = root_reference.source;
+            root_owner = root_reference.owner;
+        }
+        if !closure_view.is(&closure_input.view)
+            || !closure_owner.is(&closure_input.owner)
+            || !root_view.is(&root_input.view)
+            || !root_owner.is(&root_input.owner)
+        {
+            return Err(encoded_buffer_error(
+                "encoded recursive paired path ended at another retained table",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_recursive_root_plan<'py>(
+    closure_manifest: &Bound<'py, PyAny>,
+    closure_manifest_owner: &Bound<'py, PyAny>,
+    closure_inputs: &[DynamicCompositeMemberInput<'py>],
+    root_manifest: &Bound<'py, PyAny>,
+    root_manifest_owner: &Bound<'py, PyAny>,
+    root_descriptor_sha256: &Bound<'py, PyAny>,
+    root_inputs: &[DynamicCompositeMemberInput<'py>],
+    max_work: usize,
+    max_overlay_depth: usize,
+) -> PyResult<()> {
+    if closure_inputs.len() != root_inputs.len() {
+        return Err(encoded_buffer_error(
+            "encoded recursive ROOT plan must pair every CLOSURE leaf",
+        ));
+    }
+    let mut paired_paths = HashSet::new();
+    for (closure_input, root_input) in closure_inputs.iter().zip(root_inputs) {
+        let closure_path = recursive_input_path(closure_input)?;
+        if closure_path != recursive_input_path(root_input)? || !paired_paths.insert(closure_path) {
+            return Err(encoded_buffer_error(
+                "encoded recursive ROOT plan lost or duplicated a stable CLOSURE path",
+            ));
+        }
+    }
+    let (actual_root_paths, _root_validation_work) = enumerate_recursive_leaf_paths(
+        root_manifest,
+        root_manifest_owner,
+        root_descriptor_sha256,
+        max_work,
+        max_overlay_depth,
+        root_inputs.len(),
+    )?;
+    if !actual_root_paths.is_subset(&paired_paths) {
+        return Err(encoded_buffer_error(
+            "encoded recursive ROOT manifest contains an unpaired selected leaf",
+        ));
+    }
+    let mut remaining = paired_paths;
+    for input in root_inputs {
+        validate_recursive_member_path(
+            root_manifest,
+            root_manifest_owner,
+            input,
+            &mut remaining,
+            true,
+        )?;
+    }
+    if !remaining.is_empty() {
+        return Err(encoded_buffer_error(
+            "encoded recursive ROOT plan omitted one paired CLOSURE leaf",
+        ));
+    }
+    validate_recursive_manifest_pair(
+        closure_manifest,
+        closure_manifest_owner,
+        closure_inputs,
+        root_manifest,
+        root_manifest_owner,
+        root_inputs,
+    )
 }
 
 type CompositeMemberBinding<'a, 'py> = (

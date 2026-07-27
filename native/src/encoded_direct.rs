@@ -27,6 +27,11 @@ pub(crate) const BUFFER_NAMES: [&str; BUFFER_COUNT] = [
     "scalar_bytes",
 ];
 
+pub(crate) trait AnonymousScopeMapChain: Sync {
+    fn scope_map_count(&self) -> usize;
+    fn scope_map_at(&self, index: usize) -> Option<&[u8]>;
+}
+
 pub(crate) const STATE_IDLE: u8 = 0;
 pub(crate) const STATE_RUNNING: u8 = 1;
 pub(crate) const STATE_FINISHED: u8 = 2;
@@ -3599,6 +3604,7 @@ pub(crate) struct DirectColumns<'a> {
     included_root_ids: &'a [u8],
     excluded_root_ids: &'a [u8],
     anonymous_scope_map: &'a [u8],
+    anonymous_scope_map_chain: Option<&'a dyn AnonymousScopeMapChain>,
     node_tags: &'a [u8],
     node_field_offsets: &'a [u8],
     field_kinds: &'a [u8],
@@ -3618,6 +3624,7 @@ impl<'a> DirectColumns<'a> {
             included_root_ids: &[],
             excluded_root_ids: &[],
             anonymous_scope_map: &[],
+            anonymous_scope_map_chain: None,
             node_tags: buffers[2],
             node_field_offsets: buffers[3],
             field_kinds: buffers[4],
@@ -3642,7 +3649,44 @@ impl<'a> DirectColumns<'a> {
 
     pub(crate) fn with_anonymous_scope_map(mut self, anonymous_scope_map: &'a [u8]) -> Self {
         self.anonymous_scope_map = anonymous_scope_map;
+        self.anonymous_scope_map_chain = None;
         self
+    }
+
+    pub(crate) fn with_anonymous_scope_map_chain(
+        mut self,
+        anonymous_scope_map_chain: &'a dyn AnonymousScopeMapChain,
+    ) -> Self {
+        self.anonymous_scope_map = &[];
+        self.anonymous_scope_map_chain = Some(anonymous_scope_map_chain);
+        self
+    }
+
+    fn without_anonymous_scope_maps(mut self) -> Self {
+        self.anonymous_scope_map = &[];
+        self.anonymous_scope_map_chain = None;
+        self
+    }
+
+    fn scope_map_count(self) -> usize {
+        self.anonymous_scope_map_chain.map_or_else(
+            || usize::from(!self.anonymous_scope_map.is_empty()),
+            AnonymousScopeMapChain::scope_map_count,
+        )
+    }
+
+    fn scope_map_at(self, index: usize) -> Option<&'a [u8]> {
+        match self.anonymous_scope_map_chain {
+            Some(chain) => chain.scope_map_at(index),
+            None if index == 0 && !self.anonymous_scope_map.is_empty() => {
+                Some(self.anonymous_scope_map)
+            }
+            None => None,
+        }
+    }
+
+    fn has_anonymous_scope_map(self) -> bool {
+        self.scope_map_count() != 0
     }
 
     fn buffer_bytes(self) -> Result<usize, KernelError> {
@@ -3999,31 +4043,34 @@ impl<'a> DirectColumns<'a> {
     }
 
     fn remap_anonymous_scope(self, scope: &'a [u8]) -> Result<&'a [u8], KernelError> {
-        let mut start = 0_usize;
-        let mut end = self.anonymous_scope_map.len() / 64;
-        while start < end {
-            let middle = start + (end - start) / 2;
-            let offset = middle
-                .checked_mul(64)
-                .ok_or_else(|| KernelError::resource("encoded scope-map offset overflow"))?;
-            let source = self
-                .anonymous_scope_map
-                .get(offset..offset + 32)
-                .ok_or_else(|| KernelError::malformed("encoded scope-map source is truncated"))?;
-            match source.cmp(scope) {
-                std::cmp::Ordering::Less => start = middle + 1,
-                std::cmp::Ordering::Greater => end = middle,
-                std::cmp::Ordering::Equal => {
-                    return self
-                        .anonymous_scope_map
-                        .get(offset + 32..offset + 64)
-                        .ok_or_else(|| {
+        let mut current = scope;
+        for map_index in 0..self.scope_map_count() {
+            let scope_map = self.scope_map_at(map_index).ok_or_else(|| {
+                KernelError::malformed("encoded anonymous scope-map chain is truncated")
+            })?;
+            let mut start = 0_usize;
+            let mut end = scope_map.len() / 64;
+            while start < end {
+                let middle = start + (end - start) / 2;
+                let offset = middle
+                    .checked_mul(64)
+                    .ok_or_else(|| KernelError::resource("encoded scope-map offset overflow"))?;
+                let source = scope_map.get(offset..offset + 32).ok_or_else(|| {
+                    KernelError::malformed("encoded scope-map source is truncated")
+                })?;
+                match source.cmp(current) {
+                    std::cmp::Ordering::Less => start = middle + 1,
+                    std::cmp::Ordering::Greater => end = middle,
+                    std::cmp::Ordering::Equal => {
+                        current = scope_map.get(offset + 32..offset + 64).ok_or_else(|| {
                             KernelError::malformed("encoded scope-map target is truncated")
-                        });
+                        })?;
+                        break;
+                    }
                 }
             }
         }
-        Ok(scope)
+        Ok(current)
     }
 
     fn compare_anonymous_nodes(
@@ -4158,10 +4205,10 @@ impl<'a> DirectColumns<'a> {
         root_rule_plan: &SelectedRootRulePlan,
         maximum_iri: usize,
         state: &AtomicU8,
-    ) -> Result<(ScopeMappedCompositeKind, &'a [u8]), KernelError> {
-        if !self.included_root_ids.is_empty() || self.anonymous_scope_map.len() != 64 {
+    ) -> Result<(ScopeMappedCompositeKind, &'a [u8], &'a [u8]), KernelError> {
+        if !self.included_root_ids.is_empty() || !self.has_anonymous_scope_map() {
             return Err(KernelError::unsupported(
-                "bounded anonymous-scope composite requires one bytes32 remap and ALL roots or named-taxonomy exclusions per mapped member",
+                "bounded anonymous-scope composite requires a retained bytes32 remap chain and ALL roots or named-taxonomy exclusions per mapped member",
             ));
         }
         let mut anonymous_node = None;
@@ -4182,9 +4229,10 @@ impl<'a> DirectColumns<'a> {
         })?;
         let anonymous_start = self.exact_fields(anonymous_node, 2)?;
         let source_scope = self.scalar_payload(anonymous_start, COMPONENT_BYTES)?;
-        if source_scope != &self.anonymous_scope_map[..32] {
+        let target_scope = self.remap_anonymous_scope(source_scope)?;
+        if source_scope == target_scope {
             return Err(KernelError::malformed(
-                "encoded anonymous scope map does not bind the member source scope",
+                "encoded anonymous scope-map chain does not bind the member source scope",
             ));
         }
 
@@ -4526,90 +4574,7 @@ impl<'a> DirectColumns<'a> {
                 "bounded anonymous-scope composite requires exactly one remapped construct per member",
             )
         })?;
-        Ok((construct_kind, &self.anonymous_scope_map[32..64]))
-    }
-
-    fn validate_scope_mapped_neutral_table(
-        self,
-        root_rule_plan: &SelectedRootRulePlan,
-        maximum_iri: usize,
-        state: &AtomicU8,
-    ) -> Result<(), KernelError> {
-        let fully_excluded = if self.excluded_root_ids.is_empty() {
-            false
-        } else {
-            if self.excluded_root_ids.len() / 4 != self.root_count() {
-                return Err(KernelError::unsupported(
-                    "bounded anonymous-scope nested composite permits only ALL or fully excluded neutral roots",
-                ));
-            }
-            for index in 0..self.root_count() {
-                if self.excluded_root_position(index)? != index + 1 {
-                    return Err(KernelError::unsupported(
-                        "bounded anonymous-scope nested composite permits only ALL or fully excluded neutral roots",
-                    ));
-                }
-            }
-            true
-        };
-        if !self.included_root_ids.is_empty()
-            || !self.anonymous_scope_map.is_empty()
-            || self.root_count() == 0
-        {
-            return Err(KernelError::unsupported(
-                "bounded anonymous-scope nested composite requires one nonempty ALL or fully excluded neutral table",
-            ));
-        }
-        for node_id in 1..=self.node_count() {
-            check_cancel(state, node_id)?;
-            if self.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL {
-                return Err(KernelError::unsupported(
-                    "bounded anonymous-scope neutral table cannot contain anonymous individuals",
-                ));
-            }
-        }
-        for root_index in 0..self.root_count() {
-            check_cancel(state, root_index)?;
-            let root = self.root_id(root_index)?;
-            if fully_excluded {
-                if self.root_kind(root_index)? != ROOT_AXIOM
-                    || self.node_tag(root)? != TAG_SUB_CLASS_OF
-                    || !matches!(
-                        self.subclass_projection(root, maximum_iri)?,
-                        SubclassProjection::Taxonomy { .. }
-                    )
-                {
-                    return Err(KernelError::unsupported(
-                        "bounded anonymous-scope neutral table supports only named SubClassOf roots",
-                    ));
-                }
-                let start = self.exact_fields(root, 3)?;
-                self.node_set_range(start + 2, 0)?;
-                continue;
-            }
-            let rule = root_rule_plan.rule_at(root_index)?;
-            if self.root_kind(root_index)? != rule.root_kind || self.node_tag(root)? != rule.tag {
-                return Err(KernelError::malformed(
-                    "encoded selected root changed after structural rule preflight",
-                ));
-            }
-            if (rule.root_kind, rule.handler) != (ROOT_AXIOM, RootRuleHandler::Subclass) {
-                return Err(KernelError::unsupported(
-                    "bounded anonymous-scope neutral table requires only axiom roots",
-                ));
-            }
-            if !matches!(
-                root_rule_plan.shape_at(root_index),
-                Some(PlannedRootShape::Subclass(
-                    SubclassProjection::Taxonomy { .. }
-                ))
-            ) {
-                return Err(KernelError::unsupported(
-                    "bounded anonymous-scope neutral table supports only named SubClassOf roots",
-                ));
-            }
-        }
-        Ok(())
+        Ok((construct_kind, source_scope, target_scope))
     }
 
     fn root_contains_anonymous_individual(
@@ -6639,7 +6604,6 @@ impl<'a> DirectColumns<'a> {
             ("root_ids", 4, self.root_ids),
             ("included_root_ids", 4, self.included_root_ids),
             ("excluded_root_ids", 4, self.excluded_root_ids),
-            ("anonymous_scope_map", 64, self.anonymous_scope_map),
             ("node_tags", 2, self.node_tags),
             ("node_field_offsets", 8, self.node_field_offsets),
             ("field_values", 8, self.field_values),
@@ -6653,6 +6617,16 @@ impl<'a> DirectColumns<'a> {
                 )));
             }
         }
+        for map_index in 0..self.scope_map_count() {
+            let scope_map = self.scope_map_at(map_index).ok_or_else(|| {
+                KernelError::malformed("encoded anonymous scope-map chain is truncated")
+            })?;
+            if scope_map.len() % 64 != 0 {
+                return Err(KernelError::malformed(
+                    "encoded anonymous scope-map length is not divisible by 64",
+                ));
+            }
+        }
         if self.root_ids.len() / 4 != self.root_count() {
             return Err(KernelError::malformed(
                 "encoded root columns differ in length",
@@ -6663,21 +6637,30 @@ impl<'a> DirectColumns<'a> {
                 "encoded root selection cannot combine INCLUDE and EXCLUDE postings",
             ));
         }
-        let mut previous_scope: Option<&[u8]> = None;
-        for (index, row) in self.anonymous_scope_map.chunks_exact(64).enumerate() {
-            check_cancel(state, index)?;
-            let (source, target) = row.split_at(32);
-            if source == target {
-                return Err(KernelError::malformed(
-                    "encoded anonymous scope map contains an identity row",
-                ));
+        let mut checked_rows = 0_usize;
+        for map_index in 0..self.scope_map_count() {
+            let scope_map = self.scope_map_at(map_index).ok_or_else(|| {
+                KernelError::malformed("encoded anonymous scope-map chain is truncated")
+            })?;
+            let mut previous_scope: Option<&[u8]> = None;
+            for row in scope_map.chunks_exact(64) {
+                check_cancel(state, checked_rows)?;
+                checked_rows = checked_rows.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded anonymous scope-map row counter overflow")
+                })?;
+                let (source, target) = row.split_at(32);
+                if source == target {
+                    return Err(KernelError::malformed(
+                        "encoded anonymous scope map contains an identity row",
+                    ));
+                }
+                if previous_scope.is_some_and(|previous| previous >= source) {
+                    return Err(KernelError::malformed(
+                        "encoded anonymous scope-map sources are not sorted unique",
+                    ));
+                }
+                previous_scope = Some(source);
             }
-            if previous_scope.is_some_and(|previous| previous >= source) {
-                return Err(KernelError::malformed(
-                    "encoded anonymous scope-map sources are not sorted unique",
-                ));
-            }
-            previous_scope = Some(source);
         }
         if self.node_field_offsets.len() / 8 != self.node_count() + 1 {
             return Err(KernelError::malformed(
@@ -8827,6 +8810,10 @@ pub(crate) mod canonical_merge {
             }
             Ok(Self { columns, lengths })
         }
+
+        fn release_workspace(self, budget: &mut CanonicalBudget) -> Result<(), KernelError> {
+            budget.release_workspace(allocation_bytes::<usize>(self.lengths.capacity())?)
+        }
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -9353,7 +9340,7 @@ pub(crate) mod canonical_merge {
                 TableSide::Left => self.comparator.left.columns,
                 TableSide::Right => self.comparator.right.columns,
             };
-            let mut previous = None;
+            let mut previous: Option<CanonicalRootRef> = None;
             for index in 0..columns.root_count() {
                 self.comparator.budget.consume(1, state)?;
                 let current = CanonicalRootRef {
@@ -9581,6 +9568,17 @@ pub(crate) mod canonical_merge {
 
         fn validate_table(&mut self, table: usize, state: &AtomicU8) -> Result<(), KernelError> {
             let columns = self.tables[table].columns;
+            if columns.has_anonymous_scope_map() {
+                let original = CanonicalTable::build(
+                    columns.without_anonymous_scope_maps(),
+                    &mut self.budget,
+                    state,
+                )?;
+                let validation = self.validate_original_table_order(&original, state);
+                let release = original.release_workspace(&mut self.budget);
+                validation?;
+                release?;
+            }
             for field_index in 0..columns.field_count() {
                 self.budget.consume(1, state)?;
                 if columns.field_kind(field_index)? != COMPONENT_SET {
@@ -9630,6 +9628,11 @@ pub(crate) mod canonical_merge {
                     if self.compare_nodes(table, previous, table, current, state)?
                         != CanonicalOrdering::Less
                     {
+                        if columns.has_anonymous_scope_map() {
+                            return Err(KernelError::unsupported(
+                                "encoded anonymous scope remapping changes canonical set order",
+                            ));
+                        }
                         return Err(KernelError::malformed(
                             "encoded canonical set items are not strictly sorted and unique",
                         ));
@@ -9637,7 +9640,7 @@ pub(crate) mod canonical_merge {
                 }
             }
 
-            let mut previous = None;
+            let mut previous: Option<CanonicalRootRef> = None;
             for index in 0..columns.root_count() {
                 self.budget.consume(1, state)?;
                 let current = CanonicalRootRef {
@@ -9649,6 +9652,11 @@ pub(crate) mod canonical_merge {
                     if self.compare_roots(table, previous, table, current, state)?
                         != CanonicalOrdering::Less
                     {
+                        if columns.has_anonymous_scope_map() {
+                            return Err(KernelError::unsupported(
+                                "encoded anonymous scope remapping changes canonical root order",
+                            ));
+                        }
                         return Err(KernelError::malformed(
                             "encoded canonical root group is not strictly sorted and unique",
                         ));
@@ -9657,6 +9665,141 @@ pub(crate) mod canonical_merge {
                 previous = Some(current);
             }
             Ok(())
+        }
+
+        fn validate_original_table_order(
+            &mut self,
+            table: &CanonicalTable<'a>,
+            state: &AtomicU8,
+        ) -> Result<(), KernelError> {
+            let columns = table.columns;
+            for field_index in 0..columns.field_count() {
+                self.budget.consume(1, state)?;
+                if columns.field_kind(field_index)? != COMPONENT_SET {
+                    continue;
+                }
+                let CanonicalComponent::Collection {
+                    kind,
+                    start,
+                    length,
+                } = canonical_component(columns, field_index, false, &mut self.budget, state)?
+                else {
+                    return Err(KernelError::malformed(
+                        "encoded canonical set field changed after length preflight",
+                    ));
+                };
+                if kind != COMPONENT_SET {
+                    return Err(KernelError::malformed(
+                        "encoded canonical set field changed after length preflight",
+                    ));
+                }
+                for offset in 1..length {
+                    self.budget.consume(1, state)?;
+                    let CanonicalComponent::Node(previous) = canonical_component(
+                        columns,
+                        start + offset - 1,
+                        true,
+                        &mut self.budget,
+                        state,
+                    )?
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set contains a scalar",
+                        ));
+                    };
+                    let CanonicalComponent::Node(current) = canonical_component(
+                        columns,
+                        start + offset,
+                        true,
+                        &mut self.budget,
+                        state,
+                    )?
+                    else {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set contains a scalar",
+                        ));
+                    };
+                    if self.compare_nodes_in_table(table, previous, current, state)?
+                        != CanonicalOrdering::Less
+                    {
+                        return Err(KernelError::malformed(
+                            "encoded canonical set items are not strictly sorted and unique",
+                        ));
+                    }
+                }
+            }
+
+            let mut previous: Option<CanonicalRootRef> = None;
+            for index in 0..columns.root_count() {
+                self.budget.consume(1, state)?;
+                let current = CanonicalRootRef {
+                    index,
+                    kind: columns.root_kind(index)?,
+                    node_id: columns.root_id(index)?,
+                };
+                if let Some(previous) = previous {
+                    let kind_order = previous.kind.cmp(&current.kind);
+                    let ordering = if kind_order == CanonicalOrdering::Equal {
+                        self.compare_nodes_in_table(
+                            table,
+                            previous.node_id,
+                            current.node_id,
+                            state,
+                        )?
+                    } else {
+                        kind_order
+                    };
+                    if ordering != CanonicalOrdering::Less {
+                        return Err(KernelError::malformed(
+                            "encoded canonical root group is not strictly sorted and unique",
+                        ));
+                    }
+                }
+                previous = Some(current);
+            }
+            Ok(())
+        }
+
+        fn compare_nodes_in_table(
+            &mut self,
+            table: &CanonicalTable<'a>,
+            left_node: usize,
+            right_node: usize,
+            state: &AtomicU8,
+        ) -> Result<CanonicalOrdering, KernelError> {
+            table.columns.checked_node_id(left_node)?;
+            table.columns.checked_node_id(right_node)?;
+            if left_node == right_node {
+                return Ok(CanonicalOrdering::Equal);
+            }
+            self.left_cursor.reset(left_node, &mut self.budget)?;
+            self.right_cursor.reset(right_node, &mut self.budget)?;
+            loop {
+                let left_byte = self.left_cursor.next_byte(
+                    table.columns,
+                    &table.lengths,
+                    &mut self.budget,
+                    state,
+                )?;
+                let right_byte = self.right_cursor.next_byte(
+                    table.columns,
+                    &table.lengths,
+                    &mut self.budget,
+                    state,
+                )?;
+                match (left_byte, right_byte) {
+                    (Some(left_byte), Some(right_byte)) => {
+                        self.budget.record_comparison_byte()?;
+                        let ordering = left_byte.cmp(&right_byte);
+                        if ordering != CanonicalOrdering::Equal {
+                            return Ok(ordering);
+                        }
+                    }
+                    (None, None) => return Ok(CanonicalOrdering::Equal),
+                    (None, Some(_)) => return Ok(CanonicalOrdering::Less),
+                    (Some(_), None) => return Ok(CanonicalOrdering::Greater),
+                }
+            }
         }
 
         fn compare_nodes(
@@ -12995,77 +13138,67 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     } else {
         columns
     };
-    let scope_mapped = columns
-        .iter()
-        .any(|table| !table.anonymous_scope_map.is_empty());
-    let mut scope_mapped_construct = None;
+    let scope_mapped = columns.iter().any(|table| table.has_anonymous_scope_map());
+    let mut scope_mapped_constructs = local_workspace
+        .reserve_owned::<Option<ScopeMappedCompositeKind>>(
+            member_count,
+            "encoded composite scope-construct allocation failed",
+        )?;
+    scope_mapped_constructs.resize(member_count, None);
     let mut scope_mapped_positions = local_workspace.reserve_owned::<usize>(
         member_count,
         "encoded composite scope-position allocation failed",
     )?;
     scope_mapped_positions.resize(member_count, 0);
     if scope_mapped {
-        if !matches!(member_count, 2..=4) {
-            return Err(KernelError::unsupported(
-                "bounded anonymous-scope remapping requires exactly two mapped members and at most two neutral tables",
-            ));
-        }
-        let mut first_mapped = None;
-        let mut second_mapped = None;
+        let mut mapped_targets = local_workspace.reserve_owned::<(usize, &[u8])>(
+            member_count,
+            "encoded composite scope-target allocation failed",
+        )?;
+        let mut generic_scope_group = false;
         for (table, member) in columns.iter().copied().enumerate() {
-            if member.anonymous_scope_map.is_empty() {
-                member.validate_scope_mapped_neutral_table(
-                    &closure_rule_plans[table],
-                    options.max_iri_bytes,
-                    state,
-                )?;
+            if !member.has_anonymous_scope_map() {
+                for node_id in 1..=member.node_count() {
+                    check_cancel(state, node_id)?;
+                    if member.node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL {
+                        generic_scope_group = true;
+                        break;
+                    }
+                }
                 continue;
             }
-            let (kind, target) = member.validate_scope_mapped_composite_table(
+            match member.validate_scope_mapped_composite_table(
                 &closure_rule_plans[table],
                 options.max_iri_bytes,
                 state,
-            )?;
-            if first_mapped.is_none() {
-                first_mapped = Some((table, kind, target));
-            } else if second_mapped.is_none() {
-                second_mapped = Some((table, kind, target));
-            } else {
-                return Err(KernelError::unsupported(
-                    "bounded anonymous-scope remapping requires exactly two mapped members",
-                ));
+            ) {
+                Ok((kind, _source, target)) => {
+                    scope_mapped_constructs[table] = Some(kind);
+                    mapped_targets.push((table, target));
+                }
+                Err(KernelError::Unsupported(_)) => {
+                    generic_scope_group = true;
+                }
+                Err(error) => return Err(error),
             }
         }
-        let (left_table, left_kind, left_target) = first_mapped.ok_or_else(|| {
-            KernelError::unsupported(
-                "bounded anonymous-scope remapping requires exactly two mapped members",
-            )
-        })?;
-        let (right_table, right_kind, right_target) = second_mapped.ok_or_else(|| {
-            KernelError::unsupported(
-                "bounded anonymous-scope remapping requires exactly two mapped members",
-            )
-        })?;
-        if left_kind != right_kind {
-            return Err(KernelError::unsupported(
-                "bounded anonymous-scope remapping requires the same construct family in both members",
-            ));
+        if generic_scope_group {
+            scope_mapped_constructs.fill(None);
+        } else {
+            cancellable_sort_unstable_by(&mut mapped_targets, state, |left, right| {
+                left.1.cmp(right.1).then_with(|| left.0.cmp(&right.0))
+            })?;
+            for adjacent in mapped_targets.windows(2) {
+                if adjacent[0].1 == adjacent[1].1 {
+                    return Err(KernelError::malformed(
+                        "encoded composite anonymous scope targets are not unique",
+                    ));
+                }
+            }
+            for (position, (table, _target)) in mapped_targets.into_iter().enumerate() {
+                scope_mapped_positions[table] = position;
+            }
         }
-        if columns[left_table].anonymous_scope_map[..32]
-            != columns[right_table].anonymous_scope_map[..32]
-        {
-            return Err(KernelError::unsupported(
-                "bounded anonymous-scope remapping requires one shared source scope",
-            ));
-        }
-        if left_target == right_target {
-            return Err(KernelError::malformed(
-                "encoded composite anonymous scope targets are not unique",
-            ));
-        }
-        scope_mapped_construct = Some(left_kind);
-        scope_mapped_positions[left_table] = usize::from(left_target > right_target);
-        scope_mapped_positions[right_table] = usize::from(right_target > left_target);
     }
     if selected_total == 0 {
         return Err(KernelError::unsupported(
@@ -13236,11 +13369,28 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     let mut merged_canonical_index = 0_usize;
     while let Some(group) = merger.next(state)? {
         let representative_table = (0..member_count).find(|table| group.roots[*table].is_some());
-        let representative_table = representative_table.ok_or_else(|| {
-            KernelError::malformed(
+        let Some(representative_table) = representative_table else {
+            let mut annotation_only = root_columns.is_some();
+            for (table, root_rule_plan) in root_rule_plans.iter().enumerate().take(member_count) {
+                let Some(root) = group.roots[member_count + table] else {
+                    continue;
+                };
+                if root_rule_plan.rule_at(root.index)?.handler
+                    != RootRuleHandler::AnnotationAssertion
+                {
+                    annotation_only = false;
+                    break;
+                }
+            }
+            if annotation_only {
+                return Err(KernelError::unsupported(
+                    "encoded composite root-provenance join contains an annotation root absent from the closure",
+                ));
+            }
+            return Err(KernelError::malformed(
                 "encoded composite ROOT selection contains a root absent from the closure",
-            )
-        })?;
+            ));
+        };
         let representative = group.roots[representative_table].ok_or_else(|| {
             KernelError::malformed("encoded composite closure lost its root representative")
         })?;
@@ -13518,10 +13668,11 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     for (plan_index, plan) in tail_root_plans.iter().enumerate() {
         check_cancel(state, plan_index)?;
         let tail_columns = columns[plan.table];
-        let scope_mapped_context = if tail_columns.anonymous_scope_map.is_empty() {
+        let scope_mapped_context = if !tail_columns.has_anonymous_scope_map() {
             None
         } else {
-            scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[plan.table]))
+            scope_mapped_constructs[plan.table]
+                .map(|construct| (construct, scope_mapped_positions[plan.table]))
         };
         if plan.rule.handler == RootRuleHandler::ObjectPropertyClass {
             let kind = ObjectPropertyClassRuleKind::from_effect(plan.rule.domain_range_effect)
@@ -13594,8 +13745,8 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     prepared
         .preparation
         .prepare_local_object_property_class_index(columns[0], state, &mut local_workspace)?;
-    if scope_mapped_construct == Some(ScopeMappedCompositeKind::PositiveObject)
-        && !columns[0].anonymous_scope_map.is_empty()
+    if scope_mapped_constructs[0] == Some(ScopeMappedCompositeKind::PositiveObject)
+        && columns[0].has_anonymous_scope_map()
     {
         if prepared.preparation.anonymous_ids.node_ids.len() != 1 {
             return Err(KernelError::malformed(
@@ -16062,6 +16213,30 @@ mod tests {
 
     fn scope_mapped_object_property_assertion_fixture() -> Fixture {
         scope_mapped_property_assertion_fixture(TAG_OBJECT_PROPERTY_ASSERTION)
+    }
+
+    fn two_scope_object_property_assertion_roots_fixture(
+        first_scope: u8,
+        second_scope: u8,
+    ) -> Fixture {
+        let mut fixture = scope_mapped_object_property_assertion_fixture();
+        let first_scope_offset = fixture
+            .scalar_bytes
+            .windows(32)
+            .position(|value| value == [7; 32])
+            .expect("fixture contains its first anonymous scope");
+        fixture.scalar_bytes[first_scope_offset..first_scope_offset + 32].fill(first_scope);
+        fixture.push_scalar(COMPONENT_BYTES, &[second_scope; 32]);
+        fixture.push_scalar(COMPONENT_BYTES, b"same");
+        fixture.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 12
+        fixture.push_node_ref(7);
+        fixture.push_node_ref(12);
+        fixture.push_node_ref(8);
+        fixture.push_empty_set();
+        fixture.finish_node(TAG_OBJECT_PROPERTY_ASSERTION); // 13
+        fixture.root_kinds.push(ROOT_AXIOM);
+        fixture.root_ids.extend_from_slice(&13_u32.to_le_bytes());
+        fixture
     }
 
     fn scope_mapped_negative_object_property_assertion_fixture() -> Fixture {
@@ -26323,6 +26498,124 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_composite_keeps_unmapped_and_mapped_anonymous_positions_distinct() {
+        let unmapped = scope_mapped_object_property_assertion_fixture();
+        let mapped = scope_mapped_object_property_assertion_fixture();
+        let mut scope_map = [0_u8; 64];
+        scope_map[..32].fill(7);
+        scope_map[32..].fill(8);
+        let columns = [
+            unmapped.columns(),
+            mapped
+                .columns()
+                .with_anonymous_scope_map(scope_map.as_slice()),
+        ];
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 3,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_dynamic_composite_batches_uncommitted(
+            &columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.object_property_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 3);
+
+        let (edges, cursor) = prepared.prepare_next_batch(columns[0], &state, 3).unwrap();
+        assert_eq!(
+            edges
+                .iter()
+                .filter(|edge| edge.relation == "urn:p")
+                .map(|edge| edge.source.as_str())
+                .collect::<Vec<_>>(),
+            vec!["_:genid2147483648", "_:genid2147483649"]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn arbitrary_group_composite_remaps_every_member_scope_canonically() {
+        let fixtures = [
+            scope_mapped_object_property_assertion_fixture(),
+            scope_mapped_object_property_assertion_fixture(),
+            scope_mapped_object_property_assertion_fixture(),
+            scope_mapped_object_property_assertion_fixture(),
+            scope_mapped_object_property_assertion_fixture(),
+        ];
+        let mut scope_maps = [[0_u8; 64]; 5];
+        for (scope_map, target) in scope_maps.iter_mut().zip([10_u8, 8, 11, 12, 9]) {
+            scope_map[..32].fill(7);
+            scope_map[32..].fill(target);
+        }
+        let columns = fixtures
+            .iter()
+            .zip(&scope_maps)
+            .map(|(fixture, scope_map)| {
+                fixture
+                    .columns()
+                    .with_anonymous_scope_map(scope_map.as_slice())
+            })
+            .collect::<Vec<_>>();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 6,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_dynamic_composite_batches_uncommitted(
+            &columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 6);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.object_property_assertions, 5);
+        assert_eq!(statistics.anonymous_individuals, 5);
+        assert_eq!(statistics.edges, 6);
+
+        let (edges, cursor) = prepared.prepare_next_batch(columns[0], &state, 6).unwrap();
+        let anonymous_sources = edges
+            .iter()
+            .filter(|edge| edge.relation == "urn:p")
+            .map(|edge| edge.source.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            anonymous_sources,
+            vec![
+                "_:genid2147483648",
+                "_:genid2147483649",
+                "_:genid2147483650",
+                "_:genid2147483651",
+                "_:genid2147483652",
+            ]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
     fn two_member_composite_remaps_skipped_negative_object_assertion_scopes() {
         let left = scope_mapped_negative_object_property_assertion_fixture();
         let right = scope_mapped_negative_object_property_assertion_fixture();
@@ -27607,7 +27900,7 @@ mod tests {
         assert_eq!(selected_statistics.anonymous_individuals, 2);
         assert_eq!(selected_statistics.edges, 2);
 
-        let error = prepare_four_table_composite_batches_uncommitted(
+        for selected_columns in [
             [
                 left.columns()
                     .with_excluded_root_ids(&excluded_construct)
@@ -27616,15 +27909,6 @@ mod tests {
                 right_columns,
                 direct_neutral_columns,
             ],
-            options,
-            &state,
-            None,
-            canonical_limits().max_work,
-            canonical_limits().max_workspace_bytes,
-        )
-        .unwrap_err();
-        assert!(matches!(error, KernelError::Unsupported(_)));
-        let right_error = prepare_four_table_composite_batches_uncommitted(
             [
                 left_columns,
                 local_neutral_columns,
@@ -27634,14 +27918,40 @@ mod tests {
                     .with_anonymous_scope_map(&right_scope_map),
                 direct_neutral_columns,
             ],
-            options,
-            &state,
-            None,
-            canonical_limits().max_work,
-            canonical_limits().max_workspace_bytes,
-        )
-        .unwrap_err();
-        assert!(matches!(right_error, KernelError::Unsupported(_)));
+        ] {
+            let mut selected = prepare_four_table_composite_batches_uncommitted(
+                selected_columns,
+                options,
+                &state,
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            )
+            .unwrap();
+            let statistics = selected.statistics();
+            assert_eq!(statistics.roots, 2);
+            assert_eq!(statistics.subclasses, 1);
+            assert_eq!(statistics.object_property_assertions, 1);
+            assert_eq!(statistics.anonymous_individuals, 1);
+            assert_eq!(statistics.edges, 2);
+            let (edges, cursor) = selected
+                .prepare_next_batch(selected_columns[0], &state, 2)
+                .unwrap();
+            assert_eq!(edges.len(), 2);
+            assert_eq!(
+                edges
+                    .iter()
+                    .filter(|edge| edge.relation == SUBCLASS_OF)
+                    .count(),
+                1
+            );
+            assert_eq!(
+                edges.iter().filter(|edge| edge.relation == "urn:p").count(),
+                1
+            );
+            selected.commit_cursor(cursor);
+            assert!(selected.is_exhausted());
+        }
     }
 
     #[test]
@@ -28113,6 +28423,80 @@ mod tests {
         );
         prepared.commit_cursor(cursor);
         assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn paired_root_composite_falls_back_for_root_only_annotation() {
+        let first = root_duplicate_annotation_fixture();
+        let second = root_duplicate_annotation_fixture();
+        let annotation = 2_u32.to_le_bytes();
+        let closure = [
+            first.columns().with_excluded_root_ids(&annotation),
+            second.columns().with_excluded_root_ids(&annotation),
+        ];
+        let roots = [
+            first.columns().with_included_root_ids(&annotation),
+            second.columns().with_excluded_root_ids(&annotation),
+        ];
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: true,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+
+        assert!(matches!(
+            prepare_dynamic_composite_batches_with_root_uncommitted(
+                &closure,
+                Some(&roots),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message))
+                if message.contains("root-provenance join")
+        ));
+    }
+
+    #[test]
+    fn paired_root_composite_rejects_root_only_non_annotation() {
+        let first = named_subclass_fixture();
+        let second = named_subclass_fixture();
+        let subclass = 2_u32.to_le_bytes();
+        let closure = [
+            first.columns().with_excluded_root_ids(&subclass),
+            second.columns().with_excluded_root_ids(&subclass),
+        ];
+        let roots = [
+            first.columns().with_included_root_ids(&subclass),
+            second.columns().with_excluded_root_ids(&subclass),
+        ];
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+
+        assert!(matches!(
+            prepare_dynamic_composite_batches_with_root_uncommitted(
+                &closure,
+                Some(&roots),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Malformed(message))
+                if message.contains("ROOT selection contains a root absent from the closure")
+        ));
     }
 
     #[test]
@@ -30212,6 +30596,102 @@ mod tests {
         assert!(report.work > 0);
         assert!(report.workspace_bytes > 0);
         assert!(report.canonical_bytes_compared > 0);
+    }
+
+    #[test]
+    fn canonical_k_way_reports_valid_scope_remap_root_reorder_as_unsupported() {
+        let mapped = two_scope_object_property_assertion_roots_fixture(7, 9);
+        let neutral = canonical_text_roots(&[b"z"]);
+        let mut scope_map = [0_u8; 128];
+        scope_map[..32].fill(7);
+        scope_map[32..64].fill(10);
+        scope_map[64..96].fill(9);
+        scope_map[96..].fill(8);
+
+        assert!(matches!(
+            canonical_merge::CanonicalKWayRootMerger::new(
+                &[
+                    mapped
+                        .columns()
+                        .with_anonymous_scope_map(scope_map.as_slice()),
+                    neutral.columns(),
+                ],
+                canonical_limits(),
+                &running_state(),
+            ),
+            Err(KernelError::Unsupported(message))
+                if message.contains("remapping changes canonical root order")
+        ));
+    }
+
+    #[test]
+    fn canonical_k_way_keeps_preexisting_mapped_root_reorder_malformed() {
+        let mapped = two_scope_object_property_assertion_roots_fixture(9, 7);
+        let neutral = canonical_text_roots(&[b"z"]);
+        let mut irrelevant_scope_map = [0_u8; 64];
+        irrelevant_scope_map[..32].fill(1);
+        irrelevant_scope_map[32..].fill(2);
+
+        let error = canonical_merge::CanonicalKWayRootMerger::new(
+            &[
+                mapped
+                    .columns()
+                    .with_anonymous_scope_map(irrelevant_scope_map.as_slice()),
+                neutral.columns(),
+            ],
+            canonical_limits(),
+            &running_state(),
+        )
+        .err();
+        assert!(
+            matches!(
+                &error,
+                Some(KernelError::Malformed(message))
+                    if message.contains("canonical root group is not strictly sorted")
+            ),
+            "unexpected mapped-order result: {error:?}"
+        );
+    }
+
+    #[test]
+    fn canonical_k_way_does_not_mask_later_original_order_defect_with_remap() {
+        let mut mapped = two_scope_object_property_assertion_roots_fixture(7, 9);
+        mapped.push_scalar(COMPONENT_BYTES, &[8; 32]);
+        mapped.push_scalar(COMPONENT_BYTES, b"same");
+        mapped.finish_node(TAG_ANONYMOUS_INDIVIDUAL); // 14
+        mapped.push_node_ref(7);
+        mapped.push_node_ref(14);
+        mapped.push_node_ref(8);
+        mapped.push_empty_set();
+        mapped.finish_node(TAG_OBJECT_PROPERTY_ASSERTION); // 15
+        mapped.root_kinds.push(ROOT_AXIOM);
+        mapped.root_ids.extend_from_slice(&15_u32.to_le_bytes());
+        let neutral = canonical_text_roots(&[b"z"]);
+        let mut scope_map = [0_u8; 128];
+        scope_map[..32].fill(7);
+        scope_map[32..64].fill(10);
+        scope_map[64..96].fill(9);
+        scope_map[96..].fill(8);
+
+        let error = canonical_merge::CanonicalKWayRootMerger::new(
+            &[
+                mapped
+                    .columns()
+                    .with_anonymous_scope_map(scope_map.as_slice()),
+                neutral.columns(),
+            ],
+            canonical_limits(),
+            &running_state(),
+        )
+        .err();
+        assert!(
+            matches!(
+                &error,
+                Some(KernelError::Malformed(message))
+                    if message.contains("canonical root group is not strictly sorted")
+            ),
+            "unexpected mapped-order result: {error:?}"
+        );
     }
 
     #[test]
