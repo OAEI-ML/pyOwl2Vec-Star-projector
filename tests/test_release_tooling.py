@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
@@ -14,7 +15,12 @@ import pytest
 
 import _build_backend
 from tools import audit_release, generate_supply_chain, release_gate, release_support
-from tools.audit_release import _audit_metadata, _audit_native_payloads, audit_artifact
+from tools.audit_release import (
+    _audit_metadata,
+    _audit_native_payloads,
+    _audit_sdist,
+    audit_artifact,
+)
 from tools.generate_supply_chain import build_provenance, generate
 from tools.hash_artifacts import create_manifest, verify_manifest
 from tools.release_gate import local_checks
@@ -53,6 +59,51 @@ def _copy_build_inputs(target: Path) -> None:
         destination = target / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative_path, destination)
+
+
+def _wheel_record_digest(payload: bytes) -> str:
+    encoded = base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).rstrip(b"=")
+    return f"sha256={encoded.decode('ascii')}"
+
+
+def _write_minimal_wheel(path: Path, *, tamper_after_record: bool = False) -> None:
+    version = "0.1"
+    dist_info = f"pyowl2vec_star_projector-{version}.dist-info"
+    files = {
+        "pyowl2vec_star_projector/__init__.py": b"",
+        "pyowl2vec_star_projector/conformance_data/consumer.ofn": b"Ontology()",
+        "pyowl2vec_star_projector/conformance_data/goldens.json": b"{}",
+        "pyowl2vec_star_projector/conformance_data/LICENSE": b"CC0-1.0",
+        f"{dist_info}/licenses/LICENSE": b"Apache-2.0",
+        f"{dist_info}/licenses/NOTICE": b"notice",
+        f"{dist_info}/licenses/THIRD_PARTY_NOTICES.md": b"notices",
+        f"{dist_info}/licenses/native/THIRD_PARTY_LICENSES.md": b"native notices",
+        f"{dist_info}/METADATA": (
+            b"Metadata-Version: 2.4\n"
+            b"Name: pyowl2vec-star-projector\n"
+            b"Version: 0.1\n"
+            b"Requires-Python: >=3.10\n"
+            b"Requires-Dist: pyowl-core<0.2,>=0.1\n\n"
+        ),
+        f"{dist_info}/WHEEL": (
+            b"Wheel-Version: 1.0\n"
+            b"Generator: release-test\n"
+            b"Root-Is-Purelib: true\n"
+            b"Tag: py3-none-any\n\n"
+        ),
+    }
+    record_name = f"{dist_info}/RECORD"
+    record = "".join(
+        f"{name},{_wheel_record_digest(payload)},{len(payload)}\n"
+        for name, payload in sorted(files.items())
+    )
+    record += f"{record_name},,\n"
+    files[record_name] = record.encode("utf-8")
+    if tamper_after_record:
+        files["pyowl2vec_star_projector/__init__.py"] = b"tampered"
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, payload in sorted(files.items()):
+            archive.writestr(name, payload)
 
 
 def test_conditional_build_requirement_never_leaks_to_fallback(
@@ -404,6 +455,65 @@ def test_release_audit_enforces_expanded_member_limit(
     assert report["errors"] == [
         "archive could not be read safely: archive member 'example/module.py' exceeds 4 byte limit"
     ]
+
+
+def test_release_audit_binds_wheel_filename_tags_and_record(tmp_path: Path) -> None:
+    artifact = tmp_path / "pyowl2vec_star_projector-0.1-py3-none-any.whl"
+    _write_minimal_wheel(artifact)
+    report = audit_artifact(artifact, expected_version="0.1")
+    assert report["passed"] is True
+    assert report["kind"] == "universal-wheel"
+    assert report["errors"] == []
+
+    mismatched = tmp_path / "other_project-0.1-py3-none-any.whl"
+    mismatched.write_bytes(artifact.read_bytes())
+    report = audit_artifact(mismatched, expected_version="0.1")
+    assert (
+        "wheel filename distribution 'other_project' is not "
+        "'pyowl2vec_star_projector'" in report["errors"]
+    )
+
+
+def test_release_audit_rejects_wheel_record_payload_mismatch(tmp_path: Path) -> None:
+    artifact = tmp_path / "pyowl2vec_star_projector-0.1-py3-none-any.whl"
+    _write_minimal_wheel(artifact, tamper_after_record=True)
+    report = audit_artifact(artifact, expected_version="0.1")
+    assert report["passed"] is False
+    assert report["errors"] == [
+        "wheel RECORD hash mismatch for 'pyowl2vec_star_projector/__init__.py'",
+        "wheel RECORD size mismatch for 'pyowl2vec_star_projector/__init__.py'",
+    ]
+
+
+def test_release_audit_binds_sdist_filename_and_root() -> None:
+    version = "0.1"
+    root = f"pyowl2vec_star_projector-{version}"
+    metadata = (
+        b"Metadata-Version: 2.4\n"
+        b"Name: pyowl2vec-star-projector\n"
+        b"Version: 0.1\n"
+        b"Requires-Python: >=3.10\n"
+        b"Requires-Dist: pyowl-core<0.2,>=0.1\n\n"
+    )
+    members = {
+        f"{root}/pkg-info": metadata,
+        **{
+            f"{root}/{name}": b"present"
+            for name in (
+                "_build_backend.py",
+                "license",
+                "notice",
+                "third_party_notices.md",
+                "native/cargo.lock",
+                "native/cargo.toml",
+                "native/third_party_licenses.md",
+                "releasing.md",
+            )
+        },
+    }
+    errors: list[str] = []
+    assert _audit_sdist(Path("other-0.1.tar.gz"), members, version, errors) == "sdist"
+    assert errors == ["sdist filename 'other-0.1.tar.gz' != 'pyowl2vec_star_projector-0.1.tar.gz'"]
 
 
 def test_release_audit_hashes_exact_bytes_even_if_path_is_swapped(

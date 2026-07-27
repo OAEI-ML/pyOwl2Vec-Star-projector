@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import csv
 import hashlib
+import io
 import json
 import re
 import tarfile
@@ -33,6 +36,12 @@ else:
     )
 
 _NATIVE_SUFFIXES = (".dll", ".dylib", ".pyd", ".so")
+_WHEEL_FILENAME = re.compile(
+    r"(?P<distribution>[A-Za-z0-9_]+)-(?P<version>[A-Za-z0-9_.!+]+)"
+    r"(?:-(?P<build>[0-9][A-Za-z0-9_.]*))?"
+    r"-(?P<python>[A-Za-z0-9_.]+)-(?P<abi>[A-Za-z0-9_.]+)"
+    r"-(?P<platform>[A-Za-z0-9_.]+)\.whl"
+)
 _JAVA_DEPENDENCIES = frozenset(
     {
         "deeponto",
@@ -116,9 +125,9 @@ def audit_artifact(path: Path, *, expected_version: str) -> dict[str, object]:
             errors.append(f"quarantined path shipped: {name}")
 
     if path.suffix == ".whl":
-        kind = _audit_wheel(path, lowered, expected_version, errors)
+        kind = _audit_wheel(path, members, expected_version, errors)
     elif path.name.endswith(".tar.gz"):
-        kind = _audit_sdist(lowered, expected_version, errors)
+        kind = _audit_sdist(path, lowered, expected_version, errors)
     else:  # pragma: no cover - filtered by CLI
         kind = "unknown"
         errors.append("unsupported artifact suffix")
@@ -145,40 +154,159 @@ def _audit_wheel(
     expected_version: str,
     errors: list[str],
 ) -> str:
-    metadata_name = _one(members, ".dist-info/metadata", errors)
-    wheel_name = _one(members, ".dist-info/wheel", errors)
-    if metadata_name:
-        _audit_metadata(members[metadata_name], expected_version, errors)
-    wheel_text = members[wheel_name].decode("utf-8") if wheel_name else ""
+    lowered = {name.lower(): content for name, content in members.items()}
+    expected_root = f"pyowl2vec_star_projector-{expected_version}.dist-info"
+    dist_info_roots = {name.split("/", 1)[0] for name in members if ".dist-info/" in name.lower()}
+    if dist_info_roots != {expected_root}:
+        errors.append(f"wheel dist-info roots {sorted(dist_info_roots)!r} != {[expected_root]!r}")
+    metadata_name = f"{expected_root}/metadata"
+    wheel_name = f"{expected_root}/wheel"
+    record_name = f"{expected_root}/record"
+    if metadata_name not in lowered:
+        errors.append(f"wheel missing exact metadata path: {metadata_name}")
+    else:
+        _audit_metadata(lowered[metadata_name], expected_version, errors)
+    if wheel_name not in lowered:
+        errors.append(f"wheel missing exact WHEEL path: {wheel_name}")
+        wheel_metadata = None
+    else:
+        wheel_metadata = BytesParser(policy=default).parsebytes(lowered[wheel_name])
+    if record_name not in lowered:
+        errors.append(f"wheel missing exact RECORD path: {record_name}")
+    else:
+        _audit_record(members, f"{expected_root}/RECORD", lowered[record_name], errors)
+
+    match = _WHEEL_FILENAME.fullmatch(path.name)
+    filename_tags: set[tuple[str, str, str]] = set()
+    if match is None:
+        errors.append(f"invalid wheel filename: {path.name!r}")
+        kind = "invalid-wheel"
+    else:
+        if match.group("distribution") != "pyowl2vec_star_projector":
+            errors.append(
+                f"wheel filename distribution {match.group('distribution')!r} is not "
+                "'pyowl2vec_star_projector'"
+            )
+        if match.group("version") != expected_version:
+            errors.append(
+                f"wheel filename version {match.group('version')!r} != {expected_version!r}"
+            )
+        if match.group("build") is not None:
+            errors.append("wheel filename unexpectedly contains a build tag")
+        filename_tags = {
+            (python, abi, platform)
+            for python in match.group("python").split(".")
+            for abi in match.group("abi").split(".")
+            for platform in match.group("platform").split(".")
+        }
+        kind = "universal-wheel" if filename_tags == {("py3", "none", "any")} else "native-wheel"
+
+    wheel_tags = (
+        set()
+        if wheel_metadata is None
+        else {
+            tuple(value.split("-", 2))
+            for value in wheel_metadata.get_all("Tag", [])
+            if len(value.split("-", 2)) == 3
+        }
+    )
+    if wheel_tags != filename_tags:
+        errors.append(
+            f"WHEEL tags {sorted(wheel_tags)!r} do not exactly match filename tags "
+            f"{sorted(filename_tags)!r}"
+        )
+    root_is_pure = None if wheel_metadata is None else wheel_metadata.get("Root-Is-Purelib")
     native_members = [name for name in members if name.endswith(_NATIVE_SUFFIXES)]
-    pure_name = path.name.endswith("-py3-none-any.whl")
-    if pure_name:
+    if kind == "universal-wheel":
         if native_members:
             errors.append("universal fallback wheel contains native binaries")
-        if "root-is-purelib: true" not in wheel_text.lower():
+        if root_is_pure != "true":
             errors.append("universal fallback wheel is not Root-Is-Purelib")
-        if "tag: py3-none-any" not in wheel_text.lower():
-            errors.append("universal fallback wheel lacks py3-none-any tag")
-        kind = "universal-wheel"
-    else:
+    elif kind == "native-wheel":
+        if any(python != "cp310" or abi != "abi3" for python, abi, _ in filename_tags):
+            errors.append("native wheel must use only the cp310-abi3 interpreter/ABI tag")
+        unsupported_platforms = sorted(
+            platform for _, _, platform in filename_tags if not _supported_native_platform(platform)
+        )
+        if unsupported_platforms:
+            errors.append(f"native wheel has unsupported platform tags: {unsupported_platforms}")
         if not any("/_native" in f"/{name}" for name in native_members):
             errors.append("platform wheel does not contain the native extension")
-        if "root-is-purelib: false" not in wheel_text.lower():
+        if root_is_pure != "false":
             errors.append("platform wheel unexpectedly claims Root-Is-Purelib")
-        kind = "native-wheel"
         _audit_native_payloads(native_members, members, errors)
     _required_license_basenames(members, errors)
     return kind
 
 
-def _audit_sdist(members: dict[str, bytes], expected_version: str, errors: list[str]) -> str:
-    root_metadata = [
-        name for name in members if name.endswith("/pkg-info") and len(Path(name).parts) == 2
-    ]
-    metadata_name = root_metadata[0] if len(root_metadata) == 1 else None
-    if metadata_name is None:
-        errors.append(f"expected one root PKG-INFO, found {len(root_metadata)}")
-    if metadata_name:
+def _supported_native_platform(platform: str) -> bool:
+    return (
+        (platform.startswith("manylinux") and platform.endswith(("_x86_64", "_aarch64")))
+        or (platform.startswith("macosx") and platform.endswith(("_x86_64", "_arm64")))
+        or platform == "win_amd64"
+    )
+
+
+def _audit_record(
+    members: dict[str, bytes],
+    record_name: str,
+    content: bytes,
+    errors: list[str],
+) -> None:
+    try:
+        text = content.decode("utf-8")
+        rows = list(csv.reader(io.StringIO(text, newline=""), strict=True))
+    except (UnicodeDecodeError, csv.Error) as error:
+        errors.append(f"wheel RECORD is invalid: {error}")
+        return
+    records: dict[str, tuple[str, str]] = {}
+    for number, row in enumerate(rows, 1):
+        if len(row) != 3:
+            errors.append(f"wheel RECORD row {number} does not have exactly three fields")
+            continue
+        name, digest, size = row
+        if name in records:
+            errors.append(f"wheel RECORD repeats path: {name!r}")
+            continue
+        records[name] = (digest, size)
+    missing = sorted(members.keys() - records.keys())
+    extra = sorted(records.keys() - members.keys())
+    if missing:
+        errors.append(f"wheel RECORD is missing members: {missing}")
+    if extra:
+        errors.append(f"wheel RECORD names absent members: {extra}")
+    for name in sorted(members.keys() & records.keys()):
+        digest, size = records[name]
+        if name == record_name:
+            if digest or size:
+                errors.append("wheel RECORD must leave its own hash and size empty")
+            continue
+        expected_digest = "sha256=" + base64.urlsafe_b64encode(
+            hashlib.sha256(members[name]).digest()
+        ).rstrip(b"=").decode("ascii")
+        if digest != expected_digest:
+            errors.append(f"wheel RECORD hash mismatch for {name!r}")
+        if size != str(len(members[name])):
+            errors.append(f"wheel RECORD size mismatch for {name!r}")
+
+
+def _audit_sdist(
+    path: Path,
+    members: dict[str, bytes],
+    expected_version: str,
+    errors: list[str],
+) -> str:
+    expected_root = f"pyowl2vec_star_projector-{expected_version}"
+    expected_filename = f"{expected_root}.tar.gz"
+    if path.name != expected_filename:
+        errors.append(f"sdist filename {path.name!r} != {expected_filename!r}")
+    roots = {name.split("/", 1)[0] for name in members}
+    if roots != {expected_root}:
+        errors.append(f"sdist roots {sorted(roots)!r} != {[expected_root]!r}")
+    metadata_name = f"{expected_root}/pkg-info"
+    if metadata_name not in members:
+        errors.append(f"sdist missing exact root PKG-INFO: {metadata_name}")
+    else:
         _audit_metadata(members[metadata_name], expected_version, errors)
     required = (
         "_build_backend.py",
@@ -252,14 +380,6 @@ def _required_conformance_kit(members: dict[str, bytes], errors: list[str]) -> N
     ):
         if not any(name.endswith(required) for name in members):
             errors.append(f"artifact missing consumer conformance resource: {required}")
-
-
-def _one(members: dict[str, bytes], suffix: str, errors: list[str]) -> str | None:
-    found = [name for name in members if name.endswith(suffix)]
-    if len(found) != 1:
-        errors.append(f"expected one *{suffix}, found {len(found)}")
-        return None
-    return found[0]
 
 
 def main(argv: list[str] | None = None) -> int:
