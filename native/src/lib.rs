@@ -42,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 121;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 122;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -1527,6 +1527,7 @@ impl EncodedDirectCompiler {
                                     nested_owner,
                                     encoded_view,
                                     expected_owner,
+                                    right_excluded_root_ids_view,
                                     &[
                                         (third_view, third_owner, third_excluded_root_ids_view),
                                         (fourth_view, fourth_owner, fourth_excluded_root_ids_view),
@@ -1543,6 +1544,7 @@ impl EncodedDirectCompiler {
                                     nested_owner,
                                     encoded_view,
                                     expected_owner,
+                                    right_excluded_root_ids_view,
                                     &[(third_view, third_owner, third_excluded_root_ids_view)],
                                     anonymous_scope_map_view,
                                     right_anonymous_scope_map_view,
@@ -1697,11 +1699,9 @@ impl EncodedDirectCompiler {
                 "encoded composite root selection cannot mix INCLUDE and EXCLUDE postings",
             ));
         }
-        if nested_member.is_some()
-            && (included_root_ids.is_some() || right_excluded_root_ids.is_some())
-        {
+        if nested_member.is_some() && included_root_ids.is_some() {
             return Err(encoded_buffer_error(
-                "encoded nested composite member permits outer EXCLUDE only on direct siblings",
+                "encoded nested composite member does not support outer INCLUDE",
             ));
         }
         if anonymous_scope_map.is_some() {
@@ -3794,6 +3794,7 @@ fn validate_nested_member_composite_manifest(
     nested_owner: &Bound<'_, PyAny>,
     base_view: &Bound<'_, PyAny>,
     base_owner: &Bound<'_, PyAny>,
+    nested_excluded_root_ids: Option<&Bound<'_, PyAny>>,
     direct_members: &[NestedDirectMemberBinding<'_, '_>],
     anonymous_scope_map: Option<&Bound<'_, PyAny>>,
     right_anonymous_scope_map: Option<&Bound<'_, PyAny>>,
@@ -3919,7 +3920,7 @@ fn validate_nested_member_composite_manifest(
         let root_ids = required_attribute(&segment, "root_ids")?;
         let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
         let expected_exclude = if member_index == 0 {
-            None
+            nested_excluded_root_ids
         } else {
             direct_members[member_index - 1].2
         };
@@ -3935,13 +3936,15 @@ fn validate_nested_member_composite_manifest(
                 ));
             }
             Some(_) => {
-                return Err(encoded_buffer_error(
-                    "encoded nested direct sibling lost its exact EXCLUDE table",
-                ));
+                return Err(encoded_buffer_error(if member_index == 0 {
+                    "encoded nested member lost its exact EXCLUDE table"
+                } else {
+                    "encoded nested direct sibling lost its exact EXCLUDE table"
+                }));
             }
             None => {
                 return Err(EncodedDirectUnsupportedError::new_err(
-                    "bounded nested-member composite permits outer EXCLUDE only on direct siblings",
+                    "bounded nested-member composite received an unexpected outer EXCLUDE table",
                 ));
             }
         }

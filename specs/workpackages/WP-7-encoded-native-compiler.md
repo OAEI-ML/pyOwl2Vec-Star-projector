@@ -55,12 +55,17 @@ plans still fail closed. Kernel v121 extends that exact family to two distinct d
 either or both siblings may independently carry one source-local `EXCLUDE`, while the nested
 overlay base keeps its independent `ALL`/`EXCLUDE` choice. Selection on the nested member,
 `INCLUDE`, scope remapping, another nested delta, a third direct sibling, and broader recursive
-plans remain fail-closed. Kernel v31 additionally rejects cycles in nested annotation metadata
-with an iterative preflight over both closure and retained root tables. This closes a hostile
-structural-columns case without advertising the encoded compiler or changing valid projection
-output. Exact installed diamond and cyclic import cases additionally prove that the v30 join's
-canonical root subset and closure deduplication remain correct beyond a one-level import. The broad
-Python structural decoder
+plans remain fail-closed. Kernel v122 then admits one exact outer `EXCLUDE` on the nested overlay
+member in the one-direct-sibling family. V1 postings on a nested source address only that source's
+local delta table, so the exact outer exporter is retained and searched against that table while
+the nested base and direct sibling keep their independent selectors. `INCLUDE`, scope remapping,
+selection on the nested member in the two-direct-sibling family, another nested delta, and broader
+recursive plans remain fail-closed. Kernel v31 additionally rejects cycles in nested annotation
+metadata with an iterative preflight over both closure and retained root tables. This closes a
+hostile structural-columns case without advertising the encoded compiler or changing valid
+projection output. Exact installed diamond and cyclic import cases additionally prove that the
+v30 join's canonical root subset and closure deduplication remain correct beyond a one-level
+import. The broad Python structural decoder
 now applies the same iterative acyclic-annotation invariant before root classification, including
 when it independently inspects a retained root-provenance table. Its supported recursive
 class-expression and data-range graph checks are iterative too, admitting valid deep columns
