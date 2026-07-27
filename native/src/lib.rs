@@ -43,7 +43,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 110;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 111;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -1067,111 +1067,127 @@ impl EncodedDirectCompiler {
                         "encoded local-overlay canonical limits must be positive",
                     ));
                 }
-                let buffers =
-                    if let Some((manifest, manifest_owner, manifest_digest)) = merge_manifest {
-                        if let Some((nested_view, nested_owner, nested_digest)) = nested_member {
-                            if !nested_view.is(view) || !nested_owner.is(owner) {
-                                return Err(encoded_buffer_error(
-                                    "encoded nested member lost its retained table identity",
-                                ));
-                            }
-                            validate_encoded_view_header(nested_view, nested_owner, nested_digest)?;
-                            let Some((third_view, third_owner, _)) = third_member else {
-                                return Err(EncodedDirectUnsupportedError::new_err(
-                                    "bounded nested-member composite requires one direct sibling",
-                                ));
-                            };
-                            let buffers = retained_overlay_delta_buffers(
-                                view,
-                                owner,
-                                digest,
-                                encoded_view,
-                                expected_owner,
-                                excluded_root_ids_view,
-                            )?;
-                            if let Some((fourth_view, fourth_owner, _)) = fourth_member {
-                                validate_nested_member_composite_manifest(
-                                    manifest,
-                                    manifest_owner,
-                                    manifest_digest,
-                                    nested_view,
-                                    nested_owner,
-                                    encoded_view,
-                                    expected_owner,
-                                    &[(third_view, third_owner), (fourth_view, fourth_owner)],
-                                    anonymous_scope_map_view,
-                                    right_anonymous_scope_map_view,
-                                )?;
-                            } else {
-                                validate_nested_member_composite_manifest(
-                                    manifest,
-                                    manifest_owner,
-                                    manifest_digest,
-                                    nested_view,
-                                    nested_owner,
-                                    encoded_view,
-                                    expected_owner,
-                                    &[(third_view, third_owner)],
-                                    anonymous_scope_map_view,
-                                    right_anonymous_scope_map_view,
-                                )?;
-                            }
-                            buffers
-                        } else if let Some((third_view, third_owner, _)) = third_member {
-                            let buffers = retained_direct_buffers(view, owner, digest)?;
-                            if let Some((fourth_view, fourth_owner, _)) = fourth_member {
-                                validate_direct_member_composite_manifest(
-                                    manifest,
-                                    manifest_owner,
-                                    manifest_digest,
-                                    [
-                                        (encoded_view, expected_owner, excluded_root_ids_view),
-                                        (view, owner, right_excluded_root_ids_view),
-                                        (third_view, third_owner, third_excluded_root_ids_view),
-                                        (fourth_view, fourth_owner, fourth_excluded_root_ids_view),
-                                    ],
-                                )?;
-                            } else {
-                                validate_direct_member_composite_manifest(
-                                    manifest,
-                                    manifest_owner,
-                                    manifest_digest,
-                                    [
-                                        (encoded_view, expected_owner, excluded_root_ids_view),
-                                        (view, owner, right_excluded_root_ids_view),
-                                        (third_view, third_owner, third_excluded_root_ids_view),
-                                    ],
-                                )?;
-                            }
-                            buffers
-                        } else {
-                            let buffers = retained_direct_buffers(view, owner, digest)?;
-                            validate_two_member_composite_manifest(
-                                manifest,
-                                manifest_owner,
-                                manifest_digest,
-                                encoded_view,
-                                expected_owner,
-                                view,
-                                owner,
-                                included_root_ids_view,
-                                excluded_root_ids_view,
-                                right_excluded_root_ids_view,
-                                anonymous_scope_map_view,
-                                right_anonymous_scope_map_view,
-                            )?;
-                            buffers
+                let buffers = if let Some((manifest, manifest_owner, manifest_digest)) =
+                    merge_manifest
+                {
+                    if let Some((nested_view, nested_owner, nested_digest)) = nested_member {
+                        if !nested_view.is(view) || !nested_owner.is(owner) {
+                            return Err(encoded_buffer_error(
+                                "encoded nested member lost its retained table identity",
+                            ));
                         }
-                    } else {
-                        retained_overlay_delta_buffers(
+                        validate_encoded_view_header(nested_view, nested_owner, nested_digest)?;
+                        let Some((third_view, third_owner, _)) = third_member else {
+                            return Err(EncodedDirectUnsupportedError::new_err(
+                                "bounded nested-member composite requires one direct sibling",
+                            ));
+                        };
+                        let buffers = retained_overlay_delta_buffers(
                             view,
                             owner,
                             digest,
                             encoded_view,
                             expected_owner,
                             excluded_root_ids_view,
-                        )?
-                    };
+                        )?;
+                        if let Some((fourth_view, fourth_owner, _)) = fourth_member {
+                            validate_nested_member_composite_manifest(
+                                manifest,
+                                manifest_owner,
+                                manifest_digest,
+                                nested_view,
+                                nested_owner,
+                                encoded_view,
+                                expected_owner,
+                                &[(third_view, third_owner), (fourth_view, fourth_owner)],
+                                anonymous_scope_map_view,
+                                right_anonymous_scope_map_view,
+                            )?;
+                        } else {
+                            validate_nested_member_composite_manifest(
+                                manifest,
+                                manifest_owner,
+                                manifest_digest,
+                                nested_view,
+                                nested_owner,
+                                encoded_view,
+                                expected_owner,
+                                &[(third_view, third_owner)],
+                                anonymous_scope_map_view,
+                                right_anonymous_scope_map_view,
+                            )?;
+                        }
+                        buffers
+                    } else if let Some((third_view, third_owner, _)) = third_member {
+                        let buffers = retained_direct_buffers(view, owner, digest)?;
+                        if let Some((fourth_view, fourth_owner, _)) = fourth_member {
+                            validate_direct_member_composite_manifest(
+                                manifest,
+                                manifest_owner,
+                                manifest_digest,
+                                [
+                                    (
+                                        encoded_view,
+                                        expected_owner,
+                                        included_root_ids_view,
+                                        excluded_root_ids_view,
+                                    ),
+                                    (view, owner, None, right_excluded_root_ids_view),
+                                    (third_view, third_owner, None, third_excluded_root_ids_view),
+                                    (
+                                        fourth_view,
+                                        fourth_owner,
+                                        None,
+                                        fourth_excluded_root_ids_view,
+                                    ),
+                                ],
+                            )?;
+                        } else {
+                            validate_direct_member_composite_manifest(
+                                manifest,
+                                manifest_owner,
+                                manifest_digest,
+                                [
+                                    (
+                                        encoded_view,
+                                        expected_owner,
+                                        included_root_ids_view,
+                                        excluded_root_ids_view,
+                                    ),
+                                    (view, owner, None, right_excluded_root_ids_view),
+                                    (third_view, third_owner, None, third_excluded_root_ids_view),
+                                ],
+                            )?;
+                        }
+                        buffers
+                    } else {
+                        let buffers = retained_direct_buffers(view, owner, digest)?;
+                        validate_two_member_composite_manifest(
+                            manifest,
+                            manifest_owner,
+                            manifest_digest,
+                            encoded_view,
+                            expected_owner,
+                            view,
+                            owner,
+                            included_root_ids_view,
+                            excluded_root_ids_view,
+                            right_excluded_root_ids_view,
+                            anonymous_scope_map_view,
+                            right_anonymous_scope_map_view,
+                        )?;
+                        buffers
+                    }
+                } else {
+                    retained_overlay_delta_buffers(
+                        view,
+                        owner,
+                        digest,
+                        encoded_view,
+                        expected_owner,
+                        excluded_root_ids_view,
+                    )?
+                };
                 (Some(buffers), Some((max_work, max_workspace_bytes)))
             }
             _ => {
@@ -2937,6 +2953,7 @@ type CompositeMemberBinding<'a, 'py> = (
     &'a Bound<'py, PyAny>,
     &'a Bound<'py, PyAny>,
     Option<&'a Bound<'py, PyAny>>,
+    Option<&'a Bound<'py, PyAny>>,
 );
 
 fn validate_direct_member_composite_manifest<const N: usize>(
@@ -3008,7 +3025,7 @@ fn validate_direct_member_composite_manifest<const N: usize>(
         let source = required_attribute(&segment, "source")?;
         let member_index = members
             .iter()
-            .position(|(view, _, _)| source.is(*view))
+            .position(|(view, _, _, _)| source.is(*view))
             .ok_or_else(|| {
                 encoded_buffer_error("encoded composite member lost its retained source identity")
             })?;
@@ -3018,7 +3035,7 @@ fn validate_direct_member_composite_manifest<const N: usize>(
             ));
         }
         matched[member_index] = true;
-        let (_, member_owner, expected_exclude) = members[member_index];
+        let (_, member_owner, expected_include, expected_exclude) = members[member_index];
         if !required_attribute(&segment, "owner")?.is(member_owner) {
             return Err(encoded_buffer_error(
                 "encoded composite member lost its retained owner identity",
@@ -3031,15 +3048,27 @@ fn validate_direct_member_composite_manifest<const N: usize>(
         )?;
         let root_ids = required_attribute(&segment, "root_ids")?;
         let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
-        match expected_exclude {
-            None => {
+        match (expected_include, expected_exclude) {
+            (None, None) => {
                 if posting_mode != POSTINGS_ALL || root_id_bytes != 0 {
                     return Err(EncodedDirectUnsupportedError::new_err(format!(
                         "bounded {N}-member composite requires ALL selection on every unposted member",
                     )));
                 }
             }
-            Some(expected) => {
+            (Some(expected), None) => {
+                if posting_mode != POSTINGS_INCLUDE || root_id_bytes == 0 {
+                    return Err(EncodedDirectUnsupportedError::new_err(format!(
+                        "bounded {N}-member composite requires one nonempty INCLUDE table",
+                    )));
+                }
+                if !root_ids.is(expected) {
+                    return Err(encoded_buffer_error(
+                        "encoded composite member lost its exact INCLUDE table",
+                    ));
+                }
+            }
+            (None, Some(expected)) => {
                 if posting_mode != POSTINGS_EXCLUDE || root_id_bytes == 0 {
                     return Err(EncodedDirectUnsupportedError::new_err(format!(
                         "bounded {N}-member composite requires nonempty EXCLUDE tables",
@@ -3050,6 +3079,11 @@ fn validate_direct_member_composite_manifest<const N: usize>(
                         "encoded composite member lost its exact EXCLUDE table",
                     ));
                 }
+            }
+            (Some(_), Some(_)) => {
+                return Err(encoded_buffer_error(
+                    "encoded composite member cannot combine INCLUDE and EXCLUDE tables",
+                ));
             }
         }
         let scope_map = required_attribute(&segment, "anonymous_scope_map")?;

@@ -1424,20 +1424,37 @@ def _resolve_private_multi_member_composite(
     *,
     member_count: int,
 ) -> tuple[tuple[_CompositeRow, ...], int | None, int | None] | None:
-    """Resolve one bounded direct-member ALL/EXCLUDE composite."""
+    """Resolve one bounded direct-member composite without flattening.
+
+    Three- and four-member composites admit either source-local ``ALL``/
+    ``EXCLUDE`` selection or exactly one ``INCLUDE`` selector with every other
+    member ``ALL``.  The included member is bound first because the fixed
+    private ABI carries its one inclusion cursor on the first merge table.
+    """
 
     if type(member_count) is not int or member_count not in {3, 4}:
         return None
-    rows = _resolve_private_direct_composite_rows(lease, member_count=member_count)
-    if rows is None or any(included is not None for _source, included, _excluded, _map in rows):
+    resolved_rows = _resolve_private_direct_composite_rows(lease, member_count=member_count)
+    if resolved_rows is None:
         return None
+    rows = list(resolved_rows)
+    included_indexes = [
+        index
+        for index, (_source, included, _excluded, _map) in enumerate(rows)
+        if included is not None
+    ]
+    exclude_count = sum(excluded is not None for _source, _included, excluded, _map in rows)
+    if len(included_indexes) > 1 or (included_indexes and exclude_count):
+        return None
+    if included_indexes and included_indexes[0] != 0:
+        rows.insert(0, rows.pop(included_indexes[0]))
     validation_work = _private_encoded_lease_validation_work(lease) + sum(
         _private_encoded_lease_validation_work(source)
         for source, _included, _excluded, _map in rows
     )
     _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
     return (
-        rows,
+        tuple(rows),
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
     )
@@ -1453,12 +1470,13 @@ def _resolve_private_three_member_composite(
         memoryview | None,
         memoryview | None,
         memoryview | None,
+        memoryview | None,
         int | None,
         int | None,
     ]
     | None
 ):
-    """Resolve three exact direct members with source-local ALL/EXCLUDE selection."""
+    """Resolve three direct members with bounded source-local selection."""
 
     resolved = _resolve_private_multi_member_composite(lease, member_count=3)
     if resolved is None:
@@ -1466,13 +1484,14 @@ def _resolve_private_three_member_composite(
     rows, max_work, max_workspace = resolved
     if len(rows) != 3:
         return None
-    first, _first_include, first_excluded, _first_map = rows[0]
+    first, first_include, first_excluded, _first_map = rows[0]
     second, _second_include, second_excluded, _second_map = rows[1]
     third, _third_include, third_excluded, _third_map = rows[2]
     return (
         first,
         second,
         third,
+        first_include,
         first_excluded,
         second_excluded,
         third_excluded,
@@ -1493,12 +1512,13 @@ def _resolve_private_four_member_composite(
         memoryview | None,
         memoryview | None,
         memoryview | None,
+        memoryview | None,
         int | None,
         int | None,
     ]
     | None
 ):
-    """Resolve four exact direct members with source-local ALL/EXCLUDE selection."""
+    """Resolve four direct members with bounded source-local selection."""
 
     resolved = _resolve_private_multi_member_composite(lease, member_count=4)
     if resolved is None:
@@ -1506,7 +1526,7 @@ def _resolve_private_four_member_composite(
     rows, max_work, max_workspace = resolved
     if len(rows) != 4:
         return None
-    first, _first_include, first_excluded, _first_map = rows[0]
+    first, first_include, first_excluded, _first_map = rows[0]
     second, _second_include, second_excluded, _second_map = rows[1]
     third, _third_include, third_excluded, _third_map = rows[2]
     fourth, _fourth_include, fourth_excluded, _fourth_map = rows[3]
@@ -1515,6 +1535,7 @@ def _resolve_private_four_member_composite(
         second,
         third,
         fourth,
+        first_include,
         first_excluded,
         second_excluded,
         third_excluded,
