@@ -33,10 +33,11 @@ role-state behavior, selected annotation rules, and diagnostics enumerated in th
 report. Kernel v30 additionally retains an independent exact-direct root table and joins canonical
 root `AnnotationAssertion` identities back to closure nodes before edge limits or publication, so
 visible multi-document annotations preserve root-only selection and closure-wide blank IDs without
-structural copying. Property-chain emission, other projecting constructors, segment traversal, and
-sliced, mmap, or non-bytes exporters remain unsupported. The safe generic PyO3 buffer API is
-unavailable at the current `abi3-py310` floor, so general mmap ownership remains an explicit design
-blocker. The pinned PyO3 0.28.3 `buffer` module is wholly gated on either a non-limited build or
+structural copying. Property-chain emission, remaining projecting constructors, and general
+segment traversal, plus sliced, mmap, or non-bytes exporters, remain unsupported. The safe generic
+PyO3 buffer API is unavailable at the current `abi3-py310` floor, so general mmap ownership remains
+an explicit design blocker. The pinned PyO3 0.28.3 `buffer` module is wholly gated on either a
+non-limited build or
 `Py_3_11`, and its FFI exports `Py_buffer`, `PyObject_GetBuffer`, and `PyBuffer_Release` only under
 `Py_3_11`; the actual `abi3-py310` extension build sets `Py_LIMITED_API` and stops its version cfgs
 at `Py_3_10`. This matches CPython's designation of the complete buffer structure and lease API as
@@ -45,8 +46,13 @@ unchanged, introduces one exporter-neutral validated-buffer candidate and one is
 storage seam for a future `PyUntypedBuffer` variant, and rejects valid readonly C-contiguous
 general exporters there without copying. Focused mmap cleanup and writable, strided,
 multidimensional, and signed-format cases prove typed fail-closed behavior before retention or
-output. Kernel v31 additionally rejects cycles in nested annotation metadata with an iterative
-preflight over both closure and retained root tables. This closes a hostile structural-columns
+output. Kernel v120 admits one further bounded segmented family without changing that buffer or
+capability policy: a nested one-local-root overlay composite may carry one source-local base
+`EXCLUDE` while its distinct direct sibling independently carries one outer `EXCLUDE`. Both exact
+posting exporters remain attached to their own source tables and are searched in place; selection
+on the nested member, `INCLUDE`, scope remapping, a second direct sibling, and broader recursive
+plans still fail closed. Kernel v31 additionally rejects cycles in nested annotation metadata with
+an iterative preflight over both closure and retained root tables. This closes a hostile structural-columns
 case without advertising the encoded compiler or changing valid projection output. Exact installed
 diamond and cyclic import cases additionally prove that the v30 join's canonical root subset and
 closure deduplication remain correct beyond a one-level import. The broad Python structural decoder

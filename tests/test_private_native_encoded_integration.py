@@ -9920,6 +9920,87 @@ def _nested_overlay_member_subclass_composite(
     )
 
 
+def _forged_nested_overlay_member_dual_exclude_subclass_composite(
+    provider_backend: pyowl_core.BackendPreference,
+) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease]:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:DropBase :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)", backend=provider_backend),
+    )
+    direct = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:C :Top) SubClassOf(:DropSibling :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed_base = next(
+        axiom
+        for axiom in base.iter_axioms()
+        if cast(Any, axiom).sub_class.iri.value.endswith("#DropBase")
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition.iter_axioms())),
+            remove_axioms=cast(Any, {removed_base}),
+        ),
+    )
+    storage_composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, direct),
+    )
+    top_lease = select_private_direct_ingestion(
+        storage_composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    segments = list(top_lease.segments)
+    sibling_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if tuple(cast(Any, child).role for child in cast(Any, cast(Any, segment).source).segments)
+        == (1,)
+    )
+    # Direct roots retain parser encounter positions: C=1, Shared=2,
+    # DropSibling=3.  Forge the valid canonical outer posting because the
+    # current public composition helper materializes this nested-removal
+    # request instead of publishing the otherwise valid segmented plan.
+    segments[sibling_index] = replace(
+        cast(Any, segments[sibling_index]),
+        posting_mode=2,
+        root_ids=memoryview((3).to_bytes(4, "little")),
+    )
+    top_encoded = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(segments),
+    )
+    top_lease = replace(
+        top_lease,
+        encoded_view=top_encoded,
+        segments=tuple(segments),
+    )
+    semantic_direct = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:C :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    semantic_composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, semantic_direct),
+    )
+    return semantic_composite, top_lease
+
+
 def _scope_mapped_nested_overlay_composite(
     provider_backend: pyowl_core.BackendPreference,
     *,
@@ -15686,6 +15767,150 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+def test_hidden_iterator_merges_nested_and_sibling_exclusions_in_one_native_pass(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    composite, top_lease = _forged_nested_overlay_member_dual_exclude_subclass_composite(
+        provider_backend
+    )
+    top_encoded = cast(Any, top_lease.encoded_view)
+    assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
+    assert sorted(segment.posting_mode for segment in top_encoded.segments) == [0, 2]
+    assert sorted(segment.root_ids.nbytes for segment in top_encoded.segments) == [0, 4]
+    nested_encoded = next(
+        cast(Any, segment).source
+        for segment in top_encoded.segments
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (2, 3)
+    )
+    direct_encoded = next(
+        cast(Any, segment).source
+        for segment in top_encoded.segments
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (1,)
+    )
+    sibling_segment = next(
+        cast(Any, segment)
+        for segment in top_encoded.segments
+        if cast(Any, segment).source is direct_encoded
+    )
+    nested_base_encoded = cast(Any, nested_encoded.segments[0]).source
+    assert nested_encoded.segments[0].posting_mode == 2
+    assert nested_encoded.segments[0].root_ids.nbytes == 4
+    assert sibling_segment.posting_mode == 2
+    assert sibling_segment.root_ids.nbytes == 4
+    expected_buffer_bytes = sum(
+        value.nbytes
+        for encoded in (top_encoded, nested_encoded, direct_encoded, nested_base_encoded)
+        for value in encoded.buffers.values()
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("nested dual-EXCLUDE composite reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert (
+        actual
+        == expected
+        == [
+            Edge(
+                f"urn:native-integration#{source}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for source in ["A", "B", "C", "Shared"]
+        ]
+    )
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics == ()
+    assert len(captured) == len(captured_compilers) == 1
+    compilation = captured[0]
+    compiler = captured_compilers[0]
+    assert compilation.nested_member_lease is compilation.local_delta_lease
+    assert compilation.local_delta_lease is not None
+    nested_base_segment = cast(Any, compilation.local_delta_lease.segments[0])
+    assert compilation.excluded_root_ids is nested_base_segment.root_ids
+    assert compilation.third_excluded_root_ids is sibling_segment.root_ids
+    assert compilation.included_root_ids is None
+    assert compilation.right_excluded_root_ids is None
+    assert compilation.fourth_excluded_root_ids is None
+    assert compilation.native_statistics.roots == 4
+    assert compilation.native_statistics.subclasses == 4
+    assert compilation.native_statistics.edges == 4
+    assert compiler.retained_buffer_count == 35
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 44
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 35
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 44
+    assert ingestion.counters["encoded_referenced_view_count"] == 3
+    assert ingestion.counters["encoded_segment_count"] == 6
+    assert ingestion.counters["encoded_posting_bytes"] == 8
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=4,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
 @pytest.mark.parametrize(
     (
         "assertion",
@@ -16462,6 +16687,184 @@ def test_nested_overlay_member_accepts_source_local_all_selection(
     assert ingestion.counters["native_compiled_edges"] == 5
 
 
+def test_nested_dual_exclude_preserves_identity_and_rejects_hostile_selectors() -> None:
+    _composite, top_lease = _forged_nested_overlay_member_dual_exclude_subclass_composite(
+        pyowl_core.BackendPreference.PYTHON
+    )
+    resolved = _resolve_private_nested_overlay_composite(top_lease)
+    assert resolved is not None
+    (
+        base_lease,
+        nested_lease,
+        direct_lease,
+        base_excluded,
+        sibling_excluded,
+        max_work,
+        max_workspace,
+    ) = resolved
+    assert base_excluded is not None
+    assert sibling_excluded is not None
+    assert max_work is not None
+    assert max_workspace is not None
+
+    def compiler(
+        *,
+        manifest: EncodedStructuralLease = top_lease,
+        direct_selector: memoryview = sibling_excluded,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=direct_lease,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=manifest,
+            excluded_root_ids=base_excluded,
+            third_excluded_root_ids=direct_selector,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+
+    valid = compiler()
+    edges, statistics = valid.compile_batch(
+        bidirectional=False,
+        max_edges=4,
+        max_iri_bytes=1024,
+    )
+    assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == ["A", "B", "C", "Shared"]
+    assert statistics.roots == statistics.subclasses == statistics.edges == 4
+    assert valid.retained_buffer_count == 35
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="lost its exact EXCLUDE table",
+    ):
+        compiler(direct_selector=memoryview(bytes(sibling_excluded)))
+
+    segments = list(top_lease.segments)
+    nested_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).source is nested_lease.encoded_view
+    )
+    sibling_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).source is direct_lease.encoded_view
+    )
+
+    nested_selected = list(segments)
+    nested_selected[nested_index] = replace(
+        cast(Any, nested_selected[nested_index]),
+        posting_mode=2,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    nested_selected_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(nested_selected),
+    )
+    nested_selected_lease = replace(
+        top_lease,
+        encoded_view=nested_selected_view,
+        segments=tuple(nested_selected),
+    )
+    assert _resolve_private_nested_overlay_composite(nested_selected_lease) is None
+
+    sibling_included = list(segments)
+    sibling_included[sibling_index] = replace(
+        cast(Any, sibling_included[sibling_index]),
+        posting_mode=1,
+    )
+    sibling_included_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(sibling_included),
+    )
+    sibling_included_lease = replace(
+        top_lease,
+        encoded_view=sibling_included_view,
+        segments=tuple(sibling_included),
+    )
+    assert _resolve_private_nested_overlay_composite(sibling_included_lease) is None
+
+    out_of_range = memoryview((99).to_bytes(4, "little"))
+    malformed_segments = list(segments)
+    malformed_segments[sibling_index] = replace(
+        cast(Any, malformed_segments[sibling_index]),
+        root_ids=out_of_range,
+    )
+    malformed_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(malformed_segments),
+    )
+    malformed_lease = replace(
+        top_lease,
+        encoded_view=malformed_view,
+        segments=tuple(malformed_segments),
+    )
+    malformed_resolved = _resolve_private_nested_overlay_composite(malformed_lease)
+    assert malformed_resolved is not None
+    malformed = compiler(
+        manifest=malformed_lease,
+        direct_selector=out_of_range,
+    )
+    with pytest.raises(SnapshotCompatibilityError, match=r"excluded[_-]root"):
+        malformed.compile_batch(
+            bidirectional=False,
+            max_edges=4,
+            max_iri_bytes=1024,
+        )
+    assert malformed.state == "failed"
+
+
+def test_nested_dual_exclude_member_views_live_until_compiler_release() -> None:
+    def create() -> tuple[
+        NativeEncodedDirectCompiler,
+        tuple[weakref.ReferenceType[Any], ...],
+    ]:
+        _composite, top_lease = _forged_nested_overlay_member_dual_exclude_subclass_composite(
+            pyowl_core.BackendPreference.PYTHON
+        )
+        resolved = _resolve_private_nested_overlay_composite(top_lease)
+        assert resolved is not None
+        (
+            base_lease,
+            nested_lease,
+            direct_lease,
+            base_excluded,
+            sibling_excluded,
+            max_work,
+            max_workspace,
+        ) = resolved
+        assert base_excluded is not None
+        assert sibling_excluded is not None
+        assert max_work is not None
+        assert max_workspace is not None
+        compiler = prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=direct_lease,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=top_lease,
+            excluded_root_ids=base_excluded,
+            third_excluded_root_ids=sibling_excluded,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+        return (
+            compiler,
+            tuple(
+                weakref.ref(lease.encoded_view)
+                for lease in (top_lease, base_lease, nested_lease, direct_lease)
+            ),
+        )
+
+    compiler, retained_view_refs = create()
+    gc.collect()
+    assert all(reference() is not None for reference in retained_view_refs)
+    del compiler
+    gc.collect()
+    assert all(reference() is None for reference in retained_view_refs)
+
+
 @pytest.mark.parametrize(
     "provider_backend",
     [
@@ -16849,10 +17252,12 @@ def test_nested_overlay_member_preserves_identity_cancel_limits_and_retry(
         nested_lease,
         direct_lease,
         excluded,
+        direct_excluded,
         max_work,
         max_workspace,
     ) = resolved
     assert excluded is not None
+    assert direct_excluded is None
     assert max_work is not None
     assert max_workspace is not None
     nested_base_segment = cast(Any, nested_lease.segments[0])

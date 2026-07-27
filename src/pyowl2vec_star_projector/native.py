@@ -36,7 +36,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 119
+ENCODED_DIRECT_KERNEL_VERSION = 120
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1257,6 +1257,7 @@ def prepare_native_encoded_compilation(
                         local_delta_lease,
                         third_member_lease,
                         excluded_root_ids,
+                        third_excluded_root_ids,
                         canonical_work_limit,
                         canonical_workspace_limit,
                     ) = resolved_nested
@@ -1990,10 +1991,12 @@ def prepare_native_encoded_direct(
     if nested_member_lease is not None and (
         included_root_ids is not None
         or right_excluded_root_ids is not None
-        or third_excluded_root_ids is not None
         or fourth_excluded_root_ids is not None
+        or (fourth_member_lease is not None and third_excluded_root_ids is not None)
     ):
-        raise ValueError("nested composite member requires outer ALL root selection")
+        raise ValueError(
+            "nested composite member permits outer EXCLUDE only with one direct sibling"
+        )
     if included_root_ids is not None and merge_manifest_lease is None:
         raise ValueError("INCLUDE root selection requires a composite manifest lease")
     if right_excluded_root_ids is not None and merge_manifest_lease is None:

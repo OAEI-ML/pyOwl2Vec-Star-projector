@@ -42,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 119;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 120;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -1527,7 +1527,10 @@ impl EncodedDirectCompiler {
                                     nested_owner,
                                     encoded_view,
                                     expected_owner,
-                                    &[(third_view, third_owner), (fourth_view, fourth_owner)],
+                                    &[
+                                        (third_view, third_owner, third_excluded_root_ids_view),
+                                        (fourth_view, fourth_owner, fourth_excluded_root_ids_view),
+                                    ],
                                     anonymous_scope_map_view,
                                     right_anonymous_scope_map_view,
                                 )?;
@@ -1540,7 +1543,7 @@ impl EncodedDirectCompiler {
                                     nested_owner,
                                     encoded_view,
                                     expected_owner,
-                                    &[(third_view, third_owner)],
+                                    &[(third_view, third_owner, third_excluded_root_ids_view)],
                                     anonymous_scope_map_view,
                                     right_anonymous_scope_map_view,
                                 )?;
@@ -1697,11 +1700,11 @@ impl EncodedDirectCompiler {
         if nested_member.is_some()
             && (included_root_ids.is_some()
                 || right_excluded_root_ids.is_some()
-                || third_excluded_root_ids.is_some()
-                || fourth_excluded_root_ids.is_some())
+                || fourth_excluded_root_ids.is_some()
+                || (fourth_member.is_some() && third_excluded_root_ids.is_some()))
         {
             return Err(encoded_buffer_error(
-                "encoded nested composite member requires outer ALL root selection",
+                "encoded nested composite member permits outer EXCLUDE only with one direct sibling",
             ));
         }
         if anonymous_scope_map.is_some() {
@@ -3507,6 +3510,12 @@ type CompositeMemberBinding<'a, 'py> = (
     Option<&'a Bound<'py, PyAny>>,
 );
 
+type NestedDirectMemberBinding<'a, 'py> = (
+    &'a Bound<'py, PyAny>,
+    &'a Bound<'py, PyAny>,
+    Option<&'a Bound<'py, PyAny>>,
+);
+
 fn validate_direct_member_composite_manifest(
     encoded_view: &Bound<'_, PyAny>,
     expected_owner: &Bound<'_, PyAny>,
@@ -3788,7 +3797,7 @@ fn validate_nested_member_composite_manifest(
     nested_owner: &Bound<'_, PyAny>,
     base_view: &Bound<'_, PyAny>,
     base_owner: &Bound<'_, PyAny>,
-    direct_members: &[(&Bound<'_, PyAny>, &Bound<'_, PyAny>)],
+    direct_members: &[NestedDirectMemberBinding<'_, '_>],
     anonymous_scope_map: Option<&Bound<'_, PyAny>>,
     right_anonymous_scope_map: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
@@ -3813,7 +3822,9 @@ fn validate_nested_member_composite_manifest(
             "bounded nested-member composite requires distinct retained sources",
         ));
     }
-    for (index, (direct_view, direct_owner)) in direct_members.iter().enumerate() {
+    for (index, (direct_view, direct_owner, _excluded_root_ids)) in
+        direct_members.iter().enumerate()
+    {
         if direct_view.is(nested_view)
             || direct_view.is(base_view)
             || direct_owner.is(nested_owner)
@@ -3823,7 +3834,8 @@ fn validate_nested_member_composite_manifest(
                 "bounded nested-member composite requires distinct retained sources",
             ));
         }
-        for (prior_view, prior_owner) in direct_members.iter().take(index) {
+        for (prior_view, prior_owner, _prior_excluded_root_ids) in direct_members.iter().take(index)
+        {
             if direct_view.is(*prior_view) || direct_owner.is(*prior_owner) {
                 return Err(EncodedDirectUnsupportedError::new_err(
                     "bounded nested-member composite requires distinct retained sources",
@@ -3881,10 +3893,10 @@ fn validate_nested_member_composite_manifest(
         let (member_index, member_owner) = if source.is(nested_view) {
             (0, nested_owner)
         } else {
-            let Some((index, (_view, owner))) = direct_members
+            let Some((index, (_view, owner, _excluded_root_ids))) = direct_members
                 .iter()
                 .enumerate()
-                .find(|(_index, (view, _owner))| source.is(*view))
+                .find(|(_index, (view, _owner, _excluded_root_ids))| source.is(*view))
             else {
                 return Err(encoded_buffer_error(
                     "encoded nested composite member lost its retained source identity",
@@ -3903,20 +3915,38 @@ fn validate_nested_member_composite_manifest(
                 "encoded nested composite member lost its retained owner identity",
             ));
         }
-        if exact_nonnegative_integer(
+        let posting_mode = exact_nonnegative_integer(
             &required_attribute(&segment, "posting_mode")?,
             "segment posting_mode",
-        )? != POSTINGS_ALL
-        {
-            return Err(EncodedDirectUnsupportedError::new_err(
-                "bounded nested-member composite requires outer ALL selection",
-            ));
-        }
+        )?;
         let root_ids = required_attribute(&segment, "root_ids")?;
-        if checked_memoryview_length(&root_ids, "root_ids")? != 0 {
-            return Err(EncodedDirectUnsupportedError::new_err(
-                "bounded nested-member composite does not support outer postings",
-            ));
+        let root_id_bytes = checked_memoryview_length(&root_ids, "root_ids")?;
+        let expected_exclude = if member_index == 0 {
+            None
+        } else {
+            direct_members[member_index - 1].2
+        };
+        match expected_exclude {
+            None if posting_mode == POSTINGS_ALL && root_id_bytes == 0 => {}
+            Some(expected)
+                if posting_mode == POSTINGS_EXCLUDE
+                    && root_id_bytes != 0
+                    && root_ids.is(expected) => {}
+            Some(_) if posting_mode != POSTINGS_EXCLUDE || root_id_bytes == 0 => {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "bounded nested-member composite requires a nonempty direct-sibling EXCLUDE table",
+                ));
+            }
+            Some(_) => {
+                return Err(encoded_buffer_error(
+                    "encoded nested direct sibling lost its exact EXCLUDE table",
+                ));
+            }
+            None => {
+                return Err(EncodedDirectUnsupportedError::new_err(
+                    "bounded nested-member composite permits outer EXCLUDE only on direct siblings",
+                ));
+            }
         }
         let expected_scope_map = match member_index {
             0 => anonymous_scope_map,
