@@ -24,6 +24,7 @@ use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
     prepare_dynamic_composite_batches_uncommitted,
+    prepare_dynamic_composite_batches_with_root_uncommitted,
     prepare_single_overlay_delta_batches_uncommitted, DirectColumns, DirectCompileOptions,
     DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState,
     PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED,
@@ -41,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 114;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 115;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -597,6 +598,21 @@ struct RetainedCompositeMember {
     included_root_ids: Option<RetainedDirectBuffer>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
     anonymous_scope_map: Option<RetainedDirectBuffer>,
+    root: Option<RetainedCompositeRootMember>,
+}
+
+struct RetainedCompositeRootMember {
+    _view: Py<PyAny>,
+    _owner: Py<PyAny>,
+    buffers: Vec<RetainedDirectBuffer>,
+    included_root_ids: Option<RetainedDirectBuffer>,
+    excluded_root_ids: Option<RetainedDirectBuffer>,
+    anonymous_scope_map: Option<RetainedDirectBuffer>,
+}
+
+struct DynamicCompositeColumns<'a> {
+    closure: Vec<DirectColumns<'a>>,
+    root: Option<Vec<DirectColumns<'a>>>,
 }
 
 #[pyclass(module = "pyowl2vec_star_projector._native", frozen)]
@@ -617,6 +633,8 @@ struct EncodedDirectCompiler {
     _nested_member_owner: Option<Py<PyAny>>,
     _merge_manifest_view: Option<Py<PyAny>>,
     _merge_manifest_owner: Option<Py<PyAny>>,
+    _root_merge_manifest_view: Option<Py<PyAny>>,
+    _root_merge_manifest_owner: Option<Py<PyAny>>,
     composite_members: Option<Vec<RetainedCompositeMember>>,
     canonical_merge_limits: Option<(usize, usize)>,
     included_root_ids: Option<RetainedDirectBuffer>,
@@ -744,7 +762,7 @@ impl EncodedDirectCompiler {
     fn dynamic_composite_columns<'a>(
         &'a self,
         base_columns: DirectColumns<'a>,
-    ) -> PyResult<Option<Vec<DirectColumns<'a>>>> {
+    ) -> PyResult<Option<DynamicCompositeColumns<'a>>> {
         let Some(members) = self.composite_members.as_ref() else {
             return Ok(None);
         };
@@ -782,7 +800,45 @@ impl EncodedDirectCompiler {
                     .with_anonymous_scope_map(anonymous_scope_map),
             );
         }
-        Ok(Some(columns))
+        let has_root = members.iter().any(|member| member.root.is_some());
+        let root = if has_root {
+            let mut root_columns = Vec::new();
+            root_columns.try_reserve_exact(members.len()).map_err(|_| {
+                PyMemoryError::new_err("encoded dynamic composite ROOT plan allocation failed")
+            })?;
+            for member in members {
+                let root = member.root.as_ref().ok_or_else(|| {
+                    PyRuntimeError::new_err("encoded dynamic composite lost one paired ROOT member")
+                })?;
+                let slices: [&[u8]; BUFFER_COUNT] =
+                    std::array::from_fn(|buffer| root.buffers[buffer].as_slice());
+                let included_root_ids = root
+                    .included_root_ids
+                    .as_ref()
+                    .map_or(&[][..], RetainedDirectBuffer::as_slice);
+                let excluded_root_ids = root
+                    .excluded_root_ids
+                    .as_ref()
+                    .map_or(&[][..], RetainedDirectBuffer::as_slice);
+                let anonymous_scope_map = root
+                    .anonymous_scope_map
+                    .as_ref()
+                    .map_or(&[][..], RetainedDirectBuffer::as_slice);
+                root_columns.push(
+                    DirectColumns::from_ordered(slices)
+                        .with_included_root_ids(included_root_ids)
+                        .with_excluded_root_ids(excluded_root_ids)
+                        .with_anonymous_scope_map(anonymous_scope_map),
+                );
+            }
+            Some(root_columns)
+        } else {
+            None
+        };
+        Ok(Some(DynamicCompositeColumns {
+            closure: columns,
+            root,
+        }))
     }
 
     fn prepare_batches_owned(
@@ -867,15 +923,16 @@ impl EncodedDirectCompiler {
         };
         let result = guarded(|| {
             py.detach(|| {
-                if let Some(composite_columns) = dynamic_composite_columns.as_deref() {
+                if let Some(composite_columns) = dynamic_composite_columns.as_ref() {
                     let (max_work, max_workspace_bytes) =
                         self.canonical_merge_limits.ok_or_else(|| {
                             PyRuntimeError::new_err(
                                 "encoded dynamic composite lost its canonical limits",
                             )
                         })?;
-                    prepare_dynamic_composite_batches_uncommitted(
-                        composite_columns,
+                    prepare_dynamic_composite_batches_with_root_uncommitted(
+                        &composite_columns.closure,
+                        composite_columns.root.as_deref(),
                         options,
                         &self.state,
                         None,
@@ -980,6 +1037,10 @@ impl EncodedDirectCompiler {
         merge_manifest_owner=None,
         merge_manifest_descriptor_sha256=None,
         composite_members=None,
+        root_merge_manifest_view=None,
+        root_merge_manifest_owner=None,
+        root_merge_manifest_descriptor_sha256=None,
+        composite_root_members=None,
         included_root_ids=None,
         right_excluded_root_ids=None,
         third_member_view=None,
@@ -1013,6 +1074,10 @@ impl EncodedDirectCompiler {
         merge_manifest_owner: Option<&Bound<'_, PyAny>>,
         merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
         composite_members: Option<&Bound<'_, PyAny>>,
+        root_merge_manifest_view: Option<&Bound<'_, PyAny>>,
+        root_merge_manifest_owner: Option<&Bound<'_, PyAny>>,
+        root_merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        composite_root_members: Option<&Bound<'_, PyAny>>,
         included_root_ids: Option<&Bound<'_, PyAny>>,
         right_excluded_root_ids: Option<&Bound<'_, PyAny>>,
         third_member_view: Option<&Bound<'_, PyAny>>,
@@ -1096,7 +1161,23 @@ impl EncodedDirectCompiler {
                 ));
             }
         };
+        let root_merge_manifest = match (
+            root_merge_manifest_view,
+            root_merge_manifest_owner,
+            root_merge_manifest_descriptor_sha256,
+        ) {
+            (None, None, None) => None,
+            (Some(view), Some(owner), Some(digest)) => Some((view, owner, digest)),
+            _ => {
+                return Err(encoded_buffer_error(
+                    "encoded composite ROOT manifest view, owner, and descriptor digest must be supplied together",
+                ));
+            }
+        };
         let dynamic_composite_inputs = composite_members
+            .map(parse_dynamic_composite_members)
+            .transpose()?;
+        let dynamic_composite_root_inputs = composite_root_members
             .map(parse_dynamic_composite_members)
             .transpose()?;
         let third_member = match (
@@ -1206,6 +1287,54 @@ impl EncodedDirectCompiler {
                 &bindings,
                 true,
             )?;
+            let root_inputs = dynamic_composite_root_inputs.as_deref();
+            if let Some(root_inputs) = root_inputs {
+                if root_inputs.len() != inputs.len() {
+                    return Err(encoded_buffer_error(
+                        "encoded composite ROOT plan must pair every closure member",
+                    ));
+                }
+                let Some((root_manifest, root_manifest_owner, root_manifest_digest)) =
+                    root_merge_manifest
+                else {
+                    return Err(encoded_buffer_error(
+                        "encoded composite ROOT plan requires its exact manifest",
+                    ));
+                };
+                let mut root_bindings = Vec::new();
+                root_bindings
+                    .try_reserve_exact(root_inputs.len())
+                    .map_err(|_| {
+                        PyMemoryError::new_err("encoded composite ROOT binding allocation failed")
+                    })?;
+                for input in root_inputs {
+                    root_bindings.push((
+                        &input.view,
+                        &input.owner,
+                        input.included_root_ids.as_ref(),
+                        input.excluded_root_ids.as_ref(),
+                        input.anonymous_scope_map.as_ref(),
+                    ));
+                }
+                validate_direct_member_composite_manifest(
+                    root_manifest,
+                    root_manifest_owner,
+                    root_manifest_digest,
+                    &root_bindings,
+                    true,
+                )?;
+                validate_paired_composite_manifests(
+                    manifest,
+                    manifest_owner,
+                    root_manifest,
+                    root_manifest_owner,
+                    inputs.len(),
+                )?;
+            } else if root_merge_manifest.is_some() {
+                return Err(encoded_buffer_error(
+                    "encoded composite ROOT manifest requires its member plan",
+                ));
+            }
 
             let mut retained = Vec::new();
             retained.try_reserve_exact(inputs.len()).map_err(|_| {
@@ -1232,6 +1361,57 @@ impl EncodedDirectCompiler {
                         &input.descriptor_sha256,
                     )?)
                 };
+                let root = root_inputs
+                    .map(|root_inputs| {
+                        let root_input = &root_inputs[index];
+                        if root_input.included_root_ids.is_some()
+                            && root_input.excluded_root_ids.is_some()
+                        {
+                            return Err(encoded_buffer_error(
+                                "encoded composite ROOT member cannot combine INCLUDE and EXCLUDE tables",
+                            ));
+                        }
+                        Ok(RetainedCompositeRootMember {
+                            _view: root_input.view.clone().unbind(),
+                            _owner: root_input.owner.clone().unbind(),
+                            buffers: retained_direct_buffers(
+                                &root_input.view,
+                                &root_input.owner,
+                                &root_input.descriptor_sha256,
+                            )?,
+                            included_root_ids: root_input
+                                .included_root_ids
+                                .as_ref()
+                                .map(|value| {
+                                    retained_exact_bytes_buffer(
+                                        value,
+                                        "composite ROOT included_root_ids",
+                                    )
+                                })
+                                .transpose()?,
+                            excluded_root_ids: root_input
+                                .excluded_root_ids
+                                .as_ref()
+                                .map(|value| {
+                                    retained_exact_bytes_buffer(
+                                        value,
+                                        "composite ROOT excluded_root_ids",
+                                    )
+                                })
+                                .transpose()?,
+                            anonymous_scope_map: root_input
+                                .anonymous_scope_map
+                                .as_ref()
+                                .map(|value| {
+                                    retained_exact_bytes_buffer(
+                                        value,
+                                        "composite ROOT anonymous_scope_map",
+                                    )
+                                })
+                                .transpose()?,
+                        })
+                    })
+                    .transpose()?;
                 retained.push(RetainedCompositeMember {
                     _view: input.view.clone().unbind(),
                     _owner: input.owner.clone().unbind(),
@@ -1257,9 +1437,14 @@ impl EncodedDirectCompiler {
                             retained_exact_bytes_buffer(value, "composite anonymous_scope_map")
                         })
                         .transpose()?,
+                    root,
                 });
             }
             Some((retained, (max_work, max_workspace_bytes)))
+        } else if dynamic_composite_root_inputs.is_some() || root_merge_manifest.is_some() {
+            return Err(encoded_buffer_error(
+                "encoded composite ROOT plan requires a closure composite plan",
+            ));
         } else {
             None
         };
@@ -1544,6 +1729,9 @@ impl EncodedDirectCompiler {
             _nested_member_owner: nested_member_owner.map(|value| value.clone().unbind()),
             _merge_manifest_view: merge_manifest_view.map(|value| value.clone().unbind()),
             _merge_manifest_owner: merge_manifest_owner.map(|value| value.clone().unbind()),
+            _root_merge_manifest_view: root_merge_manifest_view.map(|value| value.clone().unbind()),
+            _root_merge_manifest_owner: root_merge_manifest_owner
+                .map(|value| value.clone().unbind()),
             composite_members,
             canonical_merge_limits,
             included_root_ids,
@@ -1704,15 +1892,16 @@ impl EncodedDirectCompiler {
                 "encoded direct statistics factory is not canonical",
             )?;
             let mut stream = py.detach(|| {
-                if let Some(composite_columns) = dynamic_composite_columns.as_deref() {
+                if let Some(composite_columns) = dynamic_composite_columns.as_ref() {
                     let (max_work, max_workspace_bytes) =
                         self.canonical_merge_limits.ok_or_else(|| {
                             PyRuntimeError::new_err(
                                 "encoded dynamic composite lost its canonical limits",
                             )
                         })?;
-                    prepare_dynamic_composite_batches_uncommitted(
-                        composite_columns,
+                    prepare_dynamic_composite_batches_with_root_uncommitted(
+                        &composite_columns.closure,
+                        composite_columns.root.as_deref(),
                         options,
                         &self.state,
                         None,
@@ -1782,7 +1971,19 @@ impl EncodedDirectCompiler {
             while stream.remaining_edges() != 0 {
                 let (edges, cursor) = py
                     .detach(|| {
-                        stream.prepare_next_batch(columns, &self.state, COARSE_OUTPUT_CHUNK_EDGES)
+                        if let Some(composite) = dynamic_composite_columns.as_ref() {
+                            stream.prepare_next_composite_batch(
+                                &composite.closure,
+                                &self.state,
+                                COARSE_OUTPUT_CHUNK_EDGES,
+                            )
+                        } else {
+                            stream.prepare_next_batch(
+                                columns,
+                                &self.state,
+                                COARSE_OUTPUT_CHUNK_EDGES,
+                            )
+                        }
                     })
                     .map_err(kernel_error)?;
                 let amount = edges.len();
@@ -2161,9 +2362,19 @@ impl EncodedDirectCompiler {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| self.buffers[index].as_slice());
             let columns = self.retained_base_columns(DirectColumns::from_ordered(slices))?;
-            let prepared = py
-                .detach(|| stream.prepare_next_batch(columns, &self.state, batch_edges))
-                .map_err(kernel_error);
+            let dynamic_composite_columns = self.dynamic_composite_columns(columns)?;
+            let prepared = py.detach(|| {
+                if let Some(composite) = dynamic_composite_columns.as_ref() {
+                    stream.prepare_next_composite_batch(
+                        &composite.closure,
+                        &self.state,
+                        batch_edges,
+                    )
+                } else {
+                    stream.prepare_next_batch(columns, &self.state, batch_edges)
+                }
+            });
+            let prepared = prepared.map_err(kernel_error);
             let (edges, next_cursor) = match prepared {
                 Ok(prepared) => prepared,
                 Err(error) => {
@@ -2389,6 +2600,12 @@ impl EncodedDirectCompiler {
                         + usize::from(member.included_root_ids.is_some())
                         + usize::from(member.excluded_root_ids.is_some())
                         + usize::from(member.anonymous_scope_map.is_some())
+                        + member.root.as_ref().map_or(0, |root| {
+                            root.buffers.len()
+                                + usize::from(root.included_root_ids.is_some())
+                                + usize::from(root.excluded_root_ids.is_some())
+                                + usize::from(root.anonymous_scope_map.is_some())
+                        })
                 })
                 .sum()
         });
@@ -3471,6 +3688,80 @@ fn validate_direct_member_composite_manifest(
         return Err(encoded_buffer_error(format!(
             "encoded composite did not retain all {member_count} merge tables",
         )));
+    }
+    Ok(())
+}
+
+fn validate_paired_composite_manifests(
+    closure_view: &Bound<'_, PyAny>,
+    closure_owner: &Bound<'_, PyAny>,
+    root_view: &Bound<'_, PyAny>,
+    root_owner: &Bound<'_, PyAny>,
+    member_count: usize,
+) -> PyResult<()> {
+    if !closure_owner.is(root_owner) {
+        return Err(encoded_buffer_error(
+            "encoded composite ROOT manifest belongs to another closure owner",
+        ));
+    }
+    let closure_segments = required_attribute(closure_view, "segments")?;
+    let root_segments = required_attribute(root_view, "segments")?;
+    if !closure_segments.is_exact_instance_of::<PyTuple>()
+        || !root_segments.is_exact_instance_of::<PyTuple>()
+    {
+        return Err(encoded_buffer_error(
+            "encoded paired composite manifests must be exact tuples",
+        ));
+    }
+    let closure_segments = closure_segments
+        .cast::<PyTuple>()
+        .map_err(|_| encoded_buffer_error("encoded closure manifest is inaccessible"))?;
+    let root_segments = root_segments
+        .cast::<PyTuple>()
+        .map_err(|_| encoded_buffer_error("encoded ROOT manifest is inaccessible"))?;
+    if closure_segments.len() != member_count || root_segments.len() != member_count {
+        return Err(encoded_buffer_error(
+            "encoded composite ROOT manifest lost its positional member pairing",
+        ));
+    }
+    for index in 0..member_count {
+        let closure = closure_segments
+            .get_item(index)
+            .map_err(|_| encoded_buffer_error("encoded closure member is inaccessible"))?;
+        let root = root_segments
+            .get_item(index)
+            .map_err(|_| encoded_buffer_error("encoded ROOT member is inaccessible"))?;
+        let closure_role =
+            exact_nonnegative_integer(&required_attribute(&closure, "role")?, "segment role")?;
+        let root_role =
+            exact_nonnegative_integer(&required_attribute(&root, "role")?, "segment role")?;
+        let closure_member_owner = required_attribute(&closure, "owner")?;
+        let root_member_owner = required_attribute(&root, "owner")?;
+        let closure_token = required_attribute(&closure, "member_token")?;
+        let root_token = required_attribute(&root, "member_token")?;
+        if closure_role != COMPOSITE_MEMBER_SEGMENT
+            || root_role != COMPOSITE_MEMBER_SEGMENT
+            || !closure_member_owner.is(&root_member_owner)
+            || !closure_token.is_exact_instance_of::<PyBytes>()
+            || !root_token.is_exact_instance_of::<PyBytes>()
+        {
+            return Err(encoded_buffer_error(
+                "encoded composite ROOT member lost its exact token/owner pairing",
+            ));
+        }
+        let closure_token = closure_token
+            .cast::<PyBytes>()
+            .map_err(|_| encoded_buffer_error("encoded closure member token is inaccessible"))?
+            .as_bytes();
+        let root_token = root_token
+            .cast::<PyBytes>()
+            .map_err(|_| encoded_buffer_error("encoded ROOT member token is inaccessible"))?
+            .as_bytes();
+        if closure_token != root_token {
+            return Err(encoded_buffer_error(
+                "encoded composite ROOT member lost its exact token/owner pairing",
+            ));
+        }
     }
     Ok(())
 }

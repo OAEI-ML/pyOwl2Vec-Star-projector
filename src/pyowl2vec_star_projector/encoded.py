@@ -632,6 +632,41 @@ def _resolve_private_dynamic_member_composite(
     )
 
 
+def _enforce_private_dynamic_composite_pair_budget(
+    closure_lease: EncodedStructuralLease,
+    closure_rows: tuple[_CompositeRow, ...],
+    root_lease: EncodedStructuralLease,
+    root_rows: tuple[_CompositeRow, ...],
+) -> tuple[int | None, int | None]:
+    """Charge paired CLOSURE/ROOT validation to one public operation budget."""
+
+    if closure_lease.owner is not root_lease.owner:
+        raise SnapshotCompatibilityError(
+            "core encoded paired composite manifests have different owners"
+        )
+    validation_work = (
+        _private_encoded_lease_validation_work(closure_lease)
+        + sum(
+            _private_encoded_lease_validation_work(source)
+            for source, _included, _excluded, _scope_map in closure_rows
+        )
+        + _private_encoded_lease_validation_work(root_lease)
+        + sum(
+            _private_encoded_lease_validation_work(source)
+            for source, _included, _excluded, _scope_map in root_rows
+        )
+    )
+    _enforce_public_limit(
+        closure_lease.owner,
+        "max_canonical_work",
+        validation_work,
+    )
+    return (
+        _public_limit(closure_lease.owner, "max_canonical_work"),
+        _public_limit(closure_lease.owner, "max_index_bytes"),
+    )
+
+
 def _resolve_private_two_member_composite(
     lease: EncodedStructuralLease,
 ) -> (

@@ -9,7 +9,7 @@ import weakref
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -35,6 +35,7 @@ from pyowl2vec_star_projector.encoded import (
     ENCODED_NATIVE_FEATURE,
     EncodedNegotiation,
     EncodedStructuralLease,
+    _enforce_private_dynamic_composite_pair_budget,
     _resolve_private_dynamic_member_composite,
     _resolve_private_four_member_composite,
     _resolve_private_four_table_nested_composite,
@@ -12714,6 +12715,695 @@ def test_hidden_iterator_compiles_dynamic_direct_members_and_deduplicates(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize("member_count", [2, 5, 8], ids=["two", "five", "eight"])
+def test_hidden_iterator_projects_dynamic_root_literals_with_global_class_signature(
+    provider_backend: pyowl_core.BackendPreference,
+    member_count: int,
+) -> None:
+    members = [
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot("Declaration(Class(:Selected))", backend=provider_backend),
+        ),
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                "AnnotationAssertion("
+                "<http://www.w3.org/2000/01/rdf-schema#label> :Selected "
+                '"selected")',
+                backend=provider_backend,
+            ),
+        ),
+        *[
+            cast(
+                pyowl_core.OntologyView,
+                _snapshot(f"SubClassOf(:C{index} :Top)", backend=provider_backend),
+            )
+            for index in range(member_count - 2)
+        ],
+    ]
+    composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+    closure = composite.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    root = composite.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.ROOT,
+    )
+    assert len(closure.segments) == len(root.segments) == member_count
+    assert [
+        (cast(Any, segment).member_token, cast(Any, segment).owner)
+        for segment in closure.segments
+    ] == [
+        (cast(Any, segment).member_token, cast(Any, segment).owner)
+        for segment in root.segments
+    ]
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    options = ProjectionOptions(
+        backend="native",
+        order="encounter",
+        include_literals=True,
+    )
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("paired ROOT composite reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=options,
+                buffer_edges=1,
+            )
+        )
+    expected = [
+        *[
+            Edge(
+                f"urn:native-integration#C{index}",
+                "http://subclassof",
+                "urn:native-integration#Top",
+            )
+            for index in range(member_count - 2)
+        ],
+        Edge(
+            "urn:native-integration#Selected",
+            "rdfs:label",
+            "selected",
+        ),
+    ]
+    assert actual == expected
+    assert len(captured) == len(captured_compilers) == 1
+    compilation = captured[0]
+    assert len(compilation.composite_member_leases) == member_count
+    assert len(compilation.composite_root_member_leases) == member_count
+    statistics = compilation.native_statistics
+    assert statistics.roots == member_count
+    assert statistics.declarations == 1
+    assert statistics.subclasses == member_count - 2
+    assert statistics.annotation_assertions == 1
+    assert statistics.selected_annotation_assertions == 1
+    assert statistics.annotation_edges == 1
+    assert statistics.edges == member_count - 1
+    assert statistics.root_provenance_buffer_bytes == sum(
+        sum(buffer.nbytes for buffer in lease.buffers.values())
+        for lease in compilation.composite_root_member_leases
+    )
+    ingestion = _completed_report(projector).provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    # CLOSURE and ROOT leases retain the same exact member owners.  The source
+    # view counter remains unique-by-owner while ROOT buffers stay separately
+    # attributable through the buffer and provenance-byte counters below.
+    assert ingestion.counters["encoded_referenced_view_count"] == member_count
+    assert ingestion.counters["encoded_detached_buffer_count"] == 22 * member_count
+    assert ingestion.counters["encoded_buffer_count"] == 22 * (member_count + 1)
+    assert ingestion.counters["encoded_segment_count"] == 4 * member_count
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(expected),
+        batch_edges=1,
+    )
+    if member_count == 5:
+        source_compiler = captured_compilers[0]
+
+        def paired_compiler(
+            *,
+            work: int = 1_000_000_000,
+            workspace: int = 1 << 34,
+        ) -> NativeEncodedDirectCompiler:
+            return prepare_native_encoded_direct(
+                compilation.composite_member_leases[0],
+                composite_member_leases=compilation.composite_member_leases,
+                composite_included_root_ids=compilation.composite_included_root_ids,
+                composite_excluded_root_ids=compilation.composite_excluded_root_ids,
+                composite_anonymous_scope_maps=compilation.composite_anonymous_scope_maps,
+                composite_root_member_leases=compilation.composite_root_member_leases,
+                composite_root_included_root_ids=(
+                    compilation.composite_root_included_root_ids
+                ),
+                composite_root_excluded_root_ids=(
+                    compilation.composite_root_excluded_root_ids
+                ),
+                composite_root_anonymous_scope_maps=(
+                    compilation.composite_root_anonymous_scope_maps
+                ),
+                merge_manifest_lease=source_compiler.merge_manifest_lease,
+                root_merge_manifest_lease=source_compiler.root_merge_manifest_lease,
+                canonical_work_limit=work,
+                canonical_workspace_limit=workspace,
+            )
+
+        cancelled = paired_compiler()
+        assert cancelled.retained_buffer_count == 22 * member_count
+        assert cancelled.cancel() is True
+        with pytest.raises(NativeEncodedDirectCancelled):
+            cancelled.compile_batch(
+                bidirectional=False,
+                max_edges=len(expected),
+                max_iri_bytes=1 << 20,
+                include_literals=True,
+            )
+        assert cancelled.state == "cancelled"
+
+        for work, workspace, expected_message in [
+            (1, 1 << 34, "work"),
+            (1_000_000_000, 1, "workspace"),
+        ]:
+            limited = paired_compiler(work=work, workspace=workspace)
+            with pytest.raises(ProjectionResourceError) as captured_limit:
+                limited.iter_batches(
+                    bidirectional=False,
+                    max_edges=len(expected),
+                    max_iri_bytes=1 << 20,
+                    batch_edges=1,
+                    include_literals=True,
+                )
+            assert captured_limit.value.__cause__ is not None
+            assert expected_message in str(captured_limit.value.__cause__)
+            assert limited.state == "failed"
+            assert limited.retained_buffer_count == 22 * member_count
+            assert limited.coarse_output_chunks == 0
+
+        coarse = paired_compiler()
+        coarse_edges, coarse_statistics = coarse.compile_batch(
+            bidirectional=False,
+            max_edges=len(expected),
+            max_iri_bytes=1 << 20,
+            include_literals=True,
+        )
+        assert coarse_edges == expected
+        assert coarse_statistics == statistics
+        assert coarse.state == "finished"
+        assert coarse.coarse_output_chunks == 1
+        swapped = (1, 0, 2, 3, 4)
+        with pytest.raises(
+            SnapshotCompatibilityError,
+            match="lost its exact manifest order",
+        ):
+            prepare_native_encoded_direct(
+                compilation.composite_member_leases[0],
+                composite_member_leases=compilation.composite_member_leases,
+                composite_included_root_ids=compilation.composite_included_root_ids,
+                composite_excluded_root_ids=compilation.composite_excluded_root_ids,
+                composite_anonymous_scope_maps=compilation.composite_anonymous_scope_maps,
+                composite_root_member_leases=tuple(
+                    compilation.composite_root_member_leases[index] for index in swapped
+                ),
+                composite_root_included_root_ids=tuple(
+                    compilation.composite_root_included_root_ids[index] for index in swapped
+                ),
+                composite_root_excluded_root_ids=tuple(
+                    compilation.composite_root_excluded_root_ids[index] for index in swapped
+                ),
+                composite_root_anonymous_scope_maps=tuple(
+                    compilation.composite_root_anonymous_scope_maps[index]
+                    for index in swapped
+                ),
+                merge_manifest_lease=source_compiler.merge_manifest_lease,
+                root_merge_manifest_lease=source_compiler.root_merge_manifest_lease,
+                canonical_work_limit=1_000_000_000,
+                canonical_workspace_limit=1 << 34,
+            )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_suppresses_imported_dynamic_annotations(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    label = b"<http://www.w3.org/2000/01/rdf-schema#label>"
+    root_document = (
+        b"Prefix(:=<urn:dynamic-root#>) Ontology(<urn:dynamic-root> "
+        b"Import(<urn:dynamic-leaf>) Declaration(Class(:A)) "
+        b"AnnotationAssertion(" + label + b' :A "root"))'
+    )
+    leaf_document = (
+        b"Prefix(:=<urn:dynamic-leaf#>) Ontology(<urn:dynamic-leaf> "
+        b"Declaration(Class(:L)) SubClassOf(:L <urn:dynamic-root#A>) "
+        b"AnnotationAssertion(" + label + b' :L "imported"))'
+    )
+    imported = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.load_snapshot(
+            root_document,
+            options=pyowl_core.LoadOptions(
+                imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
+                backend=provider_backend,
+            ),
+            resolver=pyowl_core.MappingResolver({"urn:dynamic-leaf": leaf_document}),
+        ),
+    )
+    filler = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Filler :Top)", backend=provider_backend),
+    )
+    composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(imported, filler))
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError("import-provenance composite reached scalar traversal"),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=ProjectionOptions(
+                    backend="native",
+                    order="encounter",
+                    include_literals=True,
+                ),
+                buffer_edges=1,
+            )
+        )
+    literal_edges = [edge for edge in actual if edge.relation == "rdfs:label"]
+    assert literal_edges == [
+        Edge("urn:dynamic-root#A", "rdfs:label", "root"),
+    ]
+    assert all(edge.destination != "imported" for edge in actual)
+    assert len(captured) == 1
+    statistics = captured[0].native_statistics
+    assert statistics.annotation_assertions == 2
+    assert statistics.selected_annotation_assertions == 1
+    assert statistics.annotation_edges == 1
+    assert statistics.subclasses == 2
+    assert statistics.edges == 3
+    ingestion = _completed_report(projector).provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_referenced_view_count"] == 2
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=3,
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_dynamic_root_proof_selects_duplicate_through_another_member(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    label = b"<http://www.w3.org/2000/01/rdf-schema#label>"
+    imported_leaf = (
+        b"Prefix(:=<urn:d#>) Ontology(<urn:leaf> "
+        b"Declaration(Class(:A)) AnnotationAssertion(" + label + b' :A "duplicate"))'
+    )
+    imported_root = (
+        b"Prefix(:=<urn:d#>) Ontology(<urn:r15> "
+        b"Import(<urn:leaf>) SubClassOf(:Root15 :Top))"
+    )
+    direct_document = (
+        b"Prefix(:=<urn:d#>) Ontology(<urn:direct> "
+        b"Declaration(Class(:A)) AnnotationAssertion(" + label + b' :A "duplicate"))'
+    )
+    imported = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.load_snapshot(
+            imported_root,
+            options=pyowl_core.LoadOptions(
+                imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
+                backend=provider_backend,
+            ),
+            resolver=pyowl_core.MappingResolver(
+                {"urn:leaf": imported_leaf}
+            ),
+        ),
+    )
+    direct = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.load_snapshot(
+            direct_document,
+            options=pyowl_core.LoadOptions(backend=provider_backend),
+        ),
+    )
+    composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(imported, direct))
+    closure = composite.view(
+        pyowl_core.EncodedStructuralView,
+        schema_version=1,
+        scope=pyowl_core.AxiomScope.CLOSURE,
+    )
+    assert cast(Any, closure.segments[0]).owner is imported
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with patch.object(
+        api_module,
+        "prepare_native_encoded_compilation",
+        side_effect=capture_compilation,
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=ProjectionOptions(
+                    backend="native",
+                    order="encounter",
+                    include_literals=True,
+                ),
+                buffer_edges=1,
+            )
+        )
+    assert [edge for edge in actual if edge.relation == "rdfs:label"] == [
+        Edge("urn:d#A", "rdfs:label", "duplicate"),
+    ]
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert compilation.composite_member_leases[0].owner is imported
+    assert compilation.composite_root_member_leases[0].owner is imported
+    annotation_tag = (120).to_bytes(2, "little")
+    assert annotation_tag in bytes(
+        compilation.composite_member_leases[0].buffers["node_tags"]
+    )
+    assert annotation_tag not in bytes(
+        compilation.composite_root_member_leases[0].buffers["node_tags"]
+    )
+    assert annotation_tag in bytes(
+        compilation.composite_root_member_leases[1].buffers["node_tags"]
+    )
+    statistics = compilation.native_statistics
+    assert statistics.annotation_assertions == 1
+    assert statistics.selected_annotation_assertions == 1
+    assert statistics.annotation_edges == 1
+    assert statistics.declarations == 1
+    assert statistics.subclasses == 1
+    assert statistics.edges == 2
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_dynamic_root_annotation_uses_closure_wide_anonymous_order(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    label = b"<http://www.w3.org/2000/01/rdf-schema#label>"
+    root_document = (
+        b"Prefix(:=<urn:r0#>) Ontology(<urn:r0> Import(<urn:leaf>) "
+        b"Declaration(Class(:A)) AnnotationAssertion(" + label + b" :A _:rootValue))"
+    )
+    leaf_document = (
+        b"Prefix(:=<urn:leaf#>) Ontology(<urn:leaf> "
+        b"Declaration(Class(:L)) SubClassOf(:L <urn:r0#A>) "
+        b"AnnotationAssertion(" + label + b" :L _:leafValue))"
+    )
+    imported = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.load_snapshot(
+            root_document,
+            options=pyowl_core.LoadOptions(
+                imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
+                backend=provider_backend,
+            ),
+            resolver=pyowl_core.MappingResolver(
+                {"urn:leaf": leaf_document}
+            ),
+        ),
+    )
+    scalar_edges = Projector().project(
+        imported,
+        options=ProjectionOptions(
+            backend="python",
+            order="encounter",
+            include_literals=True,
+        ),
+    )
+    expected_literal = [
+        edge for edge in scalar_edges if edge.relation == "rdfs:label"
+    ]
+    assert expected_literal == [
+        Edge("urn:r0#A", "rdfs:label", "_:genid2147483649"),
+    ]
+    filler = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Filler :Top)", backend=provider_backend),
+    )
+    composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(imported, filler))
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    with patch.object(
+        api_module,
+        "prepare_native_encoded_compilation",
+        side_effect=capture_compilation,
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=ProjectionOptions(
+                    backend="native",
+                    order="encounter",
+                    include_literals=True,
+                ),
+                buffer_edges=1,
+            )
+        )
+    assert [edge for edge in actual if edge.relation == "rdfs:label"] == expected_literal
+    assert len(captured) == 1
+    statistics = captured[0].native_statistics
+    assert statistics.anonymous_individuals == 2
+    assert statistics.annotation_assertions == 2
+    assert statistics.selected_annotation_assertions == 1
+    assert statistics.annotation_edges == 1
+
+
+@pytest.mark.parametrize(
+    ("include_literals", "asserted_taxonomy_only"),
+    [(False, False), (True, True)],
+    ids=["literals-disabled", "asserted-taxonomy"],
+)
+def test_dynamic_nonliteral_modes_do_not_acquire_root_provenance(
+    include_literals: bool,
+    asserted_taxonomy_only: bool,
+) -> None:
+    composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(
+            cast(
+                pyowl_core.OntologyView,
+                _snapshot(
+                    "SubClassOf(:A :Top) "
+                    "AnnotationAssertion("
+                    "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+                    '"not-emitted")'
+                ),
+            ),
+            cast(
+                pyowl_core.OntologyView,
+                _snapshot("SubClassOf(:B :Top)"),
+            ),
+        ),
+    )
+    lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert lease is not None
+    with patch.object(
+        native_module,
+        "_acquire_root_encoded_lease",
+        side_effect=AssertionError("nonliteral composite requested ROOT provenance"),
+    ):
+        compilation, reason = native_module.prepare_native_encoded_compilation(
+            composite,
+            lease,
+            ProjectionOptions(
+                backend="native",
+                order="encounter",
+                include_literals=include_literals,
+            ),
+            batch_edges=1,
+            max_total_edges=None,
+            cancellation_token=None,
+            asserted_taxonomy_only=asserted_taxonomy_only,
+        )
+    assert reason is None
+    assert compilation is not None
+    assert compilation.composite_root_member_leases == ()
+    assert compilation.native_statistics.annotation_assertions == 1
+    assert compilation.native_statistics.annotation_edges == 0
+    assert compilation.native_statistics.edges == 2
+    assert [edge for batch in compilation.batches for edge in batch] == [
+        Edge(
+            "urn:native-integration#A",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+        Edge(
+            "urn:native-integration#B",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        ),
+    ]
+    counters = compilation.ingestion_counters
+    assert counters["encoded_referenced_view_count"] == 2
+    assert counters["encoded_detached_buffer_count"] == 22
+
+
+def test_dynamic_paired_validation_uses_one_aggregate_work_budget() -> None:
+    composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(
+            cast(pyowl_core.OntologyView, _snapshot("Declaration(Class(:A))")),
+            cast(
+                pyowl_core.OntologyView,
+                _snapshot(
+                    "AnnotationAssertion("
+                    "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+                    '"selected")'
+                ),
+            ),
+        ),
+    )
+    closure_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert closure_lease is not None
+    closure_resolved = _resolve_private_dynamic_member_composite(closure_lease)
+    assert closure_resolved is not None
+    closure_rows = closure_resolved[0]
+    root_lease = encoded_module._acquire_root_encoded_lease(
+        composite,
+        closure_lease,
+    )
+    assert root_lease is not None
+    root_resolved = _resolve_private_dynamic_member_composite(root_lease)
+    assert root_resolved is not None
+    root_rows = root_resolved[0]
+
+    def validation_work(
+        lease: EncodedStructuralLease,
+        rows: tuple[Any, ...],
+    ) -> int:
+        def lease_work(value: EncodedStructuralLease) -> int:
+            return sum(buffer.nbytes for buffer in value.buffers.values()) + sum(
+                128
+                + cast(Any, segment).root_ids.nbytes
+                + cast(Any, segment).anonymous_scope_map.nbytes
+                for segment in value.segments
+            )
+
+        return lease_work(lease) + sum(lease_work(cast(Any, row)[0]) for row in rows)
+
+    closure_work = validation_work(closure_lease, closure_rows)
+    root_work = validation_work(root_lease, root_rows)
+    individual_limit = max(closure_work, root_work)
+    assert individual_limit < closure_work + root_work
+    limited_owner = SimpleNamespace(
+        limits=SimpleNamespace(
+            max_canonical_work=individual_limit,
+            max_index_bytes=1 << 34,
+        )
+    )
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="exceeds public max_canonical_work",
+    ) as captured:
+        _enforce_private_dynamic_composite_pair_budget(
+            replace(closure_lease, owner=limited_owner),
+            closure_rows,
+            replace(root_lease, owner=limited_owner),
+            root_rows,
+        )
+    assert captured.value.details == {
+        "allowed": individual_limit,
+        "actual": closure_work + root_work,
+    }
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
 def test_dynamic_composite_preserves_mixed_selectors_cancel_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
 ) -> None:
@@ -12953,6 +13643,82 @@ def test_dynamic_composite_member_views_live_until_compiler_release() -> None:
     del compiler
     gc.collect()
     assert all(reference() is None for reference in member_view_refs)
+
+
+def test_dynamic_paired_root_views_live_until_compiler_release() -> None:
+    def create() -> tuple[
+        NativeEncodedDirectCompiler,
+        tuple[weakref.ReferenceType[Any], ...],
+    ]:
+        members = [
+            cast(
+                pyowl_core.OntologyView,
+                _snapshot(
+                    "Declaration(Class(:A)) "
+                    "AnnotationAssertion("
+                    "<http://www.w3.org/2000/01/rdf-schema#label> :A "
+                    '"selected")'
+                ),
+            ),
+            *[
+                cast(
+                    pyowl_core.OntologyView,
+                    _snapshot(f"SubClassOf(:C{index} :Top)"),
+                )
+                for index in range(4)
+            ],
+        ]
+        composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+        closure_manifest = select_private_direct_ingestion(
+            composite,
+            selected_backend="native",
+        ).lease
+        assert closure_manifest is not None
+        closure_resolved = _resolve_private_dynamic_member_composite(closure_manifest)
+        assert closure_resolved is not None
+        closure_rows = closure_resolved[0]
+        root_manifest = encoded_module._acquire_root_encoded_lease(
+            composite,
+            closure_manifest,
+        )
+        assert root_manifest is not None
+        root_resolved = _resolve_private_dynamic_member_composite(root_manifest)
+        assert root_resolved is not None
+        root_rows = root_resolved[0]
+        compiler = prepare_native_encoded_direct(
+            closure_rows[0][0],
+            composite_member_leases=tuple(row[0] for row in closure_rows),
+            composite_included_root_ids=tuple(row[1] for row in closure_rows),
+            composite_excluded_root_ids=tuple(row[2] for row in closure_rows),
+            composite_anonymous_scope_maps=tuple(row[3] for row in closure_rows),
+            composite_root_member_leases=tuple(row[0] for row in root_rows),
+            composite_root_included_root_ids=tuple(row[1] for row in root_rows),
+            composite_root_excluded_root_ids=tuple(row[2] for row in root_rows),
+            composite_root_anonymous_scope_maps=tuple(row[3] for row in root_rows),
+            merge_manifest_lease=closure_manifest,
+            root_merge_manifest_lease=root_manifest,
+            canonical_work_limit=1_000_000_000,
+            canonical_workspace_limit=1 << 34,
+        )
+        return (
+            compiler,
+            tuple(
+                weakref.ref(lease.encoded_view)
+                for lease in (
+                    closure_manifest,
+                    root_manifest,
+                    *(row[0] for row in closure_rows),
+                    *(row[0] for row in root_rows),
+                )
+            ),
+        )
+
+    compiler, retained_view_refs = create()
+    gc.collect()
+    assert all(reference() is not None for reference in retained_view_refs)
+    del compiler
+    gc.collect()
+    assert all(reference() is None for reference in retained_view_refs)
 
 
 @pytest.mark.parametrize(

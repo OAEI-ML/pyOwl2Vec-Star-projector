@@ -16,6 +16,7 @@ from .diagnostics import ProjectionDiagnostic
 from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
+    _enforce_private_dynamic_composite_pair_budget,
     _resolve_private_dynamic_member_composite,
     _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
@@ -35,7 +36,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 114
+ENCODED_DIRECT_KERNEL_VERSION = 115
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -388,8 +389,13 @@ class NativeEncodedDirectCompiler:
     composite_included_root_ids: tuple[memoryview | None, ...]
     composite_excluded_root_ids: tuple[memoryview | None, ...]
     composite_anonymous_scope_maps: tuple[memoryview | None, ...]
+    composite_root_member_leases: tuple[EncodedStructuralLease, ...]
+    composite_root_included_root_ids: tuple[memoryview | None, ...]
+    composite_root_excluded_root_ids: tuple[memoryview | None, ...]
+    composite_root_anonymous_scope_maps: tuple[memoryview | None, ...]
     nested_member_lease: EncodedStructuralLease | None
     merge_manifest_lease: EncodedStructuralLease | None
+    root_merge_manifest_lease: EncodedStructuralLease | None
     root_annotation_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
     excluded_root_ids: memoryview | None
@@ -506,9 +512,17 @@ class NativeEncodedDirectCompiler:
             for buffer in retained_lease.buffers.values()
         )
         expected_root_bytes = (
-            0
-            if self.root_annotation_lease is None
-            else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+            sum(
+                buffer.nbytes
+                for retained_lease in self.composite_root_member_leases
+                for buffer in retained_lease.buffers.values()
+            )
+            if self.composite_root_member_leases
+            else (
+                0
+                if self.root_annotation_lease is None
+                else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+            )
         )
         raw_edges, raw_stats = _call_encoded_direct(
             self._module,
@@ -585,9 +599,17 @@ class NativeEncodedDirectCompiler:
             for buffer in retained_lease.buffers.values()
         )
         expected_root_bytes = (
-            0
-            if self.root_annotation_lease is None
-            else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+            sum(
+                buffer.nbytes
+                for retained_lease in self.composite_root_member_leases
+                for buffer in retained_lease.buffers.values()
+            )
+            if self.composite_root_member_leases
+            else (
+                0
+                if self.root_annotation_lease is None
+                else sum(buffer.nbytes for buffer in self.root_annotation_lease.buffers.values())
+            )
         )
 
         raw_batches = _call_encoded_direct(
@@ -901,6 +923,10 @@ class NativeEncodedDirectCompilation:
     composite_included_root_ids: tuple[memoryview | None, ...]
     composite_excluded_root_ids: tuple[memoryview | None, ...]
     composite_anonymous_scope_maps: tuple[memoryview | None, ...]
+    composite_root_member_leases: tuple[EncodedStructuralLease, ...]
+    composite_root_included_root_ids: tuple[memoryview | None, ...]
+    composite_root_excluded_root_ids: tuple[memoryview | None, ...]
+    composite_root_anonymous_scope_maps: tuple[memoryview | None, ...]
     nested_member_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
     excluded_root_ids: memoryview | None
@@ -977,6 +1003,9 @@ class NativeEncodedDirectCompilation:
             sum(value is not None for value in self.composite_included_root_ids)
             + sum(value is not None for value in self.composite_excluded_root_ids)
             + sum(value is not None for value in self.composite_anonymous_scope_maps)
+            + sum(value is not None for value in self.composite_root_included_root_ids)
+            + sum(value is not None for value in self.composite_root_excluded_root_ids)
+            + sum(value is not None for value in self.composite_root_anonymous_scope_maps)
         )
         fixed_plan_buffers = (
             int(self.included_root_ids is not None)
@@ -989,6 +1018,7 @@ class NativeEncodedDirectCompilation:
         )
         detached_buffer_count = (
             sum(len(retained.buffers) for retained in detached_leases)
+            + sum(len(retained.buffers) for retained in self.composite_root_member_leases)
             + (0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers))
             + (dynamic_plan_buffers if self.composite_member_leases else fixed_plan_buffers)
         )
@@ -1011,8 +1041,20 @@ class NativeEncodedDirectCompilation:
                 "encoded_detached_buffer_count": detached_buffer_count,
                 "encoded_indexed_buffer_count": 0,
                 "encoded_posting_bytes": posting_bytes,
-                "encoded_referenced_view_count": len(self.container_leases)
-                + int(self.root_annotation_lease is not None),
+                "encoded_referenced_view_count": (
+                    len(
+                        {
+                            id(retained.owner)
+                            for retained in (
+                                *self.composite_member_leases,
+                                *self.composite_root_member_leases,
+                            )
+                        }
+                    )
+                    if self.composite_member_leases
+                    else len(self.container_leases)
+                    + int(self.root_annotation_lease is not None)
+                ),
                 "encoded_segment_count": sum(len(lease.segments) for lease in retained_leases),
                 "encoded_staging_copy_bytes": 0,
                 "encoded_zero_copy_buffers": retained_buffer_count,
@@ -1070,6 +1112,7 @@ def prepare_native_encoded_compilation(
         raise ProjectionError("isolated native compilation received retained Scala-instance state")
     if cancellation_token is not None:
         cancellation_token.check()
+    top_closure_lease = lease
     container_leases: tuple[EncodedStructuralLease, ...] = ()
     local_delta_lease: EncodedStructuralLease | None = None
     third_member_lease: EncodedStructuralLease | None = None
@@ -1078,8 +1121,13 @@ def prepare_native_encoded_compilation(
     composite_included_root_ids: tuple[memoryview | None, ...] = ()
     composite_excluded_root_ids: tuple[memoryview | None, ...] = ()
     composite_anonymous_scope_maps: tuple[memoryview | None, ...] = ()
+    composite_root_member_leases: tuple[EncodedStructuralLease, ...] = ()
+    composite_root_included_root_ids: tuple[memoryview | None, ...] = ()
+    composite_root_excluded_root_ids: tuple[memoryview | None, ...] = ()
+    composite_root_anonymous_scope_maps: tuple[memoryview | None, ...] = ()
     nested_member_lease: EncodedStructuralLease | None = None
     merge_manifest_lease: EncodedStructuralLease | None = None
+    root_merge_manifest_lease: EncodedStructuralLease | None = None
     canonical_work_limit: int | None = None
     canonical_workspace_limit: int | None = None
     included_root_ids: memoryview | None = None
@@ -1254,7 +1302,7 @@ def prepare_native_encoded_compilation(
             (fourth_member_lease, fourth_excluded_root_ids),
         )
     )
-    if options.include_literals and any(
+    if not composite_member_leases and options.include_literals and any(
         member_lease is not None
         and root_ids is not None
         and root_ids.nbytes > 0
@@ -1266,9 +1314,68 @@ def prepare_native_encoded_compilation(
             "private native segmented exclusions require a root-provenance join "
             "for literal projection",
         )
+    if (
+        options.include_literals
+        and not asserted_taxonomy_only
+        and composite_member_leases
+    ):
+        assert merge_manifest_lease is not None
+        root_merge_manifest_lease = _acquire_root_encoded_lease(
+            view,
+            top_closure_lease,
+        )
+        if root_merge_manifest_lease is None:
+            return (
+                None,
+                "core view does not support composite ROOT annotation provenance",
+            )
+        resolved_root_composite = _resolve_private_dynamic_member_composite(
+            root_merge_manifest_lease
+        )
+        if resolved_root_composite is None:
+            return (
+                None,
+                "composite ROOT annotation provenance is not an exact direct-member manifest",
+            )
+        root_rows, _root_work_limit, _root_workspace_limit = resolved_root_composite
+        closure_rows = tuple(
+            zip(
+                composite_member_leases,
+                composite_included_root_ids,
+                composite_excluded_root_ids,
+                composite_anonymous_scope_maps,
+                strict=True,
+            )
+        )
+        _validate_dynamic_composite_root_pair(
+            merge_manifest_lease,
+            closure_rows,
+            root_merge_manifest_lease,
+            root_rows,
+        )
+        canonical_work_limit, canonical_workspace_limit = (
+            _enforce_private_dynamic_composite_pair_budget(
+                merge_manifest_lease,
+                closure_rows,
+                root_merge_manifest_lease,
+                root_rows,
+            )
+        )
+        composite_root_member_leases = tuple(row[0] for row in root_rows)
+        composite_root_included_root_ids = tuple(row[1] for row in root_rows)
+        composite_root_excluded_root_ids = tuple(row[2] for row in root_rows)
+        composite_root_anonymous_scope_maps = tuple(row[3] for row in root_rows)
+        container_leases = (
+            merge_manifest_lease,
+            root_merge_manifest_lease,
+            *composite_member_leases[1:],
+            *composite_root_member_leases,
+        )
     root_annotation_lease: EncodedStructuralLease | None = None
     if (
         options.include_literals
+        and not asserted_taxonomy_only
+        and not composite_member_leases
         and local_delta_lease is None
         and _lease_contains_annotation_assertions(lease)
     ):
@@ -1293,6 +1400,10 @@ def prepare_native_encoded_compilation(
         composite_included_root_ids=composite_included_root_ids,
         composite_excluded_root_ids=composite_excluded_root_ids,
         composite_anonymous_scope_maps=composite_anonymous_scope_maps,
+        composite_root_member_leases=composite_root_member_leases,
+        composite_root_included_root_ids=composite_root_included_root_ids,
+        composite_root_excluded_root_ids=composite_root_excluded_root_ids,
+        composite_root_anonymous_scope_maps=composite_root_anonymous_scope_maps,
         nested_member_lease=nested_member_lease,
         canonical_work_limit=canonical_work_limit,
         canonical_workspace_limit=canonical_workspace_limit,
@@ -1305,6 +1416,7 @@ def prepare_native_encoded_compilation(
         anonymous_scope_map=anonymous_scope_map,
         right_anonymous_scope_map=right_anonymous_scope_map,
         merge_manifest_lease=merge_manifest_lease,
+        root_merge_manifest_lease=root_merge_manifest_lease,
     )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
     try:
@@ -1420,6 +1532,10 @@ def prepare_native_encoded_compilation(
                 composite_included_root_ids=composite_included_root_ids,
                 composite_excluded_root_ids=composite_excluded_root_ids,
                 composite_anonymous_scope_maps=composite_anonymous_scope_maps,
+                composite_root_member_leases=composite_root_member_leases,
+                composite_root_included_root_ids=composite_root_included_root_ids,
+                composite_root_excluded_root_ids=composite_root_excluded_root_ids,
+                composite_root_anonymous_scope_maps=composite_root_anonymous_scope_maps,
                 nested_member_lease=nested_member_lease,
                 included_root_ids=included_root_ids,
                 excluded_root_ids=excluded_root_ids,
@@ -1503,6 +1619,73 @@ def _native_annotation_provenance_selection(
     return None, None
 
 
+def _validate_dynamic_composite_root_pair(
+    closure_manifest: EncodedStructuralLease,
+    closure_rows: tuple[
+        tuple[
+            EncodedStructuralLease,
+            memoryview | None,
+            memoryview | None,
+            memoryview | None,
+        ],
+        ...,
+    ],
+    root_manifest: EncodedStructuralLease,
+    root_rows: tuple[
+        tuple[
+            EncodedStructuralLease,
+            memoryview | None,
+            memoryview | None,
+            memoryview | None,
+        ],
+        ...,
+    ],
+) -> None:
+    """Bind CLOSURE and ROOT manifests by exact token/owner position.
+
+    Source views and source-local postings legitimately differ by scope.  The
+    public composite contract pairs the two selections through the immutable
+    sorted member token and retained owner at each manifest position.
+    """
+
+    if closure_manifest.owner is not root_manifest.owner:
+        raise SnapshotCompatibilityError(
+            "encoded composite ROOT manifest belongs to another closure owner"
+        )
+    if len(closure_rows) != len(root_rows):
+        raise SnapshotCompatibilityError(
+            "encoded composite ROOT manifest has a different member count"
+        )
+    closure_segments = closure_manifest.segments
+    root_segments = root_manifest.segments
+    if len(closure_segments) != len(root_segments) or len(closure_segments) != len(closure_rows):
+        raise SnapshotCompatibilityError(
+            "encoded composite ROOT manifest lost its positional member pairing"
+        )
+    for index, (closure_segment, root_segment, closure_row, root_row) in enumerate(
+        zip(
+            closure_segments,
+            root_segments,
+            closure_rows,
+            root_rows,
+            strict=True,
+        )
+    ):
+        closure = cast(Any, closure_segment)
+        root = cast(Any, root_segment)
+        if (
+            closure.role != root.role
+            or closure.member_token != root.member_token
+            or closure.owner is not root.owner
+            or closure_row[0].owner is not root_row[0].owner
+            or closure.owner is not closure_row[0].owner
+        ):
+            raise SnapshotCompatibilityError(
+                "encoded composite ROOT member lost its exact token/owner pairing",
+                details={"member_index": index},
+            )
+
+
 def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:
     """Create one unadvertised retained role-state handle for ordered calls."""
 
@@ -1564,8 +1747,13 @@ def prepare_native_encoded_direct(
     composite_included_root_ids: tuple[memoryview | None, ...] = (),
     composite_excluded_root_ids: tuple[memoryview | None, ...] = (),
     composite_anonymous_scope_maps: tuple[memoryview | None, ...] = (),
+    composite_root_member_leases: tuple[EncodedStructuralLease, ...] = (),
+    composite_root_included_root_ids: tuple[memoryview | None, ...] = (),
+    composite_root_excluded_root_ids: tuple[memoryview | None, ...] = (),
+    composite_root_anonymous_scope_maps: tuple[memoryview | None, ...] = (),
     nested_member_lease: EncodedStructuralLease | None = None,
     merge_manifest_lease: EncodedStructuralLease | None = None,
+    root_merge_manifest_lease: EncodedStructuralLease | None = None,
     canonical_work_limit: int | None = None,
     canonical_workspace_limit: int | None = None,
     root_annotation_lease: EncodedStructuralLease | None = None,
@@ -1597,6 +1785,10 @@ def prepare_native_encoded_direct(
         or type(composite_included_root_ids) is not tuple
         or type(composite_excluded_root_ids) is not tuple
         or type(composite_anonymous_scope_maps) is not tuple
+        or type(composite_root_member_leases) is not tuple
+        or type(composite_root_included_root_ids) is not tuple
+        or type(composite_root_excluded_root_ids) is not tuple
+        or type(composite_root_anonymous_scope_maps) is not tuple
     ):
         raise TypeError("dynamic composite plans must be exact tuples")
     dynamic_composite = bool(composite_member_leases)
@@ -1640,6 +1832,56 @@ def prepare_native_encoded_direct(
             raise ValueError("dynamic composite requires an exact manifest lease")
         if nested_member_lease is not None or root_annotation_lease is not None:
             raise ValueError("dynamic direct composite cannot combine nested or root tables")
+        root_member_count = len(composite_root_member_leases)
+        if root_member_count:
+            if (
+                root_member_count != member_count
+                or len(composite_root_included_root_ids) != member_count
+                or len(composite_root_excluded_root_ids) != member_count
+                or len(composite_root_anonymous_scope_maps) != member_count
+            ):
+                raise ValueError(
+                    "dynamic composite ROOT plan must pair one row with every closure member"
+                )
+            if root_merge_manifest_lease is None:
+                raise ValueError("dynamic composite ROOT plan requires its exact manifest lease")
+            if not all(
+                type(member) is EncodedStructuralLease
+                for member in composite_root_member_leases
+            ):
+                raise TypeError(
+                    "dynamic composite ROOT members must be EncodedStructuralLease values"
+                )
+            if not all(
+                value is None or type(value) is memoryview
+                for values in (
+                    composite_root_included_root_ids,
+                    composite_root_excluded_root_ids,
+                    composite_root_anonymous_scope_maps,
+                )
+                for value in values
+            ):
+                raise TypeError(
+                    "dynamic composite ROOT selectors and scope maps must be memoryviews or None"
+                )
+            if any(
+                included is not None and excluded is not None
+                for included, excluded in zip(
+                    composite_root_included_root_ids,
+                    composite_root_excluded_root_ids,
+                    strict=True,
+                )
+            ):
+                raise ValueError(
+                    "one composite ROOT member cannot combine INCLUDE and EXCLUDE postings"
+                )
+        elif (
+            composite_root_included_root_ids
+            or composite_root_excluded_root_ids
+            or composite_root_anonymous_scope_maps
+            or root_merge_manifest_lease is not None
+        ):
+            raise ValueError("dynamic composite ROOT plan is incomplete")
         expected_local_delta = composite_member_leases[1]
         if local_delta_lease is None:
             local_delta_lease = expected_local_delta
@@ -1666,15 +1908,24 @@ def prepare_native_encoded_direct(
     composite_member_descriptor_sha256 = tuple(
         _validated_direct_descriptor_digest(member) for member in composite_member_leases
     )
+    composite_root_member_descriptor_sha256 = tuple(
+        _validated_direct_descriptor_digest(member)
+        for member in composite_root_member_leases
+    )
     local_delta_descriptor_sha256: bytes | None = None
     third_member_descriptor_sha256: bytes | None = None
     fourth_member_descriptor_sha256: bytes | None = None
     merge_manifest_descriptor_sha256: bytes | None = None
+    root_merge_manifest_descriptor_sha256: bytes | None = None
     if local_delta_lease is not None:
         local_delta_descriptor_sha256 = _validated_direct_descriptor_digest(local_delta_lease)
         if merge_manifest_lease is not None:
             merge_manifest_descriptor_sha256 = _validated_direct_descriptor_digest(
                 merge_manifest_lease
+            )
+        if root_merge_manifest_lease is not None:
+            root_merge_manifest_descriptor_sha256 = _validated_direct_descriptor_digest(
+                root_merge_manifest_lease
             )
         if third_member_lease is not None:
             third_member_descriptor_sha256 = _validated_direct_descriptor_digest(third_member_lease)
@@ -1853,6 +2104,34 @@ def prepare_native_encoded_direct(
                     strict=True,
                 )
             )
+            composite_root_members = (
+                tuple(
+                    (
+                        member.encoded_view,
+                        member.owner,
+                        member_descriptor,
+                        member_include,
+                        member_exclude,
+                        member_scope_map,
+                    )
+                    for (
+                        member,
+                        member_descriptor,
+                        member_include,
+                        member_exclude,
+                        member_scope_map,
+                    ) in zip(
+                        composite_root_member_leases,
+                        composite_root_member_descriptor_sha256,
+                        composite_root_included_root_ids,
+                        composite_root_excluded_root_ids,
+                        composite_root_anonymous_scope_maps,
+                        strict=True,
+                    )
+                )
+                if composite_root_member_leases
+                else None
+            )
             kernel = compiler(
                 lease.encoded_view,
                 lease.owner,
@@ -1863,6 +2142,16 @@ def prepare_native_encoded_direct(
                 merge_manifest_owner=merge_manifest_lease.owner,
                 merge_manifest_descriptor_sha256=merge_manifest_descriptor_sha256,
                 composite_members=composite_members,
+                root_merge_manifest_view=(
+                    None
+                    if root_merge_manifest_lease is None
+                    else root_merge_manifest_lease.encoded_view
+                ),
+                root_merge_manifest_owner=(
+                    None if root_merge_manifest_lease is None else root_merge_manifest_lease.owner
+                ),
+                root_merge_manifest_descriptor_sha256=root_merge_manifest_descriptor_sha256,
+                composite_root_members=composite_root_members,
             )
         elif local_delta_lease is not None:
             kernel = compiler(
@@ -1951,8 +2240,13 @@ def prepare_native_encoded_direct(
         composite_included_root_ids=composite_included_root_ids,
         composite_excluded_root_ids=composite_excluded_root_ids,
         composite_anonymous_scope_maps=composite_anonymous_scope_maps,
+        composite_root_member_leases=composite_root_member_leases,
+        composite_root_included_root_ids=composite_root_included_root_ids,
+        composite_root_excluded_root_ids=composite_root_excluded_root_ids,
+        composite_root_anonymous_scope_maps=composite_root_anonymous_scope_maps,
         nested_member_lease=nested_member_lease,
         merge_manifest_lease=merge_manifest_lease,
+        root_merge_manifest_lease=root_merge_manifest_lease,
         root_annotation_lease=root_annotation_lease,
         included_root_ids=included_root_ids,
         excluded_root_ids=excluded_root_ids,

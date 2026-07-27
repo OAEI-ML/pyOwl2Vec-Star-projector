@@ -335,6 +335,7 @@ enum IndividualValue<'a> {
 #[derive(Debug, Default, Eq, PartialEq)]
 struct AnonymousIds {
     node_ids: Vec<usize>,
+    global_positions: Option<Vec<usize>>,
     single_position: Option<usize>,
 }
 
@@ -343,14 +344,24 @@ impl AnonymousIds {
         let local_position = self.node_ids.binary_search(&node_id).map_err(|_| {
             KernelError::malformed("encoded anonymous individual lost its axiom-derived identifier")
         })?;
-        let position = match self.single_position {
-            Some(position) if self.node_ids.len() == 1 => position,
-            Some(_) => {
+        let position = match (&self.global_positions, self.single_position) {
+            (Some(positions), None) => *positions.get(local_position).ok_or_else(|| {
+                KernelError::malformed(
+                    "encoded anonymous individual lost its global identifier position",
+                )
+            })?,
+            (Some(_), Some(_)) => {
+                return Err(KernelError::malformed(
+                    "encoded anonymous identifier has conflicting position plans",
+                ));
+            }
+            (None, Some(position)) if self.node_ids.len() == 1 => position,
+            (None, Some(_)) => {
                 return Err(KernelError::malformed(
                     "encoded anonymous identifier override requires exactly one individual",
                 ));
             }
-            None => local_position,
+            (None, None) => local_position,
         };
         render_anonymous_identifier(position)
     }
@@ -1815,6 +1826,7 @@ enum OwnedOverlayDeltaProjection {
     IgnoredAnnotationAssertion {
         anonymous_individuals: usize,
     },
+    SilentDeclaration,
     SilentOntologyAnnotation,
     SilentSwrl,
 }
@@ -1837,6 +1849,7 @@ impl OwnedOverlayDeltaProjection {
             | Self::IgnoredDataPropertyAssertion { .. }
             | Self::IgnoredIndividualSet { .. }
             | Self::IgnoredAnnotationAssertion { .. }
+            | Self::SilentDeclaration
             | Self::SilentOntologyAnnotation
             | Self::SilentSwrl => EmissionPhase::ObjectAssertions,
         }
@@ -1920,6 +1933,7 @@ impl OwnedOverlayDeltaProjection {
             | Self::IgnoredDataPropertyAssertion { .. }
             | Self::IgnoredIndividualSet { .. }
             | Self::IgnoredAnnotationAssertion { .. }
+            | Self::SilentDeclaration
             | Self::SilentOntologyAnnotation
             | Self::SilentSwrl => Ok((0, 0)),
         }
@@ -2216,6 +2230,12 @@ impl OwnedOverlayDeltaProjection {
                         KernelError::resource("encoded anonymous-individual count overflow")
                     })?;
             }
+            Self::SilentDeclaration => {
+                statistics.declarations = statistics
+                    .declarations
+                    .checked_add(1)
+                    .ok_or_else(|| KernelError::resource("encoded declaration-count overflow"))?;
+            }
             Self::SilentOntologyAnnotation => {
                 statistics.ontology_annotations = statistics
                     .ontology_annotations
@@ -2260,11 +2280,31 @@ struct OwnedLocalObjectPropertyClass {
     insertion_position: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CompositeRootCoordinate {
+    table: usize,
+    root_index: usize,
+    node_id: usize,
+    root_kind: u8,
+    tag: u16,
+    canonical_order: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CompositeNodeCoordinate {
+    table: usize,
+    node_id: usize,
+    canonical_order: usize,
+}
+
 #[derive(Debug)]
 struct DirectPreparation {
     role_state: OwnedRoleState,
     anonymous_ids: AnonymousIds,
     selected_annotation_nodes: Option<Vec<usize>>,
+    composite_annotation_roots: Vec<CompositeRootCoordinate>,
+    composite_class_nodes: Vec<CompositeNodeCoordinate>,
+    composite_anonymous_nodes: Vec<CompositeNodeCoordinate>,
     overlay_deltas: Vec<OwnedOverlayDelta>,
     local_object_property_classes: [Option<OwnedLocalObjectPropertyClass>; 2],
     options: DirectCompileOptions,
@@ -3258,6 +3298,49 @@ impl<'a> DirectColumns<'a> {
         Ok(false)
     }
 
+    fn mark_root_reachable(
+        self,
+        root: usize,
+        reachable: &mut [bool],
+        stack: &mut Vec<usize>,
+        state: &AtomicU8,
+    ) -> Result<(), KernelError> {
+        if reachable.len()
+            != self
+                .node_count()
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded reachability length overflow"))?
+        {
+            return Err(KernelError::malformed(
+                "encoded composite reachability plan has the wrong table length",
+            ));
+        }
+        stack.clear();
+        queue_reachable_node(stack, reachable, root)?;
+        while let Some(node_id) = stack.pop() {
+            check_cancel(state, node_id)?;
+            let (start, end) = self.field_range(node_id)?;
+            for field_index in start..end {
+                let kind = self.field_kind(field_index)?;
+                if kind == COMPONENT_NODE {
+                    queue_reachable_node(stack, reachable, self.field_node(field_index)?)?;
+                    continue;
+                }
+                if ![COMPONENT_SET, COMPONENT_SEQUENCE].contains(&kind) {
+                    continue;
+                }
+                let item_start = self.field_value(field_index)?;
+                let length = self.field_length(field_index)?;
+                for item_index in item_start..item_start + length {
+                    if self.item_kinds[item_index] == COMPONENT_NODE {
+                        queue_reachable_node(stack, reachable, self.item_node(item_index)?)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn axiom_anonymous_ids(self, state: &AtomicU8) -> Result<AnonymousIds, KernelError> {
         let mut has_anonymous_individual = false;
         for node_id in 1..=self.node_count() {
@@ -3347,6 +3430,7 @@ impl<'a> DirectColumns<'a> {
         }
         Ok(AnonymousIds {
             node_ids,
+            global_positions: None,
             single_position: None,
         })
     }
@@ -8323,6 +8407,109 @@ pub(crate) mod canonical_merge {
             Ok(Some(CanonicalKWayRootGroup { roots: &self.roots }))
         }
 
+        fn compare_effective_anonymous_nodes(
+            &mut self,
+            left: CompositeNodeCoordinate,
+            right: CompositeNodeCoordinate,
+            state: &AtomicU8,
+        ) -> Result<CanonicalOrdering, KernelError> {
+            self.budget.consume(1, state)?;
+            let left_columns = self
+                .tables
+                .get(left.table)
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded anonymous coordinate references an unknown table",
+                    )
+                })?
+                .columns;
+            let right_columns = self
+                .tables
+                .get(right.table)
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded anonymous coordinate references an unknown table",
+                    )
+                })?
+                .columns;
+            let (left_scope, left_key) = left_columns.anonymous_parts(left.node_id)?;
+            let (right_scope, right_key) = right_columns.anonymous_parts(right.node_id)?;
+            self.budget.consume(
+                left_scope
+                    .len()
+                    .checked_add(right_scope.len())
+                    .and_then(|amount| amount.checked_add(left_key.len()))
+                    .and_then(|amount| amount.checked_add(right_key.len()))
+                    .ok_or_else(|| {
+                        KernelError::resource("encoded anonymous comparison work counter overflow")
+                    })?,
+                state,
+            )?;
+            let scope_order = left_scope.cmp(right_scope);
+            if scope_order != CanonicalOrdering::Equal {
+                return Ok(scope_order);
+            }
+            let length_order = compare_canonical_varints(left_key.len(), right_key.len());
+            if length_order != CanonicalOrdering::Equal {
+                return Ok(length_order);
+            }
+            Ok(left_key.cmp(right_key))
+        }
+
+        /// Assign closure-wide blank-node positions without owning source text.
+        ///
+        /// Coordinates already carry the effective source-local scope map.  The
+        /// bounded selection below intentionally charges every comparison to
+        /// this merger's single aggregate canonical budget.
+        pub(super) fn assign_anonymous_positions(
+            &mut self,
+            coordinates: &mut [CompositeNodeCoordinate],
+            state: &AtomicU8,
+        ) -> Result<usize, KernelError> {
+            let mut next_position = 0_usize;
+            loop {
+                let mut minimum = None;
+                for (index, coordinate) in coordinates.iter().copied().enumerate() {
+                    if coordinate.canonical_order != usize::MAX {
+                        continue;
+                    }
+                    let Some(current) = minimum else {
+                        minimum = Some(index);
+                        continue;
+                    };
+                    if self.compare_effective_anonymous_nodes(
+                        coordinate,
+                        coordinates[current],
+                        state,
+                    )? == CanonicalOrdering::Less
+                    {
+                        minimum = Some(index);
+                    }
+                }
+                let Some(minimum) = minimum else {
+                    break;
+                };
+                let minimum_coordinate = coordinates[minimum];
+                for coordinate in coordinates.iter_mut() {
+                    if coordinate.canonical_order != usize::MAX {
+                        continue;
+                    }
+                    if self.compare_effective_anonymous_nodes(
+                        *coordinate,
+                        minimum_coordinate,
+                        state,
+                    )? == CanonicalOrdering::Equal
+                    {
+                        coordinate.canonical_order = next_position;
+                    }
+                }
+                next_position = next_position.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded anonymous position counter overflow")
+                })?;
+            }
+            Ok(next_position)
+        }
+
         pub(crate) fn report(&self) -> CanonicalMergeReport {
             self.budget.report
         }
@@ -8550,6 +8737,7 @@ impl DirectEmissionCursor {
     fn next_edge(
         &mut self,
         columns: DirectColumns<'_>,
+        composite_columns: Option<&[DirectColumns<'_>]>,
         preparation: &DirectPreparation,
         state: &AtomicU8,
     ) -> Result<Option<DirectEdge>, KernelError> {
@@ -8636,6 +8824,7 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
                             }
+                            | OwnedOverlayDeltaProjection::SilentDeclaration
                             | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
                             | OwnedOverlayDeltaProjection::SilentSwrl => false,
                         };
@@ -8920,6 +9109,30 @@ impl DirectEmissionCursor {
                         self.phase = EmissionPhase::ClassAssertions;
                         continue;
                     }
+                    if let Some(composite_columns) = composite_columns {
+                        if self.scan_index == preparation.composite_annotation_roots.len() {
+                            self.scan_index = 0;
+                            self.phase = EmissionPhase::ClassAssertions;
+                            continue;
+                        }
+                        let coordinate = preparation.composite_annotation_roots[self.scan_index];
+                        self.scan_index += 1;
+                        if let Some(projection) = composite_annotation_projection(
+                            composite_columns,
+                            coordinate,
+                            &preparation.composite_class_nodes,
+                            preparation.options.max_iri_bytes,
+                            state,
+                        )? {
+                            let edge = composite_annotation_edge(
+                                projection,
+                                coordinate.table,
+                                &preparation.composite_anonymous_nodes,
+                            )?;
+                            return self.publish(edge, preparation);
+                        }
+                        continue;
+                    }
                     let node_id =
                         if let Some(selected) = preparation.selected_annotation_nodes.as_deref() {
                             if self.scan_index == selected.len() {
@@ -9057,6 +9270,7 @@ impl DirectEmissionCursor {
                             | OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
                                 ..
                             }
+                            | OwnedOverlayDeltaProjection::SilentDeclaration
                             | OwnedOverlayDeltaProjection::SilentOntologyAnnotation
                             | OwnedOverlayDeltaProjection::SilentSwrl => {
                                 self.overlay_delta_index =
@@ -9220,7 +9434,35 @@ impl PreparedDirectBatches {
         let mut next_cursor = self.cursor.try_clone()?;
         while edges.len() < amount {
             let edge = next_cursor
-                .next_edge(columns, &self.preparation, state)?
+                .next_edge(columns, None, &self.preparation, state)?
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded direct output ended before its preflight edge count",
+                    )
+                })?;
+            edges.push(edge);
+        }
+        Ok((edges, next_cursor))
+    }
+
+    pub(crate) fn prepare_next_composite_batch(
+        &self,
+        columns: &[DirectColumns<'_>],
+        state: &AtomicU8,
+        batch_edges: usize,
+    ) -> Result<(Vec<DirectEdge>, DirectEmissionCursor), KernelError> {
+        let base = columns.first().copied().ok_or_else(|| {
+            KernelError::malformed("encoded composite output lost its base table")
+        })?;
+        let amount = self.remaining_edges().min(batch_edges);
+        let mut edges = Vec::new();
+        edges
+            .try_reserve_exact(amount)
+            .map_err(|_| KernelError::resource("encoded direct batch allocation failed"))?;
+        let mut next_cursor = self.cursor.try_clone()?;
+        while edges.len() < amount {
+            let edge = next_cursor
+                .next_edge(base, Some(columns), &self.preparation, state)?
                 .ok_or_else(|| {
                     KernelError::malformed(
                         "encoded direct output ended before its preflight edge count",
@@ -9463,6 +9705,9 @@ fn prepare_direct<'a>(
         role_state: role_state.to_owned()?,
         anonymous_ids,
         selected_annotation_nodes,
+        composite_annotation_roots: Vec::new(),
+        composite_class_nodes: Vec::new(),
+        composite_anonymous_nodes: Vec::new(),
         overlay_deltas: Vec::new(),
         local_object_property_classes: [None, None],
         options,
@@ -10267,10 +10512,36 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
 ) -> Result<PreparedDirectBatches, KernelError> {
+    prepare_dynamic_composite_batches_with_root_uncommitted(
+        columns,
+        None,
+        options,
+        state,
+        retained,
+        max_canonical_work,
+        max_canonical_workspace_bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // The paired bounded merge keeps every limit explicit.
+pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
+    columns: &[DirectColumns<'_>],
+    root_columns: Option<&[DirectColumns<'_>]>,
+    options: DirectCompileOptions,
+    state: &AtomicU8,
+    retained: Option<&OwnedRoleState>,
+    max_canonical_work: usize,
+    max_canonical_workspace_bytes: usize,
+) -> Result<PreparedDirectBatches, KernelError> {
     let member_count = columns.len();
     if member_count < 2 {
         return Err(KernelError::unsupported(
             "bounded composite requires at least two retained tables",
+        ));
+    }
+    if root_columns.is_some_and(|root| root.len() != member_count) {
+        return Err(KernelError::malformed(
+            "encoded composite ROOT plan must pair every closure table",
         ));
     }
     let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
@@ -10279,6 +10550,17 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
         "encoded composite selected-count allocation failed",
     )?;
     selected_counts.resize(member_count, 0);
+    let mut root_selected_counts = if root_columns.is_some() {
+        local_workspace.reserve_owned::<usize>(
+            member_count,
+            "encoded composite ROOT selected-count allocation failed",
+        )?
+    } else {
+        Vec::new()
+    };
+    if root_columns.is_some() {
+        root_selected_counts.resize(member_count, 0);
+    }
     let mut selected_total = 0_usize;
     for table in 0..member_count {
         columns[table].validate_generic(state)?;
@@ -10288,6 +10570,30 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
             .checked_add(selected_counts[table])
             .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
     }
+    if let Some(root_columns) = root_columns {
+        for table in 0..member_count {
+            root_columns[table].validate_generic(state)?;
+            root_columns[table].validate_supported_nodes(options.max_iri_bytes, state)?;
+            root_selected_counts[table] = root_columns[table].selected_root_count()?;
+        }
+    }
+    let mut paired_columns = if root_columns.is_some() {
+        local_workspace.reserve_owned::<DirectColumns<'_>>(
+            member_count.checked_mul(2).ok_or_else(|| {
+                KernelError::resource("encoded composite paired-table count overflow")
+            })?,
+            "encoded composite paired-table allocation failed",
+        )?
+    } else {
+        Vec::new()
+    };
+    let merge_columns = if let Some(root_columns) = root_columns {
+        paired_columns.extend_from_slice(columns);
+        paired_columns.extend_from_slice(root_columns);
+        paired_columns.as_slice()
+    } else {
+        columns
+    };
     let scope_mapped = columns
         .iter()
         .any(|table| !table.anonymous_scope_map.is_empty());
@@ -10358,6 +10664,58 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
             "bounded composite requires at least one selected root",
         ));
     }
+    let mut node_offsets = if root_columns.is_some() {
+        local_workspace.reserve_owned::<usize>(
+            member_count
+                .checked_add(1)
+                .ok_or_else(|| KernelError::resource("encoded composite table count overflow"))?,
+            "encoded composite node-offset allocation failed",
+        )?
+    } else {
+        Vec::new()
+    };
+    if root_columns.is_some() {
+        node_offsets.push(0);
+    }
+    let mut total_node_slots = 0_usize;
+    let mut maximum_node_count = 0_usize;
+    if root_columns.is_some() {
+        for member in columns {
+            maximum_node_count = maximum_node_count.max(member.node_count());
+            total_node_slots = total_node_slots
+                .checked_add(member.node_count().checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded composite reachability length overflow")
+                })?)
+                .ok_or_else(|| KernelError::resource("encoded composite reachability overflow"))?;
+            node_offsets.push(total_node_slots);
+        }
+    }
+    let mut reachable = local_workspace.reserve_owned::<bool>(
+        total_node_slots,
+        "encoded composite reachability allocation failed",
+    )?;
+    reachable.resize(total_node_slots, false);
+    let mut axiom_reachable = local_workspace.reserve_owned::<bool>(
+        total_node_slots,
+        "encoded composite axiom-reachability allocation failed",
+    )?;
+    axiom_reachable.resize(total_node_slots, false);
+    let mut reachability_stack = local_workspace.reserve_owned::<usize>(
+        maximum_node_count,
+        "encoded composite reachability-stack allocation failed",
+    )?;
+    let mut composite_annotation_roots = local_workspace.reserve_owned::<CompositeRootCoordinate>(
+        selected_total,
+        "encoded composite annotation-coordinate allocation failed",
+    )?;
+    let mut composite_class_nodes = local_workspace.reserve_owned::<CompositeNodeCoordinate>(
+        total_node_slots,
+        "encoded composite class-coordinate allocation failed",
+    )?;
+    let mut composite_anonymous_nodes = local_workspace.reserve_owned::<CompositeNodeCoordinate>(
+        total_node_slots,
+        "encoded composite anonymous-coordinate allocation failed",
+    )?;
 
     let mut tail_root_count = 0_usize;
     for selected_count in selected_counts.iter().skip(1) {
@@ -10387,7 +10745,11 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
             let root = tail_columns.root_id(root_index)?;
             let root_kind = tail_columns.root_kind(root_index)?;
             let root_tag = tail_columns.node_tag(root)?;
-            if options.include_literals && root_tag == TAG_ANNOTATION_ASSERTION {
+            if options.include_literals
+                && !options.asserted_taxonomy_only
+                && root_columns.is_none()
+                && root_tag == TAG_ANNOTATION_ASSERTION
+            {
                 return Err(KernelError::unsupported(
                     "bounded composite literal projection requires annotation-assertion-free selected roots",
                 ));
@@ -10414,14 +10776,23 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
             } else {
                 scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[table]))
             };
-            let projection = own_composite_tail_projection(
-                *tail_columns,
-                root,
-                options.max_iri_bytes,
-                state,
-                &mut local_workspace,
-                scope_mapped_context,
-            )?;
+            let projection = if root_columns.is_some() && root_tag == TAG_ANNOTATION_ASSERTION {
+                tail_columns.validate_annotation_assertion(root, options.max_iri_bytes)?;
+                OwnedOverlayDeltaProjection::IgnoredAnnotationAssertion {
+                    anonymous_individuals: 0,
+                }
+            } else if root_columns.is_some() && root_tag == TAG_DECLARATION {
+                OwnedOverlayDeltaProjection::SilentDeclaration
+            } else {
+                own_composite_tail_projection(
+                    *tail_columns,
+                    root,
+                    options.max_iri_bytes,
+                    state,
+                    &mut local_workspace,
+                    scope_mapped_context,
+                )?
+            };
             overlay_deltas.push(OwnedOverlayDelta {
                 projection,
                 insertion_scan_index: usize::MAX,
@@ -10454,8 +10825,19 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
         "encoded composite consumed-count allocation failed",
     )?;
     consumed.resize(member_count, 0);
+    let mut root_consumed = if root_columns.is_some() {
+        local_workspace.reserve_owned::<usize>(
+            member_count,
+            "encoded composite ROOT consumed-count allocation failed",
+        )?
+    } else {
+        Vec::new()
+    };
+    if root_columns.is_some() {
+        root_consumed.resize(member_count, 0);
+    }
     let mut merger = canonical_merge::CanonicalKWayRootMerger::new(
-        columns,
+        merge_columns,
         canonical_merge::CanonicalMergeLimits {
             max_work: canonical_work,
             max_workspace_bytes: local_workspace.remaining_for_canonical_merge()?,
@@ -10465,15 +10847,90 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
     let mut selected_base_roots = 0_usize;
     let mut unique_tail_roots = 0_usize;
     let mut deduplicated_tail_roots = 0_usize;
-    let mut base_selected_annotation_assertion = false;
+    let mut root_occurrences = 0_usize;
+    let mut closure_annotation_assertions = 0_usize;
     let mut next_base_scan_index = 0_usize;
     let mut merged_canonical_index = 0_usize;
     while let Some(group) = merger.next(state)? {
+        let representative_table = (0..member_count).find(|table| group.roots[*table].is_some());
+        let representative_table = representative_table.ok_or_else(|| {
+            KernelError::malformed(
+                "encoded composite ROOT selection contains a root absent from the closure",
+            )
+        })?;
+        let representative = group.roots[representative_table].ok_or_else(|| {
+            KernelError::malformed("encoded composite closure lost its root representative")
+        })?;
+        let mut root_selected = false;
+        if root_columns.is_some() {
+            for (table, consumed_count) in root_consumed.iter_mut().enumerate() {
+                let Some(root) = group.roots[member_count + table] else {
+                    continue;
+                };
+                if group.roots[table].is_none() {
+                    return Err(KernelError::malformed(
+                        "encoded composite ROOT occurrence is absent from its paired closure member",
+                    ));
+                }
+                root_selected = true;
+                root_occurrences = root_occurrences.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded composite ROOT occurrence counter overflow")
+                })?;
+                *consumed_count = consumed_count.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded composite ROOT selected-root counter overflow")
+                })?;
+                if root.kind != representative.kind {
+                    return Err(KernelError::malformed(
+                        "encoded composite ROOT occurrence changed root kind",
+                    ));
+                }
+            }
+        }
+        let representative_node = representative.node_id;
+        let representative_tag = columns[representative_table].node_tag(representative_node)?;
+        if root_columns.is_some() {
+            let reachable_start = node_offsets[representative_table];
+            let reachable_end = node_offsets[representative_table + 1];
+            columns[representative_table].mark_root_reachable(
+                representative_node,
+                &mut reachable[reachable_start..reachable_end],
+                &mut reachability_stack,
+                state,
+            )?;
+            if representative.kind == ROOT_AXIOM {
+                columns[representative_table].mark_root_reachable(
+                    representative_node,
+                    &mut axiom_reachable[reachable_start..reachable_end],
+                    &mut reachability_stack,
+                    state,
+                )?;
+            }
+        }
+        if representative_tag == TAG_ANNOTATION_ASSERTION {
+            closure_annotation_assertions = closure_annotation_assertions
+                .checked_add(1)
+                .ok_or_else(|| {
+                    KernelError::resource("encoded composite annotation-assertion counter overflow")
+                })?;
+            if options.include_literals && !options.asserted_taxonomy_only && root_columns.is_none()
+            {
+                return Err(KernelError::unsupported(
+                    "bounded composite literal projection requires paired ROOT provenance",
+                ));
+            }
+            if root_selected {
+                composite_annotation_roots.push(CompositeRootCoordinate {
+                    table: representative_table,
+                    root_index: representative.index,
+                    node_id: representative_node,
+                    root_kind: representative.kind,
+                    tag: representative_tag,
+                    canonical_order: merged_canonical_index,
+                });
+            }
+        }
         let base_root = group.roots[0];
         if let Some(root) = base_root {
-            base_selected_annotation_assertion |= options.include_literals
-                && columns[0].node_tag(columns[0].root_id(root.index)?)?
-                    == TAG_ANNOTATION_ASSERTION;
             selected_base_roots = selected_base_roots
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded composite root counter overflow"))?;
@@ -10523,10 +10980,49 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
             .checked_add(1)
             .ok_or_else(|| KernelError::resource("encoded canonical root-position overflow"))?;
     }
+    if root_columns.is_some() {
+        let mut coordinate_order = 0_usize;
+        for table in 0..member_count {
+            let offset = node_offsets[table];
+            for node_id in 1..=columns[table].node_count() {
+                check_cancel(state, node_id)?;
+                if reachable[offset + node_id] && columns[table].node_tag(node_id)? == TAG_ENTITY {
+                    let (kind, _iri) = columns[table].entity(node_id)?;
+                    if kind == b"class" {
+                        composite_class_nodes.push(CompositeNodeCoordinate {
+                            table,
+                            node_id,
+                            canonical_order: coordinate_order,
+                        });
+                        coordinate_order = coordinate_order.checked_add(1).ok_or_else(|| {
+                            KernelError::resource(
+                                "encoded composite class-coordinate counter overflow",
+                            )
+                        })?;
+                    }
+                }
+                if axiom_reachable[offset + node_id]
+                    && columns[table].node_tag(node_id)? == TAG_ANONYMOUS_INDIVIDUAL
+                {
+                    composite_anonymous_nodes.push(CompositeNodeCoordinate {
+                        table,
+                        node_id,
+                        canonical_order: usize::MAX,
+                    });
+                }
+            }
+        }
+    }
+    let unique_anonymous_individuals =
+        merger.assign_anonymous_positions(&mut composite_anonymous_nodes, state)?;
     let report = merger.report();
+    let expected_report_duplicates = deduplicated_tail_roots
+        .checked_add(root_occurrences)
+        .ok_or_else(|| KernelError::resource("encoded duplicate-root counter overflow"))?;
     if consumed != selected_counts
+        || root_consumed != root_selected_counts
         || selected_base_roots != selected_counts[0]
-        || report.deduplicated_roots != deduplicated_tail_roots
+        || report.deduplicated_roots != expected_report_duplicates
         || report.roots_emitted
             != selected_base_roots
                 .checked_add(unique_tail_roots)
@@ -10537,16 +11033,20 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
         ));
     }
     drop(merger);
-    if base_selected_annotation_assertion {
-        return Err(KernelError::unsupported(
-            "bounded composite literal projection requires annotation-assertion-free selected roots",
-        ));
-    }
     overlay_deltas.retain(|delta| delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX);
     canonicalize_overlay_delta_plan(&mut overlay_deltas);
 
+    let mut base_options = options;
+    if root_columns.is_some() {
+        base_options.include_literals = false;
+    }
     let mut prepared = prepare_direct_batches_with_local_role_uncommitted(
-        columns[0], None, options, state, retained, None,
+        columns[0],
+        None,
+        base_options,
+        state,
+        retained,
+        None,
     )?;
     if scope_mapped_construct == Some(ScopeMappedCompositeKind::PositiveObject)
         && !columns[0].anonymous_scope_map.is_empty()
@@ -10558,6 +11058,38 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
         }
         prepared.preparation.anonymous_ids.single_position = Some(scope_mapped_positions[0]);
     }
+    if root_columns.is_some() && !prepared.preparation.anonymous_ids.node_ids.is_empty() {
+        let mut global_positions = local_workspace.reserve_owned::<usize>(
+            prepared.preparation.anonymous_ids.node_ids.len(),
+            "encoded composite base anonymous-position allocation failed",
+        )?;
+        for node_id in prepared.preparation.anonymous_ids.node_ids.iter().copied() {
+            let position = composite_anonymous_nodes
+                .iter()
+                .find(|coordinate| coordinate.table == 0 && coordinate.node_id == node_id)
+                .map(|coordinate| coordinate.canonical_order)
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded composite base anonymous individual lost its global position",
+                    )
+                })?;
+            global_positions.push(position);
+        }
+        prepared.preparation.anonymous_ids.single_position = None;
+        prepared.preparation.anonymous_ids.global_positions = Some(global_positions);
+    }
+    let composite_annotation_counts =
+        if root_columns.is_some() && options.include_literals && !options.asserted_taxonomy_only {
+            composite_annotation_edge_counts(
+                columns,
+                &composite_annotation_roots,
+                &composite_class_nodes,
+                options.max_iri_bytes,
+                state,
+            )?
+        } else {
+            AnnotationEdgeCounts::default()
+        };
     let mut projection_edges = 0_usize;
     let mut projection_role_expansion_edges = 0_usize;
     for local_delta in &overlay_deltas {
@@ -10576,6 +11108,7 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
         .statistics
         .edges
         .checked_add(projection_edges)
+        .and_then(|edges| edges.checked_add(composite_annotation_counts.edges))
         .ok_or_else(|| KernelError::resource("encoded edge-count overflow"))?;
     if projected > options.max_edges {
         return Err(KernelError::resource(format!(
@@ -10599,6 +11132,21 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
             .projection
             .apply_statistics(statistics, options)?;
     }
+    if root_columns.is_some() {
+        statistics.annotation_assertions = closure_annotation_assertions;
+        statistics.selected_annotation_assertions = composite_annotation_roots.len();
+        statistics.annotation_edges = composite_annotation_counts.edges;
+        statistics.non_string_literal_renderings = composite_annotation_counts.non_string_literals;
+        statistics.anonymous_individuals = unique_anonymous_individuals;
+        statistics.root_provenance_buffer_bytes = root_columns
+            .unwrap_or_default()
+            .iter()
+            .try_fold(0_usize, |total, member| {
+                total.checked_add(member.buffer_bytes()?).ok_or_else(|| {
+                    KernelError::resource("encoded root-provenance buffer-byte total overflow")
+                })
+            })?;
+    }
     statistics.role_expansion_edges = statistics
         .role_expansion_edges
         .checked_add(projection_role_expansion_edges)
@@ -10610,6 +11158,14 @@ pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
             .checked_add(tail_columns.buffer_bytes()?)
             .ok_or_else(|| KernelError::resource("encoded buffer-byte total overflow"))?;
     }
+    let mut emission_options = options;
+    if emission_options.asserted_taxonomy_only {
+        emission_options.include_literals = false;
+    }
+    prepared.preparation.options = emission_options;
+    prepared.preparation.composite_annotation_roots = composite_annotation_roots;
+    prepared.preparation.composite_class_nodes = composite_class_nodes;
+    prepared.preparation.composite_anonymous_nodes = composite_anonymous_nodes;
     prepared.preparation.overlay_deltas = overlay_deltas;
     Ok(prepared)
 }
@@ -12302,6 +12858,141 @@ fn annotation_edge(
         relation: clone_text(projection.relation)?,
         destination,
     })
+}
+
+fn composite_contains_class_iri(
+    columns: &[DirectColumns<'_>],
+    class_nodes: &[CompositeNodeCoordinate],
+    target: &str,
+    maximum_iri: usize,
+    state: &AtomicU8,
+) -> Result<bool, KernelError> {
+    for (index, coordinate) in class_nodes.iter().copied().enumerate() {
+        check_cancel(state, index)?;
+        let member = columns.get(coordinate.table).ok_or_else(|| {
+            KernelError::malformed("encoded class coordinate references an unknown table")
+        })?;
+        if member.node_tag(coordinate.node_id)? != TAG_ENTITY {
+            return Err(KernelError::malformed(
+                "encoded class coordinate no longer references an Entity",
+            ));
+        }
+        let (kind, iri_id) = member.entity(coordinate.node_id)?;
+        if kind == b"class" && member.iri(iri_id, maximum_iri)? == target {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn composite_annotation_projection<'a>(
+    columns: &[DirectColumns<'a>],
+    coordinate: CompositeRootCoordinate,
+    class_nodes: &[CompositeNodeCoordinate],
+    maximum_iri: usize,
+    state: &AtomicU8,
+) -> Result<Option<AnnotationProjection<'a>>, KernelError> {
+    let member = columns.get(coordinate.table).ok_or_else(|| {
+        KernelError::malformed("encoded annotation coordinate references an unknown table")
+    })?;
+    if coordinate.root_kind != ROOT_AXIOM
+        || coordinate.tag != TAG_ANNOTATION_ASSERTION
+        || member.root_id(coordinate.root_index)? != coordinate.node_id
+        || member.node_tag(coordinate.node_id)? != TAG_ANNOTATION_ASSERTION
+    {
+        return Err(KernelError::malformed(
+            "encoded annotation coordinate changed after canonical preflight",
+        ));
+    }
+    let start = member.exact_fields(coordinate.node_id, 4)?;
+    let property = member.named_annotation_property_iri(member.field_node(start)?, maximum_iri)?;
+    if !ANNOTATION_PROPERTIES.contains(&property) {
+        return Ok(None);
+    }
+    let subject_id = member.field_node(start + 1)?;
+    let source = match member.node_tag(subject_id)? {
+        TAG_IRI => member.iri(subject_id, maximum_iri)?,
+        TAG_ANONYMOUS_INDIVIDUAL => {
+            member.validate_anonymous_individual(subject_id)?;
+            return Ok(None);
+        }
+        _ => {
+            return Err(KernelError::malformed(
+                "encoded annotation subject changed after canonical preflight",
+            ));
+        }
+    };
+    if !composite_contains_class_iri(columns, class_nodes, source, maximum_iri, state)? {
+        return Ok(None);
+    }
+    let relation = match property {
+        "http://www.w3.org/2000/01/rdf-schema#label" => "rdfs:label",
+        "http://www.w3.org/2000/01/rdf-schema#comment" => "rdfs:comment",
+        _ => property,
+    };
+    Ok(Some(AnnotationProjection {
+        source,
+        relation,
+        value: member.annotation_value(member.field_node(start + 2)?, maximum_iri)?,
+    }))
+}
+
+fn composite_annotation_edge(
+    projection: AnnotationProjection<'_>,
+    table: usize,
+    anonymous_nodes: &[CompositeNodeCoordinate],
+) -> Result<DirectEdge, KernelError> {
+    let destination = match projection.value {
+        AnnotationValue::Borrowed(value) => clone_text(value)?,
+        AnnotationValue::Anonymous(node_id) => {
+            let coordinate = anonymous_nodes
+                .iter()
+                .find(|coordinate| coordinate.table == table && coordinate.node_id == node_id)
+                .ok_or_else(|| {
+                    KernelError::malformed(
+                        "encoded anonymous annotation value lost its closure-wide identifier",
+                    )
+                })?;
+            render_anonymous_identifier(coordinate.canonical_order)?
+        }
+        AnnotationValue::Typed { lexical, datatype } => {
+            render_typed_annotation_literal(lexical, datatype)?
+        }
+    };
+    Ok(DirectEdge {
+        source: clone_text(projection.source)?,
+        relation: clone_text(projection.relation)?,
+        destination,
+    })
+}
+
+fn composite_annotation_edge_counts(
+    columns: &[DirectColumns<'_>],
+    annotation_roots: &[CompositeRootCoordinate],
+    class_nodes: &[CompositeNodeCoordinate],
+    maximum_iri: usize,
+    state: &AtomicU8,
+) -> Result<AnnotationEdgeCounts, KernelError> {
+    let mut counts = AnnotationEdgeCounts::default();
+    for (index, coordinate) in annotation_roots.iter().copied().enumerate() {
+        check_cancel(state, index)?;
+        let Some(projection) =
+            composite_annotation_projection(columns, coordinate, class_nodes, maximum_iri, state)?
+        else {
+            continue;
+        };
+        counts.edges = counts
+            .edges
+            .checked_add(1)
+            .ok_or_else(|| KernelError::resource("encoded annotation edge-count overflow"))?;
+        if matches!(projection.value, AnnotationValue::Typed { .. }) {
+            counts.non_string_literals =
+                counts.non_string_literals.checked_add(1).ok_or_else(|| {
+                    KernelError::resource("encoded non-string annotation-literal count overflow")
+                })?;
+        }
+    }
+    Ok(counts)
 }
 
 fn queue_reachable_node(
@@ -20654,7 +21345,7 @@ mod tests {
             assert_eq!(
                 selected
                     .cursor
-                    .next_edge(selected_base, &selected.preparation, &running_state(),)
+                    .next_edge(selected_base, None, &selected.preparation, &running_state(),)
                     .unwrap(),
                 None,
             );
@@ -24156,6 +24847,112 @@ mod tests {
             .prepare_next_batch(base.columns(), &running_state(), 2)
             .unwrap();
         assert_eq!(edges.len(), 2);
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn paired_root_composite_enforces_selectors_pairing_and_resource_limits() {
+        let first = root_duplicate_annotation_fixture();
+        let second = root_duplicate_annotation_fixture();
+        let included_annotation = 2_u32.to_le_bytes();
+        let excluded_declaration = 1_u32.to_le_bytes();
+        let excluded_annotation = 2_u32.to_le_bytes();
+        let closure = [first.columns(), second.columns()];
+        let roots = [
+            first.columns().with_included_root_ids(&included_annotation),
+            second
+                .columns()
+                .with_excluded_root_ids(&excluded_declaration),
+        ];
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: true,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+
+        assert!(matches!(
+            prepare_dynamic_composite_batches_with_root_uncommitted(
+                &closure,
+                Some(&roots),
+                options,
+                &running_state(),
+                None,
+                1,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(_))
+        ));
+        assert!(matches!(
+            prepare_dynamic_composite_batches_with_root_uncommitted(
+                &closure,
+                Some(&roots),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                1,
+            ),
+            Err(KernelError::Resource(_))
+        ));
+
+        let malformed_closure = [
+            first.columns().with_excluded_root_ids(&excluded_annotation),
+            second.columns(),
+        ];
+        assert!(matches!(
+            prepare_dynamic_composite_batches_with_root_uncommitted(
+                &malformed_closure,
+                Some(&roots),
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Malformed(message))
+                if message.contains("absent from its paired closure member")
+        ));
+
+        let state = running_state();
+        let mut prepared = prepare_dynamic_composite_batches_with_root_uncommitted(
+            &closure,
+            Some(&roots),
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 2);
+        assert_eq!(statistics.declarations, 1);
+        assert_eq!(statistics.annotation_assertions, 1);
+        assert_eq!(statistics.selected_annotation_assertions, 1);
+        assert_eq!(statistics.annotation_edges, 1);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(
+            statistics.root_provenance_buffer_bytes,
+            roots
+                .iter()
+                .map(|columns| columns.buffer_bytes().unwrap())
+                .sum::<usize>()
+        );
+        let (edges, cursor) = prepared
+            .prepare_next_composite_batch(&closure, &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: "rdfs:label".into(),
+                destination: "duplicate".into(),
+            }]
+        );
         prepared.commit_cursor(cursor);
         assert!(prepared.is_exhausted());
     }
