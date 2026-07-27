@@ -1783,43 +1783,59 @@ def _resolve_private_four_table_nested_composite(
         EncodedStructuralLease,
         EncodedStructuralLease,
         memoryview | None,
+        memoryview | None,
+        memoryview | None,
         int | None,
         int | None,
     ]
     | None
 ):
-    """Resolve one exact overlay and two direct siblings into four retained tables."""
+    """Resolve one exact overlay and two selected direct siblings into four tables.
+
+    The nested overlay may select its direct base with ``EXCLUDE`` and either
+    or both outer direct siblings may independently carry one source-local
+    ``EXCLUDE`` table. Selection on the nested member itself, ``INCLUDE``, and
+    anonymous-scope remapping stay outside this bounded family.
+    """
 
     rows = _resolve_private_direct_composite_rows(
         lease,
         member_count=3,
         require_direct_sources=False,
     )
-    if rows is None or any(
-        included is not None or excluded is not None for _source, included, excluded, _map in rows
-    ):
+    if rows is None:
         return None
     overlay_rows: list[EncodedStructuralLease] = []
-    direct_rows: list[EncodedStructuralLease] = []
-    for source, _included, _excluded, _map in rows:
+    direct_rows: list[tuple[EncodedStructuralLease, memoryview | None]] = []
+    for source, included, excluded, scope_map in rows:
+        if included is not None or scope_map is not None:
+            return None
         roles = tuple(cast(Any, segment).role for segment in source.segments)
         if roles == (_SEGMENT_OVERLAY_BASE, _SEGMENT_OVERLAY_DELTA):
+            if excluded is not None:
+                return None
             overlay_rows.append(source)
         elif roles == (_SEGMENT_DIRECT,):
-            direct_rows.append(source)
+            direct_rows.append((source, excluded))
         else:
             return None
     if len(overlay_rows) != 1 or len(direct_rows) != 2:
         return None
     nested_overlay = overlay_rows[0]
-    first_direct, second_direct = direct_rows
+    (
+        (first_direct, first_excluded_root_ids),
+        (
+            second_direct,
+            second_excluded_root_ids,
+        ),
+    ) = direct_rows
     resolved_overlay = _resolve_private_single_overlay_delta(nested_overlay)
     if resolved_overlay is None:
         return None
     base, excluded_root_ids, _overlay_work, _overlay_workspace = resolved_overlay
     if any(
         base.encoded_view is direct.encoded_view or base.owner is direct.owner
-        for direct in direct_rows
+        for direct, _excluded in direct_rows
     ):
         return None
 
@@ -1838,6 +1854,8 @@ def _resolve_private_four_table_nested_composite(
         first_direct,
         second_direct,
         excluded_root_ids,
+        first_excluded_root_ids,
+        second_excluded_root_ids,
         _public_limit(lease.owner, "max_canonical_work"),
         _public_limit(lease.owner, "max_index_bytes"),
     )

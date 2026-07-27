@@ -10149,6 +10149,116 @@ def _four_table_nested_overlay_subclass_composite(
     )
 
 
+def _forged_four_table_nested_overlay_direct_excludes(
+    provider_backend: pyowl_core.BackendPreference,
+    *,
+    exclude_first: bool,
+    exclude_second: bool,
+) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease]:
+    assert exclude_first or exclude_second
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) SubClassOf(:DropBase :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)", backend=provider_backend),
+    )
+    first_direct = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:C :Top) SubClassOf(:DropFirst :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    second_direct = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:D :Top) SubClassOf(:DropSecond :Top) SubClassOf(:Shared :Top)",
+            backend=provider_backend,
+        ),
+    )
+    removed_base = next(
+        axiom
+        for axiom in base.iter_axioms()
+        if cast(Any, axiom).sub_class.iri.value.endswith("#DropBase")
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition.iter_axioms())),
+            remove_axioms=cast(Any, {removed_base}),
+        ),
+    )
+    storage_composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, first_direct, second_direct),
+    )
+    top_lease = select_private_direct_ingestion(
+        storage_composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    segments = list(top_lease.segments)
+    direct_indices = [
+        index
+        for index, segment in enumerate(segments)
+        if tuple(cast(Any, child).role for child in cast(Any, cast(Any, segment).source).segments)
+        == (1,)
+    ]
+    assert len(direct_indices) == 2
+    # Each direct source retains parser encounter positions with its unique
+    # root first, Shared second, and its Drop root third. Forge the otherwise
+    # valid outer source-local selectors because the current public composer
+    # materializes this nested-removal request.
+    for index, selected in zip(
+        direct_indices,
+        (exclude_first, exclude_second),
+        strict=True,
+    ):
+        if selected:
+            segments[index] = replace(
+                cast(Any, segments[index]),
+                posting_mode=2,
+                root_ids=memoryview((3).to_bytes(4, "little")),
+            )
+    top_encoded = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(segments),
+    )
+    top_lease = replace(
+        top_lease,
+        encoded_view=top_encoded,
+        segments=tuple(segments),
+    )
+    semantic_first = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:C :Top) SubClassOf(:Shared :Top)"
+            if exclude_first
+            else ("SubClassOf(:C :Top) SubClassOf(:DropFirst :Top) SubClassOf(:Shared :Top)"),
+            backend=provider_backend,
+        ),
+    )
+    semantic_second = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:D :Top) SubClassOf(:Shared :Top)"
+            if exclude_second
+            else ("SubClassOf(:D :Top) SubClassOf(:DropSecond :Top) SubClassOf(:Shared :Top)"),
+            backend=provider_backend,
+        ),
+    )
+    semantic_composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, semantic_first, semantic_second),
+    )
+    return semantic_composite, top_lease
+
+
 def _forged_one_include_subclass_composite(
     provider_backend: pyowl_core.BackendPreference,
 ) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease, memoryview]:
@@ -15019,6 +15129,369 @@ def test_hidden_iterator_merges_four_all_exclude_members_in_one_native_pass(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize(
+    ("exclude_first", "exclude_second", "expected_sources"),
+    [
+        (True, False, ("A", "B", "C", "D", "Shared", "DropSecond")),
+        (False, True, ("A", "B", "C", "D", "Shared", "DropFirst")),
+        (True, True, ("A", "B", "C", "D", "Shared")),
+    ],
+    ids=["first", "second", "both"],
+)
+def test_hidden_iterator_applies_each_four_table_direct_exclusion_locally(
+    provider_backend: pyowl_core.BackendPreference,
+    exclude_first: bool,
+    exclude_second: bool,
+    expected_sources: tuple[str, ...],
+) -> None:
+    composite, top_lease = _forged_four_table_nested_overlay_direct_excludes(
+        provider_backend,
+        exclude_first=exclude_first,
+        exclude_second=exclude_second,
+    )
+    resolved = _resolve_private_four_table_nested_composite(top_lease)
+    assert resolved is not None
+    (
+        base_lease,
+        nested_lease,
+        first_direct_lease,
+        second_direct_lease,
+        base_excluded,
+        first_excluded,
+        second_excluded,
+        _max_work,
+        _max_workspace,
+    ) = resolved
+    assert base_excluded is not None
+    assert (first_excluded is not None) is exclude_first
+    assert (second_excluded is not None) is exclude_second
+    expected_buffer_bytes = sum(
+        buffer.nbytes
+        for retained in (
+            top_lease,
+            nested_lease,
+            first_direct_lease,
+            second_direct_lease,
+            base_lease,
+        )
+        for buffer in retained.buffers.values()
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(composite, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    captured_compilers: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+            compiler = result[0].batches._compiler
+            assert compiler is not None
+            captured_compilers.append(compiler)
+        return result
+
+    with (
+        patch.object(
+            api_module,
+            "select_private_direct_ingestion",
+            return_value=EncodedNegotiation("encoded-native", lease=top_lease),
+        ),
+        patch.object(
+            api_module,
+            "prepare_native_encoded_compilation",
+            side_effect=capture_compilation,
+        ),
+        patch.object(
+            api_module,
+            "prepare_streaming_compilation",
+            side_effect=AssertionError(
+                "selected four-table nested composite reached scalar traversal"
+            ),
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert [edge.source.rsplit("#", 1)[-1] for edge in actual] == list(expected_sources)
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.diagnostics == expected_report.diagnostics == ()
+    assert len(captured) == len(captured_compilers) == 1
+    compilation = captured[0]
+    compiler = captured_compilers[0]
+    assert compilation.excluded_root_ids is base_excluded
+    assert compilation.third_excluded_root_ids is first_excluded
+    assert compilation.fourth_excluded_root_ids is second_excluded
+    assert compilation.included_root_ids is None
+    assert compilation.right_excluded_root_ids is None
+    assert compilation.native_statistics.roots == len(expected_sources)
+    assert compilation.native_statistics.subclasses == len(expected_sources)
+    assert compilation.native_statistics.edges == len(expected_sources)
+    selected_direct_count = int(exclude_first) + int(exclude_second)
+    assert compiler.retained_buffer_count == 45 + selected_direct_count
+    assert compilation.batches._compiler is None
+
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_buffer_count"] == 55
+    assert ingestion.counters["encoded_buffer_bytes"] == expected_buffer_bytes
+    assert ingestion.counters["encoded_detached_buffer_count"] == 45 + selected_direct_count
+    assert ingestion.counters["encoded_zero_copy_buffers"] == 55
+    assert ingestion.counters["encoded_referenced_view_count"] == 4
+    assert ingestion.counters["encoded_segment_count"] == 8
+    assert ingestion.counters["encoded_posting_bytes"] == 4 * (1 + selected_direct_count)
+    assert ingestion.counters["encoded_indexed_buffer_count"] == 0
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["scalar_term_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(expected_sources),
+        batch_edges=1,
+    )
+
+
+def test_four_table_direct_exclusions_reject_hostile_selector_identity_and_range() -> None:
+    _composite, top_lease = _forged_four_table_nested_overlay_direct_excludes(
+        pyowl_core.BackendPreference.PYTHON,
+        exclude_first=True,
+        exclude_second=True,
+    )
+    resolved = _resolve_private_four_table_nested_composite(top_lease)
+    assert resolved is not None
+    (
+        base_lease,
+        nested_lease,
+        first_direct_lease,
+        second_direct_lease,
+        base_excluded,
+        first_excluded,
+        second_excluded,
+        max_work,
+        max_workspace,
+    ) = resolved
+    assert base_excluded is not None
+    assert first_excluded is not None
+    assert second_excluded is not None
+    assert max_work is not None
+    assert max_workspace is not None
+
+    def compiler(
+        *,
+        manifest: EncodedStructuralLease = top_lease,
+        first_selector: memoryview = first_excluded,
+        second_selector: memoryview = second_excluded,
+    ) -> NativeEncodedDirectCompiler:
+        return prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=first_direct_lease,
+            fourth_member_lease=second_direct_lease,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=manifest,
+            excluded_root_ids=base_excluded,
+            third_excluded_root_ids=first_selector,
+            fourth_excluded_root_ids=second_selector,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+
+    valid = compiler()
+    edges, statistics = valid.compile_batch(
+        bidirectional=False,
+        max_edges=5,
+        max_iri_bytes=1024,
+    )
+    assert [edge.source.rsplit("#", 1)[-1] for edge in edges] == [
+        "A",
+        "B",
+        "C",
+        "D",
+        "Shared",
+    ]
+    assert statistics.roots == statistics.subclasses == statistics.edges == 5
+    assert valid.retained_buffer_count == 47
+
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="lost its exact EXCLUDE table",
+    ):
+        compiler(first_selector=memoryview(bytes(first_excluded)))
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="lost its exact EXCLUDE table",
+    ):
+        compiler(second_selector=memoryview(bytes(second_excluded)))
+
+    segments = list(top_lease.segments)
+    nested_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).source is nested_lease.encoded_view
+    )
+    first_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).source is first_direct_lease.encoded_view
+    )
+    nested_selected = list(segments)
+    nested_selected[nested_index] = replace(
+        cast(Any, nested_selected[nested_index]),
+        posting_mode=2,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    nested_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(nested_selected),
+    )
+    assert (
+        _resolve_private_four_table_nested_composite(
+            replace(
+                top_lease,
+                encoded_view=nested_view,
+                segments=tuple(nested_selected),
+            )
+        )
+        is None
+    )
+
+    first_included = list(segments)
+    first_included[first_index] = replace(
+        cast(Any, first_included[first_index]),
+        posting_mode=1,
+    )
+    included_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(first_included),
+    )
+    assert (
+        _resolve_private_four_table_nested_composite(
+            replace(
+                top_lease,
+                encoded_view=included_view,
+                segments=tuple(first_included),
+            )
+        )
+        is None
+    )
+
+    out_of_range = memoryview((99).to_bytes(4, "little"))
+    malformed_segments = list(segments)
+    malformed_segments[first_index] = replace(
+        cast(Any, malformed_segments[first_index]),
+        root_ids=out_of_range,
+    )
+    malformed_view = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(malformed_segments),
+    )
+    malformed_lease = replace(
+        top_lease,
+        encoded_view=malformed_view,
+        segments=tuple(malformed_segments),
+    )
+    malformed_resolved = _resolve_private_four_table_nested_composite(malformed_lease)
+    assert malformed_resolved is not None
+    malformed = compiler(
+        manifest=malformed_lease,
+        first_selector=out_of_range,
+    )
+    with pytest.raises(SnapshotCompatibilityError, match=r"excluded[_-]root"):
+        malformed.compile_batch(
+            bidirectional=False,
+            max_edges=5,
+            max_iri_bytes=1024,
+        )
+    assert malformed.state == "failed"
+
+
+def test_four_table_selected_member_views_live_until_compiler_release() -> None:
+    def create() -> tuple[
+        NativeEncodedDirectCompiler,
+        tuple[weakref.ReferenceType[Any], ...],
+    ]:
+        _composite, top_lease = _forged_four_table_nested_overlay_direct_excludes(
+            pyowl_core.BackendPreference.PYTHON,
+            exclude_first=True,
+            exclude_second=True,
+        )
+        resolved = _resolve_private_four_table_nested_composite(top_lease)
+        assert resolved is not None
+        (
+            base_lease,
+            nested_lease,
+            first_direct_lease,
+            second_direct_lease,
+            base_excluded,
+            first_excluded,
+            second_excluded,
+            max_work,
+            max_workspace,
+        ) = resolved
+        assert base_excluded is not None
+        assert first_excluded is not None
+        assert second_excluded is not None
+        assert max_work is not None
+        assert max_workspace is not None
+        compiler = prepare_native_encoded_direct(
+            base_lease,
+            local_delta_lease=nested_lease,
+            third_member_lease=first_direct_lease,
+            fourth_member_lease=second_direct_lease,
+            nested_member_lease=nested_lease,
+            merge_manifest_lease=top_lease,
+            excluded_root_ids=base_excluded,
+            third_excluded_root_ids=first_excluded,
+            fourth_excluded_root_ids=second_excluded,
+            canonical_work_limit=max_work,
+            canonical_workspace_limit=max_workspace,
+        )
+        return (
+            compiler,
+            tuple(
+                weakref.ref(lease.encoded_view)
+                for lease in (
+                    top_lease,
+                    base_lease,
+                    nested_lease,
+                    first_direct_lease,
+                    second_direct_lease,
+                )
+            ),
+        )
+
+    compiler, retained_view_refs = create()
+    gc.collect()
+    assert all(reference() is not None for reference in retained_view_refs)
+    del compiler
+    gc.collect()
+    assert all(reference() is None for reference in retained_view_refs)
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
 def test_four_member_composite_preserves_selectors_cancel_limits_and_retry(
     provider_backend: pyowl_core.BackendPreference,
 ) -> None:
@@ -16890,10 +17363,14 @@ def test_hidden_iterator_flattens_nested_overlay_with_two_direct_siblings(
         first_direct_lease,
         second_direct_lease,
         excluded,
+        first_direct_excluded,
+        second_direct_excluded,
         _max_work,
         _max_workspace,
     ) = resolved
     assert excluded is not None
+    assert first_direct_excluded is None
+    assert second_direct_excluded is None
     nested_base_segment = cast(Any, nested_lease.segments[0])
     assert excluded is nested_base_segment.root_ids
     retained_leases = (
@@ -17098,10 +17575,14 @@ def test_four_table_nested_composite_preserves_identity_cancel_limits_and_retry(
         first_direct_lease,
         second_direct_lease,
         excluded,
+        first_direct_excluded,
+        second_direct_excluded,
         max_work,
         max_workspace,
     ) = resolved
     assert excluded is not None
+    assert first_direct_excluded is None
+    assert second_direct_excluded is None
     assert max_work is not None
     assert max_workspace is not None
     nested_base_segment = cast(Any, nested_lease.segments[0])
