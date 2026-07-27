@@ -7988,47 +7988,78 @@ pub(crate) mod canonical_merge {
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub(crate) struct CanonicalKWayRootGroup<const N: usize> {
-        pub(crate) roots: [Option<CanonicalRootRef>; N],
+    pub(crate) struct CanonicalKWayRootGroup<'a> {
+        pub(crate) roots: &'a [Option<CanonicalRootRef>],
     }
 
-    /// One bounded table-driven canonical pass over a fixed number of direct tables.
-    pub(crate) struct CanonicalKWayRootMerger<'a, const N: usize> {
-        tables: [CanonicalTable<'a>; N],
-        positions: [usize; N],
-        posting_positions: [usize; N],
+    /// One bounded table-driven canonical pass over a dynamic number of direct tables.
+    pub(crate) struct CanonicalKWayRootMerger<'a> {
+        tables: Vec<CanonicalTable<'a>>,
+        positions: Vec<usize>,
+        posting_positions: Vec<usize>,
+        candidates: Vec<Option<CanonicalRootRef>>,
+        roots: Vec<Option<CanonicalRootRef>>,
         left_cursor: CanonicalByteCursor<'a>,
         right_cursor: CanonicalByteCursor<'a>,
         budget: CanonicalBudget,
     }
 
-    impl<'a, const N: usize> CanonicalKWayRootMerger<'a, N> {
+    impl<'a> CanonicalKWayRootMerger<'a> {
         pub(crate) fn new(
-            columns: [DirectColumns<'a>; N],
+            columns: &[DirectColumns<'a>],
             limits: CanonicalMergeLimits,
             state: &AtomicU8,
         ) -> Result<Self, KernelError> {
-            if N < 2 {
+            let table_count = columns.len();
+            if table_count < 2 {
                 return Err(KernelError::unsupported(
                     "encoded bounded canonical merge requires at least two tables",
                 ));
             }
             let mut budget = CanonicalBudget::new(limits)?;
-            let mut table_slots: [Option<CanonicalTable<'a>>; N] = std::array::from_fn(|_| None);
-            for (index, column) in columns.into_iter().enumerate() {
-                table_slots[index] = Some(CanonicalTable::build(column, &mut budget, state)?);
+            let (mut tables, _) = allocate_vector::<CanonicalTable<'a>>(
+                table_count,
+                &mut budget,
+                "encoded canonical table-plan allocation failed",
+            )?;
+            for column in columns.iter().copied() {
+                tables.push(CanonicalTable::build(column, &mut budget, state)?);
             }
-            let tables = table_slots
-                .map(|table| table.expect("every bounded canonical table was initialized"));
+            let (mut positions, _) = allocate_vector::<usize>(
+                table_count,
+                &mut budget,
+                "encoded canonical position-plan allocation failed",
+            )?;
+            positions.resize(table_count, 0);
+            let (mut posting_positions, _) = allocate_vector::<usize>(
+                table_count,
+                &mut budget,
+                "encoded canonical posting-plan allocation failed",
+            )?;
+            posting_positions.resize(table_count, 0);
+            let (mut candidates, _) = allocate_vector::<Option<CanonicalRootRef>>(
+                table_count,
+                &mut budget,
+                "encoded canonical candidate-plan allocation failed",
+            )?;
+            candidates.resize(table_count, None);
+            let (mut roots, _) = allocate_vector::<Option<CanonicalRootRef>>(
+                table_count,
+                &mut budget,
+                "encoded canonical root-group allocation failed",
+            )?;
+            roots.resize(table_count, None);
             let mut result = Self {
                 tables,
-                positions: [0; N],
-                posting_positions: [0; N],
+                positions,
+                posting_positions,
+                candidates,
+                roots,
                 left_cursor: CanonicalByteCursor::new(),
                 right_cursor: CanonicalByteCursor::new(),
                 budget,
             };
-            for table in 0..N {
+            for table in 0..table_count {
                 result.validate_table(table, state)?;
             }
             Ok(result)
@@ -8235,21 +8266,23 @@ pub(crate) mod canonical_merge {
         pub(crate) fn next(
             &mut self,
             state: &AtomicU8,
-        ) -> Result<Option<CanonicalKWayRootGroup<N>>, KernelError> {
-            let mut candidates = [None; N];
-            for (table, candidate) in candidates.iter_mut().enumerate() {
-                *candidate = self.selected_root(table, state)?;
+        ) -> Result<Option<CanonicalKWayRootGroup<'_>>, KernelError> {
+            self.candidates.fill(None);
+            self.roots.fill(None);
+            for table in 0..self.tables.len() {
+                let candidate = self.selected_root(table, state)?;
+                self.candidates[table] = candidate;
             }
             let mut minimum_table = None;
-            for table in 0..N {
-                let Some(candidate) = candidates[table] else {
+            for table in 0..self.tables.len() {
+                let Some(candidate) = self.candidates[table] else {
                     continue;
                 };
                 let Some(current_minimum) = minimum_table else {
                     minimum_table = Some(table);
                     continue;
                 };
-                let minimum = candidates[current_minimum].ok_or_else(|| {
+                let minimum = self.candidates[current_minimum].ok_or_else(|| {
                     KernelError::malformed("encoded bounded merge lost its minimum root")
                 })?;
                 if self.compare_roots(table, candidate, current_minimum, minimum, state)?
@@ -8261,13 +8294,12 @@ pub(crate) mod canonical_merge {
             let Some(minimum_table) = minimum_table else {
                 return Ok(None);
             };
-            let minimum = candidates[minimum_table].ok_or_else(|| {
+            let minimum = self.candidates[minimum_table].ok_or_else(|| {
                 KernelError::malformed("encoded bounded merge lost its minimum root")
             })?;
-            let mut roots = [None; N];
             let mut root_count = 0_usize;
-            for table in 0..N {
-                let Some(candidate) = candidates[table] else {
+            for table in 0..self.tables.len() {
+                let Some(candidate) = self.candidates[table] else {
                     continue;
                 };
                 let equal = table == minimum_table
@@ -8276,7 +8308,7 @@ pub(crate) mod canonical_merge {
                 if !equal {
                     continue;
                 }
-                roots[table] = Some(candidate);
+                self.roots[table] = Some(candidate);
                 self.positions[table] = self.positions[table].checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded canonical root position overflow")
                 })?;
@@ -8288,7 +8320,7 @@ pub(crate) mod canonical_merge {
                 KernelError::malformed("encoded bounded merge emitted an empty root group")
             })?;
             self.budget.record_root_duplicates(duplicate_count)?;
-            Ok(Some(CanonicalKWayRootGroup { roots }))
+            Ok(Some(CanonicalKWayRootGroup { roots: &self.roots }))
         }
 
         pub(crate) fn report(&self) -> CanonicalMergeReport {
@@ -10141,7 +10173,6 @@ impl LocalOverlayWorkspace {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CrossTableDuplicatePolicy {
     Reject,
-    Deduplicate,
 }
 
 const DEDUPLICATED_OVERLAY_SCAN_INDEX: usize = usize::MAX - 1;
@@ -10167,6 +10198,7 @@ pub(crate) fn prepare_single_overlay_delta_batches_uncommitted(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn prepare_two_member_composite_batches_uncommitted(
     left_columns: DirectColumns<'_>,
     right_columns: DirectColumns<'_>,
@@ -10176,30 +10208,18 @@ pub(crate) fn prepare_two_member_composite_batches_uncommitted(
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
 ) -> Result<PreparedDirectBatches, KernelError> {
-    if !left_columns.anonymous_scope_map.is_empty() || !right_columns.anonymous_scope_map.is_empty()
-    {
-        return prepare_k_way_composite_batches_uncommitted(
-            [left_columns, right_columns],
-            options,
-            state,
-            retained,
-            max_canonical_work,
-            max_canonical_workspace_bytes,
-        );
-    }
-    prepare_two_table_batches_uncommitted(
-        left_columns,
-        right_columns,
+    prepare_dynamic_composite_batches_uncommitted(
+        &[left_columns, right_columns],
         options,
         state,
         retained,
         max_canonical_work,
         max_canonical_workspace_bytes,
-        CrossTableDuplicatePolicy::Deduplicate,
     )
 }
 
 #[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
+#[cfg(test)]
 pub(crate) fn prepare_three_member_composite_batches_uncommitted(
     columns: [DirectColumns<'_>; 3],
     options: DirectCompileOptions,
@@ -10208,8 +10228,8 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
 ) -> Result<PreparedDirectBatches, KernelError> {
-    prepare_k_way_composite_batches_uncommitted(
-        columns,
+    prepare_dynamic_composite_batches_uncommitted(
+        &columns,
         options,
         state,
         retained,
@@ -10219,6 +10239,7 @@ pub(crate) fn prepare_three_member_composite_batches_uncommitted(
 }
 
 #[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
+#[cfg(test)]
 pub(crate) fn prepare_four_table_composite_batches_uncommitted(
     columns: [DirectColumns<'_>; 4],
     options: DirectCompileOptions,
@@ -10227,8 +10248,8 @@ pub(crate) fn prepare_four_table_composite_batches_uncommitted(
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
 ) -> Result<PreparedDirectBatches, KernelError> {
-    prepare_k_way_composite_batches_uncommitted(
-        columns,
+    prepare_dynamic_composite_batches_uncommitted(
+        &columns,
         options,
         state,
         retained,
@@ -10238,22 +10259,28 @@ pub(crate) fn prepare_four_table_composite_batches_uncommitted(
 }
 
 #[allow(clippy::too_many_arguments)] // The bounded merge contract keeps every limit explicit.
-fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
-    columns: [DirectColumns<'_>; N],
+pub(crate) fn prepare_dynamic_composite_batches_uncommitted(
+    columns: &[DirectColumns<'_>],
     options: DirectCompileOptions,
     state: &AtomicU8,
     retained: Option<&OwnedRoleState>,
     max_canonical_work: usize,
     max_canonical_workspace_bytes: usize,
 ) -> Result<PreparedDirectBatches, KernelError> {
-    if N < 2 {
+    let member_count = columns.len();
+    if member_count < 2 {
         return Err(KernelError::unsupported(
             "bounded composite requires at least two retained tables",
         ));
     }
-    let mut selected_counts = [0_usize; N];
+    let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
+    let mut selected_counts = local_workspace.reserve_owned::<usize>(
+        member_count,
+        "encoded composite selected-count allocation failed",
+    )?;
+    selected_counts.resize(member_count, 0);
     let mut selected_total = 0_usize;
-    for table in 0..N {
+    for table in 0..member_count {
         columns[table].validate_generic(state)?;
         columns[table].validate_supported_nodes(options.max_iri_bytes, state)?;
         selected_counts[table] = columns[table].selected_root_count()?;
@@ -10265,31 +10292,42 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
         .iter()
         .any(|table| !table.anonymous_scope_map.is_empty());
     let mut scope_mapped_construct = None;
-    let mut scope_mapped_positions = [0_usize; N];
+    let mut scope_mapped_positions = local_workspace.reserve_owned::<usize>(
+        member_count,
+        "encoded composite scope-position allocation failed",
+    )?;
+    scope_mapped_positions.resize(member_count, 0);
     if scope_mapped {
-        if !matches!(N, 2 | 3) || columns[0].anonymous_scope_map.is_empty() {
+        if !matches!(member_count, 2 | 3) {
             return Err(KernelError::unsupported(
-                "bounded anonymous-scope remapping requires one mapped base, one mapped member, and at most one neutral table",
+                "bounded anonymous-scope remapping requires exactly two mapped members and at most one neutral table",
             ));
         }
-        let (left_kind, left_target) =
-            columns[0].validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
-        let mut mapped_tail = None;
-        for (table, member) in columns.iter().copied().enumerate().skip(1) {
+        let mut first_mapped = None;
+        let mut second_mapped = None;
+        for (table, member) in columns.iter().copied().enumerate() {
             if member.anonymous_scope_map.is_empty() {
                 member.validate_scope_mapped_neutral_table(options.max_iri_bytes, state)?;
                 continue;
             }
-            if mapped_tail.is_some() {
+            let (kind, target) =
+                member.validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
+            if first_mapped.is_none() {
+                first_mapped = Some((table, kind, target));
+            } else if second_mapped.is_none() {
+                second_mapped = Some((table, kind, target));
+            } else {
                 return Err(KernelError::unsupported(
                     "bounded anonymous-scope remapping requires exactly two mapped members",
                 ));
             }
-            let (kind, target) =
-                member.validate_scope_mapped_composite_table(options.max_iri_bytes, state)?;
-            mapped_tail = Some((table, kind, target));
         }
-        let (right_table, right_kind, right_target) = mapped_tail.ok_or_else(|| {
+        let (left_table, left_kind, left_target) = first_mapped.ok_or_else(|| {
+            KernelError::unsupported(
+                "bounded anonymous-scope remapping requires exactly two mapped members",
+            )
+        })?;
+        let (right_table, right_kind, right_target) = second_mapped.ok_or_else(|| {
             KernelError::unsupported(
                 "bounded anonymous-scope remapping requires exactly two mapped members",
             )
@@ -10299,7 +10337,9 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                 "bounded anonymous-scope remapping requires the same construct family in both members",
             ));
         }
-        if columns[0].anonymous_scope_map[..32] != columns[right_table].anonymous_scope_map[..32] {
+        if columns[left_table].anonymous_scope_map[..32]
+            != columns[right_table].anonymous_scope_map[..32]
+        {
             return Err(KernelError::unsupported(
                 "bounded anonymous-scope remapping requires one shared source scope",
             ));
@@ -10310,7 +10350,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             ));
         }
         scope_mapped_construct = Some(left_kind);
-        scope_mapped_positions[0] = usize::from(left_target > right_target);
+        scope_mapped_positions[left_table] = usize::from(left_target > right_target);
         scope_mapped_positions[right_table] = usize::from(right_target > left_target);
     }
     if selected_total == 0 {
@@ -10325,11 +10365,14 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             .checked_add(*selected_count)
             .ok_or_else(|| KernelError::resource("encoded selected-root count overflow"))?;
     }
-    let mut local_workspace = LocalOverlayWorkspace::new(max_canonical_workspace_bytes)?;
     let mut overlay_deltas = local_workspace.reserve_overlay_deltas(tail_root_count)?;
-    let mut tail_offsets = [0_usize; N];
+    let mut tail_offsets = local_workspace.reserve_owned::<usize>(
+        member_count,
+        "encoded composite tail-offset allocation failed",
+    )?;
+    tail_offsets.resize(member_count, 0);
     let mut tail_offset = 0_usize;
-    for table in 1..N {
+    for table in 1..member_count {
         tail_offsets[table] = tail_offset;
         tail_offset = tail_offset
             .checked_add(selected_counts[table])
@@ -10366,13 +10409,18 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                     "bounded composite tail requires axiom roots or its mapped silent root",
                 ));
             }
+            let scope_mapped_context = if tail_columns.anonymous_scope_map.is_empty() {
+                None
+            } else {
+                scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[table]))
+            };
             let projection = own_composite_tail_projection(
                 *tail_columns,
                 root,
                 options.max_iri_bytes,
                 state,
                 &mut local_workspace,
-                scope_mapped_construct.map(|construct| (construct, scope_mapped_positions[table])),
+                scope_mapped_context,
             )?;
             overlay_deltas.push(OwnedOverlayDelta {
                 projection,
@@ -10401,7 +10449,12 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                 "encoded canonical comparison requires more than {max_canonical_work} work units"
             ))
         })?;
-    let mut merger = canonical_merge::CanonicalKWayRootMerger::<N>::new(
+    let mut consumed = local_workspace.reserve_owned::<usize>(
+        member_count,
+        "encoded composite consumed-count allocation failed",
+    )?;
+    consumed.resize(member_count, 0);
+    let mut merger = canonical_merge::CanonicalKWayRootMerger::new(
         columns,
         canonical_merge::CanonicalMergeLimits {
             max_work: canonical_work,
@@ -10409,7 +10462,6 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
         },
         state,
     )?;
-    let mut consumed = [0_usize; N];
     let mut selected_base_roots = 0_usize;
     let mut unique_tail_roots = 0_usize;
     let mut deduplicated_tail_roots = 0_usize;
@@ -10434,7 +10486,7 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
                 .ok_or_else(|| KernelError::resource("encoded selected-root counter overflow"))?;
         }
         let mut retained_tail = base_root.is_some();
-        for table in 1..N {
+        for table in 1..member_count {
             let Some(root) = group.roots[table] else {
                 continue;
             };
@@ -10496,7 +10548,9 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
     let mut prepared = prepare_direct_batches_with_local_role_uncommitted(
         columns[0], None, options, state, retained, None,
     )?;
-    if scope_mapped_construct == Some(ScopeMappedCompositeKind::PositiveObject) {
+    if scope_mapped_construct == Some(ScopeMappedCompositeKind::PositiveObject)
+        && !columns[0].anonymous_scope_map.is_empty()
+    {
         if prepared.preparation.anonymous_ids.node_ids.len() != 1 {
             return Err(KernelError::malformed(
                 "encoded anonymous-scope base lost its sole anonymous individual",
@@ -23317,6 +23371,131 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_composite_remaps_positive_object_scopes_with_neutral_base() {
+        let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let left = scope_mapped_class_assertion_fixture();
+        let right = scope_mapped_class_assertion_fixture();
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(8);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(9);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_dynamic_composite_batches_uncommitted(
+            &[neutral.columns(), left_columns, right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.class_assertions, 2);
+        assert_eq!(statistics.ignored_class_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(prepared.preparation.anonymous_ids.node_ids.len(), 0);
+        assert_eq!(prepared.preparation.overlay_deltas.len(), 2);
+        assert!(prepared.preparation.overlay_deltas.iter().all(|delta| {
+            matches!(
+                delta.projection,
+                OwnedOverlayDeltaProjection::IgnoredClassAssertion {
+                    anonymous_individuals: 1
+                }
+            )
+        }));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(neutral.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn dynamic_composite_remaps_silent_swrl_scopes_with_neutral_base() {
+        let neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let left = scope_mapped_swrl_fixture(false);
+        let right = scope_mapped_swrl_fixture(false);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(8);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(9);
+        let left_columns = left.columns().with_anonymous_scope_map(&left_scope_map);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_dynamic_composite_batches_uncommitted(
+            &[neutral.columns(), left_columns, right_columns],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.swrl_rules, 2);
+        assert_eq!(statistics.anonymous_individuals, 0);
+        assert_eq!(statistics.skipped_axioms, 0);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(prepared.preparation.anonymous_ids.node_ids.len(), 0);
+        assert_eq!(prepared.preparation.overlay_deltas.len(), 2);
+        assert!(prepared
+            .preparation
+            .overlay_deltas
+            .iter()
+            .all(|delta| matches!(delta.projection, OwnedOverlayDeltaProjection::SilentSwrl)));
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(neutral.columns(), &state, 1)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![DirectEdge {
+                source: "urn:B".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:Top".into(),
+            }]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
     fn nested_member_composite_remaps_singleton_nominal_subclass_scopes() {
         for nominal_superclass in [false, true] {
             let left = scope_mapped_nominal_subclass_fixture(nominal_superclass);
@@ -24094,6 +24273,103 @@ mod tests {
         );
         prepared.commit_cursor(first_cursor);
         assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn dynamic_eight_table_composite_deduplicates_mixed_selected_roots() {
+        let fixtures = (0..8)
+            .map(|_| named_subclass_delta_fixture(b"urn:A", b"urn:B"))
+            .collect::<Vec<_>>();
+        let included = 1_u32.to_le_bytes();
+        let excluded = 1_u32.to_le_bytes();
+        let columns = fixtures
+            .iter()
+            .enumerate()
+            .map(|(index, fixture)| match index {
+                0 => fixture.columns().with_included_root_ids(&included),
+                1 => fixture.columns().with_excluded_root_ids(&excluded),
+                _ => fixture.columns(),
+            })
+            .collect::<Vec<_>>();
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 1,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_dynamic_composite_batches_uncommitted(
+            &columns,
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 1);
+        assert_eq!(statistics.subclasses, 1);
+        assert_eq!(statistics.edges, 1);
+        assert_eq!(
+            statistics.buffer_bytes,
+            fixtures
+                .iter()
+                .map(|fixture| fixture.columns().buffer_bytes().unwrap())
+                .sum::<usize>()
+        );
+        assert!(prepared.preparation.overlay_deltas.is_empty());
+
+        let (first_batch, first_cursor) =
+            prepared.prepare_next_batch(columns[0], &state, 1).unwrap();
+        let (retry_batch, _) = prepared.prepare_next_batch(columns[0], &state, 1).unwrap();
+        assert_eq!(first_batch, retry_batch);
+        assert_eq!(
+            first_batch,
+            vec![DirectEdge {
+                source: "urn:A".into(),
+                relation: SUBCLASS_OF.into(),
+                destination: "urn:B".into(),
+            }]
+        );
+        prepared.commit_cursor(first_cursor);
+        assert!(prepared.is_exhausted());
+
+        assert!(matches!(
+            prepare_dynamic_composite_batches_uncommitted(
+                &columns,
+                options,
+                &running_state(),
+                None,
+                1,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("work units")
+        ));
+        assert!(matches!(
+            prepare_dynamic_composite_batches_uncommitted(
+                &columns,
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                1,
+            ),
+            Err(KernelError::Resource(message)) if message.contains("workspace bytes")
+        ));
+        assert!(matches!(
+            prepare_dynamic_composite_batches_uncommitted(
+                &columns,
+                options,
+                &AtomicU8::new(STATE_CANCELLED),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Cancelled)
+        ));
     }
 
     #[test]
@@ -25769,8 +26045,8 @@ mod tests {
         let second = canonical_text_roots(&[b"b", b"d"]);
         let third = canonical_text_roots(&[b"c", b"d"]);
         let excluded_first = 1_u32.to_le_bytes();
-        let mut merger = canonical_merge::CanonicalKWayRootMerger::<3>::new(
-            [
+        let mut merger = canonical_merge::CanonicalKWayRootMerger::new(
+            &[
                 first.columns().with_excluded_root_ids(&excluded_first),
                 second.columns(),
                 third.columns(),
@@ -25782,20 +26058,30 @@ mod tests {
 
         let first_group = merger.next(&running_state()).unwrap().unwrap();
         assert_eq!(
-            first_group.roots.map(|root| root.map(|value| value.index)),
-            [None, Some(0), None]
+            first_group
+                .roots
+                .iter()
+                .map(|root| root.map(|value| value.index))
+                .collect::<Vec<_>>(),
+            vec![None, Some(0), None]
         );
         let second_group = merger.next(&running_state()).unwrap().unwrap();
         assert_eq!(
-            second_group.roots.map(|root| root.map(|value| value.index)),
-            [None, None, Some(0)]
+            second_group
+                .roots
+                .iter()
+                .map(|root| root.map(|value| value.index))
+                .collect::<Vec<_>>(),
+            vec![None, None, Some(0)]
         );
         let duplicate_group = merger.next(&running_state()).unwrap().unwrap();
         assert_eq!(
             duplicate_group
                 .roots
-                .map(|root| root.map(|value| value.index)),
-            [Some(1), Some(1), Some(1)]
+                .iter()
+                .map(|root| root.map(|value| value.index))
+                .collect::<Vec<_>>(),
+            vec![Some(1), Some(1), Some(1)]
         );
         assert_eq!(merger.next(&running_state()).unwrap(), None);
         let report = merger.report();
@@ -25813,8 +26099,8 @@ mod tests {
         let third = canonical_text_roots(&[b"c", b"e"]);
         let fourth = canonical_text_roots(&[b"d", b"e"]);
         let excluded_first = 1_u32.to_le_bytes();
-        let mut merger = canonical_merge::CanonicalKWayRootMerger::<4>::new(
-            [
+        let mut merger = canonical_merge::CanonicalKWayRootMerger::new(
+            &[
                 first.columns().with_excluded_root_ids(&excluded_first),
                 second.columns(),
                 third.columns(),
@@ -25828,16 +26114,24 @@ mod tests {
         for expected_table in 1..4 {
             let group = merger.next(&running_state()).unwrap().unwrap();
             assert_eq!(
-                group.roots.map(|root| root.map(|value| value.index)),
-                std::array::from_fn(|table| (table == expected_table).then_some(0))
+                group
+                    .roots
+                    .iter()
+                    .map(|root| root.map(|value| value.index))
+                    .collect::<Vec<_>>(),
+                (0..4)
+                    .map(|table| (table == expected_table).then_some(0))
+                    .collect::<Vec<_>>()
             );
         }
         let duplicate_group = merger.next(&running_state()).unwrap().unwrap();
         assert_eq!(
             duplicate_group
                 .roots
-                .map(|root| root.map(|value| value.index)),
-            [Some(1), Some(1), Some(1), Some(1)]
+                .iter()
+                .map(|root| root.map(|value| value.index))
+                .collect::<Vec<_>>(),
+            vec![Some(1), Some(1), Some(1), Some(1)]
         );
         assert_eq!(merger.next(&running_state()).unwrap(), None);
         let report = merger.report();

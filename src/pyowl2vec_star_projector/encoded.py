@@ -596,6 +596,42 @@ def _resolve_private_direct_composite_rows(
     return tuple(rows) if len(rows) == member_count else None
 
 
+def _resolve_private_dynamic_member_composite(
+    lease: EncodedStructuralLease,
+) -> tuple[tuple[_CompositeRow, ...], int | None, int | None] | None:
+    """Resolve an arbitrary bounded direct-member composite without flattening.
+
+    The encoded provider has already enforced its public member-count limit.
+    This resolver keeps every member's source-local INCLUDE/EXCLUDE posting and
+    anonymous-scope map attached to that member; Rust performs the single
+    canonical rule pass and rejects unsupported scope-map combinations before
+    output.
+    """
+
+    if type(lease) is not EncodedStructuralLease:
+        return None
+    member_count = len(lease.segments)
+    if member_count < 2:
+        return None
+    rows = _resolve_private_direct_composite_rows(
+        lease,
+        member_count=member_count,
+        allow_scope_maps=True,
+    )
+    if rows is None:
+        return None
+    validation_work = _private_encoded_lease_validation_work(lease) + sum(
+        _private_encoded_lease_validation_work(source)
+        for source, _included, _excluded, _scope_map in rows
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        rows,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
 def _resolve_private_two_member_composite(
     lease: EncodedStructuralLease,
 ) -> (

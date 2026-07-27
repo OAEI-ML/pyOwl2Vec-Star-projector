@@ -23,10 +23,8 @@ use std::sync::{Arc, Mutex};
 use encoded_direct::compile_direct_with_retained_role_state;
 use encoded_direct::{
     prepare_direct_batches_uncommitted, prepare_direct_batches_with_retained_role_state,
-    prepare_four_table_composite_batches_uncommitted,
-    prepare_single_overlay_delta_batches_uncommitted,
-    prepare_three_member_composite_batches_uncommitted,
-    prepare_two_member_composite_batches_uncommitted, DirectColumns, DirectCompileOptions,
+    prepare_dynamic_composite_batches_uncommitted,
+    prepare_single_overlay_delta_batches_uncommitted, DirectColumns, DirectCompileOptions,
     DirectCompileStats, DirectEdge, KernelError, OwnedRoleSnapshot, OwnedRoleState,
     PreparedDirectBatches, BUFFER_COUNT, BUFFER_NAMES, STATE_CANCELLED, STATE_FAILED,
     STATE_FINISHED, STATE_IDLE, STATE_RUNNING,
@@ -43,7 +41,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 113;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 114;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -592,6 +590,15 @@ impl DirectBatchOutput {
 /// every immutable bytes exporter.  `compile_batch` is consequently able to
 /// lend stable slices to Rust while `Python::detach` releases the GIL.  It is
 /// intentionally absent from `FEATURES` until the full P7 compiler is ready.
+struct RetainedCompositeMember {
+    _view: Py<PyAny>,
+    _owner: Py<PyAny>,
+    buffers: Option<Vec<RetainedDirectBuffer>>,
+    included_root_ids: Option<RetainedDirectBuffer>,
+    excluded_root_ids: Option<RetainedDirectBuffer>,
+    anonymous_scope_map: Option<RetainedDirectBuffer>,
+}
+
 #[pyclass(module = "pyowl2vec_star_projector._native", frozen)]
 struct EncodedDirectCompiler {
     _encoded_view: Py<PyAny>,
@@ -610,6 +617,7 @@ struct EncodedDirectCompiler {
     _nested_member_owner: Option<Py<PyAny>>,
     _merge_manifest_view: Option<Py<PyAny>>,
     _merge_manifest_owner: Option<Py<PyAny>>,
+    composite_members: Option<Vec<RetainedCompositeMember>>,
     canonical_merge_limits: Option<(usize, usize)>,
     included_root_ids: Option<RetainedDirectBuffer>,
     excluded_root_ids: Option<RetainedDirectBuffer>,
@@ -685,6 +693,98 @@ impl EncodedDirectCompiler {
         }
     }
 
+    fn retained_base_columns<'a>(
+        &'a self,
+        base_columns: DirectColumns<'a>,
+    ) -> PyResult<DirectColumns<'a>> {
+        if let Some(members) = self.composite_members.as_ref() {
+            let first = members.first().ok_or_else(|| {
+                PyRuntimeError::new_err("encoded dynamic composite lost its base member")
+            })?;
+            if first.buffers.is_some() {
+                return Err(PyRuntimeError::new_err(
+                    "encoded dynamic composite duplicated its base buffers",
+                ));
+            }
+            let included_root_ids = first
+                .included_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let excluded_root_ids = first
+                .excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let anonymous_scope_map = first
+                .anonymous_scope_map
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            return Ok(base_columns
+                .with_included_root_ids(included_root_ids)
+                .with_excluded_root_ids(excluded_root_ids)
+                .with_anonymous_scope_map(anonymous_scope_map));
+        }
+        let included_root_ids = self
+            .included_root_ids
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
+        let excluded_root_ids = self
+            .excluded_root_ids
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
+        let anonymous_scope_map = self
+            .anonymous_scope_map
+            .as_ref()
+            .map_or(&[][..], RetainedDirectBuffer::as_slice);
+        Ok(base_columns
+            .with_included_root_ids(included_root_ids)
+            .with_excluded_root_ids(excluded_root_ids)
+            .with_anonymous_scope_map(anonymous_scope_map))
+    }
+
+    fn dynamic_composite_columns<'a>(
+        &'a self,
+        base_columns: DirectColumns<'a>,
+    ) -> PyResult<Option<Vec<DirectColumns<'a>>>> {
+        let Some(members) = self.composite_members.as_ref() else {
+            return Ok(None);
+        };
+        let mut columns = Vec::new();
+        columns.try_reserve_exact(members.len()).map_err(|_| {
+            PyMemoryError::new_err("encoded dynamic composite plan allocation failed")
+        })?;
+        for (index, member) in members.iter().enumerate() {
+            let included_root_ids = member
+                .included_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let excluded_root_ids = member
+                .excluded_root_ids
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let anonymous_scope_map = member
+                .anonymous_scope_map
+                .as_ref()
+                .map_or(&[][..], RetainedDirectBuffer::as_slice);
+            let member_columns = if index == 0 {
+                self.retained_base_columns(base_columns)?
+            } else {
+                let buffers = member.buffers.as_ref().ok_or_else(|| {
+                    PyRuntimeError::new_err("encoded dynamic composite lost a member table")
+                })?;
+                let slices: [&[u8]; BUFFER_COUNT] =
+                    std::array::from_fn(|buffer| buffers[buffer].as_slice());
+                DirectColumns::from_ordered(slices)
+            };
+            columns.push(
+                member_columns
+                    .with_included_root_ids(included_root_ids)
+                    .with_excluded_root_ids(excluded_root_ids)
+                    .with_anonymous_scope_map(anonymous_scope_map),
+            );
+        }
+        Ok(Some(columns))
+    }
+
     fn prepare_batches_owned(
         &self,
         py: Python<'_>,
@@ -698,22 +798,9 @@ impl EncodedDirectCompiler {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_slice());
-        let included_root_ids = self
-            .included_root_ids
-            .as_ref()
-            .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let excluded_root_ids = self
-            .excluded_root_ids
-            .as_ref()
-            .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let anonymous_scope_map = self
-            .anonymous_scope_map
-            .as_ref()
-            .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let columns = DirectColumns::from_ordered(slices)
-            .with_included_root_ids(included_root_ids)
-            .with_excluded_root_ids(excluded_root_ids)
-            .with_anonymous_scope_map(anonymous_scope_map);
+        let base_columns = DirectColumns::from_ordered(slices);
+        let dynamic_composite_columns = self.dynamic_composite_columns(base_columns)?;
+        let columns = self.retained_base_columns(base_columns)?;
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -764,7 +851,9 @@ impl EncodedDirectCompiler {
                 std::array::from_fn(|index| buffers[index].as_slice());
             DirectColumns::from_ordered(slices)
         });
-        if overlay_delta_columns.is_some() && retained_role_state.is_some() {
+        if (overlay_delta_columns.is_some() || dynamic_composite_columns.is_some())
+            && retained_role_state.is_some()
+        {
             return self.finish_result(Err(EncodedDirectUnsupportedError::new_err(
                 "bounded local-overlay compilation does not bind retained role state",
             )));
@@ -778,7 +867,23 @@ impl EncodedDirectCompiler {
         };
         let result = guarded(|| {
             py.detach(|| {
-                if let Some(delta_columns) = overlay_delta_columns {
+                if let Some(composite_columns) = dynamic_composite_columns.as_deref() {
+                    let (max_work, max_workspace_bytes) =
+                        self.canonical_merge_limits.ok_or_else(|| {
+                            PyRuntimeError::new_err(
+                                "encoded dynamic composite lost its canonical limits",
+                            )
+                        })?;
+                    prepare_dynamic_composite_batches_uncommitted(
+                        composite_columns,
+                        options,
+                        &self.state,
+                        None,
+                        max_work,
+                        max_workspace_bytes,
+                    )
+                    .map_err(kernel_error)
+                } else if let Some(delta_columns) = overlay_delta_columns {
                     let (max_work, max_workspace_bytes) =
                         self.canonical_merge_limits.ok_or_else(|| {
                             PyRuntimeError::new_err(
@@ -786,37 +891,23 @@ impl EncodedDirectCompiler {
                             )
                         })?;
                     if self._merge_manifest_view.is_some() {
-                        if let Some(third_columns) = third_member_columns {
-                            if let Some(fourth_columns) = fourth_member_columns {
-                                prepare_four_table_composite_batches_uncommitted(
-                                    [columns, delta_columns, third_columns, fourth_columns],
-                                    options,
-                                    &self.state,
-                                    None,
-                                    max_work,
-                                    max_workspace_bytes,
-                                )
-                            } else {
-                                prepare_three_member_composite_batches_uncommitted(
-                                    [columns, delta_columns, third_columns],
-                                    options,
-                                    &self.state,
-                                    None,
-                                    max_work,
-                                    max_workspace_bytes,
-                                )
-                            }
-                        } else {
-                            prepare_two_member_composite_batches_uncommitted(
-                                columns,
-                                delta_columns,
-                                options,
-                                &self.state,
-                                None,
-                                max_work,
-                                max_workspace_bytes,
-                            )
-                        }
+                        let member_count = 2
+                            + usize::from(third_member_columns.is_some())
+                            + usize::from(fourth_member_columns.is_some());
+                        let composite_columns = [
+                            columns,
+                            delta_columns,
+                            third_member_columns.unwrap_or(columns),
+                            fourth_member_columns.unwrap_or(columns),
+                        ];
+                        prepare_dynamic_composite_batches_uncommitted(
+                            &composite_columns[..member_count],
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
                     } else {
                         prepare_single_overlay_delta_batches_uncommitted(
                             columns,
@@ -888,6 +979,7 @@ impl EncodedDirectCompiler {
         merge_manifest_view=None,
         merge_manifest_owner=None,
         merge_manifest_descriptor_sha256=None,
+        composite_members=None,
         included_root_ids=None,
         right_excluded_root_ids=None,
         third_member_view=None,
@@ -920,6 +1012,7 @@ impl EncodedDirectCompiler {
         merge_manifest_view: Option<&Bound<'_, PyAny>>,
         merge_manifest_owner: Option<&Bound<'_, PyAny>>,
         merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
+        composite_members: Option<&Bound<'_, PyAny>>,
         included_root_ids: Option<&Bound<'_, PyAny>>,
         right_excluded_root_ids: Option<&Bound<'_, PyAny>>,
         third_member_view: Option<&Bound<'_, PyAny>>,
@@ -1003,6 +1096,9 @@ impl EncodedDirectCompiler {
                 ));
             }
         };
+        let dynamic_composite_inputs = composite_members
+            .map(parse_dynamic_composite_members)
+            .transpose()?;
         let third_member = match (
             third_member_view,
             third_member_owner,
@@ -1048,155 +1144,310 @@ impl EncodedDirectCompiler {
                 ));
             }
         };
-        let (overlay_delta_buffers, canonical_merge_limits) = match (
-            overlay_delta_view,
-            overlay_delta_owner,
-            overlay_delta_descriptor_sha256,
-            canonical_work_limit,
-            canonical_workspace_limit,
-        ) {
-            (None, None, None, None, None) => (None, None),
-            (Some(view), Some(owner), Some(digest), Some(max_work), Some(max_workspace_bytes)) => {
-                if root_annotation_buffers.is_some() {
-                    return Err(EncodedDirectUnsupportedError::new_err(
-                        "bounded local-overlay compilation cannot combine root provenance",
+        let dynamic_composite = if let Some(inputs) = dynamic_composite_inputs.as_ref() {
+            if overlay_delta_view.is_some()
+                || overlay_delta_owner.is_some()
+                || overlay_delta_descriptor_sha256.is_some()
+                || third_member.is_some()
+                || fourth_member.is_some()
+                || nested_member.is_some()
+                || root_annotation_buffers.is_some()
+                || included_root_ids.is_some()
+                || excluded_root_ids.is_some()
+                || right_excluded_root_ids.is_some()
+                || third_excluded_root_ids.is_some()
+                || fourth_excluded_root_ids.is_some()
+                || anonymous_scope_map.is_some()
+                || right_anonymous_scope_map.is_some()
+            {
+                return Err(encoded_buffer_error(
+                    "encoded dynamic composite cannot combine fixed segmented inputs",
+                ));
+            }
+            let (Some(max_work), Some(max_workspace_bytes)) =
+                (canonical_work_limit, canonical_workspace_limit)
+            else {
+                return Err(encoded_buffer_error(
+                    "encoded dynamic composite requires canonical limits",
+                ));
+            };
+            if max_work == 0 || max_workspace_bytes == 0 {
+                return Err(PyMemoryError::new_err(
+                    "encoded dynamic composite canonical limits must be positive",
+                ));
+            }
+            let Some((manifest, manifest_owner, manifest_digest)) = merge_manifest else {
+                return Err(encoded_buffer_error(
+                    "encoded dynamic composite requires an exact manifest",
+                ));
+            };
+            if !inputs[0].view.is(encoded_view) || !inputs[0].owner.is(expected_owner) {
+                return Err(encoded_buffer_error(
+                    "encoded dynamic composite first member lost its base identity",
+                ));
+            }
+            let mut bindings = Vec::new();
+            bindings.try_reserve_exact(inputs.len()).map_err(|_| {
+                PyMemoryError::new_err("encoded composite binding allocation failed")
+            })?;
+            for input in inputs {
+                bindings.push((
+                    &input.view,
+                    &input.owner,
+                    input.included_root_ids.as_ref(),
+                    input.excluded_root_ids.as_ref(),
+                    input.anonymous_scope_map.as_ref(),
+                ));
+            }
+            validate_direct_member_composite_manifest(
+                manifest,
+                manifest_owner,
+                manifest_digest,
+                &bindings,
+                true,
+            )?;
+
+            let mut retained = Vec::new();
+            retained.try_reserve_exact(inputs.len()).map_err(|_| {
+                PyMemoryError::new_err("encoded composite retention allocation failed")
+            })?;
+            for (index, input) in inputs.iter().enumerate() {
+                if input.included_root_ids.is_some() && input.excluded_root_ids.is_some() {
+                    return Err(encoded_buffer_error(
+                        "encoded composite member cannot combine INCLUDE and EXCLUDE tables",
                     ));
                 }
-                if max_work == 0 || max_workspace_bytes == 0 {
-                    return Err(PyMemoryError::new_err(
-                        "encoded local-overlay canonical limits must be positive",
-                    ));
-                }
-                let buffers = if let Some((manifest, manifest_owner, manifest_digest)) =
-                    merge_manifest
-                {
-                    if let Some((nested_view, nested_owner, nested_digest)) = nested_member {
-                        if !nested_view.is(view) || !nested_owner.is(owner) {
-                            return Err(encoded_buffer_error(
-                                "encoded nested member lost its retained table identity",
-                            ));
+                let buffers = if index == 0 {
+                    validate_encoded_view_header(
+                        &input.view,
+                        &input.owner,
+                        &input.descriptor_sha256,
+                    )?;
+                    validate_direct_segment(&input.view, &input.owner)?;
+                    None
+                } else {
+                    Some(retained_direct_buffers(
+                        &input.view,
+                        &input.owner,
+                        &input.descriptor_sha256,
+                    )?)
+                };
+                retained.push(RetainedCompositeMember {
+                    _view: input.view.clone().unbind(),
+                    _owner: input.owner.clone().unbind(),
+                    buffers,
+                    included_root_ids: input
+                        .included_root_ids
+                        .as_ref()
+                        .map(|value| {
+                            retained_exact_bytes_buffer(value, "composite included_root_ids")
+                        })
+                        .transpose()?,
+                    excluded_root_ids: input
+                        .excluded_root_ids
+                        .as_ref()
+                        .map(|value| {
+                            retained_exact_bytes_buffer(value, "composite excluded_root_ids")
+                        })
+                        .transpose()?,
+                    anonymous_scope_map: input
+                        .anonymous_scope_map
+                        .as_ref()
+                        .map(|value| {
+                            retained_exact_bytes_buffer(value, "composite anonymous_scope_map")
+                        })
+                        .transpose()?,
+                });
+            }
+            Some((retained, (max_work, max_workspace_bytes)))
+        } else {
+            None
+        };
+        let (composite_members, dynamic_composite_limits) = match dynamic_composite {
+            Some((members, limits)) => (Some(members), Some(limits)),
+            None => (None, None),
+        };
+        let (overlay_delta_buffers, canonical_merge_limits) = if let Some(limits) =
+            dynamic_composite_limits
+        {
+            (None, Some(limits))
+        } else {
+            match (
+                overlay_delta_view,
+                overlay_delta_owner,
+                overlay_delta_descriptor_sha256,
+                canonical_work_limit,
+                canonical_workspace_limit,
+            ) {
+                (None, None, None, None, None) => (None, None),
+                (
+                    Some(view),
+                    Some(owner),
+                    Some(digest),
+                    Some(max_work),
+                    Some(max_workspace_bytes),
+                ) => {
+                    if root_annotation_buffers.is_some() {
+                        return Err(EncodedDirectUnsupportedError::new_err(
+                            "bounded local-overlay compilation cannot combine root provenance",
+                        ));
+                    }
+                    if max_work == 0 || max_workspace_bytes == 0 {
+                        return Err(PyMemoryError::new_err(
+                            "encoded local-overlay canonical limits must be positive",
+                        ));
+                    }
+                    let buffers = if let Some((manifest, manifest_owner, manifest_digest)) =
+                        merge_manifest
+                    {
+                        if let Some((nested_view, nested_owner, nested_digest)) = nested_member {
+                            if !nested_view.is(view) || !nested_owner.is(owner) {
+                                return Err(encoded_buffer_error(
+                                    "encoded nested member lost its retained table identity",
+                                ));
+                            }
+                            validate_encoded_view_header(nested_view, nested_owner, nested_digest)?;
+                            let Some((third_view, third_owner, _)) = third_member else {
+                                return Err(EncodedDirectUnsupportedError::new_err(
+                                    "bounded nested-member composite requires one direct sibling",
+                                ));
+                            };
+                            let buffers = retained_overlay_delta_buffers(
+                                view,
+                                owner,
+                                digest,
+                                encoded_view,
+                                expected_owner,
+                                excluded_root_ids_view,
+                            )?;
+                            if let Some((fourth_view, fourth_owner, _)) = fourth_member {
+                                validate_nested_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    nested_view,
+                                    nested_owner,
+                                    encoded_view,
+                                    expected_owner,
+                                    &[(third_view, third_owner), (fourth_view, fourth_owner)],
+                                    anonymous_scope_map_view,
+                                    right_anonymous_scope_map_view,
+                                )?;
+                            } else {
+                                validate_nested_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    nested_view,
+                                    nested_owner,
+                                    encoded_view,
+                                    expected_owner,
+                                    &[(third_view, third_owner)],
+                                    anonymous_scope_map_view,
+                                    right_anonymous_scope_map_view,
+                                )?;
+                            }
+                            buffers
+                        } else if let Some((third_view, third_owner, _)) = third_member {
+                            let buffers = retained_direct_buffers(view, owner, digest)?;
+                            if let Some((fourth_view, fourth_owner, _)) = fourth_member {
+                                validate_direct_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    &[
+                                        (
+                                            encoded_view,
+                                            expected_owner,
+                                            included_root_ids_view,
+                                            excluded_root_ids_view,
+                                            None,
+                                        ),
+                                        (view, owner, None, right_excluded_root_ids_view, None),
+                                        (
+                                            third_view,
+                                            third_owner,
+                                            None,
+                                            third_excluded_root_ids_view,
+                                            None,
+                                        ),
+                                        (
+                                            fourth_view,
+                                            fourth_owner,
+                                            None,
+                                            fourth_excluded_root_ids_view,
+                                            None,
+                                        ),
+                                    ],
+                                    false,
+                                )?;
+                            } else {
+                                validate_direct_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    &[
+                                        (
+                                            encoded_view,
+                                            expected_owner,
+                                            included_root_ids_view,
+                                            excluded_root_ids_view,
+                                            None,
+                                        ),
+                                        (view, owner, None, right_excluded_root_ids_view, None),
+                                        (
+                                            third_view,
+                                            third_owner,
+                                            None,
+                                            third_excluded_root_ids_view,
+                                            None,
+                                        ),
+                                    ],
+                                    false,
+                                )?;
+                            }
+                            buffers
+                        } else {
+                            let buffers = retained_direct_buffers(view, owner, digest)?;
+                            validate_two_member_composite_manifest(
+                                manifest,
+                                manifest_owner,
+                                manifest_digest,
+                                encoded_view,
+                                expected_owner,
+                                view,
+                                owner,
+                                included_root_ids_view,
+                                excluded_root_ids_view,
+                                right_excluded_root_ids_view,
+                                anonymous_scope_map_view,
+                                right_anonymous_scope_map_view,
+                            )?;
+                            buffers
                         }
-                        validate_encoded_view_header(nested_view, nested_owner, nested_digest)?;
-                        let Some((third_view, third_owner, _)) = third_member else {
-                            return Err(EncodedDirectUnsupportedError::new_err(
-                                "bounded nested-member composite requires one direct sibling",
-                            ));
-                        };
-                        let buffers = retained_overlay_delta_buffers(
+                    } else {
+                        retained_overlay_delta_buffers(
                             view,
                             owner,
                             digest,
                             encoded_view,
                             expected_owner,
                             excluded_root_ids_view,
-                        )?;
-                        if let Some((fourth_view, fourth_owner, _)) = fourth_member {
-                            validate_nested_member_composite_manifest(
-                                manifest,
-                                manifest_owner,
-                                manifest_digest,
-                                nested_view,
-                                nested_owner,
-                                encoded_view,
-                                expected_owner,
-                                &[(third_view, third_owner), (fourth_view, fourth_owner)],
-                                anonymous_scope_map_view,
-                                right_anonymous_scope_map_view,
-                            )?;
-                        } else {
-                            validate_nested_member_composite_manifest(
-                                manifest,
-                                manifest_owner,
-                                manifest_digest,
-                                nested_view,
-                                nested_owner,
-                                encoded_view,
-                                expected_owner,
-                                &[(third_view, third_owner)],
-                                anonymous_scope_map_view,
-                                right_anonymous_scope_map_view,
-                            )?;
-                        }
-                        buffers
-                    } else if let Some((third_view, third_owner, _)) = third_member {
-                        let buffers = retained_direct_buffers(view, owner, digest)?;
-                        if let Some((fourth_view, fourth_owner, _)) = fourth_member {
-                            validate_direct_member_composite_manifest(
-                                manifest,
-                                manifest_owner,
-                                manifest_digest,
-                                [
-                                    (
-                                        encoded_view,
-                                        expected_owner,
-                                        included_root_ids_view,
-                                        excluded_root_ids_view,
-                                    ),
-                                    (view, owner, None, right_excluded_root_ids_view),
-                                    (third_view, third_owner, None, third_excluded_root_ids_view),
-                                    (
-                                        fourth_view,
-                                        fourth_owner,
-                                        None,
-                                        fourth_excluded_root_ids_view,
-                                    ),
-                                ],
-                            )?;
-                        } else {
-                            validate_direct_member_composite_manifest(
-                                manifest,
-                                manifest_owner,
-                                manifest_digest,
-                                [
-                                    (
-                                        encoded_view,
-                                        expected_owner,
-                                        included_root_ids_view,
-                                        excluded_root_ids_view,
-                                    ),
-                                    (view, owner, None, right_excluded_root_ids_view),
-                                    (third_view, third_owner, None, third_excluded_root_ids_view),
-                                ],
-                            )?;
-                        }
-                        buffers
-                    } else {
-                        let buffers = retained_direct_buffers(view, owner, digest)?;
-                        validate_two_member_composite_manifest(
-                            manifest,
-                            manifest_owner,
-                            manifest_digest,
-                            encoded_view,
-                            expected_owner,
-                            view,
-                            owner,
-                            included_root_ids_view,
-                            excluded_root_ids_view,
-                            right_excluded_root_ids_view,
-                            anonymous_scope_map_view,
-                            right_anonymous_scope_map_view,
-                        )?;
-                        buffers
-                    }
-                } else {
-                    retained_overlay_delta_buffers(
-                        view,
-                        owner,
-                        digest,
-                        encoded_view,
-                        expected_owner,
-                        excluded_root_ids_view,
-                    )?
-                };
-                (Some(buffers), Some((max_work, max_workspace_bytes)))
-            }
-            _ => {
-                return Err(encoded_buffer_error(
+                        )?
+                    };
+                    (Some(buffers), Some((max_work, max_workspace_bytes)))
+                }
+                _ => {
+                    return Err(encoded_buffer_error(
                     "encoded local-overlay view, owner, descriptor digest, and canonical limits must be supplied together",
                 ));
+                }
             }
         };
-        if merge_manifest.is_some() && overlay_delta_buffers.is_none() {
+        if merge_manifest.is_some()
+            && overlay_delta_buffers.is_none()
+            && composite_members.is_none()
+        {
             return Err(encoded_buffer_error(
                 "encoded composite manifest requires two retained merge tables",
             ));
@@ -1293,6 +1544,7 @@ impl EncodedDirectCompiler {
             _nested_member_owner: nested_member_owner.map(|value| value.clone().unbind()),
             _merge_manifest_view: merge_manifest_view.map(|value| value.clone().unbind()),
             _merge_manifest_owner: merge_manifest_owner.map(|value| value.clone().unbind()),
+            composite_members,
             canonical_merge_limits,
             included_root_ids,
             excluded_root_ids,
@@ -1363,22 +1615,9 @@ impl EncodedDirectCompiler {
         self.begin()?;
         let slices: [&[u8]; BUFFER_COUNT] =
             std::array::from_fn(|index| self.buffers[index].as_slice());
-        let included_root_ids = self
-            .included_root_ids
-            .as_ref()
-            .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let excluded_root_ids = self
-            .excluded_root_ids
-            .as_ref()
-            .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let anonymous_scope_map = self
-            .anonymous_scope_map
-            .as_ref()
-            .map_or(&[][..], RetainedDirectBuffer::as_slice);
-        let columns = DirectColumns::from_ordered(slices)
-            .with_included_root_ids(included_root_ids)
-            .with_excluded_root_ids(excluded_root_ids)
-            .with_anonymous_scope_map(anonymous_scope_map);
+        let base_columns = DirectColumns::from_ordered(slices);
+        let dynamic_composite_columns = self.dynamic_composite_columns(base_columns)?;
+        let columns = self.retained_base_columns(base_columns)?;
         let overlay_delta_columns = self.overlay_delta_buffers.as_ref().map(|buffers| {
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| buffers[index].as_slice());
@@ -1429,7 +1668,9 @@ impl EncodedDirectCompiler {
                 std::array::from_fn(|index| buffers[index].as_slice());
             DirectColumns::from_ordered(slices)
         });
-        if overlay_delta_columns.is_some() && retained_role_state.is_some() {
+        if (overlay_delta_columns.is_some() || dynamic_composite_columns.is_some())
+            && retained_role_state.is_some()
+        {
             return self.finish_result(Err(EncodedDirectUnsupportedError::new_err(
                 "bounded local-overlay compilation does not bind retained role state",
             )));
@@ -1463,7 +1704,23 @@ impl EncodedDirectCompiler {
                 "encoded direct statistics factory is not canonical",
             )?;
             let mut stream = py.detach(|| {
-                if let Some(delta_columns) = overlay_delta_columns {
+                if let Some(composite_columns) = dynamic_composite_columns.as_deref() {
+                    let (max_work, max_workspace_bytes) =
+                        self.canonical_merge_limits.ok_or_else(|| {
+                            PyRuntimeError::new_err(
+                                "encoded dynamic composite lost its canonical limits",
+                            )
+                        })?;
+                    prepare_dynamic_composite_batches_uncommitted(
+                        composite_columns,
+                        options,
+                        &self.state,
+                        None,
+                        max_work,
+                        max_workspace_bytes,
+                    )
+                    .map_err(kernel_error)
+                } else if let Some(delta_columns) = overlay_delta_columns {
                     let (max_work, max_workspace_bytes) =
                         self.canonical_merge_limits.ok_or_else(|| {
                             PyRuntimeError::new_err(
@@ -1471,37 +1728,23 @@ impl EncodedDirectCompiler {
                             )
                         })?;
                     if self._merge_manifest_view.is_some() {
-                        if let Some(third_columns) = third_member_columns {
-                            if let Some(fourth_columns) = fourth_member_columns {
-                                prepare_four_table_composite_batches_uncommitted(
-                                    [columns, delta_columns, third_columns, fourth_columns],
-                                    options,
-                                    &self.state,
-                                    None,
-                                    max_work,
-                                    max_workspace_bytes,
-                                )
-                            } else {
-                                prepare_three_member_composite_batches_uncommitted(
-                                    [columns, delta_columns, third_columns],
-                                    options,
-                                    &self.state,
-                                    None,
-                                    max_work,
-                                    max_workspace_bytes,
-                                )
-                            }
-                        } else {
-                            prepare_two_member_composite_batches_uncommitted(
-                                columns,
-                                delta_columns,
-                                options,
-                                &self.state,
-                                None,
-                                max_work,
-                                max_workspace_bytes,
-                            )
-                        }
+                        let member_count = 2
+                            + usize::from(third_member_columns.is_some())
+                            + usize::from(fourth_member_columns.is_some());
+                        let composite_columns = [
+                            columns,
+                            delta_columns,
+                            third_member_columns.unwrap_or(columns),
+                            fourth_member_columns.unwrap_or(columns),
+                        ];
+                        prepare_dynamic_composite_batches_uncommitted(
+                            &composite_columns[..member_count],
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
                     } else {
                         prepare_single_overlay_delta_batches_uncommitted(
                             columns,
@@ -1917,17 +2160,7 @@ impl EncodedDirectCompiler {
             };
             let slices: [&[u8]; BUFFER_COUNT] =
                 std::array::from_fn(|index| self.buffers[index].as_slice());
-            let included_root_ids = self
-                .included_root_ids
-                .as_ref()
-                .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            let excluded_root_ids = self
-                .excluded_root_ids
-                .as_ref()
-                .map_or(&[][..], RetainedDirectBuffer::as_slice);
-            let columns = DirectColumns::from_ordered(slices)
-                .with_included_root_ids(included_root_ids)
-                .with_excluded_root_ids(excluded_root_ids);
+            let columns = self.retained_base_columns(DirectColumns::from_ordered(slices))?;
             let prepared = py
                 .detach(|| stream.prepare_next_batch(columns, &self.state, batch_edges))
                 .map_err(kernel_error);
@@ -2148,10 +2381,22 @@ impl EncodedDirectCompiler {
 
     #[getter]
     fn retained_buffer_count(&self) -> usize {
+        let composite_buffers = self.composite_members.as_ref().map_or(0, |members| {
+            members
+                .iter()
+                .map(|member| {
+                    member.buffers.as_ref().map_or(0, Vec::len)
+                        + usize::from(member.included_root_ids.is_some())
+                        + usize::from(member.excluded_root_ids.is_some())
+                        + usize::from(member.anonymous_scope_map.is_some())
+                })
+                .sum()
+        });
         self.buffers.len()
             + self.overlay_delta_buffers.as_ref().map_or(0, Vec::len)
             + self.third_member_buffers.as_ref().map_or(0, Vec::len)
             + self.fourth_member_buffers.as_ref().map_or(0, Vec::len)
+            + composite_buffers
             + self.root_annotation_buffers.as_ref().map_or(0, Vec::len)
             + usize::from(self.included_root_ids.is_some())
             + usize::from(self.excluded_root_ids.is_some())
@@ -2949,30 +3194,108 @@ fn validate_two_member_composite_manifest(
     Ok(())
 }
 
+struct DynamicCompositeMemberInput<'py> {
+    view: Bound<'py, PyAny>,
+    owner: Bound<'py, PyAny>,
+    descriptor_sha256: Bound<'py, PyAny>,
+    included_root_ids: Option<Bound<'py, PyAny>>,
+    excluded_root_ids: Option<Bound<'py, PyAny>>,
+    anonymous_scope_map: Option<Bound<'py, PyAny>>,
+}
+
+fn optional_composite_row_item<'py>(
+    row: &Bound<'py, PyTuple>,
+    index: usize,
+    name: &'static str,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let value = row
+        .get_item(index)
+        .map_err(|_| encoded_buffer_error(format!("encoded composite {name} is inaccessible")))?;
+    Ok((!value.is_none()).then_some(value))
+}
+
+fn parse_dynamic_composite_members<'py>(
+    value: &Bound<'py, PyAny>,
+) -> PyResult<Vec<DynamicCompositeMemberInput<'py>>> {
+    if !value.is_exact_instance_of::<PyTuple>() {
+        return Err(encoded_buffer_error(
+            "encoded dynamic composite members must be an exact tuple",
+        ));
+    }
+    let rows = value
+        .cast::<PyTuple>()
+        .map_err(|_| encoded_buffer_error("encoded dynamic composite members are inaccessible"))?;
+    if rows.len() < 2 {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "encoded dynamic composite requires at least two members",
+        ));
+    }
+    let mut members = Vec::new();
+    members.try_reserve_exact(rows.len()).map_err(|_| {
+        PyMemoryError::new_err("encoded dynamic composite member allocation failed")
+    })?;
+    for index in 0..rows.len() {
+        let value = rows
+            .get_item(index)
+            .map_err(|_| encoded_buffer_error("encoded dynamic composite row is inaccessible"))?;
+        if !value.is_exact_instance_of::<PyTuple>() {
+            return Err(encoded_buffer_error(
+                "encoded dynamic composite rows must be exact tuples",
+            ));
+        }
+        let row = value
+            .cast::<PyTuple>()
+            .map_err(|_| encoded_buffer_error("encoded dynamic composite row is inaccessible"))?;
+        if row.len() != 6 {
+            return Err(encoded_buffer_error(
+                "encoded dynamic composite rows require six fields",
+            ));
+        }
+        members.push(DynamicCompositeMemberInput {
+            view: row.get_item(0).map_err(|_| {
+                encoded_buffer_error("encoded composite member view is inaccessible")
+            })?,
+            owner: row.get_item(1).map_err(|_| {
+                encoded_buffer_error("encoded composite member owner is inaccessible")
+            })?,
+            descriptor_sha256: row.get_item(2).map_err(|_| {
+                encoded_buffer_error("encoded composite member digest is inaccessible")
+            })?,
+            included_root_ids: optional_composite_row_item(row, 3, "member INCLUDE selection")?,
+            excluded_root_ids: optional_composite_row_item(row, 4, "member EXCLUDE selection")?,
+            anonymous_scope_map: optional_composite_row_item(row, 5, "member anonymous scope map")?,
+        });
+    }
+    Ok(members)
+}
+
 type CompositeMemberBinding<'a, 'py> = (
     &'a Bound<'py, PyAny>,
     &'a Bound<'py, PyAny>,
     Option<&'a Bound<'py, PyAny>>,
     Option<&'a Bound<'py, PyAny>>,
+    Option<&'a Bound<'py, PyAny>>,
 );
 
-fn validate_direct_member_composite_manifest<const N: usize>(
+fn validate_direct_member_composite_manifest(
     encoded_view: &Bound<'_, PyAny>,
     expected_owner: &Bound<'_, PyAny>,
     descriptor_sha256: &Bound<'_, PyAny>,
-    members: [CompositeMemberBinding<'_, '_>; N],
+    members: &[CompositeMemberBinding<'_, '_>],
+    require_manifest_order: bool,
 ) -> PyResult<()> {
-    if !(3..=4).contains(&N) {
+    let member_count = members.len();
+    if member_count < 2 {
         return Err(EncodedDirectUnsupportedError::new_err(
-            "bounded direct-member composite requires three or four members",
+            "bounded direct-member composite requires at least two members",
         ));
     }
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
-    for left in 0..N {
-        for right in left + 1..N {
+    for left in 0..member_count {
+        for right in left + 1..member_count {
             if members[left].0.is(members[right].0) || members[left].1.is(members[right].1) {
                 return Err(EncodedDirectUnsupportedError::new_err(format!(
-                    "bounded {N}-member composite requires distinct direct members",
+                    "bounded {member_count}-member composite requires distinct direct members",
                 )));
             }
         }
@@ -2984,12 +3307,12 @@ fn validate_direct_member_composite_manifest<const N: usize>(
         if name == "node_field_offsets" {
             if bytes != [0_u8; 8] {
                 return Err(EncodedDirectUnsupportedError::new_err(format!(
-                    "bounded {N}-member composite requires empty local columns",
+                    "bounded {member_count}-member composite requires empty local columns",
                 )));
             }
         } else if !bytes.is_empty() {
             return Err(EncodedDirectUnsupportedError::new_err(format!(
-                "bounded {N}-member composite does not support bridge roots",
+                "bounded {member_count}-member composite does not support bridge roots",
             )));
         }
     }
@@ -3003,15 +3326,19 @@ fn validate_direct_member_composite_manifest<const N: usize>(
     let segments = raw_segments
         .cast::<PyTuple>()
         .map_err(|_| encoded_buffer_error("encoded composite manifest is inaccessible"))?;
-    if segments.len() != N {
+    if segments.len() != member_count {
         return Err(EncodedDirectUnsupportedError::new_err(format!(
-            "bounded {N}-member composite requires exactly {N} member segments",
+            "bounded {member_count}-member composite requires exactly {member_count} member segments",
         )));
     }
 
-    let mut matched = [false; N];
+    let mut matched = Vec::new();
+    matched
+        .try_reserve_exact(member_count)
+        .map_err(|_| PyMemoryError::new_err("encoded composite member-match allocation failed"))?;
+    matched.resize(member_count, false);
     let mut previous_token: Option<[u8; 32]> = None;
-    for index in 0..N {
+    for index in 0..member_count {
         let segment = segments
             .get_item(index)
             .map_err(|_| encoded_buffer_error("encoded composite member is inaccessible"))?;
@@ -3019,23 +3346,35 @@ fn validate_direct_member_composite_manifest<const N: usize>(
             != COMPOSITE_MEMBER_SEGMENT
         {
             return Err(EncodedDirectUnsupportedError::new_err(format!(
-                "bounded {N}-member composite requires member-only segments",
+                "bounded {member_count}-member composite requires member-only segments",
             )));
         }
         let source = required_attribute(&segment, "source")?;
-        let member_index = members
-            .iter()
-            .position(|(view, _, _, _)| source.is(*view))
-            .ok_or_else(|| {
-                encoded_buffer_error("encoded composite member lost its retained source identity")
-            })?;
+        let member_index = if require_manifest_order {
+            if !source.is(members[index].0) {
+                return Err(encoded_buffer_error(
+                    "encoded dynamic composite member lost its exact manifest order",
+                ));
+            }
+            index
+        } else {
+            members
+                .iter()
+                .position(|(view, _, _, _, _)| source.is(*view))
+                .ok_or_else(|| {
+                    encoded_buffer_error(
+                        "encoded composite member lost its retained source identity",
+                    )
+                })?
+        };
         if matched[member_index] {
             return Err(encoded_buffer_error(
                 "encoded composite repeats one retained source identity",
             ));
         }
         matched[member_index] = true;
-        let (_, member_owner, expected_include, expected_exclude) = members[member_index];
+        let (_, member_owner, expected_include, expected_exclude, expected_scope_map) =
+            members[member_index];
         if !required_attribute(&segment, "owner")?.is(member_owner) {
             return Err(encoded_buffer_error(
                 "encoded composite member lost its retained owner identity",
@@ -3052,14 +3391,14 @@ fn validate_direct_member_composite_manifest<const N: usize>(
             (None, None) => {
                 if posting_mode != POSTINGS_ALL || root_id_bytes != 0 {
                     return Err(EncodedDirectUnsupportedError::new_err(format!(
-                        "bounded {N}-member composite requires ALL selection on every unposted member",
+                        "bounded {member_count}-member composite requires ALL selection on every unposted member",
                     )));
                 }
             }
             (Some(expected), None) => {
                 if posting_mode != POSTINGS_INCLUDE || root_id_bytes == 0 {
                     return Err(EncodedDirectUnsupportedError::new_err(format!(
-                        "bounded {N}-member composite requires one nonempty INCLUDE table",
+                        "bounded {member_count}-member composite requires nonempty INCLUDE tables",
                     )));
                 }
                 if !root_ids.is(expected) {
@@ -3071,7 +3410,7 @@ fn validate_direct_member_composite_manifest<const N: usize>(
             (None, Some(expected)) => {
                 if posting_mode != POSTINGS_EXCLUDE || root_id_bytes == 0 {
                     return Err(EncodedDirectUnsupportedError::new_err(format!(
-                        "bounded {N}-member composite requires nonempty EXCLUDE tables",
+                        "bounded {member_count}-member composite requires nonempty EXCLUDE tables",
                     )));
                 }
                 if !root_ids.is(expected) {
@@ -3087,10 +3426,25 @@ fn validate_direct_member_composite_manifest<const N: usize>(
             }
         }
         let scope_map = required_attribute(&segment, "anonymous_scope_map")?;
-        if checked_memoryview_length(&scope_map, "anonymous_scope_map")? != 0 {
-            return Err(EncodedDirectUnsupportedError::new_err(format!(
-                "bounded {N}-member composite does not support anonymous scope remapping",
-            )));
+        let scope_map_bytes = checked_memoryview_length(&scope_map, "anonymous_scope_map")?;
+        match expected_scope_map {
+            None if scope_map_bytes == 0 => {}
+            Some(expected) if scope_map_bytes != 0 && scope_map.is(expected) => {}
+            None => {
+                return Err(encoded_buffer_error(
+                    "encoded composite member received an unexpected anonymous scope map",
+                ));
+            }
+            Some(_) if scope_map_bytes == 0 => {
+                return Err(encoded_buffer_error(
+                    "encoded composite member lost its anonymous scope map",
+                ));
+            }
+            Some(_) => {
+                return Err(encoded_buffer_error(
+                    "encoded composite member lost its exact anonymous scope map",
+                ));
+            }
         }
 
         let token = required_attribute(&segment, "member_token")?;
@@ -3113,9 +3467,9 @@ fn validate_direct_member_composite_manifest<const N: usize>(
         }
         previous_token = Some(token);
     }
-    if matched != [true; N] {
+    if matched.iter().any(|value| !value) {
         return Err(encoded_buffer_error(format!(
-            "encoded composite did not retain all {N} merge tables",
+            "encoded composite did not retain all {member_count} merge tables",
         )));
     }
     Ok(())

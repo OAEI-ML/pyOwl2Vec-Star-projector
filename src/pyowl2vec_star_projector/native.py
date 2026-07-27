@@ -16,15 +16,12 @@ from .diagnostics import ProjectionDiagnostic
 from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
-    _resolve_private_four_member_composite,
+    _resolve_private_dynamic_member_composite,
     _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
     _resolve_private_overlay_aliases,
     _resolve_private_scope_mapped_nested_overlay_composite,
-    _resolve_private_scope_mapped_rule_composite,
     _resolve_private_single_overlay_delta,
-    _resolve_private_three_member_composite,
-    _resolve_private_two_member_composite,
 )
 from .errors import (
     NativeBackendUnavailableError,
@@ -38,7 +35,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 113
+ENCODED_DIRECT_KERNEL_VERSION = 114
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -387,6 +384,10 @@ class NativeEncodedDirectCompiler:
     local_delta_lease: EncodedStructuralLease | None
     third_member_lease: EncodedStructuralLease | None
     fourth_member_lease: EncodedStructuralLease | None
+    composite_member_leases: tuple[EncodedStructuralLease, ...]
+    composite_included_root_ids: tuple[memoryview | None, ...]
+    composite_excluded_root_ids: tuple[memoryview | None, ...]
+    composite_anonymous_scope_maps: tuple[memoryview | None, ...]
     nested_member_lease: EncodedStructuralLease | None
     merge_manifest_lease: EncodedStructuralLease | None
     root_annotation_lease: EncodedStructuralLease | None
@@ -399,6 +400,16 @@ class NativeEncodedDirectCompiler:
     right_anonymous_scope_map: memoryview | None
     _kernel: Any
     _module: Any
+
+    def _retained_compile_leases(self) -> tuple[EncodedStructuralLease, ...]:
+        if self.composite_member_leases:
+            return self.composite_member_leases
+        return (
+            self.lease,
+            *(() if self.local_delta_lease is None else (self.local_delta_lease,)),
+            *(() if self.third_member_lease is None else (self.third_member_lease,)),
+            *(() if self.fourth_member_lease is None else (self.fourth_member_lease,)),
+        )
 
     @property
     def state(self) -> str:
@@ -489,23 +500,10 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
-        expected_buffer_bytes = (
-            sum(buffer.nbytes for buffer in self.lease.buffers.values())
-            + (
-                0
-                if self.local_delta_lease is None
-                else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
-            )
-            + (
-                0
-                if self.third_member_lease is None
-                else sum(buffer.nbytes for buffer in self.third_member_lease.buffers.values())
-            )
-            + (
-                0
-                if self.fourth_member_lease is None
-                else sum(buffer.nbytes for buffer in self.fourth_member_lease.buffers.values())
-            )
+        expected_buffer_bytes = sum(
+            buffer.nbytes
+            for retained_lease in self._retained_compile_leases()
+            for buffer in retained_lease.buffers.values()
         )
         expected_root_bytes = (
             0
@@ -581,23 +579,10 @@ class NativeEncodedDirectCompiler:
             raise TypeError("role_state must be NativeEncodedDirectRoleState or None")
         if role_state is not None and role_state._module is not self._module:
             raise ProjectionError("native encoded role state belongs to another native module")
-        expected_buffer_bytes = (
-            sum(buffer.nbytes for buffer in self.lease.buffers.values())
-            + (
-                0
-                if self.local_delta_lease is None
-                else sum(buffer.nbytes for buffer in self.local_delta_lease.buffers.values())
-            )
-            + (
-                0
-                if self.third_member_lease is None
-                else sum(buffer.nbytes for buffer in self.third_member_lease.buffers.values())
-            )
-            + (
-                0
-                if self.fourth_member_lease is None
-                else sum(buffer.nbytes for buffer in self.fourth_member_lease.buffers.values())
-            )
+        expected_buffer_bytes = sum(
+            buffer.nbytes
+            for retained_lease in self._retained_compile_leases()
+            for buffer in retained_lease.buffers.values()
         )
         expected_root_bytes = (
             0
@@ -912,6 +897,10 @@ class NativeEncodedDirectCompilation:
     local_delta_lease: EncodedStructuralLease | None
     third_member_lease: EncodedStructuralLease | None
     fourth_member_lease: EncodedStructuralLease | None
+    composite_member_leases: tuple[EncodedStructuralLease, ...]
+    composite_included_root_ids: tuple[memoryview | None, ...]
+    composite_excluded_root_ids: tuple[memoryview | None, ...]
+    composite_anonymous_scope_maps: tuple[memoryview | None, ...]
     nested_member_lease: EncodedStructuralLease | None
     included_root_ids: memoryview | None
     excluded_root_ids: memoryview | None
@@ -978,19 +967,30 @@ class NativeEncodedDirectCompilation:
             + (() if self.root_annotation_lease is None else (self.root_annotation_lease,))
         )
         retained_buffer_count = sum(len(lease.buffers) for lease in retained_leases)
-        detached_buffer_count = (
-            len(self.lease.buffers)
-            + (0 if self.local_delta_lease is None else len(self.local_delta_lease.buffers))
-            + (0 if self.third_member_lease is None else len(self.third_member_lease.buffers))
-            + (0 if self.fourth_member_lease is None else len(self.fourth_member_lease.buffers))
-            + (0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers))
-            + int(self.included_root_ids is not None)
+        detached_leases = self.composite_member_leases or (
+            self.lease,
+            *(() if self.local_delta_lease is None else (self.local_delta_lease,)),
+            *(() if self.third_member_lease is None else (self.third_member_lease,)),
+            *(() if self.fourth_member_lease is None else (self.fourth_member_lease,)),
+        )
+        dynamic_plan_buffers = (
+            sum(value is not None for value in self.composite_included_root_ids)
+            + sum(value is not None for value in self.composite_excluded_root_ids)
+            + sum(value is not None for value in self.composite_anonymous_scope_maps)
+        )
+        fixed_plan_buffers = (
+            int(self.included_root_ids is not None)
             + int(self.excluded_root_ids is not None)
             + int(self.right_excluded_root_ids is not None)
             + int(self.third_excluded_root_ids is not None)
             + int(self.fourth_excluded_root_ids is not None)
             + int(self.anonymous_scope_map is not None)
             + int(self.right_anonymous_scope_map is not None)
+        )
+        detached_buffer_count = (
+            sum(len(retained.buffers) for retained in detached_leases)
+            + (0 if self.root_annotation_lease is None else len(self.root_annotation_lease.buffers))
+            + (dynamic_plan_buffers if self.composite_member_leases else fixed_plan_buffers)
         )
         retained_buffer_bytes = sum(
             buffer.nbytes for lease in retained_leases for buffer in lease.buffers.values()
@@ -1074,6 +1074,10 @@ def prepare_native_encoded_compilation(
     local_delta_lease: EncodedStructuralLease | None = None
     third_member_lease: EncodedStructuralLease | None = None
     fourth_member_lease: EncodedStructuralLease | None = None
+    composite_member_leases: tuple[EncodedStructuralLease, ...] = ()
+    composite_included_root_ids: tuple[memoryview | None, ...] = ()
+    composite_excluded_root_ids: tuple[memoryview | None, ...] = ()
+    composite_anonymous_scope_maps: tuple[memoryview | None, ...] = ()
     nested_member_lease: EncodedStructuralLease | None = None
     merge_manifest_lease: EncodedStructuralLease | None = None
     canonical_work_limit: int | None = None
@@ -1105,83 +1109,98 @@ def prepare_native_encoded_compilation(
             ) = resolved_delta
             container_leases = (local_delta_lease,)
         else:
-            resolved_scope_mapped = _resolve_private_scope_mapped_rule_composite(lease)
-            resolved_composite = (
-                None
-                if resolved_scope_mapped is not None
-                else _resolve_private_two_member_composite(lease)
-            )
-            if resolved_scope_mapped is not None:
+            resolved_composite = _resolve_private_dynamic_member_composite(lease)
+            if resolved_composite is not None:
                 if role_state is not None:
                     return (
                         None,
-                        "private native scope-mapped composite slice does not bind "
-                        "Scala-instance state",
+                        "private native dynamic composite slice does not bind Scala-instance state",
                     )
                 merge_manifest_lease = lease
-                (
-                    lease,
-                    local_delta_lease,
-                    anonymous_scope_map,
-                    right_anonymous_scope_map,
-                    canonical_work_limit,
-                    canonical_workspace_limit,
-                ) = resolved_scope_mapped
-                container_leases = (merge_manifest_lease, local_delta_lease)
-            elif resolved_composite is not None:
-                if role_state is not None:
-                    return (
-                        None,
-                        "private native two-member composite slice does not bind "
-                        "Scala-instance state",
-                    )
-                merge_manifest_lease = lease
-                (
-                    lease,
-                    local_delta_lease,
-                    included_root_ids,
-                    excluded_root_ids,
-                    right_excluded_root_ids,
-                    canonical_work_limit,
-                    canonical_workspace_limit,
-                ) = resolved_composite
-                container_leases = (merge_manifest_lease, local_delta_lease)
-            else:
-                resolved_three_member = _resolve_private_three_member_composite(lease)
-                resolved_four_member = (
-                    None
-                    if resolved_three_member is not None
-                    else _resolve_private_four_member_composite(lease)
+                rows, canonical_work_limit, canonical_workspace_limit = resolved_composite
+                composite_member_leases = tuple(row[0] for row in rows)
+                composite_included_root_ids = tuple(row[1] for row in rows)
+                composite_excluded_root_ids = tuple(row[2] for row in rows)
+                composite_anonymous_scope_maps = tuple(row[3] for row in rows)
+                lease = composite_member_leases[0]
+                local_delta_lease = composite_member_leases[1]
+                third_member_lease = (
+                    None if len(composite_member_leases) < 3 else composite_member_leases[2]
                 )
-                if resolved_three_member is not None:
+                fourth_member_lease = (
+                    None if len(composite_member_leases) < 4 else composite_member_leases[3]
+                )
+                included_root_ids = next(
+                    (value for value in composite_included_root_ids if value is not None),
+                    None,
+                )
+                two_member_exclusions = (
+                    tuple(value for value in composite_excluded_root_ids if value is not None)
+                    if len(composite_member_leases) == 2
+                    else ()
+                )
+                if len(two_member_exclusions) == 1:
+                    # Preserve the former two-member compatibility projection:
+                    # its sole EXCLUDE table was always exposed as the left
+                    # selector even when manifest order placed it second.  The
+                    # dynamic member tuples below remain in exact manifest order.
+                    excluded_root_ids = two_member_exclusions[0]
+                    right_excluded_root_ids = None
+                else:
+                    excluded_root_ids = composite_excluded_root_ids[0]
+                    right_excluded_root_ids = composite_excluded_root_ids[1]
+                third_excluded_root_ids = (
+                    None if len(composite_excluded_root_ids) < 3 else composite_excluded_root_ids[2]
+                )
+                fourth_excluded_root_ids = (
+                    None if len(composite_excluded_root_ids) < 4 else composite_excluded_root_ids[3]
+                )
+                mapped_scopes = tuple(
+                    value for value in composite_anonymous_scope_maps if value is not None
+                )
+                anonymous_scope_map = mapped_scopes[0] if mapped_scopes else None
+                right_anonymous_scope_map = mapped_scopes[1] if len(mapped_scopes) > 1 else None
+                container_leases = (
+                    merge_manifest_lease,
+                    *composite_member_leases[1:],
+                )
+            else:
+                resolved_scope_mapped_nested = (
+                    _resolve_private_scope_mapped_nested_overlay_composite(lease)
+                )
+                resolved_nested = (
+                    None
+                    if resolved_scope_mapped_nested is not None
+                    else _resolve_private_nested_overlay_composite(lease)
+                )
+                if resolved_scope_mapped_nested is not None:
                     if role_state is not None:
                         return (
                             None,
-                            "private native three-member composite slice does not bind "
-                            "Scala-instance state",
+                            "private native scope-mapped nested-member composite slice does "
+                            "not bind Scala-instance state",
                         )
                     merge_manifest_lease = lease
                     (
                         lease,
                         local_delta_lease,
                         third_member_lease,
-                        included_root_ids,
-                        excluded_root_ids,
-                        right_excluded_root_ids,
-                        third_excluded_root_ids,
+                        anonymous_scope_map,
+                        right_anonymous_scope_map,
                         canonical_work_limit,
                         canonical_workspace_limit,
-                    ) = resolved_three_member
+                    ) = resolved_scope_mapped_nested
+                    nested_member_lease = local_delta_lease
                     container_leases = (
                         merge_manifest_lease,
                         local_delta_lease,
                         third_member_lease,
                     )
-                elif resolved_four_member is not None:
+                elif resolved_nested is not None:
                     if role_state is not None:
                         return (
                             None,
-                            "private native four-member composite slice does not bind "
+                            "private native nested-member composite slice does not bind "
                             "Scala-instance state",
                         )
                     merge_manifest_lease = lease
@@ -1189,108 +1208,51 @@ def prepare_native_encoded_compilation(
                         lease,
                         local_delta_lease,
                         third_member_lease,
-                        fourth_member_lease,
-                        included_root_ids,
                         excluded_root_ids,
-                        right_excluded_root_ids,
-                        third_excluded_root_ids,
-                        fourth_excluded_root_ids,
                         canonical_work_limit,
                         canonical_workspace_limit,
-                    ) = resolved_four_member
+                    ) = resolved_nested
+                    nested_member_lease = local_delta_lease
                     container_leases = (
                         merge_manifest_lease,
                         local_delta_lease,
                         third_member_lease,
-                        fourth_member_lease,
                     )
                 else:
-                    resolved_scope_mapped_nested = (
-                        _resolve_private_scope_mapped_nested_overlay_composite(lease)
-                    )
-                    resolved_nested = (
-                        None
-                        if resolved_scope_mapped_nested is not None
-                        else _resolve_private_nested_overlay_composite(lease)
-                    )
-                    if resolved_scope_mapped_nested is not None:
+                    resolved_four_table_nested = _resolve_private_four_table_nested_composite(lease)
+                    if resolved_four_table_nested is not None:
                         if role_state is not None:
                             return (
                                 None,
-                                "private native scope-mapped nested-member composite slice does "
-                                "not bind Scala-instance state",
+                                "private native four-table nested composite slice does not "
+                                "bind Scala-instance state",
                             )
                         merge_manifest_lease = lease
                         (
                             lease,
                             local_delta_lease,
                             third_member_lease,
-                            anonymous_scope_map,
-                            right_anonymous_scope_map,
-                            canonical_work_limit,
-                            canonical_workspace_limit,
-                        ) = resolved_scope_mapped_nested
-                        nested_member_lease = local_delta_lease
-                        container_leases = (
-                            merge_manifest_lease,
-                            local_delta_lease,
-                            third_member_lease,
-                        )
-                    elif resolved_nested is not None:
-                        if role_state is not None:
-                            return (
-                                None,
-                                "private native nested-member composite slice does not bind "
-                                "Scala-instance state",
-                            )
-                        merge_manifest_lease = lease
-                        (
-                            lease,
-                            local_delta_lease,
-                            third_member_lease,
+                            fourth_member_lease,
                             excluded_root_ids,
                             canonical_work_limit,
                             canonical_workspace_limit,
-                        ) = resolved_nested
+                        ) = resolved_four_table_nested
                         nested_member_lease = local_delta_lease
                         container_leases = (
                             merge_manifest_lease,
                             local_delta_lease,
                             third_member_lease,
+                            fourth_member_lease,
                         )
-                    else:
-                        resolved_four_table_nested = _resolve_private_four_table_nested_composite(
-                            lease
-                        )
-                        if resolved_four_table_nested is not None:
-                            if role_state is not None:
-                                return (
-                                    None,
-                                    "private native four-table nested composite slice does not "
-                                    "bind Scala-instance state",
-                                )
-                            merge_manifest_lease = lease
-                            (
-                                lease,
-                                local_delta_lease,
-                                third_member_lease,
-                                fourth_member_lease,
-                                excluded_root_ids,
-                                canonical_work_limit,
-                                canonical_workspace_limit,
-                            ) = resolved_four_table_nested
-                            nested_member_lease = local_delta_lease
-                            container_leases = (
-                                merge_manifest_lease,
-                                local_delta_lease,
-                                third_member_lease,
-                                fourth_member_lease,
-                            )
     literal_exclusion_members = (
-        (lease, excluded_root_ids),
-        (local_delta_lease, right_excluded_root_ids),
-        (third_member_lease, third_excluded_root_ids),
-        (fourth_member_lease, fourth_excluded_root_ids),
+        tuple(zip(composite_member_leases, composite_excluded_root_ids, strict=True))
+        if composite_member_leases
+        else (
+            (lease, excluded_root_ids),
+            (local_delta_lease, right_excluded_root_ids),
+            (third_member_lease, third_excluded_root_ids),
+            (fourth_member_lease, fourth_excluded_root_ids),
+        )
     )
     if options.include_literals and any(
         member_lease is not None
@@ -1327,6 +1289,10 @@ def prepare_native_encoded_compilation(
         local_delta_lease=local_delta_lease,
         third_member_lease=third_member_lease,
         fourth_member_lease=fourth_member_lease,
+        composite_member_leases=composite_member_leases,
+        composite_included_root_ids=composite_included_root_ids,
+        composite_excluded_root_ids=composite_excluded_root_ids,
+        composite_anonymous_scope_maps=composite_anonymous_scope_maps,
         nested_member_lease=nested_member_lease,
         canonical_work_limit=canonical_work_limit,
         canonical_workspace_limit=canonical_workspace_limit,
@@ -1450,6 +1416,10 @@ def prepare_native_encoded_compilation(
                 local_delta_lease=local_delta_lease,
                 third_member_lease=third_member_lease,
                 fourth_member_lease=fourth_member_lease,
+                composite_member_leases=composite_member_leases,
+                composite_included_root_ids=composite_included_root_ids,
+                composite_excluded_root_ids=composite_excluded_root_ids,
+                composite_anonymous_scope_maps=composite_anonymous_scope_maps,
                 nested_member_lease=nested_member_lease,
                 included_root_ids=included_root_ids,
                 excluded_root_ids=excluded_root_ids,
@@ -1590,6 +1560,10 @@ def prepare_native_encoded_direct(
     local_delta_lease: EncodedStructuralLease | None = None,
     third_member_lease: EncodedStructuralLease | None = None,
     fourth_member_lease: EncodedStructuralLease | None = None,
+    composite_member_leases: tuple[EncodedStructuralLease, ...] = (),
+    composite_included_root_ids: tuple[memoryview | None, ...] = (),
+    composite_excluded_root_ids: tuple[memoryview | None, ...] = (),
+    composite_anonymous_scope_maps: tuple[memoryview | None, ...] = (),
     nested_member_lease: EncodedStructuralLease | None = None,
     merge_manifest_lease: EncodedStructuralLease | None = None,
     canonical_work_limit: int | None = None,
@@ -1612,14 +1586,86 @@ def prepare_native_encoded_direct(
     annotation-provenance join.  One optional sorted INCLUDE or EXCLUDE posting table is
     retained and scanned in place by the native root cursor. One bounded top-local overlay
     table may be retained for the canonical merge, including with an EXCLUDE base posting.  One
-    exact two-, three-, or four-member composite manifest may instead bind the corresponding
-    canonical merger and retain an EXCLUDE selection for each member. One exact composite may
-    expand a one-layer overlay member with one or two direct siblings into the same three- or
-    four-table pass. The independent provenance table remains mutually exclusive with every merge
-    form.
+    exact direct-member composite manifest may instead bind one dynamic canonical merger and retain
+    each member's source-local selection and scope-map parameters. One exact composite may expand a
+    one-layer overlay member with one or two direct siblings into the same pass. The independent
+    provenance table remains mutually exclusive with every merge form.
     """
 
+    if (
+        type(composite_member_leases) is not tuple
+        or type(composite_included_root_ids) is not tuple
+        or type(composite_excluded_root_ids) is not tuple
+        or type(composite_anonymous_scope_maps) is not tuple
+    ):
+        raise TypeError("dynamic composite plans must be exact tuples")
+    dynamic_composite = bool(composite_member_leases)
+    if dynamic_composite:
+        member_count = len(composite_member_leases)
+        if (
+            member_count < 2
+            or len(composite_included_root_ids) != member_count
+            or len(composite_excluded_root_ids) != member_count
+            or len(composite_anonymous_scope_maps) != member_count
+        ):
+            raise ValueError("dynamic composite plan columns must have one row per member")
+        if composite_member_leases[0] is not lease:
+            raise SnapshotCompatibilityError(
+                "dynamic composite first member differs from the retained base lease"
+            )
+        if not all(type(member) is EncodedStructuralLease for member in composite_member_leases):
+            raise TypeError("dynamic composite members must be EncodedStructuralLease values")
+        if not all(
+            value is None or type(value) is memoryview
+            for values in (
+                composite_included_root_ids,
+                composite_excluded_root_ids,
+                composite_anonymous_scope_maps,
+            )
+            for value in values
+        ):
+            raise TypeError(
+                "dynamic composite selectors and scope maps must be memoryviews or None"
+            )
+        if any(
+            included is not None and excluded is not None
+            for included, excluded in zip(
+                composite_included_root_ids,
+                composite_excluded_root_ids,
+                strict=True,
+            )
+        ):
+            raise ValueError("one composite member cannot combine INCLUDE and EXCLUDE postings")
+        if merge_manifest_lease is None:
+            raise ValueError("dynamic composite requires an exact manifest lease")
+        if nested_member_lease is not None or root_annotation_lease is not None:
+            raise ValueError("dynamic direct composite cannot combine nested or root tables")
+        expected_local_delta = composite_member_leases[1]
+        if local_delta_lease is None:
+            local_delta_lease = expected_local_delta
+        elif local_delta_lease is not expected_local_delta:
+            raise SnapshotCompatibilityError(
+                "dynamic composite second member differs from its compatibility lease"
+            )
+        expected_third = None if member_count < 3 else composite_member_leases[2]
+        if third_member_lease is None:
+            third_member_lease = expected_third
+        elif third_member_lease is not expected_third:
+            raise SnapshotCompatibilityError(
+                "dynamic composite third member differs from its compatibility lease"
+            )
+        expected_fourth = None if member_count < 4 else composite_member_leases[3]
+        if fourth_member_lease is None:
+            fourth_member_lease = expected_fourth
+        elif fourth_member_lease is not expected_fourth:
+            raise SnapshotCompatibilityError(
+                "dynamic composite fourth member differs from its compatibility lease"
+            )
+
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
+    composite_member_descriptor_sha256 = tuple(
+        _validated_direct_descriptor_digest(member) for member in composite_member_leases
+    )
     local_delta_descriptor_sha256: bytes | None = None
     third_member_descriptor_sha256: bytes | None = None
     fourth_member_descriptor_sha256: bytes | None = None
@@ -1699,17 +1745,23 @@ def prepare_native_encoded_direct(
         raise ValueError("INCLUDE root selection requires a composite manifest lease")
     if right_excluded_root_ids is not None and merge_manifest_lease is None:
         raise ValueError("right EXCLUDE root selection requires a composite manifest lease")
-    if included_root_ids is not None and excluded_root_ids is not None:
+    if not dynamic_composite and included_root_ids is not None and excluded_root_ids is not None:
         raise ValueError("root selection cannot combine INCLUDE and EXCLUDE postings")
-    if included_root_ids is not None and (
-        right_excluded_root_ids is not None
-        or third_excluded_root_ids is not None
-        or fourth_excluded_root_ids is not None
+    if (
+        not dynamic_composite
+        and included_root_ids is not None
+        and (
+            right_excluded_root_ids is not None
+            or third_excluded_root_ids is not None
+            or fourth_excluded_root_ids is not None
+        )
     ):
         raise ValueError("composite root selection cannot mix INCLUDE and EXCLUDE postings")
-    if (anonymous_scope_map is None) != (right_anonymous_scope_map is None):
+    if not dynamic_composite and (
+        (anonymous_scope_map is None) != (right_anonymous_scope_map is None)
+    ):
         raise ValueError("scope-mapped composite requires both member scope maps")
-    if anonymous_scope_map is not None:
+    if not dynamic_composite and anonymous_scope_map is not None:
         exact_two_member = (
             merge_manifest_lease is not None
             and local_delta_lease is not None
@@ -1775,7 +1827,44 @@ def prepare_native_encoded_direct(
     unsupported_type = cast(type[Exception], unsupported)
     buffer_error_type = cast(type[Exception], buffer_error)
     try:
-        if local_delta_lease is not None:
+        if dynamic_composite:
+            assert merge_manifest_lease is not None
+            composite_members = tuple(
+                (
+                    member.encoded_view,
+                    member.owner,
+                    member_descriptor,
+                    member_include,
+                    member_exclude,
+                    member_scope_map,
+                )
+                for (
+                    member,
+                    member_descriptor,
+                    member_include,
+                    member_exclude,
+                    member_scope_map,
+                ) in zip(
+                    composite_member_leases,
+                    composite_member_descriptor_sha256,
+                    composite_included_root_ids,
+                    composite_excluded_root_ids,
+                    composite_anonymous_scope_maps,
+                    strict=True,
+                )
+            )
+            kernel = compiler(
+                lease.encoded_view,
+                lease.owner,
+                descriptor_sha256,
+                canonical_work_limit=canonical_work_limit,
+                canonical_workspace_limit=canonical_workspace_limit,
+                merge_manifest_view=merge_manifest_lease.encoded_view,
+                merge_manifest_owner=merge_manifest_lease.owner,
+                merge_manifest_descriptor_sha256=merge_manifest_descriptor_sha256,
+                composite_members=composite_members,
+            )
+        elif local_delta_lease is not None:
             kernel = compiler(
                 lease.encoded_view,
                 lease.owner,
@@ -1854,22 +1943,26 @@ def prepare_native_encoded_direct(
     except Exception as error:
         raise _execution_error(error) from error
     return NativeEncodedDirectCompiler(
-        lease,
-        local_delta_lease,
-        third_member_lease,
-        fourth_member_lease,
-        nested_member_lease,
-        merge_manifest_lease,
-        root_annotation_lease,
-        included_root_ids,
-        excluded_root_ids,
-        right_excluded_root_ids,
-        third_excluded_root_ids,
-        fourth_excluded_root_ids,
-        anonymous_scope_map,
-        right_anonymous_scope_map,
-        kernel,
-        module,
+        lease=lease,
+        local_delta_lease=local_delta_lease,
+        third_member_lease=third_member_lease,
+        fourth_member_lease=fourth_member_lease,
+        composite_member_leases=composite_member_leases,
+        composite_included_root_ids=composite_included_root_ids,
+        composite_excluded_root_ids=composite_excluded_root_ids,
+        composite_anonymous_scope_maps=composite_anonymous_scope_maps,
+        nested_member_lease=nested_member_lease,
+        merge_manifest_lease=merge_manifest_lease,
+        root_annotation_lease=root_annotation_lease,
+        included_root_ids=included_root_ids,
+        excluded_root_ids=excluded_root_ids,
+        right_excluded_root_ids=right_excluded_root_ids,
+        third_excluded_root_ids=third_excluded_root_ids,
+        fourth_excluded_root_ids=fourth_excluded_root_ids,
+        anonymous_scope_map=anonymous_scope_map,
+        right_anonymous_scope_map=right_anonymous_scope_map,
+        _kernel=kernel,
+        _module=module,
     )
 
 
