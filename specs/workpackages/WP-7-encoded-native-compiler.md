@@ -60,12 +60,16 @@ member in the one-direct-sibling family. V1 postings on a nested source address 
 local delta table, so the exact outer exporter is retained and searched against that table while
 the nested base and direct sibling keep their independent selectors. `INCLUDE`, scope remapping,
 selection on the nested member in the two-direct-sibling family, another nested delta, and broader
-recursive plans remain fail-closed. Kernel v31 additionally rejects cycles in nested annotation
-metadata with an iterative preflight over both closure and retained root tables. This closes a
-hostile structural-columns case without advertising the encoded compiler or changing valid
-projection output. Exact installed diamond and cyclic import cases additionally prove that the
-v30 join's canonical root subset and closure deduplication remain correct beyond a one-level
-import. The broad Python structural decoder
+recursive plans remain fail-closed. Kernel v123 applies the same source-local rule to the
+two-direct-sibling family: the outer nested-member selector and either or both direct-sibling
+selectors remain attached to their exact leaf table alongside the nested base selector.
+`INCLUDE`, scope remapping, another nested delta, a third direct sibling, and broader recursive
+plans remain fail-closed. Kernel v31 additionally rejects cycles in nested annotation metadata
+with an iterative preflight over both closure and retained root tables. This closes a hostile
+structural-columns case without advertising the encoded compiler or changing valid projection
+output. Exact installed diamond and cyclic import cases additionally prove that the v30 join's
+canonical root subset and closure deduplication remain correct beyond a one-level import. The
+broad Python structural decoder
 now applies the same iterative acyclic-annotation invariant before root classification, including
 when it independently inspects a retained root-provenance table. Its supported recursive
 class-expression and data-range graph checks are iterative too, admitting valid deep columns
