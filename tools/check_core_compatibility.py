@@ -15,6 +15,10 @@ if __package__:
 else:
     from release_support import read_stable_regular_file
 
+_RELEASE_ONLY_CLASSIFICATION = "behavior-preserving-release-evidence-only"
+_RUNTIME_SOURCE_PREFIXES = ("src/", "native/")
+_RUNTIME_SOURCE_FILES = frozenset({"pyproject.toml", "setup.py", "_build_backend.py"})
+
 
 def _git_output(root: Path, *arguments: str) -> str:
     completed = subprocess.run(
@@ -77,6 +81,47 @@ def _load_evidence(root: Path) -> dict[str, Any]:
     return document
 
 
+def release_evidence_errors(
+    evidence: dict[str, Any],
+    implementation_commit: str,
+) -> list[str]:
+    """Validate the separately recorded release-evidence-only core revision."""
+    source = evidence.get("release_evidence_source")
+    if not isinstance(source, dict):
+        return ["core release-evidence source is not an object"]
+    release_commit = source.get("commit")
+    if not isinstance(release_commit, str) or re.fullmatch(r"[0-9a-f]{40}", release_commit) is None:
+        return ["core release-evidence source is not an exact 40-character commit"]
+    errors: list[str] = []
+    if release_commit == implementation_commit:
+        errors.append("core release-evidence revision does not follow the implementation revision")
+    if source.get("implementation_commit") != implementation_commit:
+        errors.append("core release-evidence source names a different implementation revision")
+    if source.get("classification") != _RELEASE_ONLY_CLASSIFICATION:
+        errors.append("core release-evidence source has an unsupported classification")
+    if source.get("runtime_source_changed") is not False:
+        errors.append("core release-evidence source does not preserve runtime sources")
+    changed_paths = source.get("changed_paths")
+    if (
+        not isinstance(changed_paths, list)
+        or not changed_paths
+        or not all(isinstance(path, str) and path for path in changed_paths)
+    ):
+        errors.append("core release-evidence changed paths are not a nonempty string list")
+    else:
+        if changed_paths != sorted(set(changed_paths)):
+            errors.append("core release-evidence changed paths are not sorted and unique")
+        if any(
+            path in _RUNTIME_SOURCE_FILES or path.startswith(_RUNTIME_SOURCE_PREFIXES)
+            for path in changed_paths
+        ):
+            errors.append("core release-evidence revision lists a runtime-source change")
+    summary = source.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        errors.append("core release-evidence source has no summary")
+    return errors
+
+
 def compatibility_errors(root: Path, core_root: Path) -> list[str]:
     """Return exact-source and public-conformance failures."""
     try:
@@ -108,11 +153,12 @@ def compatibility_errors(root: Path, core_root: Path) -> list[str]:
     if not isinstance(fixture_evidence, dict):
         return ["consumer fixture evidence is not an object"]
 
+    errors = release_evidence_errors(evidence, expected_commit)
     module_file = getattr(pyowl_core, "__file__", None)
     if not isinstance(module_file, str):
-        errors = ["imported pyowl_core has no filesystem source"]
+        errors.append("imported pyowl_core has no filesystem source")
     else:
-        errors = _checkout_errors(core_root, expected_commit, Path(module_file))
+        errors.extend(_checkout_errors(core_root, expected_commit, Path(module_file)))
     observed_version = getattr(pyowl_core, "__version__", None)
     if observed_version != expected_version:
         errors.append(

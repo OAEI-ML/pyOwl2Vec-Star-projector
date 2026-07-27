@@ -13,6 +13,7 @@ from pathlib import Path
 if __package__:
     from .audit_release import audit_artifact, release_legal_payloads
     from .audit_runtime import audit as audit_runtime
+    from .check_core_compatibility import release_evidence_errors
     from .check_dependency_dag import check_dependency_dag
     from .generate_supply_chain import generate
     from .hash_artifacts import verify_manifest_content
@@ -24,6 +25,7 @@ if __package__:
 else:
     from audit_release import audit_artifact, release_legal_payloads
     from audit_runtime import audit as audit_runtime
+    from check_core_compatibility import release_evidence_errors
     from check_dependency_dag import check_dependency_dag
     from generate_supply_chain import generate
     from hash_artifacts import verify_manifest_content
@@ -63,6 +65,9 @@ def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, 
         return False, "unsupported core compatibility evidence schema"
     if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         return False, "tested core source commit is not a full Git object ID"
+    release_errors = release_evidence_errors(document, commit)
+    if release_errors:
+        return False, release_errors[0]
     if constraint not in dependencies:
         return False, f"project metadata does not retain {constraint}"
     expected_fields = (

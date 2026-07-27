@@ -681,9 +681,35 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    assert compatibility["tested_source"]["commit"] == ("af9bdb0b9178766b5f15806fb6a2f00b05e00e22")
+    implementation_commit = "af9bdb0b9178766b5f15806fb6a2f00b05e00e22"
+    assert compatibility["tested_source"]["commit"] == implementation_commit
+    assert compatibility["release_evidence_source"] == {
+        "commit": "5e64959f3469cc377deed1c531d3a25de9af188b",
+        "implementation_commit": implementation_commit,
+        "classification": "behavior-preserving-release-evidence-only",
+        "runtime_source_changed": False,
+        "changed_paths": [
+            ".github/workflows/ci.yml",
+            "reports/release/0.1.0.dev0/build-provenance.json",
+            "tests/packaging/test_supply_chain.py",
+            "tests/packaging/test_workflows.py",
+            "tools/packaging/supply_chain.py",
+        ],
+        "summary": (
+            "The later core revision pins the pure CI image and updates only release provenance, "
+            "packaging checks, and their tooling; Projector compatibility remains bound to the "
+            "settled runtime implementation."
+        ),
+    }
+    assert (
+        check_core_compatibility.release_evidence_errors(
+            compatibility,
+            implementation_commit,
+        )
+        == []
+    )
     assert compatibility["native_ontology_redesign"] == {
-        "commit": "af9bdb0b9178766b5f15806fb6a2f00b05e00e22",
+        "commit": implementation_commit,
         "classification": "behavior-preserving-native-ontology-redesign",
         "workpackages": ["WP14", "WP15", "WP16", "WP17", "WP18"],
         "summary": (
@@ -708,6 +734,30 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
     assert fixture["edge_digests"] == {
         case["case_id"]: case["canonical_edges_sha256"] for case in goldens["cases"]
     }
+
+
+def test_core_release_evidence_rejects_runtime_drift() -> None:
+    implementation_commit = "a" * 40
+    evidence = {
+        "release_evidence_source": {
+            "commit": "b" * 40,
+            "implementation_commit": "c" * 40,
+            "classification": "unreviewed",
+            "runtime_source_changed": True,
+            "changed_paths": ["src/pyowl_core/__init__.py"],
+            "summary": "",
+        }
+    }
+    assert check_core_compatibility.release_evidence_errors(
+        evidence,
+        implementation_commit,
+    ) == [
+        "core release-evidence source names a different implementation revision",
+        "core release-evidence source has an unsupported classification",
+        "core release-evidence source does not preserve runtime sources",
+        "core release-evidence revision lists a runtime-source change",
+        "core release-evidence source has no summary",
+    ]
 
 
 def test_core_checkout_guard_rejects_wrong_revision(
