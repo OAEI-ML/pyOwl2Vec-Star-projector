@@ -53,13 +53,21 @@ jobs:
           if-no-files-found: error
 
   offline-smoke:
-    name: Offline ${{ matrix.artifact }} / Python ${{ matrix.python-version }}
+    name: Offline ${{ matrix.artifact }} / Python ${{ matrix.python.version }}
     needs: fallback-artifacts
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python:
+          - version: "3.10"
+            image: python:3.10-slim@sha256:e8d6cdadc17ce7146e1bb286e6093d58c8cf582659a558ad51cd103829655e72
+          - version: "3.11"
+            image: python:3.11-slim@sha256:00af38ae2ed311628970782e8a2d7f014d8909dbc63cb97bc0a158187f4db045
+          - version: "3.12"
+            image: python:3.12-slim@sha256:cab2dbf575e971934a81e4622f5aba17aa7929719bd7e31033a3a83b97fd0464
+          - version: "3.13"
+            image: python:3.13-slim@sha256:afe189875f1d2f9b45e287834fb9f2c273a5d59d354ae4050ab9affbf0a6ba06
         artifact: [wheel, sdist]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -69,7 +77,7 @@ jobs:
           path: fallback-bundle
       - name: Network-disabled compiler-free install
         env:
-          PYTHON_IMAGE: python:${{ matrix.python-version }}-slim
+          PYTHON_IMAGE: ${{ matrix.python.image }}
           ARTIFACT_KIND: ${{ matrix.artifact }}
         run: |
           docker pull "$PYTHON_IMAGE"

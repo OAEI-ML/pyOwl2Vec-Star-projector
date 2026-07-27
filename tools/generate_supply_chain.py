@@ -176,6 +176,31 @@ def _workflow_pin(text: str, pattern: str, label: str) -> str:
     return values.pop()
 
 
+def _offline_python_images(text: str) -> dict[str, str]:
+    rows = re.findall(
+        r'(?m)^\s*-\s+version:\s*"([0-9]+\.[0-9]+)"\s*$'
+        r"\n\s+image:\s*(python:([0-9]+\.[0-9]+)-slim@sha256:[0-9a-f]{64})\s*$",
+        text,
+    )
+    images: dict[str, str] = {}
+    for version, image, image_version in rows:
+        if version != image_version:
+            raise ValueError(
+                "build provenance: offline Python image version mismatch "
+                f"{version!r} != {image_version!r}"
+            )
+        if version in images:
+            raise ValueError(f"build provenance: duplicate offline Python image for {version}")
+        images[version] = image
+    expected = {"3.10", "3.11", "3.12", "3.13"}
+    if set(images) != expected:
+        raise ValueError(
+            "build provenance: offline Python image matrix differs; "
+            f"expected={sorted(expected)}, observed={sorted(images)}"
+        )
+    return dict(sorted(images.items()))
+
+
 def _requirements(payload: bytes, label: str) -> list[str]:
     lines = []
     for raw_line in _decode_build_input(payload, label).splitlines():
@@ -323,6 +348,10 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
     native_workflow = _decode_build_input(
         payloads[".github/workflows/native.yml"], ".github/workflows/native.yml"
     )
+    packaging_workflow = _decode_build_input(
+        payloads[".github/workflows/packaging.yml"],
+        ".github/workflows/packaging.yml",
+    )
     packaging_workflows = "\n".join(
         _decode_build_input(payloads[path], path)
         for path in (
@@ -356,6 +385,7 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
         r'echo "SOURCE_DATE_EPOCH=\$\((git log -1 --pretty=%ct)\)"',
         "SOURCE_DATE_EPOCH command",
     )
+    offline_python_images = _offline_python_images(packaging_workflow)
     inputs = {
         path: {
             "bytes": len(payload),
@@ -377,6 +407,7 @@ def _build_provenance(payloads: dict[str, bytes]) -> dict[str, object]:
             "rust_toolchain": rust_toolchain,
             "rust_sanitizer_toolchain": rust_sanitizer_toolchain,
             "cibuildwheel_action": f"pypa/cibuildwheel@{cibuildwheel_revision}",
+            "offline_python_images": offline_python_images,
             "python_build_system": build_system["requires"],
             "python_fallback_requirements": fallback_requirements,
             "python_native_requirements": native_requirements,

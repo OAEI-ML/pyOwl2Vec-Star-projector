@@ -144,6 +144,24 @@ def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
         "rust_toolchain": "1.83.0",
         "rust_sanitizer_toolchain": "nightly-2025-01-15",
         "cibuildwheel_action": ("pypa/cibuildwheel@65b8265957fd86372d9689a0acdfd55813970d5d"),
+        "offline_python_images": {
+            "3.10": (
+                "python:3.10-slim@sha256:"
+                "e8d6cdadc17ce7146e1bb286e6093d58c8cf582659a558ad51cd103829655e72"
+            ),
+            "3.11": (
+                "python:3.11-slim@sha256:"
+                "00af38ae2ed311628970782e8a2d7f014d8909dbc63cb97bc0a158187f4db045"
+            ),
+            "3.12": (
+                "python:3.12-slim@sha256:"
+                "cab2dbf575e971934a81e4622f5aba17aa7929719bd7e31033a3a83b97fd0464"
+            ),
+            "3.13": (
+                "python:3.13-slim@sha256:"
+                "afe189875f1d2f9b45e287834fb9f2c273a5d59d354ae4050ab9affbf0a6ba06"
+            ),
+        },
         "python_build_system": ["setuptools==83.0.0", "wheel==0.46.3"],
         "python_fallback_requirements": [
             "build==1.5.0",
@@ -330,6 +348,39 @@ def test_rust_workflow_toolchains_are_immutable() -> None:
         re.fullmatch(r"(?:[0-9]+\.[0-9]+\.[0-9]+|nightly-[0-9]{4}-[0-9]{2}-[0-9]{2})", item)
         for item in observed
     )
+
+
+def test_offline_smoke_images_are_platform_digest_pinned() -> None:
+    workflow = (ROOT / ".github/workflows/packaging.yml").read_text(encoding="utf-8")
+    images = generate_supply_chain._offline_python_images(workflow)
+    assert set(images) == {"3.10", "3.11", "3.12", "3.13"}
+    assert all(
+        re.fullmatch(
+            rf"python:{re.escape(version)}-slim@sha256:[0-9a-f]{{64}}",
+            image,
+        )
+        for version, image in images.items()
+    )
+    assert "PYTHON_IMAGE: ${{ matrix.python.image }}" in workflow
+    assert 'docker pull "$PYTHON_IMAGE"' in workflow
+    assert "python:${{" not in workflow
+
+
+def test_build_provenance_rejects_mutable_offline_smoke_image(tmp_path: Path) -> None:
+    _copy_build_inputs(tmp_path)
+    workflow = tmp_path / ".github/workflows/packaging.yml"
+    original = workflow.read_text(encoding="utf-8")
+    workflow.write_text(
+        re.sub(
+            r"python:3\.10-slim@sha256:[0-9a-f]{64}",
+            "python:3.10-slim",
+            original,
+            count=1,
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="offline Python image matrix differs"):
+        build_provenance(tmp_path)
 
 
 def test_hash_manifest_detects_tampering(tmp_path: Path) -> None:
