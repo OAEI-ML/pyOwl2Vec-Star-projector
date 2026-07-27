@@ -10251,11 +10251,6 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             "bounded composite requires at least two retained tables",
         ));
     }
-    if options.include_literals {
-        return Err(KernelError::unsupported(
-            "bounded composite does not support literal projection",
-        ));
-    }
     let mut selected_counts = [0_usize; N];
     let mut selected_total = 0_usize;
     for table in 0..N {
@@ -10349,6 +10344,11 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
             let root = tail_columns.root_id(root_index)?;
             let root_kind = tail_columns.root_kind(root_index)?;
             let root_tag = tail_columns.node_tag(root)?;
+            if options.include_literals && root_tag == TAG_ANNOTATION_ASSERTION {
+                return Err(KernelError::unsupported(
+                    "bounded composite literal projection requires annotation-assertion-free selected roots",
+                ));
+            }
             let mapped_silent_root = matches!(
                 (scope_mapped_construct, root_kind, root_tag),
                 (
@@ -10413,11 +10413,15 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
     let mut selected_base_roots = 0_usize;
     let mut unique_tail_roots = 0_usize;
     let mut deduplicated_tail_roots = 0_usize;
+    let mut base_selected_annotation_assertion = false;
     let mut next_base_scan_index = 0_usize;
     let mut merged_canonical_index = 0_usize;
     while let Some(group) = merger.next(state)? {
         let base_root = group.roots[0];
         if let Some(root) = base_root {
+            base_selected_annotation_assertion |= options.include_literals
+                && columns[0].node_tag(columns[0].root_id(root.index)?)?
+                    == TAG_ANNOTATION_ASSERTION;
             selected_base_roots = selected_base_roots
                 .checked_add(1)
                 .ok_or_else(|| KernelError::resource("encoded composite root counter overflow"))?;
@@ -10481,6 +10485,11 @@ fn prepare_k_way_composite_batches_uncommitted<const N: usize>(
         ));
     }
     drop(merger);
+    if base_selected_annotation_assertion {
+        return Err(KernelError::unsupported(
+            "bounded composite literal projection requires annotation-assertion-free selected roots",
+        ));
+    }
     overlay_deltas.retain(|delta| delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX);
     canonicalize_overlay_delta_plan(&mut overlay_deltas);
 
@@ -10562,11 +10571,6 @@ fn prepare_two_table_batches_uncommitted(
     max_canonical_workspace_bytes: usize,
     duplicate_policy: CrossTableDuplicatePolicy,
 ) -> Result<PreparedDirectBatches, KernelError> {
-    if options.include_literals {
-        return Err(KernelError::unsupported(
-            "bounded local-overlay compilation does not support literal projection",
-        ));
-    }
     if duplicate_policy == CrossTableDuplicatePolicy::Reject
         && (!delta_columns.included_root_ids.is_empty()
             || !delta_columns.excluded_root_ids.is_empty())
@@ -11359,9 +11363,13 @@ fn prepare_two_table_batches_uncommitted(
     let mut next_base_scan_index = 0_usize;
     let mut next_right_plan_index = 0_usize;
     let mut insertion_positions = [None, None];
+    let mut base_selected_annotation_assertion = false;
     while let Some(root) = merger.next(state)? {
         match root {
             MergedCanonicalRoot::Left(root) => {
+                base_selected_annotation_assertion |= options.include_literals
+                    && base_columns.node_tag(base_columns.root_id(root.index)?)?
+                        == TAG_ANNOTATION_ASSERTION;
                 left_roots = left_roots.checked_add(1).ok_or_else(|| {
                     KernelError::resource("encoded local-overlay root counter overflow")
                 })?;
@@ -11420,6 +11428,9 @@ fn prepare_two_table_batches_uncommitted(
                 })?;
             }
             MergedCanonicalRoot::Both { left, right } => {
+                base_selected_annotation_assertion |= options.include_literals
+                    && base_columns.node_tag(base_columns.root_id(left.index)?)?
+                        == TAG_ANNOTATION_ASSERTION;
                 if duplicate_policy == CrossTableDuplicatePolicy::Reject {
                     return Err(KernelError::unsupported(
                         "bounded local-overlay root duplicates its direct source",
@@ -11504,6 +11515,11 @@ fn prepare_two_table_batches_uncommitted(
         ));
     }
     drop(merger);
+    if base_selected_annotation_assertion {
+        return Err(KernelError::unsupported(
+            "bounded segmented literal projection requires annotation-assertion-free selected roots",
+        ));
+    }
     overlay_deltas.retain(|delta| delta.insertion_scan_index != DEDUPLICATED_OVERLAY_SCAN_INDEX);
     canonicalize_overlay_delta_plan(&mut overlay_deltas);
 
@@ -22205,22 +22221,21 @@ mod tests {
             ),
             Err(KernelError::Unsupported(message)) if message.contains("duplicates")
         ));
-        assert!(matches!(
-            prepare_single_overlay_delta_batches_uncommitted(
-                base.columns(),
-                delta.columns(),
-                DirectCompileOptions {
-                    include_literals: true,
-                    ..options
-                },
-                &running_state(),
-                None,
-                canonical_limits().max_work,
-                canonical_limits().max_workspace_bytes,
-            ),
-            Err(KernelError::Unsupported(message))
-                if message.contains("literal projection")
-        ));
+        let literal_option = prepare_single_overlay_delta_batches_uncommitted(
+            base.columns(),
+            delta.columns(),
+            DirectCompileOptions {
+                include_literals: true,
+                ..options
+            },
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        assert_eq!(literal_option.statistics().roots, 3);
+        assert_eq!(literal_option.statistics().edges, 2);
         assert!(matches!(
             prepare_single_overlay_delta_batches_uncommitted(
                 base.columns(),
@@ -23054,7 +23069,7 @@ mod tests {
                     canonical_limits().max_workspace_bytes,
                 ),
                 Err(KernelError::Unsupported(message))
-                    if message.contains("does not support literal projection")
+                    if message.contains("annotation-assertion-free selected roots")
             ));
         }
     }
@@ -23855,7 +23870,7 @@ mod tests {
                     canonical_limits().max_workspace_bytes,
                 ),
                 Err(KernelError::Unsupported(message))
-                    if message.contains("does not support literal projection")
+                    if message.contains("annotation-assertion-free selected roots")
             ));
         }
     }
@@ -23906,6 +23921,62 @@ mod tests {
                 destination: "urn:B".into(),
             }]
         );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn composite_literal_option_uses_selected_annotation_roots() {
+        let base = named_subclass_fixture();
+        let annotations = root_duplicate_annotation_fixture();
+        let tail = named_subclass_delta_fixture(b"urn:C", b"urn:D");
+        let excluded_declaration = 1_u32.to_le_bytes();
+        let excluded_annotation = 2_u32.to_le_bytes();
+        let selected_annotation = annotations
+            .columns()
+            .with_excluded_root_ids(&excluded_declaration);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: true,
+            max_edges: 2,
+            max_iri_bytes: 1024,
+        };
+        assert!(matches!(
+            prepare_three_member_composite_batches_uncommitted(
+                [base.columns(), selected_annotation, tail.columns()],
+                options,
+                &running_state(),
+                None,
+                canonical_limits().max_work,
+                canonical_limits().max_workspace_bytes,
+            ),
+            Err(KernelError::Unsupported(message))
+                if message.contains("annotation-assertion-free selected roots")
+        ));
+
+        let excluded_all = [excluded_declaration, excluded_annotation].concat();
+        let annotation_free = annotations.columns().with_excluded_root_ids(&excluded_all);
+        let mut prepared = prepare_three_member_composite_batches_uncommitted(
+            [base.columns(), annotation_free, tail.columns()],
+            options,
+            &running_state(),
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 3);
+        assert_eq!(statistics.subclasses, 2);
+        assert_eq!(statistics.annotation_assertions, 0);
+        assert_eq!(statistics.annotation_edges, 0);
+        assert_eq!(statistics.edges, 2);
+        let (edges, cursor) = prepared
+            .prepare_next_batch(base.columns(), &running_state(), 2)
+            .unwrap();
+        assert_eq!(edges.len(), 2);
         prepared.commit_cursor(cursor);
         assert!(prepared.is_exhausted());
     }

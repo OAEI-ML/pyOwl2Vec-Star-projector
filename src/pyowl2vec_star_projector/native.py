@@ -38,7 +38,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 112
+ENCODED_DIRECT_KERNEL_VERSION = 113
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1091,11 +1091,6 @@ def prepare_native_encoded_compilation(
     else:
         resolved_delta = _resolve_private_single_overlay_delta(lease)
         if resolved_delta is not None:
-            if options.include_literals:
-                return (
-                    None,
-                    "private native local-overlay slice does not support literal projection",
-                )
             if role_state is not None:
                 return (
                     None,
@@ -1117,12 +1112,6 @@ def prepare_native_encoded_compilation(
                 else _resolve_private_two_member_composite(lease)
             )
             if resolved_scope_mapped is not None:
-                if options.include_literals:
-                    return (
-                        None,
-                        "private native scope-mapped composite slice does not support "
-                        "literal projection",
-                    )
                 if role_state is not None:
                     return (
                         None,
@@ -1140,12 +1129,6 @@ def prepare_native_encoded_compilation(
                 ) = resolved_scope_mapped
                 container_leases = (merge_manifest_lease, local_delta_lease)
             elif resolved_composite is not None:
-                if options.include_literals:
-                    return (
-                        None,
-                        "private native two-member composite slice does not support "
-                        "literal projection",
-                    )
                 if role_state is not None:
                     return (
                         None,
@@ -1171,12 +1154,6 @@ def prepare_native_encoded_compilation(
                     else _resolve_private_four_member_composite(lease)
                 )
                 if resolved_three_member is not None:
-                    if options.include_literals:
-                        return (
-                            None,
-                            "private native three-member composite slice does not support "
-                            "literal projection",
-                        )
                     if role_state is not None:
                         return (
                             None,
@@ -1201,12 +1178,6 @@ def prepare_native_encoded_compilation(
                         third_member_lease,
                     )
                 elif resolved_four_member is not None:
-                    if options.include_literals:
-                        return (
-                            None,
-                            "private native four-member composite slice does not support "
-                            "literal projection",
-                        )
                     if role_state is not None:
                         return (
                             None,
@@ -1243,12 +1214,6 @@ def prepare_native_encoded_compilation(
                         else _resolve_private_nested_overlay_composite(lease)
                     )
                     if resolved_scope_mapped_nested is not None:
-                        if options.include_literals:
-                            return (
-                                None,
-                                "private native scope-mapped nested-member composite slice does "
-                                "not support literal projection",
-                            )
                         if role_state is not None:
                             return (
                                 None,
@@ -1272,12 +1237,6 @@ def prepare_native_encoded_compilation(
                             third_member_lease,
                         )
                     elif resolved_nested is not None:
-                        if options.include_literals:
-                            return (
-                                None,
-                                "private native nested-member composite slice does not support "
-                                "literal projection",
-                            )
                         if role_state is not None:
                             return (
                                 None,
@@ -1304,12 +1263,6 @@ def prepare_native_encoded_compilation(
                             lease
                         )
                         if resolved_four_table_nested is not None:
-                            if options.include_literals:
-                                return (
-                                    None,
-                                    "private native four-table nested composite slice does not "
-                                    "support literal projection",
-                                )
                             if role_state is not None:
                                 return (
                                     None,
@@ -1333,8 +1286,30 @@ def prepare_native_encoded_compilation(
                                 third_member_lease,
                                 fourth_member_lease,
                             )
+    literal_exclusion_members = (
+        (lease, excluded_root_ids),
+        (local_delta_lease, right_excluded_root_ids),
+        (third_member_lease, third_excluded_root_ids),
+        (fourth_member_lease, fourth_excluded_root_ids),
+    )
+    if options.include_literals and any(
+        member_lease is not None
+        and root_ids is not None
+        and root_ids.nbytes > 0
+        and _lease_contains_annotation_assertions(member_lease)
+        for member_lease, root_ids in literal_exclusion_members
+    ):
+        return (
+            None,
+            "private native segmented exclusions require a root-provenance join "
+            "for literal projection",
+        )
     root_annotation_lease: EncodedStructuralLease | None = None
-    if options.include_literals and _lease_contains_annotation_assertions(lease):
+    if (
+        options.include_literals
+        and local_delta_lease is None
+        and _lease_contains_annotation_assertions(lease)
+    ):
         if container_leases:
             return (
                 None,
@@ -1366,16 +1341,19 @@ def prepare_native_encoded_compilation(
         merge_manifest_lease=merge_manifest_lease,
     )
     maximum_edges = sys.maxsize if max_total_edges is None else max(1, max_total_edges)
-    batches = compiler.iter_batches(
-        bidirectional=options.bidirectional_taxonomy,
-        max_edges=maximum_edges,
-        max_iri_bytes=sys.maxsize,
-        batch_edges=batch_edges,
-        asserted_taxonomy_only=asserted_taxonomy_only,
-        only_taxonomy=options.only_taxonomy,
-        include_literals=options.include_literals,
-        role_state=role_state,
-    )
+    try:
+        batches = compiler.iter_batches(
+            bidirectional=options.bidirectional_taxonomy,
+            max_edges=maximum_edges,
+            max_iri_bytes=sys.maxsize,
+            batch_edges=batch_edges,
+            asserted_taxonomy_only=asserted_taxonomy_only,
+            only_taxonomy=options.only_taxonomy,
+            include_literals=options.include_literals,
+            role_state=role_state,
+        )
+    except NativeEncodedDirectUnsupported as error:
+        return None, str(error)
     try:
         if cancellation_token is not None:
             cancellation_token.check()

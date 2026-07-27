@@ -13640,7 +13640,7 @@ def test_scope_mapped_annotation_assertions_keep_literal_projection_fail_closed(
     )
     assert compilation is None
     assert reason is not None
-    assert "does not support literal projection" in reason
+    assert "annotation-assertion-free selected roots" in reason
 
     with pytest.raises(
         ValueError,
@@ -16175,7 +16175,7 @@ def test_hidden_iterator_keeps_unsupported_local_ontology_annotation_on_fallback
     assert report.provenance.ingestion.counters["encoded_buffer_count"] == 0
 
 
-def test_hidden_iterator_keeps_literal_sensitive_local_overlay_on_whole_call_fallback() -> None:
+def test_hidden_iterator_projects_annotation_free_local_overlay_with_literals_enabled() -> None:
     base = cast(
         pyowl_core.OntologyView,
         _snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"),
@@ -16194,6 +16194,79 @@ def test_hidden_iterator_keeps_literal_sensitive_local_overlay_on_whole_call_fal
     )
     expected = Projector().project(overlay, options=python_options)
 
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("annotation-free literal option reached scalar traversal"),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["native_compiled_edges"] == len(actual)
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=len(actual),
+        batch_edges=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_preserves_root_visible_excluded_annotation_fallback(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) SubClassOf(:A :Top) "
+            'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "removed")',
+            backend=provider_backend,
+        ),
+    )
+    removed = next(
+        axiom for axiom in base.iter_axioms() if isinstance(axiom, pyowl_core.AnnotationAssertion)
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Top :Upper)", backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+            remove_axioms=cast(Any, {removed}),
+        ),
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
     projector = Projector()
     actual = list(
         projector._iter_native_encoded_edges(
@@ -16205,12 +16278,262 @@ def test_hidden_iterator_keeps_literal_sensitive_local_overlay_on_whole_call_fal
     report = _completed_report(projector)
 
     assert actual == expected
-    assert report.provenance.ingestion.path == "scalar-native"
-    assert report.provenance.ingestion.reason is not None
-    assert "local-overlay slice does not support literal projection" in (
-        report.provenance.ingestion.reason
+    assert any(edge.destination == "removed" for edge in actual)
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert "root-provenance join" in ingestion.reason
+    assert ingestion.counters.get("native_compiled_edges", 0) == 0
+    assert ingestion.counters["encoded_buffer_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_nested_composite_preserves_excluded_annotation_fallback_parity(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "SubClassOf(:A :Top) "
+            'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "removed")',
+            backend=provider_backend,
+        ),
     )
-    assert report.provenance.ingestion.counters.get("native_compiled_edges", 0) == 0
+    removed = next(
+        axiom for axiom in base.iter_axioms() if isinstance(axiom, pyowl_core.AnnotationAssertion)
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)", backend=provider_backend),
+    )
+    overlay = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(
+            base,
+            pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(addition.iter_axioms())),
+                remove_axioms=cast(Any, {removed}),
+            ),
+        ),
+    )
+    options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    overlay_edges = Projector().project(overlay, options=options)
+    assert any(edge.destination == "removed" for edge in overlay_edges)
+
+    sibling = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:C :Top)", backend=provider_backend),
+    )
+    composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(overlay, sibling),
+    )
+    top_lease = select_private_direct_ingestion(
+        composite,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    resolved = _resolve_private_nested_overlay_composite(top_lease)
+    assert resolved is not None
+    assert resolved[3] is not None
+
+    with patch.object(
+        native_module,
+        "prepare_native_encoded_direct",
+        side_effect=AssertionError("excluded annotation reached native compilation"),
+    ):
+        compilation, reason = native_module.prepare_native_encoded_compilation(
+            composite,
+            top_lease,
+            replace(options, backend="native"),
+            batch_edges=1,
+            max_total_edges=None,
+            cancellation_token=None,
+        )
+
+    assert compilation is None
+    assert reason is not None
+    assert "root-provenance join" in reason
+    with pytest.raises(ValueError, match="composite views support CLOSURE scope only"):
+        Projector().project(composite, options=options)
+    with pytest.raises(ValueError, match="composite views support CLOSURE scope only"):
+        Projector().project(
+            composite,
+            options=replace(options, backend="native"),
+        )
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+def test_hidden_iterator_falls_back_transactionally_for_selected_segment_annotation(
+    provider_backend: pyowl_core.BackendPreference,
+) -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "Declaration(Class(:A)) SubClassOf(:A :Top) "
+            'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "selected")',
+            backend=provider_backend,
+        ),
+    )
+    addition_source = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Top :Upper)", backend=provider_backend),
+    )
+    overlay = pyowl_core.apply_delta(
+        base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition_source.iter_axioms())),
+        ),
+    )
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    top_lease = select_private_direct_ingestion(
+        overlay,
+        selected_backend="native",
+    ).lease
+    assert top_lease is not None
+    captured: list[NativeEncodedDirectCompiler] = []
+    real_prepare = native_module.prepare_native_encoded_direct
+
+    def capture_compiler(*args: Any, **kwargs: Any) -> NativeEncodedDirectCompiler:
+        compiler = real_prepare(*args, **kwargs)
+        captured.append(compiler)
+        return compiler
+
+    with patch.object(
+        native_module,
+        "prepare_native_encoded_direct",
+        side_effect=capture_compiler,
+    ):
+        compilation, reason = native_module.prepare_native_encoded_compilation(
+            overlay,
+            top_lease,
+            replace(python_options, backend="native"),
+            batch_edges=1,
+            max_total_edges=None,
+            cancellation_token=None,
+        )
+
+    assert compilation is None
+    assert reason is not None
+    assert "annotation-assertion-free selected roots" in reason
+    assert len(captured) == 1
+    assert captured[0].state == "failed"
+
+    projector = Projector()
+    actual = list(
+        projector._iter_native_encoded_edges(
+            overlay,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert "annotation-assertion-free selected roots" in ingestion.reason
+    assert ingestion.counters.get("native_compiled_edges", 0) == 0
+    assert ingestion.counters["encoded_buffer_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "provider_backend",
+    [
+        pyowl_core.BackendPreference.PYTHON,
+        pyowl_core.BackendPreference.NATIVE,
+    ],
+    ids=["independent-bytes", "packed-bytes"],
+)
+@pytest.mark.parametrize("member_count", [2, 3, 4], ids=["two", "three", "four"])
+def test_hidden_iterator_projects_annotation_free_composites_with_literals_enabled(
+    provider_backend: pyowl_core.BackendPreference,
+    member_count: int,
+) -> None:
+    members = [
+        cast(
+            pyowl_core.OntologyView,
+            _snapshot(
+                f"SubClassOf(:C{index} :Top)",
+                backend=provider_backend,
+            ),
+        )
+        for index in range(member_count)
+    ]
+    composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(
+        composite,
+        options=replace(python_options, include_literals=False),
+    )
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError("annotation-free composite reached scalar traversal"),
+    ):
+        projector = Projector()
+        actual = list(
+            projector._iter_native_encoded_edges(
+                composite,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert report.diagnostics == expected_report.diagnostics
+    assert report.provenance.core == expected_report.provenance.core
+    assert report.provenance.counts == expected_report.provenance.counts
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["encoded_referenced_view_count"] == member_count
+    assert ingestion.counters["native_compiled_edges"] == member_count
+    assert ingestion.counters["base_flattening_bytes"] == 0
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+    assert ingestion.counters["per_row_ffi_calls"] == 0
+    _assert_bounded_native_output(
+        ingestion.counters,
+        compiled_edges=member_count,
+        batch_edges=1,
+    )
 
 
 @pytest.mark.parametrize(
