@@ -4159,12 +4159,9 @@ impl<'a> DirectColumns<'a> {
         maximum_iri: usize,
         state: &AtomicU8,
     ) -> Result<(ScopeMappedCompositeKind, &'a [u8]), KernelError> {
-        if !self.included_root_ids.is_empty()
-            || !self.excluded_root_ids.is_empty()
-            || self.anonymous_scope_map.len() != 64
-        {
+        if !self.included_root_ids.is_empty() || self.anonymous_scope_map.len() != 64 {
             return Err(KernelError::unsupported(
-                "bounded anonymous-scope composite requires one bytes32 remap and ALL roots per member",
+                "bounded anonymous-scope composite requires one bytes32 remap and ALL roots or named-taxonomy exclusions per mapped member",
             ));
         }
         let mut anonymous_node = None;
@@ -4195,6 +4192,27 @@ impl<'a> DirectColumns<'a> {
         for root_index in 0..self.root_count() {
             check_cancel(state, root_index)?;
             let root = self.root_id(root_index)?;
+            if !self.root_is_selected(root_index)? {
+                if self.root_kind(root_index)? != ROOT_AXIOM
+                    || self.node_tag(root)? != TAG_SUB_CLASS_OF
+                    || !matches!(
+                        self.subclass_projection(root, maximum_iri)?,
+                        SubclassProjection::Taxonomy { .. }
+                    )
+                {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope mapped-member exclusions support only named SubClassOf roots",
+                    ));
+                }
+                let start = self.exact_fields(root, 3)?;
+                let (_annotation_start, annotation_count) = self.node_set_range(start + 2, 0)?;
+                if annotation_count != 0 {
+                    return Err(KernelError::unsupported(
+                        "bounded anonymous-scope mapped-member exclusions require unannotated named SubClassOf roots",
+                    ));
+                }
+                continue;
+            }
             let rule = root_rule_plan.rule_at(root_index)?;
             if self.root_kind(root_index)? != rule.root_kind || self.node_tag(root)? != rule.tag {
                 return Err(KernelError::malformed(
@@ -27481,6 +27499,105 @@ mod tests {
         );
         prepared.commit_cursor(cursor);
         assert!(prepared.is_exhausted());
+    }
+
+    #[test]
+    fn four_table_nested_member_selects_named_roots_from_one_mapped_table() {
+        let left = scope_mapped_object_property_assertion_fixture();
+        let local_neutral = named_subclass_delta_fixture(b"urn:B", b"urn:Top");
+        let mut right = scope_mapped_object_property_assertion_fixture();
+        let direct_neutral = named_subclass_delta_fixture(b"urn:D", b"urn:Top");
+        right.root_kinds.remove(0);
+        right.root_ids.drain(..4);
+        let mut left_scope_map = [0_u8; 64];
+        left_scope_map[..32].fill(7);
+        left_scope_map[32..].fill(9);
+        let mut right_scope_map = [0_u8; 64];
+        right_scope_map[..32].fill(7);
+        right_scope_map[32..].fill(8);
+        let excluded_left_root = 1_u32.to_le_bytes();
+        let excluded_local_root = 1_u32.to_le_bytes();
+        let excluded_direct_root = 1_u32.to_le_bytes();
+        let left_columns = left
+            .columns()
+            .with_excluded_root_ids(&excluded_left_root)
+            .with_anonymous_scope_map(&left_scope_map);
+        let local_neutral_columns = local_neutral
+            .columns()
+            .with_excluded_root_ids(&excluded_local_root);
+        let right_columns = right.columns().with_anonymous_scope_map(&right_scope_map);
+        let direct_neutral_columns = direct_neutral
+            .columns()
+            .with_excluded_root_ids(&excluded_direct_root);
+        let options = DirectCompileOptions {
+            bidirectional: false,
+            asserted_taxonomy_only: false,
+            only_taxonomy: false,
+            include_literals: false,
+            max_edges: 2,
+            max_iri_bytes: 1024,
+        };
+        let state = running_state();
+        let mut prepared = prepare_four_table_composite_batches_uncommitted(
+            [
+                left_columns,
+                local_neutral_columns,
+                right_columns,
+                direct_neutral_columns,
+            ],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap();
+        let statistics = prepared.statistics();
+        assert_eq!(statistics.roots, 2);
+        assert_eq!(statistics.subclasses, 0);
+        assert_eq!(statistics.object_property_assertions, 2);
+        assert_eq!(statistics.anonymous_individuals, 2);
+        assert_eq!(statistics.edges, 2);
+
+        let (edges, cursor) = prepared
+            .prepare_next_batch(left_columns, &state, 2)
+            .unwrap();
+        assert_eq!(
+            edges,
+            vec![
+                DirectEdge {
+                    source: "_:genid2147483648".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+                DirectEdge {
+                    source: "_:genid2147483649".into(),
+                    relation: "urn:p".into(),
+                    destination: "urn:j".into(),
+                },
+            ]
+        );
+        prepared.commit_cursor(cursor);
+        assert!(prepared.is_exhausted());
+
+        let excluded_construct = 2_u32.to_le_bytes();
+        let error = prepare_four_table_composite_batches_uncommitted(
+            [
+                left.columns()
+                    .with_excluded_root_ids(&excluded_construct)
+                    .with_anonymous_scope_map(&left_scope_map),
+                local_neutral_columns,
+                right_columns,
+                direct_neutral_columns,
+            ],
+            options,
+            &state,
+            None,
+            canonical_limits().max_work,
+            canonical_limits().max_workspace_bytes,
+        )
+        .unwrap_err();
+        assert!(matches!(error, KernelError::Unsupported(_)));
     }
 
     #[test]

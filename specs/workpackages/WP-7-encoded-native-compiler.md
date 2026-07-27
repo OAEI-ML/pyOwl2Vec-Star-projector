@@ -74,7 +74,12 @@ exact scope-mapped nested family to a second direct sibling when the new sibling
 unannotated named-subclass-only neutral table. The nested local-delta table and that neutral
 sibling independently accept `ALL` or a complete `EXCLUDE`, while the two mapped members and inner
 base remain `ALL`. A third mapped member, selection on a mapped member or the inner base, partial
-selection, `INCLUDE`, and broader recursive scope-mapped plans remain fail-closed. Kernel v31
+selection, `INCLUDE`, and broader recursive scope-mapped plans remain fail-closed. Kernel v126
+then permits the nested overlay's mapped base to carry an exact source-local `EXCLUDE` containing
+only unannotated named-to-named `SubClassOf` roots. The mapped anonymous construct must remain
+selected, and the base selector composes independently with the v124/v125 local-delta and neutral
+sibling selectors. `INCLUDE`, an excluded mapped construct, annotated or non-taxonomy base roots,
+a third mapped member, and broader recursive scope-mapped plans remain fail-closed. Kernel v31
 additionally
 rejects cycles in nested annotation metadata
 with an iterative preflight over both closure and retained root tables. This closes a hostile

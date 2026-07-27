@@ -1210,6 +1210,37 @@ def _selects_every_root(
     )
 
 
+def _selects_only_named_subclass_roots(
+    lease: EncodedStructuralLease,
+    excluded_root_ids: memoryview,
+) -> bool:
+    """Return whether EXCLUDE selects only exact named taxonomy roots."""
+
+    buffers = lease.buffers
+    root_count = _row_count(buffers, "root_kinds")
+    if (
+        root_count < 2
+        or excluded_root_ids.nbytes == 0
+        or excluded_root_ids.nbytes % 4
+    ):
+        return False
+    previous_position = 0
+    for index in range(excluded_root_ids.nbytes // 4):
+        position = _read_uint(excluded_root_ids, index, 4)
+        if position <= previous_position or position > root_count:
+            return False
+        previous_position = position
+        if _read_uint(buffers["root_kinds"], position - 1, 1) != _ROOT_AXIOM:
+            return False
+        root_id = _read_uint(buffers["root_ids"], position - 1, 4)
+        if (
+            _read_uint(buffers["node_tags"], root_id - 1, 2) != _TAG_SUB_CLASS_OF
+            or not _is_exact_named_subclass_root(buffers, root_id)
+        ):
+            return False
+    return True
+
+
 def _resolve_private_scope_mapped_composite(
     lease: EncodedStructuralLease,
     *,
@@ -1641,6 +1672,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         EncodedStructuralLease,
         EncodedStructuralLease,
         memoryview | None,
+        memoryview | None,
         memoryview,
         memoryview,
         int | None,
@@ -1690,7 +1722,10 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         return None
     base, excluded_root_ids, _overlay_work, _overlay_workspace = resolved_overlay
     if (
-        excluded_root_ids is not None
+        (
+            excluded_root_ids is not None
+            and not _selects_only_named_subclass_roots(base, excluded_root_ids)
+        )
         or base.encoded_view is direct_member.encoded_view
         or base.owner is direct_member.owner
         or not _named_subclass_only_table(nested_overlay)
@@ -1716,6 +1751,7 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
         base,
         nested_overlay,
         direct_member,
+        excluded_root_ids,
         nested_excluded_root_ids,
         nested_scope_map,
         direct_scope_map,
@@ -1732,6 +1768,7 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
         EncodedStructuralLease,
         EncodedStructuralLease,
         EncodedStructuralLease,
+        memoryview | None,
         memoryview | None,
         memoryview | None,
         memoryview,
@@ -1789,7 +1826,10 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
     base, excluded_root_ids, _overlay_work, _overlay_workspace = resolved_overlay
     direct_members = (mapped_direct, neutral_direct)
     if (
-        excluded_root_ids is not None
+        (
+            excluded_root_ids is not None
+            and not _selects_only_named_subclass_roots(base, excluded_root_ids)
+        )
         or any(
             base.encoded_view is direct.encoded_view or base.owner is direct.owner
             for direct in direct_members
@@ -1820,6 +1860,7 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
         nested_overlay,
         mapped_direct,
         neutral_direct,
+        excluded_root_ids,
         nested_excluded_root_ids,
         neutral_excluded_root_ids,
         nested_scope_map,

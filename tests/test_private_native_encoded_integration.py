@@ -2296,11 +2296,14 @@ def test_hidden_iterator_compiles_empty_overlay_alias_without_flattening(
     ],
     ids=["independent-bytes", "packed-bytes"],
 )
+@pytest.mark.parametrize("exclude_base_named", [False, True], ids=["base-all", "base-selected"])
 def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
     provider_backend: pyowl_core.BackendPreference,
+    exclude_base_named: bool,
 ) -> None:
     composite, top_lease = _forged_scope_mapped_nested_overlay_exclude(
-        provider_backend
+        provider_backend,
+        exclude_base_named=exclude_base_named,
     )
     resolved = _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
     assert resolved is not None
@@ -2308,12 +2311,14 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
         _base_lease,
         nested_lease,
         _direct_lease,
+        base_excluded,
         nested_excluded,
         nested_scope_map,
         direct_scope_map,
         _max_work,
         _max_workspace,
     ) = resolved
+    assert (base_excluded is not None) is exclude_base_named
     assert nested_excluded is not None
     nested_segment = next(
         cast(Any, segment)
@@ -2321,6 +2326,8 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
         if cast(Any, segment).source is nested_lease.encoded_view
     )
     assert nested_excluded is nested_segment.root_ids
+    if base_excluded is not None:
+        assert base_excluded is cast(Any, nested_lease.segments[0]).root_ids
     assert nested_scope_map is nested_segment.anonymous_scope_map
     python_options = ProjectionOptions(backend="python", order="encounter")
     expected_projector = Projector()
@@ -2379,6 +2386,7 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
+    assert compilation.excluded_root_ids is base_excluded
     assert compilation.right_excluded_root_ids is nested_excluded
     assert compilation.anonymous_scope_map is nested_scope_map
     assert compilation.right_anonymous_scope_map is direct_scope_map
@@ -2386,18 +2394,22 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
     assert compilation.native_statistics.object_property_assertions == 2
     assert compilation.native_statistics.anonymous_individuals == 2
     assert compilation.native_statistics.edges == 2
-    assert compiler.retained_buffer_count == 36
+    assert compiler.retained_buffer_count == 36 + int(exclude_base_named)
     assert compilation.batches._compiler is None
 
     ingestion = report.provenance.ingestion
     assert ingestion.path == "encoded-native"
     assert ingestion.reason is None
     assert ingestion.counters["encoded_buffer_count"] == 44
-    assert ingestion.counters["encoded_detached_buffer_count"] == 36
+    assert ingestion.counters["encoded_detached_buffer_count"] == 36 + int(
+        exclude_base_named
+    )
     assert ingestion.counters["encoded_zero_copy_buffers"] == 44
     assert ingestion.counters["encoded_referenced_view_count"] == 3
     assert ingestion.counters["encoded_segment_count"] == 6
-    assert ingestion.counters["encoded_posting_bytes"] == 132
+    assert ingestion.counters["encoded_posting_bytes"] == 132 + 4 * int(
+        exclude_base_named
+    )
     assert ingestion.counters["encoded_indexed_buffer_count"] == 0
     assert ingestion.counters["base_flattening_bytes"] == 0
     assert ingestion.counters["encoded_staging_copy_bytes"] == 0
@@ -2429,13 +2441,16 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
     ],
     ids=["all", "nested", "neutral", "both"],
 )
+@pytest.mark.parametrize("exclude_base_named", [False, True], ids=["base-all", "base-selected"])
 def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
     provider_backend: pyowl_core.BackendPreference,
     exclude_nested_delta: bool,
     exclude_neutral_direct: bool,
+    exclude_base_named: bool,
 ) -> None:
     composite, top_lease = _forged_scope_mapped_four_table_nested_excludes(
         provider_backend,
+        exclude_base_named=exclude_base_named,
         exclude_nested_delta=exclude_nested_delta,
         exclude_neutral_direct=exclude_neutral_direct,
     )
@@ -2446,6 +2461,7 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
         nested_lease,
         _mapped_direct_lease,
         neutral_direct_lease,
+        base_excluded,
         nested_excluded,
         neutral_excluded,
         nested_scope_map,
@@ -2453,6 +2469,7 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
         _max_work,
         _max_workspace,
     ) = resolved
+    assert (base_excluded is not None) is exclude_base_named
     assert (nested_excluded is not None) is exclude_nested_delta
     assert (neutral_excluded is not None) is exclude_neutral_direct
     nested_segment = next(
@@ -2469,6 +2486,8 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
         assert nested_excluded is nested_segment.root_ids
     if neutral_excluded is not None:
         assert neutral_excluded is neutral_segment.root_ids
+    if base_excluded is not None:
+        assert base_excluded is cast(Any, nested_lease.segments[0]).root_ids
     assert nested_scope_map is nested_segment.anonymous_scope_map
 
     python_options = ProjectionOptions(backend="python", order="encounter")
@@ -2520,12 +2539,13 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
         )
     report = _completed_report(projector)
 
-    selected_count = int(exclude_nested_delta) + int(exclude_neutral_direct)
-    expected_edges = 4 - selected_count
+    outer_selected_count = int(exclude_nested_delta) + int(exclude_neutral_direct)
+    selector_count = outer_selected_count + int(exclude_base_named)
+    expected_edges = 4 - outer_selected_count
     assert actual == expected
     assert len(actual) == expected_edges
     assert len([edge for edge in actual if edge.relation == "http://subclassof"]) == (
-        2 - selected_count
+        2 - outer_selected_count
     )
     assert len({edge.source for edge in actual if edge.relation == "urn:native-integration#p"}) == 2
     _assert_semantic_report_parity(expected_report, report)
@@ -2533,27 +2553,28 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
     assert len(captured) == len(captured_compilers) == 1
     compilation = captured[0]
     compiler = captured_compilers[0]
+    assert compilation.excluded_root_ids is base_excluded
     assert compilation.right_excluded_root_ids is nested_excluded
     assert compilation.fourth_excluded_root_ids is neutral_excluded
     assert compilation.anonymous_scope_map is nested_scope_map
     assert compilation.right_anonymous_scope_map is direct_scope_map
     assert compilation.native_statistics.roots == expected_edges
-    assert compilation.native_statistics.subclasses == 2 - selected_count
+    assert compilation.native_statistics.subclasses == 2 - outer_selected_count
     assert compilation.native_statistics.object_property_assertions == 2
     assert compilation.native_statistics.anonymous_individuals == 2
     assert compilation.native_statistics.edges == expected_edges
-    assert compiler.retained_buffer_count == 46 + selected_count
+    assert compiler.retained_buffer_count == 46 + selector_count
     assert compilation.batches._compiler is None
 
     ingestion = report.provenance.ingestion
     assert ingestion.path == "encoded-native"
     assert ingestion.reason is None
     assert ingestion.counters["encoded_buffer_count"] == 55
-    assert ingestion.counters["encoded_detached_buffer_count"] == 46 + selected_count
+    assert ingestion.counters["encoded_detached_buffer_count"] == 46 + selector_count
     assert ingestion.counters["encoded_zero_copy_buffers"] == 55
     assert ingestion.counters["encoded_referenced_view_count"] == 4
     assert ingestion.counters["encoded_segment_count"] == 8
-    assert ingestion.counters["encoded_posting_bytes"] == 128 + 4 * selected_count
+    assert ingestion.counters["encoded_posting_bytes"] == 128 + 4 * selector_count
     assert ingestion.counters["encoded_indexed_buffer_count"] == 0
     assert ingestion.counters["base_flattening_bytes"] == 0
     assert ingestion.counters["encoded_staging_copy_bytes"] == 0
@@ -10311,6 +10332,7 @@ def _scope_mapped_nested_overlay_composite(
     *,
     object_assertion: bool = False,
     assertion: str | None = None,
+    exclude_base_named: bool = False,
 ) -> pyowl_core.OntologyView:
     if assertion is None:
         assertion = (
@@ -10320,7 +10342,12 @@ def _scope_mapped_nested_overlay_composite(
         )
     base = cast(
         pyowl_core.OntologyView,
-        _snapshot(assertion, backend=provider_backend),
+        _snapshot(
+            f"{assertion} SubClassOf(:DropBase :Top)"
+            if exclude_base_named
+            else assertion,
+            backend=provider_backend,
+        ),
     )
     addition = cast(
         pyowl_core.OntologyView,
@@ -10330,9 +10357,24 @@ def _scope_mapped_nested_overlay_composite(
         pyowl_core.OntologyView,
         _snapshot(assertion, backend=provider_backend),
     )
+    removed = (
+        {
+            next(
+                axiom
+                for axiom in base.iter_axioms()
+                if type(axiom).__name__ == "SubClassOf"
+                and cast(Any, axiom).sub_class.iri.value.endswith("#DropBase")
+            )
+        }
+        if exclude_base_named
+        else set()
+    )
     overlay = pyowl_core.apply_delta(
         base,
-        pyowl_core.OntologyDelta(add_axioms=cast(Any, set(addition.iter_axioms()))),
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition.iter_axioms())),
+            remove_axioms=cast(Any, removed),
+        ),
     )
     return cast(
         pyowl_core.OntologyView,
@@ -10340,18 +10382,160 @@ def _scope_mapped_nested_overlay_composite(
     )
 
 
+def _forge_selected_nested_base_with_scope_maps(
+    top_lease: EncodedStructuralLease,
+    scope_source_lease: EncodedStructuralLease,
+) -> EncodedStructuralLease:
+    """Graft exact maps onto a base table with one removable named root.
+
+    Adding a named axiom changes the parser-derived anonymous document scope,
+    so the public provider correctly no longer emits a collision map.  This
+    fixture preserves the original colliding anonymous identity in the encoded
+    table while adding the independently selectable taxonomy root.
+    """
+
+    top_segments = list(top_lease.segments)
+    scope_segments = scope_source_lease.segments
+    nested_index = next(
+        index
+        for index, segment in enumerate(top_segments)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
+        == (2, 3)
+    )
+    nested_scope_map = next(
+        cast(Any, segment).anonymous_scope_map
+        for segment in scope_segments
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
+        == (2, 3)
+    )
+    direct_scope_maps = {
+        bytes(cast(Any, segment).member_token): cast(Any, segment).anonymous_scope_map
+        for segment in scope_segments
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
+        == (1,)
+    }
+    assert nested_scope_map.nbytes == 64
+    assert sum(value.nbytes == 64 for value in direct_scope_maps.values()) == 1
+
+    nested_segment = cast(Any, top_segments[nested_index])
+    nested_view = cast(Any, nested_segment.source)
+    nested_segments = list(nested_view.segments)
+    base_segment = cast(Any, nested_segments[0])
+    base_view = cast(Any, base_segment.source)
+    source_nested = next(
+        cast(Any, segment).source
+        for segment in scope_segments
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
+        == (2, 3)
+    )
+    source_base_view = cast(Any, source_nested.segments[0]).source
+    donor_assertion = next(
+        axiom
+        for axiom in base_view.owner.iter_axioms()
+        if type(axiom).__name__ == "ObjectPropertyAssertion"
+    )
+    source_assertion = next(
+        axiom
+        for axiom in source_base_view.owner.iter_axioms()
+        if type(axiom).__name__ == "ObjectPropertyAssertion"
+    )
+    donor_scope = cast(Any, donor_assertion).source.document_scope
+    donor_key = cast(Any, donor_assertion).source.local_key
+    source_scope = cast(Any, source_assertion).source.document_scope
+    source_key = cast(Any, source_assertion).source.local_key
+    scalar_bytes = bytes(base_view.buffers["scalar_bytes"])
+    assert scalar_bytes.count(donor_scope) == 1
+    assert scalar_bytes.count(donor_key) == 1
+    scalar_bytes = scalar_bytes.replace(donor_scope, source_scope).replace(
+        donor_key,
+        source_key,
+    )
+    base_buffers = {
+        name: memoryview(bytes(value))
+        for name, value in base_view.buffers.items()
+    }
+    base_buffers["scalar_bytes"] = memoryview(scalar_bytes)
+    selected_base_view = replace(
+        base_view,
+        buffers=MappingProxyType(base_buffers),
+    )
+
+    root_ids = selected_base_view.buffers["root_ids"]
+    node_tags = selected_base_view.buffers["node_tags"]
+    named_positions: list[int] = []
+    for position in range(1, selected_base_view.buffers["root_kinds"].nbytes + 1):
+        offset = (position - 1) * 4
+        node_id = int.from_bytes(root_ids[offset : offset + 4], "little")
+        tag_offset = (node_id - 1) * 2
+        tag = int.from_bytes(node_tags[tag_offset : tag_offset + 2], "little")
+        if tag == 61:  # SubClassOf
+            named_positions.append(position)
+    assert len(named_positions) == 1
+    base_selector = memoryview(named_positions[0].to_bytes(4, "little"))
+    nested_segments[0] = replace(
+        base_segment,
+        source=selected_base_view,
+        posting_mode=2,
+        root_ids=base_selector,
+    )
+    selected_nested_view = replace(
+        nested_view,
+        segments=tuple(nested_segments),
+    )
+    for index, segment in enumerate(top_segments):
+        roles = tuple(
+            cast(Any, child).role
+            for child in cast(Any, cast(Any, segment).source).segments
+        )
+        top_segments[index] = replace(
+            cast(Any, segment),
+            source=selected_nested_view if index == nested_index else cast(Any, segment).source,
+            anonymous_scope_map=(
+                nested_scope_map
+                if roles == (2, 3)
+                else direct_scope_maps[bytes(cast(Any, segment).member_token)]
+            ),
+        )
+    top_encoded = replace(
+        cast(Any, top_lease.encoded_view),
+        segments=tuple(top_segments),
+    )
+    return replace(
+        top_lease,
+        encoded_view=top_encoded,
+        segments=tuple(top_segments),
+    )
+
+
 def _forged_scope_mapped_nested_overlay_exclude(
     provider_backend: pyowl_core.BackendPreference,
+    *,
+    exclude_base_named: bool = False,
 ) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease]:
+    semantic_composite = _scope_mapped_nested_overlay_composite(
+        provider_backend,
+        object_assertion=True,
+    )
     storage_composite = _scope_mapped_nested_overlay_composite(
         provider_backend,
         object_assertion=True,
+        exclude_base_named=exclude_base_named,
     )
     top_lease = select_private_direct_ingestion(
         storage_composite,
         selected_backend="native",
     ).lease
     assert top_lease is not None
+    if exclude_base_named:
+        scope_source_lease = select_private_direct_ingestion(
+            semantic_composite,
+            selected_backend="native",
+        ).lease
+        assert scope_source_lease is not None
+        top_lease = _forge_selected_nested_base_with_scope_maps(
+            top_lease,
+            scope_source_lease,
+        )
     segments = list(top_lease.segments)
     nested_index = next(
         index
@@ -10378,14 +10562,14 @@ def _forged_scope_mapped_nested_overlay_exclude(
     )
     local_subclass = next(
         axiom
-        for axiom in storage_composite.iter_axioms()
+        for axiom in semantic_composite.iter_axioms()
         if type(axiom).__name__ == "SubClassOf"
         and cast(Any, axiom).sub_class.iri.value.endswith("#B")
     )
     semantic_view = cast(
         pyowl_core.OntologyView,
         pyowl_core.apply_delta(
-            storage_composite,
+            semantic_composite,
             pyowl_core.OntologyDelta(
                 remove_axioms=cast(Any, {local_subclass}),
             ),
@@ -10397,13 +10581,16 @@ def _forged_scope_mapped_nested_overlay_exclude(
 def _forged_scope_mapped_four_table_nested_excludes(
     provider_backend: pyowl_core.BackendPreference,
     *,
+    exclude_base_named: bool = False,
     exclude_nested_delta: bool,
     exclude_neutral_direct: bool,
 ) -> tuple[pyowl_core.OntologyView, EncodedStructuralLease]:
     base = cast(
         pyowl_core.OntologyView,
         _snapshot(
-            "ObjectPropertyAssertion(:p _:same :j)",
+            "ObjectPropertyAssertion(:p _:same :j) SubClassOf(:DropBase :Top)"
+            if exclude_base_named
+            else "ObjectPropertyAssertion(:p _:same :j)",
             backend=provider_backend,
         ),
     )
@@ -10422,19 +10609,61 @@ def _forged_scope_mapped_four_table_nested_excludes(
         pyowl_core.OntologyView,
         _snapshot("SubClassOf(:D :Top)", backend=provider_backend),
     )
+    removed_base = (
+        {
+            next(
+                axiom
+                for axiom in base.iter_axioms()
+                if type(axiom).__name__ == "SubClassOf"
+                and cast(Any, axiom).sub_class.iri.value.endswith("#DropBase")
+            )
+        }
+        if exclude_base_named
+        else set()
+    )
     overlay = pyowl_core.apply_delta(
         base,
-        pyowl_core.OntologyDelta(add_axioms=cast(Any, set(addition.iter_axioms()))),
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition.iter_axioms())),
+            remove_axioms=cast(Any, removed_base),
+        ),
     )
     storage_composite = cast(
         pyowl_core.OntologyView,
         pyowl_core.compose_views(overlay, mapped_direct, neutral_direct),
+    )
+    semantic_base = cast(
+        pyowl_core.OntologyView,
+        _snapshot(
+            "ObjectPropertyAssertion(:p _:same :j)",
+            backend=provider_backend,
+        ),
+    )
+    semantic_overlay = pyowl_core.apply_delta(
+        semantic_base,
+        pyowl_core.OntologyDelta(
+            add_axioms=cast(Any, set(addition.iter_axioms())),
+        ),
+    )
+    semantic_composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(semantic_overlay, mapped_direct, neutral_direct),
     )
     top_lease = select_private_direct_ingestion(
         storage_composite,
         selected_backend="native",
     ).lease
     assert top_lease is not None
+    if exclude_base_named:
+        scope_source_lease = select_private_direct_ingestion(
+            semantic_composite,
+            selected_backend="native",
+        ).lease
+        assert scope_source_lease is not None
+        top_lease = _forge_selected_nested_base_with_scope_maps(
+            top_lease,
+            scope_source_lease,
+        )
     segments = list(top_lease.segments)
     nested_index = next(
         index
@@ -10485,7 +10714,7 @@ def _forged_scope_mapped_four_table_nested_excludes(
     }
     removed = {
         axiom
-        for axiom in storage_composite.iter_axioms()
+        for axiom in semantic_composite.iter_axioms()
         if type(axiom).__name__ == "SubClassOf"
         and cast(Any, axiom).sub_class.iri.value.rsplit("#", 1)[-1] in removed_names
     }
@@ -10493,12 +10722,12 @@ def _forged_scope_mapped_four_table_nested_excludes(
         cast(
             pyowl_core.OntologyView,
             pyowl_core.apply_delta(
-                storage_composite,
+                semantic_composite,
                 pyowl_core.OntologyDelta(remove_axioms=cast(Any, removed)),
             ),
         )
         if removed
-        else storage_composite
+        else semantic_composite
     )
     return semantic_view, top_lease
 
@@ -14641,6 +14870,7 @@ def test_dynamic_paired_root_views_live_until_compiler_release() -> None:
 def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
     _composite, top_lease = _forged_scope_mapped_four_table_nested_excludes(
         pyowl_core.BackendPreference.PYTHON,
+        exclude_base_named=True,
         exclude_nested_delta=True,
         exclude_neutral_direct=True,
     )
@@ -14651,6 +14881,7 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
         nested_lease,
         mapped_direct_lease,
         neutral_direct_lease,
+        base_excluded,
         nested_excluded,
         neutral_excluded,
         nested_scope_map,
@@ -14658,6 +14889,7 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
         max_work,
         max_workspace,
     ) = resolved
+    assert base_excluded is not None
     assert nested_excluded is not None
     assert neutral_excluded is not None
     assert max_work is not None
@@ -14666,6 +14898,7 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
     def compiler(
         *,
         manifest: EncodedStructuralLease = top_lease,
+        base_selector: memoryview = base_excluded,
         nested_selector: memoryview = nested_excluded,
         neutral_selector: memoryview = neutral_excluded,
         left_map: memoryview = nested_scope_map,
@@ -14677,6 +14910,7 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
             fourth_member_lease=neutral_direct_lease,
             nested_member_lease=nested_lease,
             merge_manifest_lease=manifest,
+            excluded_root_ids=base_selector,
             right_excluded_root_ids=nested_selector,
             fourth_excluded_root_ids=neutral_selector,
             anonymous_scope_map=left_map,
@@ -14693,8 +14927,13 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
     )
     assert len(edges) == 2
     assert statistics.roots == statistics.object_property_assertions == statistics.edges == 2
-    assert valid.retained_buffer_count == 48
+    assert valid.retained_buffer_count == 49
 
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="base does not retain the exact EXCLUDE table",
+    ):
+        compiler(base_selector=memoryview(bytes(base_excluded)))
     with pytest.raises(
         SnapshotCompatibilityError,
         match="nested member lost its exact EXCLUDE table",
@@ -14796,6 +15035,7 @@ def test_selected_scope_mapped_four_table_views_live_until_compiler_release() ->
     ]:
         _composite, top_lease = _forged_scope_mapped_four_table_nested_excludes(
             pyowl_core.BackendPreference.PYTHON,
+            exclude_base_named=True,
             exclude_nested_delta=True,
             exclude_neutral_direct=True,
         )
@@ -14806,6 +15046,7 @@ def test_selected_scope_mapped_four_table_views_live_until_compiler_release() ->
             nested_lease,
             mapped_direct_lease,
             neutral_direct_lease,
+            base_excluded,
             nested_excluded,
             neutral_excluded,
             nested_scope_map,
@@ -14813,6 +15054,7 @@ def test_selected_scope_mapped_four_table_views_live_until_compiler_release() ->
             max_work,
             max_workspace,
         ) = resolved
+        assert base_excluded is not None
         assert nested_excluded is not None
         assert neutral_excluded is not None
         assert max_work is not None
@@ -14824,6 +15066,7 @@ def test_selected_scope_mapped_four_table_views_live_until_compiler_release() ->
             fourth_member_lease=neutral_direct_lease,
             nested_member_lease=nested_lease,
             merge_manifest_lease=top_lease,
+            excluded_root_ids=base_excluded,
             right_excluded_root_ids=nested_excluded,
             fourth_excluded_root_ids=neutral_excluded,
             anonymous_scope_map=nested_scope_map,
@@ -16245,7 +16488,7 @@ def test_four_table_selected_member_views_live_until_compiler_release() -> None:
         ("nested-member", 3, 12),
         ("four-table-nested-member", 4, 16),
         ("scope-mapped-nested-member", 2, 132),
-        ("scope-mapped-four-table", 2, 136),
+        ("scope-mapped-four-table", 2, 140),
     ],
 )
 def test_selected_nested_composites_feed_sink_digest_and_artifact(
@@ -16257,6 +16500,7 @@ def test_selected_nested_composites_feed_sink_digest_and_artifact(
     if shape == "scope-mapped-four-table":
         composite, top_lease = _forged_scope_mapped_four_table_nested_excludes(
             pyowl_core.BackendPreference.NATIVE,
+            exclude_base_named=True,
             exclude_nested_delta=True,
             exclude_neutral_direct=True,
         )
@@ -17788,12 +18032,14 @@ def test_scope_mapped_nested_silent_families_preserve_limits_and_retry(
         base_lease,
         nested_lease,
         direct_lease,
+        base_excluded,
         nested_excluded,
         nested_scope_map,
         direct_scope_map,
         max_work,
         max_workspace,
     ) = resolved
+    assert base_excluded is None
     assert nested_excluded is None
     assert max_work is not None
     assert max_workspace is not None
@@ -17950,12 +18196,14 @@ def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
         base_lease,
         nested_lease,
         direct_lease,
+        base_excluded,
         nested_excluded,
         nested_scope_map,
         direct_scope_map,
         max_work,
         max_workspace,
     ) = resolved
+    assert base_excluded is None
     assert nested_excluded is None
     assert max_work is not None
     assert max_workspace is not None
@@ -18072,7 +18320,8 @@ def test_scope_mapped_nested_member_preserves_identity_limits_and_retry(
 
 def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
     _composite, top_lease = _forged_scope_mapped_nested_overlay_exclude(
-        pyowl_core.BackendPreference.PYTHON
+        pyowl_core.BackendPreference.PYTHON,
+        exclude_base_named=True,
     )
     resolved = _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
     assert resolved is not None
@@ -18080,12 +18329,14 @@ def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
         base_lease,
         nested_lease,
         direct_lease,
+        base_excluded,
         nested_excluded,
         nested_scope_map,
         direct_scope_map,
         max_work,
         max_workspace,
     ) = resolved
+    assert base_excluded is not None
     assert nested_excluded is not None
     assert max_work is not None
     assert max_workspace is not None
@@ -18093,6 +18344,7 @@ def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
     def compiler(
         *,
         manifest: EncodedStructuralLease = top_lease,
+        base_selector: memoryview = base_excluded,
         selector: memoryview = nested_excluded,
         left_map: memoryview = nested_scope_map,
     ) -> NativeEncodedDirectCompiler:
@@ -18102,6 +18354,7 @@ def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
             third_member_lease=direct_lease,
             nested_member_lease=nested_lease,
             merge_manifest_lease=manifest,
+            excluded_root_ids=base_selector,
             right_excluded_root_ids=selector,
             anonymous_scope_map=left_map,
             right_anonymous_scope_map=direct_scope_map,
@@ -18117,8 +18370,13 @@ def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
     )
     assert len(edges) == 2
     assert statistics.roots == statistics.object_property_assertions == statistics.edges == 2
-    assert valid.retained_buffer_count == 36
+    assert valid.retained_buffer_count == 37
 
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="base does not retain the exact EXCLUDE table",
+    ):
+        compiler(base_selector=memoryview(bytes(base_excluded)))
     with pytest.raises(
         SnapshotCompatibilityError,
         match="nested member lost its exact EXCLUDE table",
@@ -18217,7 +18475,8 @@ def test_selected_scope_mapped_nested_views_live_until_compiler_release() -> Non
         tuple[weakref.ReferenceType[Any], ...],
     ]:
         _composite, top_lease = _forged_scope_mapped_nested_overlay_exclude(
-            pyowl_core.BackendPreference.PYTHON
+            pyowl_core.BackendPreference.PYTHON,
+            exclude_base_named=True,
         )
         resolved = _resolve_private_scope_mapped_nested_overlay_composite(top_lease)
         assert resolved is not None
@@ -18225,12 +18484,14 @@ def test_selected_scope_mapped_nested_views_live_until_compiler_release() -> Non
             base_lease,
             nested_lease,
             direct_lease,
+            base_excluded,
             nested_excluded,
             nested_scope_map,
             direct_scope_map,
             max_work,
             max_workspace,
         ) = resolved
+        assert base_excluded is not None
         assert nested_excluded is not None
         assert max_work is not None
         assert max_workspace is not None
@@ -18240,6 +18501,7 @@ def test_selected_scope_mapped_nested_views_live_until_compiler_release() -> Non
             third_member_lease=direct_lease,
             nested_member_lease=nested_lease,
             merge_manifest_lease=top_lease,
+            excluded_root_ids=base_excluded,
             right_excluded_root_ids=nested_excluded,
             anonymous_scope_map=nested_scope_map,
             right_anonymous_scope_map=direct_scope_map,
