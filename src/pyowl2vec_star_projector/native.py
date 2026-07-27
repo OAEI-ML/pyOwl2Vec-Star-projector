@@ -16,6 +16,7 @@ from .diagnostics import ProjectionDiagnostic
 from .encoded import (
     EncodedStructuralLease,
     _acquire_root_encoded_lease,
+    _resolve_private_four_member_composite,
     _resolve_private_four_table_nested_composite,
     _resolve_private_nested_overlay_composite,
     _resolve_private_overlay_aliases,
@@ -37,7 +38,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 109
+ENCODED_DIRECT_KERNEL_VERSION = 110
 _PROJECTOR_EDGE_TYPE = Edge
 _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE: Callable[[Edge], object] | None = None
 ENCODED_DIRECT_BUFFER_ORDER = (
@@ -1164,6 +1165,11 @@ def prepare_native_encoded_compilation(
                 container_leases = (merge_manifest_lease, local_delta_lease)
             else:
                 resolved_three_member = _resolve_private_three_member_composite(lease)
+                resolved_four_member = (
+                    None
+                    if resolved_three_member is not None
+                    else _resolve_private_four_member_composite(lease)
+                )
                 if resolved_three_member is not None:
                     if options.include_literals:
                         return (
@@ -1192,6 +1198,38 @@ def prepare_native_encoded_compilation(
                         merge_manifest_lease,
                         local_delta_lease,
                         third_member_lease,
+                    )
+                elif resolved_four_member is not None:
+                    if options.include_literals:
+                        return (
+                            None,
+                            "private native four-member composite slice does not support "
+                            "literal projection",
+                        )
+                    if role_state is not None:
+                        return (
+                            None,
+                            "private native four-member composite slice does not bind "
+                            "Scala-instance state",
+                        )
+                    merge_manifest_lease = lease
+                    (
+                        lease,
+                        local_delta_lease,
+                        third_member_lease,
+                        fourth_member_lease,
+                        excluded_root_ids,
+                        right_excluded_root_ids,
+                        third_excluded_root_ids,
+                        fourth_excluded_root_ids,
+                        canonical_work_limit,
+                        canonical_workspace_limit,
+                    ) = resolved_four_member
+                    container_leases = (
+                        merge_manifest_lease,
+                        local_delta_lease,
+                        third_member_lease,
+                        fourth_member_lease,
                     )
                 else:
                     resolved_scope_mapped_nested = (
@@ -1594,10 +1632,11 @@ def prepare_native_encoded_direct(
     annotation-provenance join.  One optional sorted INCLUDE or EXCLUDE posting table is
     retained and scanned in place by the native root cursor. One bounded top-local overlay
     table may be retained for the canonical merge, including with an EXCLUDE base posting.  One
-    exact two- or three-member composite manifest may instead bind the corresponding canonical
-    merger and retain an EXCLUDE selection for each member. One exact composite may expand a
-    one-layer overlay member with one or two direct siblings into the same three- or four-table
-    pass. The independent provenance table remains mutually exclusive with every merge form.
+    exact two-, three-, or four-member composite manifest may instead bind the corresponding
+    canonical merger and retain an EXCLUDE selection for each member. One exact composite may
+    expand a one-layer overlay member with one or two direct siblings into the same three- or
+    four-table pass. The independent provenance table remains mutually exclusive with every merge
+    form.
     """
 
     descriptor_sha256 = _validated_direct_descriptor_digest(lease)
@@ -1649,9 +1688,16 @@ def prepare_native_encoded_direct(
     if third_member_lease is not None and merge_manifest_lease is None:
         raise ValueError("third composite member requires a composite manifest lease")
     if fourth_member_lease is not None and (
-        nested_member_lease is None or third_member_lease is None or merge_manifest_lease is None
+        third_member_lease is None or merge_manifest_lease is None
     ):
-        raise ValueError("fourth composite member requires an exact nested composite")
+        raise ValueError("fourth composite member requires an exact composite manifest")
+    if (
+        fourth_member_lease is not None
+        and nested_member_lease is None
+        and local_delta_lease is not None
+        and len(local_delta_lease.segments) != 1
+    ):
+        raise ValueError("segmented fourth composite member requires an exact nested composite")
     if nested_member_lease is not None and nested_member_lease is not local_delta_lease:
         raise ValueError("nested composite member must be the retained local delta lease")
     if nested_member_lease is not None and (

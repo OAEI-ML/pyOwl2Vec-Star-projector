@@ -43,7 +43,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 109;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 110;
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
 const ENCODED_SCHEMA_VERSION: usize = 1;
@@ -1119,16 +1119,30 @@ impl EncodedDirectCompiler {
                             buffers
                         } else if let Some((third_view, third_owner, _)) = third_member {
                             let buffers = retained_direct_buffers(view, owner, digest)?;
-                            validate_three_member_composite_manifest(
-                                manifest,
-                                manifest_owner,
-                                manifest_digest,
-                                [
-                                    (encoded_view, expected_owner, excluded_root_ids_view),
-                                    (view, owner, right_excluded_root_ids_view),
-                                    (third_view, third_owner, third_excluded_root_ids_view),
-                                ],
-                            )?;
+                            if let Some((fourth_view, fourth_owner, _)) = fourth_member {
+                                validate_direct_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    [
+                                        (encoded_view, expected_owner, excluded_root_ids_view),
+                                        (view, owner, right_excluded_root_ids_view),
+                                        (third_view, third_owner, third_excluded_root_ids_view),
+                                        (fourth_view, fourth_owner, fourth_excluded_root_ids_view),
+                                    ],
+                                )?;
+                            } else {
+                                validate_direct_member_composite_manifest(
+                                    manifest,
+                                    manifest_owner,
+                                    manifest_digest,
+                                    [
+                                        (encoded_view, expected_owner, excluded_root_ids_view),
+                                        (view, owner, right_excluded_root_ids_view),
+                                        (third_view, third_owner, third_excluded_root_ids_view),
+                                    ],
+                                )?;
+                            }
                             buffers
                         } else {
                             let buffers = retained_direct_buffers(view, owner, digest)?;
@@ -1181,11 +1195,9 @@ impl EncodedDirectCompiler {
                 "encoded nested composite member requires three retained merge tables",
             ));
         }
-        if fourth_member.is_some()
-            && (nested_member.is_none() || third_member.is_none() || merge_manifest.is_none())
-        {
+        if fourth_member.is_some() && (third_member.is_none() || merge_manifest.is_none()) {
             return Err(EncodedDirectUnsupportedError::new_err(
-                "encoded fourth composite member requires an exact nested-member composite",
+                "encoded fourth composite member requires an exact composite manifest",
             ));
         }
         if third_member.is_none() && third_excluded_root_ids.is_some() {
@@ -2927,19 +2939,24 @@ type CompositeMemberBinding<'a, 'py> = (
     Option<&'a Bound<'py, PyAny>>,
 );
 
-fn validate_three_member_composite_manifest(
+fn validate_direct_member_composite_manifest<const N: usize>(
     encoded_view: &Bound<'_, PyAny>,
     expected_owner: &Bound<'_, PyAny>,
     descriptor_sha256: &Bound<'_, PyAny>,
-    members: [CompositeMemberBinding<'_, '_>; 3],
+    members: [CompositeMemberBinding<'_, '_>; N],
 ) -> PyResult<()> {
+    if !(3..=4).contains(&N) {
+        return Err(EncodedDirectUnsupportedError::new_err(
+            "bounded direct-member composite requires three or four members",
+        ));
+    }
     validate_encoded_view_header(encoded_view, expected_owner, descriptor_sha256)?;
-    for left in 0..3 {
-        for right in left + 1..3 {
+    for left in 0..N {
+        for right in left + 1..N {
             if members[left].0.is(members[right].0) || members[left].1.is(members[right].1) {
-                return Err(EncodedDirectUnsupportedError::new_err(
-                    "bounded three-member composite requires distinct direct members",
-                ));
+                return Err(EncodedDirectUnsupportedError::new_err(format!(
+                    "bounded {N}-member composite requires distinct direct members",
+                )));
             }
         }
     }
@@ -2949,14 +2966,14 @@ fn validate_three_member_composite_manifest(
         let bytes = buffer.as_slice();
         if name == "node_field_offsets" {
             if bytes != [0_u8; 8] {
-                return Err(EncodedDirectUnsupportedError::new_err(
-                    "bounded three-member composite requires empty local columns",
-                ));
+                return Err(EncodedDirectUnsupportedError::new_err(format!(
+                    "bounded {N}-member composite requires empty local columns",
+                )));
             }
         } else if !bytes.is_empty() {
-            return Err(EncodedDirectUnsupportedError::new_err(
-                "bounded three-member composite does not support bridge roots",
-            ));
+            return Err(EncodedDirectUnsupportedError::new_err(format!(
+                "bounded {N}-member composite does not support bridge roots",
+            )));
         }
     }
 
@@ -2969,24 +2986,24 @@ fn validate_three_member_composite_manifest(
     let segments = raw_segments
         .cast::<PyTuple>()
         .map_err(|_| encoded_buffer_error("encoded composite manifest is inaccessible"))?;
-    if segments.len() != 3 {
-        return Err(EncodedDirectUnsupportedError::new_err(
-            "bounded three-member composite requires exactly three member segments",
-        ));
+    if segments.len() != N {
+        return Err(EncodedDirectUnsupportedError::new_err(format!(
+            "bounded {N}-member composite requires exactly {N} member segments",
+        )));
     }
 
-    let mut matched = [false; 3];
+    let mut matched = [false; N];
     let mut previous_token: Option<[u8; 32]> = None;
-    for index in 0..3 {
+    for index in 0..N {
         let segment = segments
             .get_item(index)
             .map_err(|_| encoded_buffer_error("encoded composite member is inaccessible"))?;
         if exact_nonnegative_integer(&required_attribute(&segment, "role")?, "segment role")?
             != COMPOSITE_MEMBER_SEGMENT
         {
-            return Err(EncodedDirectUnsupportedError::new_err(
-                "bounded three-member composite requires member-only segments",
-            ));
+            return Err(EncodedDirectUnsupportedError::new_err(format!(
+                "bounded {N}-member composite requires member-only segments",
+            )));
         }
         let source = required_attribute(&segment, "source")?;
         let member_index = members
@@ -3017,16 +3034,16 @@ fn validate_three_member_composite_manifest(
         match expected_exclude {
             None => {
                 if posting_mode != POSTINGS_ALL || root_id_bytes != 0 {
-                    return Err(EncodedDirectUnsupportedError::new_err(
-                        "bounded three-member composite requires ALL selection on every unposted member",
-                    ));
+                    return Err(EncodedDirectUnsupportedError::new_err(format!(
+                        "bounded {N}-member composite requires ALL selection on every unposted member",
+                    )));
                 }
             }
             Some(expected) => {
                 if posting_mode != POSTINGS_EXCLUDE || root_id_bytes == 0 {
-                    return Err(EncodedDirectUnsupportedError::new_err(
-                        "bounded three-member composite requires nonempty EXCLUDE tables",
-                    ));
+                    return Err(EncodedDirectUnsupportedError::new_err(format!(
+                        "bounded {N}-member composite requires nonempty EXCLUDE tables",
+                    )));
                 }
                 if !root_ids.is(expected) {
                     return Err(encoded_buffer_error(
@@ -3037,9 +3054,9 @@ fn validate_three_member_composite_manifest(
         }
         let scope_map = required_attribute(&segment, "anonymous_scope_map")?;
         if checked_memoryview_length(&scope_map, "anonymous_scope_map")? != 0 {
-            return Err(EncodedDirectUnsupportedError::new_err(
-                "bounded three-member composite does not support anonymous scope remapping",
-            ));
+            return Err(EncodedDirectUnsupportedError::new_err(format!(
+                "bounded {N}-member composite does not support anonymous scope remapping",
+            )));
         }
 
         let token = required_attribute(&segment, "member_token")?;
@@ -3062,10 +3079,10 @@ fn validate_three_member_composite_manifest(
         }
         previous_token = Some(token);
     }
-    if matched != [true; 3] {
-        return Err(encoded_buffer_error(
-            "encoded composite did not retain all three merge tables",
-        ));
+    if matched != [true; N] {
+        return Err(encoded_buffer_error(format!(
+            "encoded composite did not retain all {N} merge tables",
+        )));
     }
     Ok(())
 }

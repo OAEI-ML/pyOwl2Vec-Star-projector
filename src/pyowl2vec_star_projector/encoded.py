@@ -478,24 +478,21 @@ def _resolve_private_single_overlay_delta(
     )
 
 
+_CompositeRow = tuple[
+    EncodedStructuralLease,
+    memoryview | None,
+    memoryview | None,
+    memoryview | None,
+]
+
+
 def _resolve_private_direct_composite_rows(
     lease: EncodedStructuralLease,
     *,
     member_count: int,
     require_direct_sources: bool = True,
     allow_scope_maps: bool = False,
-) -> (
-    tuple[
-        tuple[
-            EncodedStructuralLease,
-            memoryview | None,
-            memoryview | None,
-            memoryview | None,
-        ],
-        ...,
-    ]
-    | None
-):
+) -> tuple[_CompositeRow, ...] | None:
     """Validate one exact member composite without flattening source tables."""
 
     if (
@@ -513,14 +510,7 @@ def _resolve_private_direct_composite_rows(
     if any(value.nbytes for name, value in lease.buffers.items() if name != "node_field_offsets"):
         return None
 
-    rows: list[
-        tuple[
-            EncodedStructuralLease,
-            memoryview | None,
-            memoryview | None,
-            memoryview | None,
-        ]
-    ] = []
+    rows: list[_CompositeRow] = []
     previous_token: bytes | None = None
     for raw_segment in lease.segments:
         segment = cast(Any, raw_segment)
@@ -1429,6 +1419,30 @@ def _resolve_private_scope_mapped_annotation_assertion_composite(
     )
 
 
+def _resolve_private_multi_member_composite(
+    lease: EncodedStructuralLease,
+    *,
+    member_count: int,
+) -> tuple[tuple[_CompositeRow, ...], int | None, int | None] | None:
+    """Resolve one bounded direct-member ALL/EXCLUDE composite."""
+
+    if type(member_count) is not int or member_count not in {3, 4}:
+        return None
+    rows = _resolve_private_direct_composite_rows(lease, member_count=member_count)
+    if rows is None or any(included is not None for _source, included, _excluded, _map in rows):
+        return None
+    validation_work = _private_encoded_lease_validation_work(lease) + sum(
+        _private_encoded_lease_validation_work(source)
+        for source, _included, _excluded, _map in rows
+    )
+    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
+    return (
+        rows,
+        _public_limit(lease.owner, "max_canonical_work"),
+        _public_limit(lease.owner, "max_index_bytes"),
+    )
+
+
 def _resolve_private_three_member_composite(
     lease: EncodedStructuralLease,
 ) -> (
@@ -1446,19 +1460,15 @@ def _resolve_private_three_member_composite(
 ):
     """Resolve three exact direct members with source-local ALL/EXCLUDE selection."""
 
-    rows = _resolve_private_direct_composite_rows(lease, member_count=3)
-    if rows is None or any(included is not None for _source, included, _excluded, _map in rows):
+    resolved = _resolve_private_multi_member_composite(lease, member_count=3)
+    if resolved is None:
+        return None
+    rows, max_work, max_workspace = resolved
+    if len(rows) != 3:
         return None
     first, _first_include, first_excluded, _first_map = rows[0]
     second, _second_include, second_excluded, _second_map = rows[1]
     third, _third_include, third_excluded, _third_map = rows[2]
-    validation_work = (
-        _private_encoded_lease_validation_work(lease)
-        + _private_encoded_lease_validation_work(first)
-        + _private_encoded_lease_validation_work(second)
-        + _private_encoded_lease_validation_work(third)
-    )
-    _enforce_public_limit(lease.owner, "max_canonical_work", validation_work)
     return (
         first,
         second,
@@ -1466,8 +1476,51 @@ def _resolve_private_three_member_composite(
         first_excluded,
         second_excluded,
         third_excluded,
-        _public_limit(lease.owner, "max_canonical_work"),
-        _public_limit(lease.owner, "max_index_bytes"),
+        max_work,
+        max_workspace,
+    )
+
+
+def _resolve_private_four_member_composite(
+    lease: EncodedStructuralLease,
+) -> (
+    tuple[
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        EncodedStructuralLease,
+        memoryview | None,
+        memoryview | None,
+        memoryview | None,
+        memoryview | None,
+        int | None,
+        int | None,
+    ]
+    | None
+):
+    """Resolve four exact direct members with source-local ALL/EXCLUDE selection."""
+
+    resolved = _resolve_private_multi_member_composite(lease, member_count=4)
+    if resolved is None:
+        return None
+    rows, max_work, max_workspace = resolved
+    if len(rows) != 4:
+        return None
+    first, _first_include, first_excluded, _first_map = rows[0]
+    second, _second_include, second_excluded, _second_map = rows[1]
+    third, _third_include, third_excluded, _third_map = rows[2]
+    fourth, _fourth_include, fourth_excluded, _fourth_map = rows[3]
+    return (
+        first,
+        second,
+        third,
+        fourth,
+        first_excluded,
+        second_excluded,
+        third_excluded,
+        fourth_excluded,
+        max_work,
+        max_workspace,
     )
 
 
