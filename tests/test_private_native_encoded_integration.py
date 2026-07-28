@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import gc
 import io
+import mmap
 import os
 import subprocess
 import sys
+import tempfile
 import weakref
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -445,7 +447,7 @@ def _assert_semantic_report_parity(
         ),
     ],
 )
-def test_hidden_iterator_matches_scalar_and_reports_exact_native_batches(
+def test_public_iterator_matches_scalar_and_reports_exact_native_batches(
     python_options: ProjectionOptions,
     raw_edges: int,
 ) -> None:
@@ -462,7 +464,7 @@ def test_hidden_iterator_matches_scalar_and_reports_exact_native_batches(
     native_projector = Projector()
     native_options = replace(python_options, backend="native")
     actual = list(
-        native_projector._iter_native_encoded_edges(
+        native_projector.iter_edges(
             view,
             options=native_options,
             buffer_edges=2,
@@ -509,7 +511,7 @@ def test_hidden_iterator_matches_scalar_and_reports_exact_native_batches(
         assert counters[name] == 0
 
 
-def test_hidden_cursor_feeds_sink_digest_and_artifact_surfaces(tmp_path: Any) -> None:
+def test_public_cursor_feeds_sink_digest_and_artifact_surfaces(tmp_path: Any) -> None:
     view = _snapshot(
         "SubClassOf(:A :B) "
         'SubClassOf(Annotation(<urn:meta> "duplicate") :A :B) '
@@ -549,7 +551,7 @@ def test_hidden_cursor_feeds_sink_digest_and_artifact_surfaces(tmp_path: Any) ->
     )
     native_sink = Sink()
     native_sink_projector = Projector()
-    native_sink_report = native_sink_projector._project_native_encoded_to_sink(
+    native_sink_report = native_sink_projector.project_to_sink(
         view,
         native_sink,
         options=native_options,
@@ -575,7 +577,7 @@ def test_hidden_cursor_feeds_sink_digest_and_artifact_surfaces(tmp_path: Any) ->
         buffer_edges=2,
         temp_directory=tmp_path,
     )
-    native_digest = Projector()._canonical_native_encoded_digest(
+    native_digest = Projector().canonical_digest(
         view,
         options=native_options,
         buffer_edges=2,
@@ -602,7 +604,7 @@ def test_hidden_cursor_feeds_sink_digest_and_artifact_surfaces(tmp_path: Any) ->
         temp_directory=tmp_path,
     )
     native_destination = io.BytesIO()
-    native_artifact = Projector()._write_native_encoded_artifact(
+    native_artifact = Projector().write_artifact(
         view,
         native_destination,
         options=native_options,
@@ -630,7 +632,7 @@ def test_hidden_cursor_feeds_sink_digest_and_artifact_surfaces(tmp_path: Any) ->
     assert list(tmp_path.iterdir()) == []
 
 
-def test_hidden_projector_sink_failure_closes_unpublished_cursor(
+def test_public_projector_sink_failure_closes_unpublished_cursor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[NativeEncodedDirectCompilation] = []
@@ -651,7 +653,7 @@ def test_hidden_projector_sink_failure_closes_unpublished_cursor(
     monkeypatch.setattr(api_module, "prepare_native_encoded_compilation", capture_compilation)
     projector = Projector()
     with pytest.raises(RuntimeError, match="injected Projector sink failure"):
-        projector._project_native_encoded_to_sink(
+        projector.project_to_sink(
             _snapshot("SubClassOf(:A :B) SubClassOf(:C :A)"),
             fail,
             options=ProjectionOptions(backend="native", order="encounter"),
@@ -1302,7 +1304,7 @@ def test_hidden_iterator_admits_same_call_named_role_expansion(
     assert counters["per_row_ffi_calls"] == 0
 
 
-def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> None:
+def test_public_iterator_retains_scala_instance_role_lifecycle_natively() -> None:
     role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
     consumer_view = _snapshot(
         "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
@@ -1327,7 +1329,7 @@ def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> Non
 
     native_projector = Projector()
     actual_role_edges = list(
-        native_projector._iter_native_encoded_edges(
+        native_projector.iter_edges(
             role_view,
             options=replace(python_options, backend="native"),
             buffer_edges=2,
@@ -1335,7 +1337,7 @@ def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> Non
     )
     actual_role_report = _completed_report(native_projector)
     actual_consumer_edges = list(
-        native_projector._iter_native_encoded_edges(
+        native_projector.iter_edges(
             consumer_view,
             options=replace(python_options, backend="native"),
             buffer_edges=2,
@@ -1343,7 +1345,7 @@ def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> Non
     )
     actual_consumer_report = _completed_report(native_projector)
     actual_conflict_edges = list(
-        native_projector._iter_native_encoded_edges(
+        native_projector.iter_edges(
             conflict_view,
             options=replace(python_options, backend="native"),
             buffer_edges=2,
@@ -1372,7 +1374,7 @@ def test_hidden_iterator_retains_scala_instance_role_lifecycle_natively() -> Non
     )
 
 
-def test_recursive_composites_retain_scala_instance_role_lifecycle_natively() -> None:
+def test_public_recursive_composites_retain_scala_instance_role_lifecycle_natively() -> None:
     def recursive(left_body: str, right_body: str) -> pyowl_core.OntologyView:
         members = (
             cast(pyowl_core.OntologyView, _snapshot(left_body)),
@@ -1447,7 +1449,7 @@ def test_recursive_composites_retain_scala_instance_role_lifecycle_natively() ->
         for view in (role_view, consumer_view, conflict_view):
             actual.append(
                 list(
-                    native_projector._iter_native_encoded_edges(
+                    native_projector.iter_edges(
                         view,
                         options=replace(python_options, backend="native"),
                         buffer_edges=1,
@@ -1479,7 +1481,7 @@ def test_recursive_composites_retain_scala_instance_role_lifecycle_natively() ->
     )
 
 
-def test_recursive_scala_state_does_not_commit_failed_output_and_retries() -> None:
+def test_public_recursive_scala_state_does_not_commit_failed_output_and_retries() -> None:
     members = (
         cast(
             pyowl_core.OntologyView,
@@ -1527,7 +1529,7 @@ def test_recursive_scala_state_does_not_commit_failed_output_and_retries() -> No
         pytest.raises(ProjectionResourceError),
     ):
         list(
-            projector._iter_native_encoded_edges(
+            projector.iter_edges(
                 recursive,
                 options=replace(python_options, backend="native"),
                 buffer_edges=1,
@@ -1546,7 +1548,7 @@ def test_recursive_scala_state_does_not_commit_failed_output_and_retries() -> No
         ),
     ):
         actual = list(
-            projector._iter_native_encoded_edges(
+            projector.iter_edges(
                 recursive,
                 options=replace(python_options, backend="native"),
                 buffer_edges=1,
@@ -1562,7 +1564,7 @@ def test_recursive_scala_state_does_not_commit_failed_output_and_retries() -> No
     assert projector._scala_state == expected_projector._scala_state
 
 
-def test_hidden_iterator_transitions_retained_scala_state_to_scalar_once(
+def test_public_iterator_transitions_retained_scala_state_to_scalar_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
@@ -1582,7 +1584,7 @@ def test_hidden_iterator_transitions_retained_scala_state_to_scalar_once(
 
     native_projector = Projector()
     first = list(
-        native_projector._iter_native_encoded_edges(
+        native_projector.iter_edges(
             role_view,
             options=replace(python_options, backend="native"),
             buffer_edges=1,
@@ -1596,7 +1598,7 @@ def test_hidden_iterator_transitions_retained_scala_state_to_scalar_once(
         lambda *args, **kwargs: (None, "injected stateful native decline"),
     )
     second = list(
-        native_projector._iter_native_encoded_edges(
+        native_projector.iter_edges(
             restriction_view,
             options=replace(python_options, backend="native"),
             buffer_edges=1,
@@ -1619,7 +1621,7 @@ def test_hidden_iterator_transitions_retained_scala_state_to_scalar_once(
         unexpected_native_prepare,
     )
     third = list(
-        native_projector._iter_native_encoded_edges(
+        native_projector.iter_edges(
             domain_range_view,
             options=replace(python_options, backend="native"),
             buffer_edges=1,
@@ -14257,7 +14259,7 @@ def test_dynamic_composite_activates_all_root_rules_in_every_mode(
     "mode",
     ["normal", "only-taxonomy", "asserted-taxonomy"],
 )
-def test_recursive_composite_activates_all_root_rules_in_every_mode(
+def test_public_recursive_composite_activates_all_root_rules_in_every_mode(
     mode: str,
 ) -> None:
     recursive = _recursive_all_dynamic_root_composite()
@@ -14334,7 +14336,7 @@ def test_recursive_composite_activates_all_root_rules_in_every_mode(
         ):
             projector = Projector()
             actual = list(
-                projector._iter_native_encoded_edges(
+                projector.iter_edges(
                     recursive,
                     options=replace(options, backend="native"),
                     buffer_edges=1,
@@ -14371,7 +14373,7 @@ def test_recursive_composite_activates_all_root_rules_in_every_mode(
 
 
 @pytest.mark.parametrize("only_taxonomy", [False, True], ids=["normal", "only-taxonomy"])
-def test_recursive_composite_pairs_root_annotations_without_flattening(
+def test_public_recursive_composite_pairs_root_annotations_without_flattening(
     only_taxonomy: bool,
 ) -> None:
     recursive = _recursive_all_dynamic_root_composite()
@@ -14413,7 +14415,7 @@ def test_recursive_composite_pairs_root_annotations_without_flattening(
     ):
         projector = Projector()
         actual = list(
-            projector._iter_native_encoded_edges(
+            projector.iter_edges(
                 recursive,
                 options=replace(python_options, backend="native"),
                 buffer_edges=1,
@@ -14441,6 +14443,359 @@ def test_recursive_composite_pairs_root_annotations_without_flattening(
     assert [
         edge.destination for edge in actual if edge.relation == "rdfs:label"
     ] == ["label"]
+
+
+def test_public_recursive_composite_retains_empty_leaf_for_single_emitter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitting = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :B)"),
+    )
+    empty = cast(pyowl_core.OntologyView, _snapshot(""))
+    recursive = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(
+            cast(
+                pyowl_core.OntologyView,
+                pyowl_core.compose_views(emitting, empty),
+            ),
+            pyowl_core.OntologyDelta(),
+        ),
+    )
+    selected = select_private_direct_ingestion(
+        recursive,
+        selected_backend="native",
+    )
+    assert selected.lease is not None
+    assert encoded_module._resolve_private_recursive_leaf_plan(selected.lease) is None
+    retained = encoded_module._resolve_private_recursive_leaf_plan(
+        selected.lease,
+        retain_empty_leaves=True,
+    )
+    assert retained is not None
+    assert len(retained[0]) == 2
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(recursive, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    captured: list[NativeEncodedDirectCompilation] = []
+    real_prepare = api_module.prepare_native_encoded_compilation
+
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            captured.append(result[0])
+        return result
+
+    def fail_scalar_compilation(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError(
+            "single-emitter recursive composite reached scalar traversal"
+        )
+
+    monkeypatch.setattr(
+        api_module,
+        "prepare_native_encoded_compilation",
+        capture_compilation,
+    )
+    monkeypatch.setattr(
+        api_module,
+        "prepare_streaming_compilation",
+        fail_scalar_compilation,
+    )
+
+    projector = Projector()
+    actual = list(
+        projector.iter_edges(
+            recursive,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert len(captured) == 1
+    compilation = captured[0]
+    assert len(compilation.composite_member_leases) == 2
+    assert sum(
+        bool(member.buffers["root_kinds"].nbytes)
+        for member in compilation.composite_member_leases
+    ) == 1
+    assert compilation.native_statistics.roots == 1
+    assert compilation.native_statistics.edges == 1
+
+
+def test_public_recursive_include_retains_empty_sibling_after_pruning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    left = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :Top)"),
+    )
+    right = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)"),
+    )
+    local = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Local :Top)"),
+    )
+    selected_member = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(
+            left,
+            right,
+            delta=pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(local.iter_axioms())),
+            ),
+        ),
+    )
+    empty = cast(pyowl_core.OntologyView, _snapshot(""))
+    manifest_view = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(selected_member, empty),
+    )
+    selected = select_private_direct_ingestion(
+        manifest_view,
+        selected_backend="native",
+    )
+    assert selected.lease is not None
+    segments = list(selected.lease.segments)
+    selected_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).owner is selected_member
+    )
+    segments[selected_index] = replace(
+        cast(Any, segments[selected_index]),
+        posting_mode=1,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    encoded_view = replace(
+        cast(Any, selected.lease.encoded_view),
+        segments=tuple(segments),
+    )
+    forged = encoded_module._validate_encoded_view(
+        manifest_view,
+        encoded_view,
+        type(encoded_view),
+        selected.lease.scope,
+    )
+    assert encoded_module._resolve_private_recursive_leaf_plan(forged) is None
+    retained = encoded_module._resolve_private_recursive_leaf_plan(
+        forged,
+        retain_empty_leaves=True,
+    )
+    assert retained is not None
+    assert len(retained[0]) == 2
+    assert sum(bool(row[0].buffers["root_kinds"].nbytes) for row in retained[0]) == 1
+
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(local, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    def fail_scalar_compilation(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError(
+            "selector-pruned recursive plan reached scalar traversal"
+        )
+
+    monkeypatch.setattr(
+        api_module,
+        "select_ingestion",
+        lambda *_args, **_kwargs: EncodedNegotiation(
+            "encoded-native",
+            lease=forged,
+        ),
+    )
+    monkeypatch.setattr(
+        api_module,
+        "prepare_streaming_compilation",
+        fail_scalar_compilation,
+    )
+
+    projector = Projector()
+    actual = list(
+        projector.iter_edges(
+            local,
+            options=replace(python_options, backend="native"),
+            buffer_edges=1,
+        )
+    )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    assert report.provenance.ingestion.path == "encoded-native"
+    assert report.provenance.ingestion.counters["native_compiled_edges"] == 1
+    assert report.provenance.ingestion.counters["encoded_staging_copy_bytes"] == 0
+
+
+def test_public_recursive_stacked_selector_manifest_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    left = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :Top)"),
+    )
+    right = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)"),
+    )
+    local = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Local :Top)"),
+    )
+    nested = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(
+            left,
+            right,
+            delta=pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(local.iter_axioms())),
+            ),
+        ),
+    )
+    sibling = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:Sibling :Top)"),
+    )
+    top = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(nested, sibling),
+    )
+    selected = select_private_direct_ingestion(
+        top,
+        selected_backend="native",
+    )
+    assert selected.lease is not None
+    segments = list(selected.lease.segments)
+    nested_index = next(
+        index
+        for index, segment in enumerate(segments)
+        if cast(Any, segment).owner is nested
+    )
+    nested_encoded = cast(Any, segments[nested_index]).source
+    nested_segments = list(nested_encoded.segments)
+    nested_segments[-1] = replace(
+        cast(Any, nested_segments[-1]),
+        posting_mode=2,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    nested_encoded = replace(
+        nested_encoded,
+        segments=tuple(nested_segments),
+    )
+    segments[nested_index] = replace(
+        cast(Any, segments[nested_index]),
+        source=nested_encoded,
+        posting_mode=1,
+        root_ids=memoryview((1).to_bytes(4, "little")),
+    )
+    encoded_view = replace(
+        cast(Any, selected.lease.encoded_view),
+        segments=tuple(segments),
+    )
+    hostile = replace(
+        selected.lease,
+        encoded_view=encoded_view,
+        segments=tuple(segments),
+    )
+    monkeypatch.setattr(
+        api_module,
+        "select_ingestion",
+        lambda *_args, **_kwargs: EncodedNegotiation(
+            "encoded-native",
+            lease=hostile,
+        ),
+    )
+
+    projector = Projector()
+    with pytest.raises(
+        SnapshotCompatibilityError,
+        match="core encoded composite bridge is invalid",
+    ):
+        list(
+            projector.iter_edges(
+                top,
+                options=ProjectionOptions(backend="native", order="encounter"),
+                buffer_edges=1,
+            )
+        )
+    assert projector.last_report is None
+
+
+def test_public_iterator_compiles_nested_empty_alias_and_delta_graph() -> None:
+    base = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:A :Top)"),
+    )
+    addition = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:B :Top)"),
+    )
+    overlay = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(
+            base,
+            pyowl_core.OntologyDelta(
+                add_axioms=cast(Any, set(addition.iter_axioms())),
+            ),
+        ),
+    )
+    nested_alias = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(overlay, pyowl_core.OntologyDelta()),
+    )
+    sibling = cast(
+        pyowl_core.OntologyView,
+        _snapshot("SubClassOf(:C :Top)"),
+    )
+    composite = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.compose_views(nested_alias, sibling),
+    )
+    top_alias = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(composite, pyowl_core.OntologyDelta()),
+    )
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(top_alias, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError(
+            "nested empty-alias/delta graph reached scalar traversal"
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector.iter_edges(
+                top_alias,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.counters["native_compiled_edges"] == len(actual) == 3
+    assert ingestion.counters["encoded_referenced_view_count"] == 4
+    assert ingestion.counters["encoded_segment_count"] == 7
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
 
 
 def test_recursive_root_pair_binds_omitted_overlay_delta_to_empty_table() -> None:
@@ -23995,7 +24350,7 @@ def test_hidden_iterator_compiles_zero_output_excluding_overlay() -> None:
     )
 
 
-def test_hidden_iterator_defers_empty_overlay_root_annotation_provenance() -> None:
+def test_public_iterator_compiles_empty_overlay_root_annotation_provenance() -> None:
     base = cast(
         pyowl_core.OntologyView,
         _snapshot(
@@ -24011,24 +24366,74 @@ def test_hidden_iterator_defers_empty_overlay_root_annotation_provenance() -> No
     )
     expected = Projector().project(overlay, options=python_options)
 
-    projector = Projector()
-    actual = list(
-        projector._iter_native_encoded_edges(
-            overlay,
-            options=replace(python_options, backend="native"),
-            buffer_edges=1,
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError(
+            "empty-overlay annotation provenance reached scalar traversal"
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector.iter_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
         )
-    )
     report = _completed_report(projector)
 
     assert actual == expected
     ingestion = report.provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert ingestion.reason is not None
-    assert ingestion.reason.startswith(
-        "private native empty-overlay alias does not support root-scoped annotation provenance"
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["native_compiled_edges"] == len(actual) == 1
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
+
+
+def test_public_iterator_compiles_imported_empty_overlay_root_provenance() -> None:
+    base = cast(pyowl_core.OntologyView, _imported_snapshot())
+    overlay = cast(
+        pyowl_core.OntologyView,
+        pyowl_core.apply_delta(base, pyowl_core.OntologyDelta()),
     )
-    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+    python_options = ProjectionOptions(
+        backend="python",
+        order="encounter",
+        include_literals=True,
+    )
+    expected_projector = Projector()
+    expected = expected_projector.project(overlay, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    with patch.object(
+        api_module,
+        "prepare_streaming_compilation",
+        side_effect=AssertionError(
+            "imported empty-overlay ROOT provenance reached scalar traversal"
+        ),
+    ):
+        projector = Projector()
+        actual = list(
+            projector.iter_edges(
+                overlay,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+    report = _completed_report(projector)
+
+    assert actual == expected
+    assert Edge("urn:root#A", "rdfs:label", "root") in actual
+    assert all(edge.destination != "leaf" for edge in actual)
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["native_compiled_edges"] == len(actual) == 2
+    assert ingestion.counters["encoded_staging_copy_bytes"] == 0
+    assert ingestion.counters["scalar_axiom_materializations"] == 0
 
 
 def test_hidden_iterator_rejects_invalid_referenced_overlay_source_before_output() -> None:
@@ -24089,21 +24494,29 @@ def test_hidden_iterator_rejects_invalid_referenced_overlay_source_before_output
     assert projector.last_report is None
 
 
-def test_public_iterator_keeps_private_capability_and_dispatch_off(
+def test_public_iterator_advertises_and_selects_encoded_compiler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     features = frozenset(load_native_module().FEATURES)
-    assert features == {"abi3-py310", "bounded-batches"}
-    assert ENCODED_NATIVE_FEATURE not in features
+    assert features == {
+        "abi3-py310",
+        "bounded-batches",
+        ENCODED_NATIVE_FEATURE,
+    }
 
-    def fail_if_private_dispatches(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("public iterator reached private native encoded dispatch")
+    compilations: list[NativeEncodedDirectCompilation] = []
+    real_prepare = api_module.prepare_native_encoded_compilation
 
-    monkeypatch.setattr(
-        api_module,
-        "prepare_native_encoded_compilation",
-        fail_if_private_dispatches,
-    )
+    def capture_compilation(
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
+        result = real_prepare(*args, **kwargs)
+        if result[0] is not None:
+            compilations.append(result[0])
+        return result
+
+    monkeypatch.setattr(api_module, "prepare_native_encoded_compilation", capture_compilation)
     projector = Projector()
     edges = list(
         projector.iter_edges(
@@ -24113,13 +24526,16 @@ def test_public_iterator_keeps_private_capability_and_dispatch_off(
     )
 
     assert len(edges) == 1
+    assert len(compilations) == 1
+    assert compilations[0].batches.state == "exhausted"
     ingestion = _completed_report(projector).provenance.ingestion
-    assert ingestion.path == "scalar-native"
-    assert ingestion.reason == "native extension does not advertise the P7 encoded compiler"
-    assert not any(name.startswith("native_") for name in ingestion.counters)
+    assert ingestion.path == "encoded-native"
+    assert ingestion.reason is None
+    assert ingestion.counters["native_compiled_edges"] == 1
+    assert ingestion.counters["native_boundary_calls"] == 2
 
 
-def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
+def test_public_iterator_falls_back_before_output_and_closes_declined_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     view = _snapshot("SubClassOf(:A :B)")
@@ -24157,7 +24573,7 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     )
     projector = Projector()
     actual = list(
-        projector._iter_native_encoded_edges(
+        projector.iter_edges(
             view,
             options=replace(python_options, backend="native"),
             buffer_edges=2,
@@ -24174,12 +24590,156 @@ def test_hidden_iterator_falls_back_before_output_and_closes_declined_session(
     assert ingestion.path == "scalar-native"
     assert ingestion.reason is not None
     assert ingestion.reason.startswith(
-        "private native batch integration requires exact root partitions, base-edge totals, "
+        "native encoded batch integration requires exact root partitions, base-edge totals, "
         "role expansion, diagnostics, and skipped or silent ledgers"
     )
     assert ingestion.reason.endswith("selected whole-operation scalar compiler")
     assert ingestion.encoded_view_publication_seconds is None
     assert not any(name.startswith("native_") for name in ingestion.counters)
+    assert all(
+        value is False if name == "encoded_compiler_gil_released" else value == 0
+        for name, value in ingestion.counters.items()
+    )
+
+
+def test_public_iterator_falls_back_transactionally_for_general_exporter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B)")
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+
+    selected = select_private_direct_ingestion(
+        view,
+        selected_backend="native",
+    )
+    assert selected.lease is not None
+    root_kinds = memoryview(
+        bytearray(selected.lease.buffers["root_kinds"])
+    ).toreadonly()
+    hostile_buffers = MappingProxyType(
+        {
+            **selected.lease.buffers,
+            "root_kinds": root_kinds,
+        }
+    )
+    hostile_encoded = replace(
+        cast(Any, selected.lease.encoded_view),
+        buffers=hostile_buffers,
+    )
+    hostile_lease = replace(
+        selected.lease,
+        encoded_view=hostile_encoded,
+        buffers=hostile_buffers,
+    )
+    monkeypatch.setattr(
+        api_module,
+        "select_ingestion",
+        lambda *_args, **_kwargs: EncodedNegotiation(
+            "encoded-native",
+            lease=hostile_lease,
+        ),
+    )
+
+    try:
+        projector = Projector()
+        actual = list(
+            projector.iter_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+        report = _completed_report(projector)
+    finally:
+        root_kinds.release()
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert "PyUntypedBuffer (abi3-py311 or newer)" in ingestion.reason
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+    assert ingestion.encoded_view_publication_seconds is None
+    assert all(
+        value is False if name == "encoded_compiler_gil_released" else value == 0
+        for name, value in ingestion.counters.items()
+    )
+
+
+def test_public_iterator_falls_back_transactionally_for_readonly_mmap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _snapshot("SubClassOf(:A :B)")
+    python_options = ProjectionOptions(backend="python", order="encounter")
+    expected_projector = Projector()
+    expected = expected_projector.project(view, options=python_options)
+    expected_report = _completed_report(expected_projector)
+    selected = select_private_direct_ingestion(
+        view,
+        selected_backend="native",
+    )
+    assert selected.lease is not None
+    root_kinds = bytes(selected.lease.buffers["root_kinds"])
+
+    with tempfile.TemporaryFile() as backing:
+        backing.write(root_kinds)
+        backing.flush()
+        mapped = mmap.mmap(
+            backing.fileno(),
+            len(root_kinds),
+            access=mmap.ACCESS_READ,
+        )
+        candidate = memoryview(mapped)
+        hostile_buffers = MappingProxyType(
+            {
+                **selected.lease.buffers,
+                "root_kinds": candidate,
+            }
+        )
+        hostile_encoded = replace(
+            cast(Any, selected.lease.encoded_view),
+            buffers=hostile_buffers,
+        )
+        hostile_lease = replace(
+            selected.lease,
+            encoded_view=hostile_encoded,
+            buffers=hostile_buffers,
+        )
+        monkeypatch.setattr(
+            api_module,
+            "select_ingestion",
+            lambda *_args, **_kwargs: EncodedNegotiation(
+                "encoded-native",
+                lease=hostile_lease,
+            ),
+        )
+
+        projector = Projector()
+        actual = list(
+            projector.iter_edges(
+                view,
+                options=replace(python_options, backend="native"),
+                buffer_edges=1,
+            )
+        )
+        report = _completed_report(projector)
+        candidate.release()
+        mapped.close()
+        assert mapped.closed
+
+    assert actual == expected
+    _assert_semantic_report_parity(expected_report, report)
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason is not None
+    assert "valid readonly C-contiguous non-bytes exporter" in ingestion.reason
+    assert "PyUntypedBuffer (abi3-py311 or newer)" in ingestion.reason
+    assert ingestion.reason.endswith("selected whole-operation scalar compiler")
+    assert ingestion.encoded_view_publication_seconds is None
     assert all(
         value is False if name == "encoded_compiler_gil_released" else value == 0
         for name, value in ingestion.counters.items()

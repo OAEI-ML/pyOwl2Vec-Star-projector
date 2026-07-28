@@ -6603,7 +6603,10 @@ def test_detached_work_releases_the_gil_and_accepts_concurrent_cancel() -> None:
         )
 
 
-def test_encoded_capability_remains_unadvertised() -> None:
+def test_encoded_capability_is_advertised() -> None:
     features = tuple(load_native_module().FEATURES)
-    assert features == ("abi3-py310", "bounded-batches")
-    assert ENCODED_NATIVE_FEATURE not in frozenset(features)
+    assert features == (
+        "abi3-py310",
+        "bounded-batches",
+        ENCODED_NATIVE_FEATURE,
+    )

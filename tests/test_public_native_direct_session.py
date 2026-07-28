@@ -60,23 +60,7 @@ def _snapshot(
 
 @contextmanager
 def _advertised_public_direct_session() -> Iterator[None]:
-    selection = BackendSelection("native", "native")
     with (
-        patch.object(api_module, "select_backend", return_value=selection),
-        patch.object(
-            api_module,
-            "_activate_selection",
-            return_value=(
-                selection,
-                "test-public-direct",
-                frozenset({ENCODED_NATIVE_FEATURE}),
-            ),
-        ),
-        patch.object(
-            encoded_module,
-            "_advertised_schema_version",
-            return_value=1,
-        ),
         patch.object(
             api_module,
             "prepare_encoded_subset_compilation",
@@ -313,7 +297,7 @@ def test_public_surfaces_bind_the_advertised_direct_session(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_public_direct_decline_keeps_the_broad_encoded_compiler_authoritative() -> None:
+def test_public_direct_decline_selects_transactional_scalar_fallback() -> None:
     view = _snapshot(backend=pyowl_core.BackendPreference.PYTHON)
     options = ProjectionOptions(backend="native", order="encounter")
     selection = BackendSelection("native", "native")
@@ -322,7 +306,7 @@ def test_public_direct_decline_keeps_the_broad_encoded_compiler_authoritative() 
         selected_backend="native",
     ).lease
     assert lease is not None
-    broad_compiler = encoded_compiler_module.prepare_encoded_subset_compilation
+    subset_compiler = encoded_compiler_module.prepare_encoded_subset_compilation
 
     with (
         patch.object(api_module, "select_backend", return_value=selection),
@@ -348,17 +332,29 @@ def test_public_direct_decline_keeps_the_broad_encoded_compiler_authoritative() 
         patch.object(
             api_module,
             "prepare_encoded_subset_compilation",
-            wraps=broad_compiler,
-        ) as broad_call,
+            wraps=subset_compiler,
+        ) as subset_call,
     ):
         projector = Projector()
         list(projector.iter_edges(view, options=options))
 
-    broad_call.assert_called_once()
-    assert broad_call.call_args.args[0] is view
+    subset_call.assert_called_once()
+    assert subset_call.call_args.args[0] is view
+    fallback = subset_call.call_args.args[2]
+    assert fallback.path == "scalar-native"
+    assert fallback.reason == (
+        "unsupported public direct shape; selected whole-operation scalar compiler"
+    )
     report = projector.last_report
     assert report is not None
-    assert report.provenance.ingestion.path == "encoded-native"
+    ingestion = report.provenance.ingestion
+    assert ingestion.path == "scalar-native"
+    assert ingestion.reason == fallback.reason
+    assert ingestion.encoded_view_publication_seconds is None
+    assert all(
+        value is False if name == "encoded_compiler_gil_released" else value == 0
+        for name, value in ingestion.counters.items()
+    )
 
 
 @pytest.mark.parametrize(

@@ -42,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 128;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 129;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -664,12 +664,11 @@ impl DirectBatchOutput {
     }
 }
 
-/// One-shot private compiler for the current honest P7 Rust slice.
+/// One-shot compiler for the advertised P7 Rust slice.
 ///
 /// The object retains both the encoded view/owner and an owned reference to
 /// every immutable bytes exporter.  `compile_batch` is consequently able to
-/// lend stable slices to Rust while `Python::detach` releases the GIL.  It is
-/// intentionally absent from `FEATURES` until the full P7 compiler is ready.
+/// lend stable slices to Rust while `Python::detach` releases the GIL.
 struct RetainedCompositeMember {
     _view: Py<PyAny>,
     _owner: Py<PyAny>,
@@ -1128,6 +1127,7 @@ impl EncodedDirectCompiler {
         canonical_work_limit=None,
         canonical_workspace_limit=None,
         max_overlay_depth=None,
+        retain_empty_direct_leaves=false,
         merge_manifest_view=None,
         merge_manifest_owner=None,
         merge_manifest_descriptor_sha256=None,
@@ -1166,6 +1166,7 @@ impl EncodedDirectCompiler {
         canonical_work_limit: Option<usize>,
         canonical_workspace_limit: Option<usize>,
         max_overlay_depth: Option<usize>,
+        retain_empty_direct_leaves: bool,
         merge_manifest_view: Option<&Bound<'_, PyAny>>,
         merge_manifest_owner: Option<&Bound<'_, PyAny>>,
         merge_manifest_descriptor_sha256: Option<&Bound<'_, PyAny>>,
@@ -1213,9 +1214,9 @@ impl EncodedDirectCompiler {
                 encoded_buffer_error("encoded recursive leaf plan requires max_overlay_depth")
             })?
         } else {
-            if max_overlay_depth.is_some() {
+            if max_overlay_depth.is_some() || retain_empty_direct_leaves {
                 return Err(encoded_buffer_error(
-                    "max_overlay_depth requires an encoded recursive leaf plan",
+                    "recursive leaf options require an encoded recursive leaf plan",
                 ));
             }
             0
@@ -1414,6 +1415,7 @@ impl EncodedDirectCompiler {
                     inputs,
                     max_work,
                     recursive_max_overlay_depth,
+                    retain_empty_direct_leaves,
                 )?
             } else {
                 validate_direct_member_composite_manifest(
@@ -1480,6 +1482,7 @@ impl EncodedDirectCompiler {
                         root_inputs,
                         root_work_limit,
                         recursive_max_overlay_depth,
+                        retain_empty_direct_leaves,
                     )?;
                 }
                 let mut root_bindings = Vec::new();
@@ -3815,6 +3818,7 @@ struct RecursiveValidatedTopologyNode<'py> {
     owner: Bound<'py, PyAny>,
     overlay_increment: usize,
     local_leaf_index: Option<usize>,
+    empty_direct_leaf_index: Option<usize>,
     children: Vec<RecursiveTopologyChild<'py>>,
 }
 
@@ -4112,6 +4116,7 @@ fn validate_recursive_topology_node<'py>(
             owner: owner.clone(),
             overlay_increment: 0,
             local_leaf_index: (local_root_count != 0).then_some(0),
+            empty_direct_leaf_index: (local_root_count == 0).then_some(0),
             children: Vec::new(),
         });
     }
@@ -4159,6 +4164,7 @@ fn validate_recursive_topology_node<'py>(
             owner: owner.clone(),
             overlay_increment: 1,
             local_leaf_index,
+            empty_direct_leaf_index: None,
             children,
         });
     }
@@ -4241,6 +4247,7 @@ fn validate_recursive_topology_node<'py>(
         owner: owner.clone(),
         overlay_increment: 0,
         local_leaf_index,
+        empty_direct_leaf_index: None,
         children,
     })
 }
@@ -4291,6 +4298,7 @@ fn recursive_topology_frame<'py>(
     parent_overlay_depth: usize,
     max_overlay_depth: usize,
     max_leaves: usize,
+    retain_empty_direct_leaves: bool,
 ) -> PyResult<RecursiveTopologyFrame<'py>> {
     let absolute_overlay_depth = parent_overlay_depth
         .checked_add(node.overlay_increment)
@@ -4303,7 +4311,10 @@ fn recursive_topology_frame<'py>(
         ));
     }
     let mut paths = Vec::new();
-    if let Some(local_leaf_index) = node.local_leaf_index {
+    if let Some(local_leaf_index) = node.local_leaf_index.or(retain_empty_direct_leaves
+        .then_some(node.empty_direct_leaf_index)
+        .flatten())
+    {
         paths
             .try_reserve_exact(1)
             .map_err(|_| PyMemoryError::new_err("encoded recursive path allocation failed"))?;
@@ -4389,6 +4400,7 @@ fn enumerate_recursive_leaf_paths<'py>(
     max_work: usize,
     max_overlay_depth: usize,
     max_leaves: usize,
+    retain_empty_direct_leaves: bool,
 ) -> PyResult<(HashSet<Vec<usize>>, usize)> {
     let mut validation_work = 0_usize;
     let mut validated_nodes = HashMap::new();
@@ -4411,6 +4423,7 @@ fn enumerate_recursive_leaf_paths<'py>(
         0,
         max_overlay_depth,
         max_leaves,
+        retain_empty_direct_leaves,
     )?];
     let root_topology = loop {
         let child = {
@@ -4470,6 +4483,7 @@ fn enumerate_recursive_leaf_paths<'py>(
                 parent_overlay_depth,
                 max_overlay_depth,
                 max_leaves,
+                retain_empty_direct_leaves,
             )?);
             continue;
         }
@@ -4823,6 +4837,7 @@ fn validate_recursive_leaf_plan<'py>(
     inputs: &[DynamicCompositeMemberInput<'py>],
     max_work: usize,
     max_overlay_depth: usize,
+    retain_empty_direct_leaves: bool,
 ) -> PyResult<usize> {
     if inputs.len() < 2 {
         return Err(EncodedDirectUnsupportedError::new_err(
@@ -4836,6 +4851,7 @@ fn validate_recursive_leaf_plan<'py>(
         max_work,
         max_overlay_depth,
         inputs.len(),
+        retain_empty_direct_leaves,
     )?;
     for input in inputs {
         validate_recursive_member_path(
@@ -4977,6 +4993,7 @@ fn validate_recursive_root_plan<'py>(
     root_inputs: &[DynamicCompositeMemberInput<'py>],
     max_work: usize,
     max_overlay_depth: usize,
+    retain_empty_direct_leaves: bool,
 ) -> PyResult<()> {
     if closure_inputs.len() != root_inputs.len() {
         return Err(encoded_buffer_error(
@@ -4999,6 +5016,7 @@ fn validate_recursive_root_plan<'py>(
         max_work,
         max_overlay_depth,
         root_inputs.len(),
+        retain_empty_direct_leaves,
     )?;
     if !actual_root_paths.is_subset(&paired_paths) {
         return Err(encoded_buffer_error(
@@ -6127,7 +6145,14 @@ fn kernel_error(error: KernelError) -> PyErr {
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("NATIVE_API_VERSION", NATIVE_API_VERSION)?;
-    module.add("FEATURES", ("abi3-py310", "bounded-batches"))?;
+    module.add(
+        "FEATURES",
+        (
+            "abi3-py310",
+            "bounded-batches",
+            "encoded-structural-compiler-v1",
+        ),
+    )?;
     module.add(
         "ENCODED_DIRECT_KERNEL_VERSION",
         ENCODED_DIRECT_KERNEL_VERSION,

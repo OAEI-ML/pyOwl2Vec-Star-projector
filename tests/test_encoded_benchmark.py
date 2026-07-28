@@ -75,6 +75,38 @@ def test_required_encoded_mode_rejects_scalar_selection(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not NATIVE_AVAILABLE, reason="native extension is unavailable")
+def test_required_encoded_mode_accepts_the_public_native_compiler(
+    tmp_path: Path,
+) -> None:
+    result = benchmark_encoded_compiler.run(
+        _ontology(tmp_path),
+        document_format="functional",
+        load_backend="python",
+        projector_backend="native",
+        order="encounter",
+        duplicates="preserve",
+        include_literals=False,
+        repetitions=2,
+        warmups=1,
+        buffer_edges=1,
+        require_encoded_native=True,
+    )
+
+    assert result["configuration"]["execution_surface"] == "public"
+    for sample, evidence in zip(
+        result["samples"],
+        result["acceptance_evidence"],
+        strict=True,
+    ):
+        assert sample["ingestion"]["path"] == "encoded-native"
+        assert sample["counters"]["native_compiled_edges"] == 1
+        assert sample["counters"]["native_boundary_calls"] == 2
+        assert evidence["acceptance_ready"] is True
+        assert evidence["nonzero_forbidden_counters"] == {}
+        assert evidence["nonzero_core_operation_calls"] == {}
+
+
+@pytest.mark.skipif(not NATIVE_AVAILABLE, reason="native extension is unavailable")
 def test_private_candidate_records_bound_counter_evidence_without_public_acceptance(
     tmp_path: Path,
 ) -> None:
@@ -100,14 +132,19 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
     assert result["source_revisions"] == {"projector": "1" * 40, "core": "2" * 40}
     assert result["production_acceptance"]["private_candidate_is_public"] is False
     blockers = result["production_acceptance"]["known_private_candidate_blockers"]
-    assert not any("fully-materialized" in blocker for blocker in blockers)
-    assert any("mmap-overlay-composite" in blocker for blocker in blockers)
+    assert blockers == [
+        "private-candidate-evidence-cannot-substitute-for-public-acceptance"
+    ]
 
     native_artifact = result["runtime_binding"]["projector"]["native_extension"]
     assert native_artifact["available"] is True
     assert len(native_artifact["sha256"]) == 64
-    assert native_artifact["encoded_direct_kernel_version"] == 128
-    assert native_artifact["features"] == ["abi3-py310", "bounded-batches"]
+    assert native_artifact["encoded_direct_kernel_version"] == 129
+    assert native_artifact["features"] == [
+        "abi3-py310",
+        "bounded-batches",
+        "encoded-structural-compiler-v1",
+    ]
 
     samples = result["samples"]
     for sample, evidence in zip(samples, result["acceptance_evidence"], strict=True):

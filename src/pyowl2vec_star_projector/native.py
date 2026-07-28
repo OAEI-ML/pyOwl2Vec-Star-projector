@@ -36,7 +36,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 128
+ENCODED_DIRECT_KERNEL_VERSION = 129
 _AnonymousScopePlan = memoryview | tuple[memoryview, ...] | None
 
 
@@ -678,7 +678,7 @@ class NativeEncodedDirectCompiler:
         include_literals: bool = False,
         role_state: NativeEncodedDirectRoleState | None = None,
     ) -> NativeEncodedDirectStatistics:
-        """Push private native batches to one synchronous batch sink."""
+        """Push native encoded batches to one synchronous batch sink."""
 
         candidate = getattr(sink, "write_batch", None)
         writer: Callable[[tuple[Edge, ...]], object]
@@ -995,7 +995,7 @@ class NativeEncodedDirectCompilation:
     def prepare_role_state(self) -> None:
         if self.options.compatibility_state == "scala-instance" and self.role_state is None:
             raise ProjectionError(
-                "hidden native compilation lost its retained Scala-instance state"
+                "native encoded compilation lost its retained Scala-instance state"
             )
 
     @property
@@ -1131,12 +1131,12 @@ def prepare_native_encoded_compilation(
     role_state: NativeEncodedDirectRoleState | None = None,
     asserted_taxonomy_only: bool = False,
 ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
-    """Prepare the hidden exact named-edge seam or request whole-call fallback."""
+    """Prepare the advertised encoded compiler or request whole-call fallback."""
 
     if type(asserted_taxonomy_only) is not bool:
         raise TypeError("asserted_taxonomy_only must be bool")
     if options.compatibility_state == "scala-instance" and role_state is None:
-        return None, "private native direct batches do not bind Scala-instance state"
+        return None, "native encoded batches do not bind Scala-instance state"
     if options.compatibility_state == "isolated" and role_state is not None:
         raise ProjectionError("isolated native compilation received retained Scala-instance state")
     if cancellation_token is not None:
@@ -1188,7 +1188,10 @@ def prepare_native_encoded_compilation(
             ) = resolved_delta
             container_leases = (local_delta_lease,)
         else:
-            resolved_leaf_plan = _resolve_private_recursive_leaf_plan(lease)
+            resolved_leaf_plan = _resolve_private_recursive_leaf_plan(
+                lease,
+                retain_empty_leaves=True,
+            )
             if resolved_leaf_plan is not None:
                 merge_manifest_lease = lease
                 (
@@ -1263,7 +1266,7 @@ def prepare_native_encoded_compilation(
     ):
         return (
             None,
-            "private native segmented exclusions require a root-provenance join "
+            "native encoded segmented exclusions require a root-provenance join "
             "for literal projection",
         )
     if (
@@ -1388,15 +1391,28 @@ def prepare_native_encoded_compilation(
         and _lease_contains_annotation_assertions(lease)
     ):
         if container_leases:
-            return (
-                None,
-                "private native empty-overlay alias does not support "
-                "root-scoped annotation provenance",
+            if excluded_root_ids is not None:
+                return (
+                    None,
+                    "native encoded selected empty-overlay alias requires "
+                    "root-scoped annotation selection",
+                )
+            (
+                root_annotation_lease,
+                annotation_fallback_reason,
+            ) = _native_alias_annotation_provenance_selection(
+                view,
+                top_closure_lease,
+                lease,
+                container_leases,
             )
-        root_annotation_lease, annotation_fallback_reason = _native_annotation_provenance_selection(
-            view,
-            lease,
-        )
+        else:
+            root_annotation_lease, annotation_fallback_reason = (
+                _native_annotation_provenance_selection(
+                    view,
+                    lease,
+                )
+            )
         if annotation_fallback_reason is not None:
             return None, annotation_fallback_reason
     compiler = prepare_native_encoded_direct(
@@ -1417,6 +1433,7 @@ def prepare_native_encoded_compilation(
         nested_member_lease=nested_member_lease,
         canonical_work_limit=canonical_work_limit,
         canonical_workspace_limit=canonical_workspace_limit,
+        retain_empty_direct_leaves=bool(composite_member_paths),
         root_annotation_lease=root_annotation_lease,
         included_root_ids=included_root_ids,
         excluded_root_ids=excluded_root_ids,
@@ -1527,7 +1544,7 @@ def prepare_native_encoded_compilation(
             batches.close()
             return (
                 None,
-                "private native batch integration requires exact root partitions, base-edge "
+                "native encoded batch integration requires exact root partitions, base-edge "
                 "totals, role expansion, diagnostics, and skipped or silent ledgers",
             )
         return (
@@ -1631,6 +1648,78 @@ def _native_annotation_provenance_selection(
     return None, None
 
 
+def _native_alias_annotation_provenance_selection(
+    view: object,
+    top_closure_lease: EncodedStructuralLease,
+    closure_lease: EncodedStructuralLease,
+    closure_containers: tuple[EncodedStructuralLease, ...],
+) -> tuple[EncodedStructuralLease | None, str | None]:
+    """Resolve an ALL-only empty-overlay ROOT chain to its exact direct table."""
+
+    root_top_lease = _acquire_root_encoded_lease(view, top_closure_lease)
+    if root_top_lease is None:
+        return None, "core view does not support root-scoped native annotation provenance"
+    resolved_root = _resolve_private_overlay_aliases(root_top_lease)
+    if resolved_root is None:
+        return (
+            None,
+            "root-scoped native annotation provenance is not an exact empty-overlay alias",
+        )
+    root_lease, root_containers, root_excluded_root_ids = resolved_root
+    if root_excluded_root_ids is not None:
+        return (
+            None,
+            "root-scoped native annotation provenance has a selected empty-overlay alias",
+        )
+    if (
+        len(root_containers) != len(closure_containers)
+        or root_lease.owner is not closure_lease.owner
+    ):
+        raise SnapshotCompatibilityError(
+            "encoded empty-overlay ROOT chain lost its closure pairing"
+        )
+    for closure_container, root_container in zip(
+        closure_containers,
+        root_containers,
+        strict=True,
+    ):
+        if (
+            closure_container.owner is not root_container.owner
+            or len(closure_container.segments) != 1
+            or len(root_container.segments) != 1
+        ):
+            raise SnapshotCompatibilityError(
+                "encoded empty-overlay ROOT chain lost its owner pairing"
+            )
+        closure_segment = cast(Any, closure_container.segments[0])
+        root_segment = cast(Any, root_container.segments[0])
+        if (
+            closure_segment.role != root_segment.role
+            or closure_segment.owner is not root_segment.owner
+            or closure_segment.posting_mode != root_segment.posting_mode
+            or closure_segment.root_ids != root_segment.root_ids
+            or closure_segment.member_token != root_segment.member_token
+            or getattr(closure_segment.source, "owner", None)
+            is not getattr(root_segment.source, "owner", None)
+        ):
+            raise SnapshotCompatibilityError(
+                "encoded empty-overlay ROOT chain changed its canonical selection"
+            )
+
+    try:
+        root_compiler = prepare_native_encoded_direct(root_lease)
+    except NativeEncodedDirectUnsupported:
+        return None, "root-scoped native annotation provenance is not exact-direct"
+    del root_compiler
+
+    for name in ENCODED_DIRECT_BUFFER_ORDER:
+        closure_buffer = closure_lease.buffers[name]
+        root_buffer = root_lease.buffers[name]
+        if closure_buffer.nbytes != root_buffer.nbytes or closure_buffer != root_buffer:
+            return root_lease, None
+    return None, None
+
+
 def _validate_dynamic_composite_root_pair(
     closure_manifest: EncodedStructuralLease,
     closure_rows: tuple[
@@ -1699,7 +1788,7 @@ def _validate_dynamic_composite_root_pair(
 
 
 def prepare_native_encoded_role_state() -> NativeEncodedDirectRoleState:
-    """Create one unadvertised retained role-state handle for ordered calls."""
+    """Create one retained role-state handle for ordered encoded calls."""
 
     module = load_native_module()
     try:
@@ -1771,6 +1860,7 @@ def prepare_native_encoded_direct(
     canonical_work_limit: int | None = None,
     canonical_workspace_limit: int | None = None,
     max_overlay_depth: int | None = None,
+    retain_empty_direct_leaves: bool = False,
     root_annotation_lease: EncodedStructuralLease | None = None,
     included_root_ids: memoryview | None = None,
     excluded_root_ids: memoryview | None = None,
@@ -1780,7 +1870,7 @@ def prepare_native_encoded_direct(
     anonymous_scope_map: memoryview | None = None,
     right_anonymous_scope_map: memoryview | None = None,
 ) -> NativeEncodedDirectCompiler:
-    """Bind validated public leases to the unadvertised Rust foundation.
+    """Bind validated public leases to the advertised Rust foundation.
 
     No memoryview is copied.  The Rust constructor accepts exact full immutable-``bytes``
     exporters or the canonical eleven-column packed layout over one such exporter.  Valid
@@ -1809,6 +1899,8 @@ def prepare_native_encoded_direct(
         or type(composite_root_member_paths) is not tuple
     ):
         raise TypeError("dynamic composite plans must be exact tuples")
+    if type(retain_empty_direct_leaves) is not bool:
+        raise TypeError("retain_empty_direct_leaves must be bool")
     dynamic_composite = bool(composite_member_leases)
     if dynamic_composite:
         member_count = len(composite_member_leases)
@@ -1864,14 +1956,19 @@ def prepare_native_encoded_direct(
             raise ValueError("one composite member cannot combine INCLUDE and EXCLUDE postings")
         if merge_manifest_lease is None:
             raise ValueError("dynamic composite requires an exact manifest lease")
-        if composite_member_paths and not all(
-            type(path) is tuple
-            and path
-            and all(type(index) is int and index >= 0 for index in path)
-            for path in composite_member_paths
-        ):
+        if composite_member_paths:
+            if not all(
+                type(path) is tuple
+                and path
+                and all(type(index) is int and index >= 0 for index in path)
+                for path in composite_member_paths
+            ):
+                raise ValueError(
+                    "recursive composite paths must be nonempty exact nonnegative-int tuples"
+                )
+        elif retain_empty_direct_leaves:
             raise ValueError(
-                "recursive composite paths must be nonempty exact nonnegative-int tuples"
+                "retaining empty direct leaves requires a recursive composite plan"
             )
         if composite_member_paths:
             public_overlay_depth = _public_limit(
@@ -2043,7 +2140,7 @@ def prepare_native_encoded_direct(
             )
         if root_annotation_lease is not None:
             raise NativeEncodedDirectUnsupported(
-                "private native local-overlay slice cannot combine root provenance"
+                "native encoded local-overlay slice cannot combine root provenance"
             )
         if canonical_work_limit is None:
             canonical_work_limit = sys.maxsize
@@ -2056,7 +2153,7 @@ def prepare_native_encoded_direct(
             or canonical_workspace_limit < 1
         ):
             raise ProjectionResourceError(
-                "private native local-overlay canonical limits must be positive"
+                "native encoded local-overlay canonical limits must be positive"
             )
         canonical_work_limit = min(canonical_work_limit, sys.maxsize)
         canonical_workspace_limit = min(canonical_workspace_limit, sys.maxsize)
@@ -2068,6 +2165,7 @@ def prepare_native_encoded_direct(
         or merge_manifest_lease is not None
         or canonical_work_limit is not None
         or canonical_workspace_limit is not None
+        or retain_empty_direct_leaves
     ):
         raise ValueError("canonical merge limits require a local delta lease")
     if (
@@ -2356,6 +2454,7 @@ def prepare_native_encoded_direct(
                 canonical_work_limit=canonical_work_limit,
                 canonical_workspace_limit=canonical_workspace_limit,
                 max_overlay_depth=max_overlay_depth,
+                retain_empty_direct_leaves=retain_empty_direct_leaves,
                 merge_manifest_view=merge_manifest_lease.encoded_view,
                 merge_manifest_owner=merge_manifest_lease.owner,
                 merge_manifest_descriptor_sha256=merge_manifest_descriptor_sha256,

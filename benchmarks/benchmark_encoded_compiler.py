@@ -50,9 +50,7 @@ _PRIVATE_NATIVE_COUNTERS = (
     "native_peak_buffered_edges",
 )
 _PRIVATE_CANDIDATE_BLOCKERS = (
-    "direct-bytes-owner-only; mmap-overlay-composite-owners-are-not-supported",
-    "public-iterator-sink-digest-artifact-dispatch-does-not-select-the-candidate",
-    "public-scala-instance-lifecycle-remains-on-the-scalar-compiler",
+    "private-candidate-evidence-cannot-substitute-for-public-acceptance",
 )
 _PRIVATE_NATIVE_SURFACES = frozenset({"iterator", "sink", "digest", "artifact"})
 

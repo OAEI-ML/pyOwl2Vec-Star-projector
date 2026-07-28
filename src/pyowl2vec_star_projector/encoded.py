@@ -226,7 +226,7 @@ def select_private_direct_ingestion(
     backend_fallback_reason: str | None = None,
     core_module: object | None = None,
 ) -> EncodedNegotiation:
-    """Request the unadvertised direct schema without changing public negotiation."""
+    """Request the direct schema through the explicit compatibility seam."""
 
     if selected_backend == "python":
         return EncodedNegotiation("scalar-python", backend_fallback_reason)

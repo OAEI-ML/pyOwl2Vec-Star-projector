@@ -412,6 +412,24 @@ def _forced_encoded(lease: EncodedStructuralLease) -> Iterator[None]:
         assert batch_edges > 0
         return iter(edges)
 
+    def prepare_broad_encoded_subset(
+        view: object,
+        options: ProjectionOptions,
+        _ingestion: EncodedNegotiation,
+        *,
+        batch_edges: int,
+        asserted_taxonomy_only: bool = False,
+        role_state: object | None = None,
+    ) -> object:
+        return prepare_encoded_subset_compilation(
+            view,
+            options,
+            EncodedNegotiation("encoded-native", lease=lease),
+            batch_edges=batch_edges,
+            asserted_taxonomy_only=asserted_taxonomy_only,
+            role_state=cast(Any, role_state),
+        )
+
     with (
         patch.object(api_module, "select_backend", return_value=selection),
         patch.object(
@@ -432,6 +450,11 @@ def _forced_encoded(lease: EncodedStructuralLease) -> Iterator[None]:
             api_module,
             "prepare_native_encoded_compilation",
             return_value=(None, "test selects the broad encoded subset compiler"),
+        ),
+        patch.object(
+            api_module,
+            "prepare_encoded_subset_compilation",
+            side_effect=prepare_broad_encoded_subset,
         ),
         patch.object(api_module, "iter_native_passthrough", side_effect=passthrough),
     ):
@@ -15282,6 +15305,6 @@ def test_root_annotation_provenance_corruption_fails_before_output(corruption: s
         )
 
 
-def test_incomplete_slice_is_not_advertised_by_the_native_feature_ledger() -> None:
+def test_native_feature_ledger_advertises_the_production_encoded_compiler() -> None:
     native_source = (ROOT / "native" / "src" / "lib.rs").read_text("utf-8")
-    assert ENCODED_NATIVE_FEATURE not in native_source
+    assert f'"{ENCODED_NATIVE_FEATURE}"' in native_source

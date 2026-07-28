@@ -167,7 +167,7 @@ class Projector:
         streaming_limits: StreamingLimits | None = None,
         cancellation_token: CancellationTokenLike | None = None,
     ) -> Iterator[Edge]:
-        """Exercise the hidden P7 direct-batch iterator with whole-call fallback."""
+        """Exercise the explicit P7 direct-batch compatibility iterator."""
 
         _positive_int("buffer_edges", buffer_edges)
         effective = options or ProjectionOptions(backend="native")
@@ -220,7 +220,7 @@ class Projector:
         streaming_limits: StreamingLimits | None = None,
         cancellation_token: CancellationTokenLike | None = None,
     ) -> ProjectionReport:
-        """Exercise the hidden P7 cursor through the protocol-sink surface."""
+        """Exercise the explicit P7 compatibility cursor through a protocol sink."""
 
         return self._project_to_sink(
             view,
@@ -320,7 +320,7 @@ class Projector:
         streaming_limits: StreamingLimits | None = None,
         cancellation_token: CancellationTokenLike | None = None,
     ) -> EdgeArtifactResult:
-        """Exercise the hidden P7 cursor through the portable artifact writer."""
+        """Exercise the explicit P7 compatibility cursor through the artifact writer."""
 
         return _write_edge_artifact(
             _PrivateNativeEncodedArtifactSource(self),
@@ -364,7 +364,7 @@ class Projector:
         streaming_limits: StreamingLimits | None = None,
         cancellation_token: CancellationTokenLike | None = None,
     ) -> CanonicalEdgeDigest:
-        """Exercise the hidden P7 cursor through canonical edge hashing."""
+        """Exercise the explicit P7 compatibility cursor through canonical hashing."""
 
         return _canonical_edge_digest(
             _PrivateNativeEncodedArtifactSource(self),
@@ -442,6 +442,7 @@ class Projector:
         )
         limits = _streaming_limits(streaming_limits)
         native_encoded_compilation: NativeEncodedDirectCompilation | None = None
+        direct_fallback_reason: str | None = None
         if ingestion.path == "encoded-native":
             lease = ingestion.lease
             if lease is None:  # pragma: no cover - guarded by negotiation
@@ -449,7 +450,7 @@ class Projector:
                     "native asserted-taxonomy ingestion lost its validated lease"
                 )
             try:
-                native_encoded_compilation, _direct_fallback_reason = (
+                native_encoded_compilation, direct_fallback_reason = (
                     prepare_native_encoded_compilation(
                         checked,
                         lease,
@@ -463,8 +464,17 @@ class Projector:
             except (
                 NativeBackendUnavailableError,
                 NativeEncodedDirectUnsupported,
-            ):
+            ) as error:
                 native_encoded_compilation = None
+                direct_fallback_reason = f"native encoded compiler unavailable: {error}"
+            if native_encoded_compilation is None:
+                reason = direct_fallback_reason or (
+                    "native encoded compiler declined the encoded view"
+                )
+                ingestion = EncodedNegotiation(
+                    "scalar-native",
+                    f"{reason}; selected whole-operation scalar compiler",
+                )
         if native_encoded_compilation is None:
             encoded_compilation, ingestion, encoded_counters = prepare_encoded_subset_compilation(
                 checked,
@@ -565,7 +575,9 @@ class Projector:
                 limits = _streaming_limits(streaming_limits)
                 native_direct_requested = ingestion.path == "encoded-native"
                 if native_direct_requested:
-                    native_direct_label = "private native" if private_encoded_direct else "native"
+                    native_direct_label = (
+                        "private native" if private_encoded_direct else "native encoded"
+                    )
                     lease = ingestion.lease
                     if lease is None:  # pragma: no cover - guarded by negotiation
                         raise SnapshotCompatibilityError(
@@ -614,7 +626,7 @@ class Projector:
                             direct_fallback_reason = (
                                 f"{native_direct_label} direct compiler unavailable: {error}"
                             )
-                    if native_encoded_compilation is None and private_encoded_direct:
+                    if native_encoded_compilation is None:
                         reason = direct_fallback_reason or (
                             f"{native_direct_label} direct compiler declined the encoded view"
                         )
@@ -818,7 +830,7 @@ class Projector:
 
 
 class _PrivateNativeEncodedArtifactSource:
-    """Route artifact helpers through the unadvertised P7 iterator."""
+    """Route compatibility artifact helpers through the explicit P7 iterator."""
 
     __slots__ = ("_projector",)
 
