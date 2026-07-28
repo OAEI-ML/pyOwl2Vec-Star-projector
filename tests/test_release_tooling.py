@@ -681,24 +681,20 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "af9bdb0b9178766b5f15806fb6a2f00b05e00e22"
+    implementation_commit = "21503cf5a35c22c1fa35653c13df958df4fca100"
     assert compatibility["tested_source"]["commit"] == implementation_commit
     assert compatibility["release_evidence_source"] == {
-        "commit": "5e64959f3469cc377deed1c531d3a25de9af188b",
+        "commit": "5f7395a60df9642b63b3b211e0f47a8483124d5d",
         "implementation_commit": implementation_commit,
         "classification": "behavior-preserving-release-evidence-only",
         "runtime_source_changed": False,
         "changed_paths": [
-            ".github/workflows/ci.yml",
-            "reports/release/0.1.0.dev0/build-provenance.json",
-            "tests/packaging/test_supply_chain.py",
-            "tests/packaging/test_workflows.py",
-            "tools/packaging/supply_chain.py",
+            "tests/integration/consumers/_pyelk_native_owner_runner.py",
         ],
         "summary": (
-            "The later core revision pins the pure CI image and updates only release provenance, "
-            "packaging checks, and their tooling; Projector compatibility remains bound to the "
-            "settled runtime implementation."
+            "The following core revision changes only the pyELK consumer integration runner to "
+            "use its public encoded capability; Projector compatibility remains bound to the "
+            "runtime implementation."
         ),
     }
     assert (

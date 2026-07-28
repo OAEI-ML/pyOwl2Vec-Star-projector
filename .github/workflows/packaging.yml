@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
-          ref: af9bdb0b9178766b5f15806fb6a2f00b05e00e22
+          ref: 21503cf5a35c22c1fa35653c13df958df4fca100
           path: .deps/pyowl-core
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
