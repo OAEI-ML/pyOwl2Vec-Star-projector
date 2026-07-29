@@ -18,6 +18,10 @@ else:
 _RELEASE_ONLY_CLASSIFICATION = "behavior-preserving-release-evidence-only"
 _RUNTIME_SOURCE_PREFIXES = ("src/", "native/")
 _RUNTIME_SOURCE_FILES = frozenset({"pyproject.toml", "setup.py", "_build_backend.py"})
+_COMPARATOR_ONLY_PREFIXES = (
+    "benchmarks/comparators/",
+    "tests/benchmark/comparators/",
+)
 
 
 def _git_output(root: Path, *arguments: str) -> str:
@@ -122,6 +126,79 @@ def release_evidence_errors(
     return errors
 
 
+def release_evidence_checkout_errors(
+    evidence: dict[str, Any],
+    implementation_commit: str,
+    core_root: Path,
+) -> list[str]:
+    """Verify the declared successor against the core repository object graph."""
+    if release_evidence_errors(evidence, implementation_commit):
+        return ["cannot inspect invalid core release-evidence metadata"]
+    source = evidence["release_evidence_source"]
+    release_commit = source["commit"]
+    changed_paths = source["changed_paths"]
+    try:
+        _git_output(core_root, "cat-file", "-e", f"{implementation_commit}^{{commit}}")
+        _git_output(core_root, "cat-file", "-e", f"{release_commit}^{{commit}}")
+    except ValueError as error:
+        return [f"cannot resolve core release-evidence Git objects: {error}"]
+
+    errors: list[str] = []
+    try:
+        _git_output(
+            core_root,
+            "merge-base",
+            "--is-ancestor",
+            implementation_commit,
+            release_commit,
+        )
+    except ValueError:
+        errors.append(
+            "core release-evidence revision is not a descendant of the implementation revision"
+        )
+
+    try:
+        parent_row = _git_output(
+            core_root,
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            release_commit,
+        ).split()
+    except ValueError as error:
+        errors.append(f"cannot inspect core release-evidence parent: {error}")
+    else:
+        if parent_row != [release_commit, implementation_commit]:
+            errors.append(
+                "core release-evidence revision is not the direct implementation successor"
+            )
+
+    try:
+        actual_paths = _git_output(
+            core_root,
+            "diff",
+            "--name-only",
+            "--diff-filter=ACDMRTUXB",
+            implementation_commit,
+            release_commit,
+            "--",
+        ).splitlines()
+    except ValueError as error:
+        errors.append(f"cannot inspect core release-evidence diff: {error}")
+    else:
+        if actual_paths != changed_paths:
+            errors.append("core release-evidence actual changed paths differ from its declaration")
+        if any(
+            path in _RUNTIME_SOURCE_FILES or path.startswith(_RUNTIME_SOURCE_PREFIXES)
+            for path in actual_paths
+        ):
+            errors.append("core release-evidence actual diff changes runtime sources")
+        if any(not path.startswith(_COMPARATOR_ONLY_PREFIXES) for path in actual_paths):
+            errors.append("core release-evidence actual diff is not comparator-only")
+    return errors
+
+
 def compatibility_errors(root: Path, core_root: Path) -> list[str]:
     """Return exact-source and public-conformance failures."""
     try:
@@ -154,6 +231,14 @@ def compatibility_errors(root: Path, core_root: Path) -> list[str]:
         return ["consumer fixture evidence is not an object"]
 
     errors = release_evidence_errors(evidence, expected_commit)
+    if not errors:
+        errors.extend(
+            release_evidence_checkout_errors(
+                evidence,
+                expected_commit,
+                core_root,
+            )
+        )
     module_file = getattr(pyowl_core, "__file__", None)
     if not isinstance(module_file, str):
         errors.append("imported pyowl_core has no filesystem source")

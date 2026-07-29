@@ -3,18 +3,22 @@
   "dependency_constraint": "pyowl-core>=0.1,<0.2",
   "tested_source": {
     "repository": "https://github.com/OAEI-ML/pyOWLCore",
-    "commit": "21503cf5a35c22c1fa35653c13df958df4fca100",
+    "commit": "402ffb29ea60f57e49d2766d2b6a7f708744685f",
     "version": "0.1.0.dev0"
   },
   "release_evidence_source": {
-    "commit": "5f7395a60df9642b63b3b211e0f47a8483124d5d",
-    "implementation_commit": "21503cf5a35c22c1fa35653c13df958df4fca100",
+    "commit": "005c3ccad129757b3a9be125dc064b812b607ef5",
+    "implementation_commit": "402ffb29ea60f57e49d2766d2b6a7f708744685f",
     "classification": "behavior-preserving-release-evidence-only",
     "runtime_source_changed": false,
     "changed_paths": [
-      "tests/integration/consumers/_pyelk_native_owner_runner.py"
+      "benchmarks/comparators/README.md",
+      "benchmarks/comparators/comparators.toml",
+      "benchmarks/comparators/runners/py_horned_common.py",
+      "tests/benchmark/comparators/test_manifest_contract.py",
+      "tests/benchmark/comparators/test_py_horned_common.py"
     ],
-    "summary": "The following core revision changes only the pyELK consumer integration runner to use its public encoded capability; Projector compatibility remains bound to the runtime implementation."
+    "summary": "The direct successor changes only py-horned comparator configuration, implementation, documentation, and tests; Projector runtime compatibility remains bound to the exact paired implementation revision."
   },
   "previous_source": {
     "commit": "de9b8f9717cd31050bc0123cc2ba62ff0e63aa3d",
@@ -36,7 +40,7 @@
     "summary": "Duplicate RDF and Functional operands are canonicalized while mixed DisjointClasses duplicates preserve their bottom consequence, without changing valid-input projector fingerprints or edge bytes."
   },
   "native_ontology_redesign": {
-    "commit": "21503cf5a35c22c1fa35653c13df958df4fca100",
+    "commit": "402ffb29ea60f57e49d2766d2b6a7f708744685f",
     "classification": "behavior-preserving-native-ontology-redesign",
     "workpackages": ["WP14", "WP15", "WP16", "WP17", "WP18"],
     "summary": "The settled WP14-WP18 APIs and implementations include native contracts, retained storage, streaming ingestion, native views, wire integration, and locally executable release/performance checks while preserving the Projector consumer fixture fingerprints and canonical edge bytes."

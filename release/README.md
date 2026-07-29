@@ -13,8 +13,8 @@ ran.
 - `native-build-requirements.txt`: the fallback tools plus native-only Python build helpers.
 - `external-gates.json`: unresolved actions which cannot be proven in this workspace.
 - `core-compatibility.json`: approved pyOWLCore runtime implementation commit for reproducible
-  source-checkout CI, the later release-evidence-only revision, the published dependency range,
-  and reviewed old/new fixture fingerprints.
+  source-checkout CI, the direct comparator-only release-evidence successor, the published
+  dependency range, and reviewed old/new fixture fingerprints.
 
 Regenerate and compare the deterministic records with
 `python tools/generate_supply_chain.py --check`. Per-build hashes, signatures, attestations,

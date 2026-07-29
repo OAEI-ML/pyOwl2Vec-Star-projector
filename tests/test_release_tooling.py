@@ -681,20 +681,24 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "21503cf5a35c22c1fa35653c13df958df4fca100"
+    implementation_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
     assert compatibility["tested_source"]["commit"] == implementation_commit
     assert compatibility["release_evidence_source"] == {
-        "commit": "5f7395a60df9642b63b3b211e0f47a8483124d5d",
+        "commit": "005c3ccad129757b3a9be125dc064b812b607ef5",
         "implementation_commit": implementation_commit,
         "classification": "behavior-preserving-release-evidence-only",
         "runtime_source_changed": False,
         "changed_paths": [
-            "tests/integration/consumers/_pyelk_native_owner_runner.py",
+            "benchmarks/comparators/README.md",
+            "benchmarks/comparators/comparators.toml",
+            "benchmarks/comparators/runners/py_horned_common.py",
+            "tests/benchmark/comparators/test_manifest_contract.py",
+            "tests/benchmark/comparators/test_py_horned_common.py",
         ],
         "summary": (
-            "The following core revision changes only the pyELK consumer integration runner to "
-            "use its public encoded capability; Projector compatibility remains bound to the "
-            "runtime implementation."
+            "The direct successor changes only py-horned comparator configuration, "
+            "implementation, documentation, and tests; Projector runtime compatibility remains "
+            "bound to the exact paired implementation revision."
         ),
     }
     assert (
@@ -753,6 +757,86 @@ def test_core_release_evidence_rejects_runtime_drift() -> None:
         "core release-evidence source does not preserve runtime sources",
         "core release-evidence revision lists a runtime-source change",
         "core release-evidence source has no summary",
+    ]
+
+
+def test_core_release_evidence_checkout_accepts_exact_comparator_successor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    implementation_commit = "a" * 40
+    release_commit = "b" * 40
+    changed_paths = [
+        "benchmarks/comparators/README.md",
+        "benchmarks/comparators/runners/reference.py",
+        "tests/benchmark/comparators/test_reference.py",
+    ]
+    evidence = {
+        "release_evidence_source": {
+            "commit": release_commit,
+            "implementation_commit": implementation_commit,
+            "classification": "behavior-preserving-release-evidence-only",
+            "runtime_source_changed": False,
+            "changed_paths": changed_paths,
+            "summary": "Comparator-only direct successor.",
+        }
+    }
+
+    def git_output(_root: Path, *arguments: str) -> str:
+        if arguments[:2] == ("rev-list", "--parents"):
+            return f"{release_commit} {implementation_commit}"
+        if arguments[0] == "diff":
+            return "\n".join(changed_paths)
+        return ""
+
+    monkeypatch.setattr(check_core_compatibility, "_git_output", git_output)
+    assert (
+        check_core_compatibility.release_evidence_checkout_errors(
+            evidence,
+            implementation_commit,
+            tmp_path,
+        )
+        == []
+    )
+
+
+def test_core_release_evidence_checkout_rejects_ancestry_and_path_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    implementation_commit = "a" * 40
+    release_commit = "b" * 40
+    evidence = {
+        "release_evidence_source": {
+            "commit": release_commit,
+            "implementation_commit": implementation_commit,
+            "classification": "behavior-preserving-release-evidence-only",
+            "runtime_source_changed": False,
+            "changed_paths": ["benchmarks/comparators/README.md"],
+            "summary": "Comparator-only direct successor.",
+        }
+    }
+
+    def git_output(_root: Path, *arguments: str) -> str:
+        if arguments[0] == "merge-base":
+            raise ValueError("not an ancestor")
+        if arguments[:2] == ("rev-list", "--parents"):
+            return f"{release_commit} {'c' * 40}"
+        if arguments[0] == "diff":
+            return "src/pyowl_core/api.py"
+        return ""
+
+    monkeypatch.setattr(check_core_compatibility, "_git_output", git_output)
+    assert check_core_compatibility.release_evidence_checkout_errors(
+        evidence,
+        implementation_commit,
+        tmp_path,
+    ) == [
+        "core release-evidence revision is not a descendant of the implementation revision",
+        "core release-evidence revision is not the direct implementation successor",
+        "core release-evidence actual changed paths differ from its declaration",
+        "core release-evidence actual diff changes runtime sources",
+        "core release-evidence actual diff is not comparator-only",
     ]
 
 
