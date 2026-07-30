@@ -1,12 +1,12 @@
 # Compatibility matrix
 
-This table is normative for `0.1.0`. “Workflow target” means the repository has an executable CI
-definition; it is not evidence that hosted CI ran. Waived hosted checks and their residual risks
+This table is normative for `0.1.1`. “Workflow target” means the repository has an executable CI
+definition; publication still requires the tag-scoped hosted run to pass. Accepted residual risks
 remain explicit in `release/external-gates.json`.
 
 ## Semantic and interchange contracts
 
-| Contract | `0.1.0` value | Compatibility rule |
+| Contract | `0.1.1` value | Compatibility rule |
 |---|---|---|
 | Projector API | `PROJECTOR_API_VERSION = 1` | Additions may ship in `0.1.x`; incompatible call semantics require a major API value. |
 | Reference profile | `mowl-d993536-v1` | Frozen Scala-observed edge bag; changed behavior requires a new named profile. |
@@ -16,9 +16,11 @@ remain explicit in `release/external-gates.json`.
 | Consumer conformance | `pyowl-projector.consumer-conformance/1` | Packaged CC0 fixture/goldens; incompatible fixture or assertion changes require a new schema major. |
 | Core model | `pyowl-core>=0.1,<0.2` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
 
-Source-checkout CI is pinned to pyOWLCore 0.1.0 release commit
-`d3e7893b0609fcd7df390375267a00356f09cb22`. This is reproducibility evidence for the release, not
-a Git dependency: installed metadata intentionally retains `pyowl-core>=0.1,<0.2`. The
+Source-checkout CI is pinned to pyOWLCore 0.1.1 commit
+`989a95e38cc74e659282c37ed55ba787ff13f12c`, tree
+`28dff7644baeff03ea72472c13b6c7b321b4873e`, as recorded in
+`release/core-compatibility.json`. This is reproducibility evidence for the release, not a Git
+dependency: installed metadata intentionally retains `pyowl-core>=0.1,<0.2`. The
 reviewed structural-fingerprint transition from the pre-correction core is recorded in
 `release/core-compatibility.json`; logical/signature fingerprints and projector edge bytes did
 not change. The historical direct core successor
@@ -26,8 +28,9 @@ not change. The historical direct core successor
 the compatibility checker verifies its ancestry and exact comparator-only diff while keeping the
 historical runtime pin on the paired implementation revision.
 
-`0.1.0b1`, `0.1.0rc1`, and `0.1.0` use identical values in every row. Portable edge artifacts remain
-byte-compatible when the core fingerprints and normalized semantic options are the same.
+`0.1.0b1`, `0.1.0rc1`, `0.1.0`, and `0.1.1` use identical values in every row. Portable edge
+artifacts remain byte-compatible when the core fingerprints and normalized semantic options are
+the same.
 
 ## Interpreter and artifact targets
 
@@ -40,7 +43,7 @@ byte-compatible when the core fingerprints and normalized semantic options are t
 | macOS arm64 | yes | `macosx` | Native runner parity plus delocate. |
 | Windows x86_64 | yes | `win_amd64` | Clean 3.10–3.13 smoke plus delvewheel. |
 | Other Python 3.10+ platform | yes when compatible | none | Pip must select the universal wheel without invoking a compiler. |
-| musllinux | yes when pure Python is usable | not claimed in `0.1.0` | Add only after a dedicated build and binary audit. |
+| musllinux | yes when pure Python is usable | not claimed in `0.1.1` | Add only after a dedicated build and binary audit. |
 | CPython subinterpreters | host-runtime dependent | deliberately unavailable | `auto` falls back before extension import; clean full-projection smoke is an external gate. |
 | PyPy/free-threaded CPython | unclaimed | unclaimed | Requires dedicated compatibility policy and tests. |
 
@@ -63,7 +66,7 @@ import during subinterpreter teardown, so it cannot provide that release evidenc
 | `backend="python"` | any | Complete Python backend; no fallback warning. |
 | `backend="native"` | usable | Native bounded edge-policy processing with identical ordered output. |
 | `backend="native"` | absent/unusable | `NativeBackendUnavailableError` with the load cause. |
-| `backend="auto"` | any in `0.1.0` | Python plus one first-projection `NativeBackendFallbackWarning`; native remains experimental because its performance gate is unmet. |
+| `backend="auto"` | any in `0.1.1` | Python plus one first-projection `NativeBackendFallbackWarning`; native remains experimental because its performance gate is unmet. |
 
 Import never emits the warning. A compiler or native-extension failure never disables the
 complete Python projector.

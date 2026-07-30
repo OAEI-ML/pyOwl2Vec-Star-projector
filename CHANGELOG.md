@@ -5,6 +5,15 @@ from packaging or performance changes because profile output is a data contract.
 
 ## Unreleased
 
+## 0.1.1 — 2026-07-30
+
+- Publish the current native-enabled implementation as one atomic seven-distribution set: source
+  distribution, universal fallback wheel, and five supported native wheels.
+- Require the full hosted build, installed-smoke, binary-audit, supply-chain, checksum, and
+  provenance-attestation gates before environment-protected PyPI trusted publication.
+- Bind the patch release to the coordinated pyOWLCore 0.1.1 release source while retaining the
+  compatible public dependency range.
+
 ## 0.1.0 — 2026-07-30
 
 The complete compiler-free projector is promoted to production. Runtime compatibility and every

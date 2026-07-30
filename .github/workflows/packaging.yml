@@ -1,10 +1,10 @@
 name: Fallback packaging
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -20,10 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
-          ref: d3e7893b0609fcd7df390375267a00356f09cb22
+          ref: 989a95e38cc74e659282c37ed55ba787ff13f12c
           path: .deps/pyowl-core
           fetch-depth: 0
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
@@ -78,6 +80,8 @@ jobs:
         artifact: [wheel, sdist]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: fallback-bundle

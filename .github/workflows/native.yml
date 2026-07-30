@@ -1,10 +1,10 @@
 name: Native backend and wheels
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
   schedule:
     - cron: "17 3 * * 2"
   workflow_dispatch:
@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: "1.83.0"
@@ -55,10 +57,14 @@ jobs:
             cibw-arch: AMD64
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          persist-credentials: false
+        with:
           repository: OAEI-ML/pyOWLCore
-          ref: d3e7893b0609fcd7df390375267a00356f09cb22
+          ref: 989a95e38cc74e659282c37ed55ba787ff13f12c
           path: .deps/pyowl-core
           fetch-depth: 0
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
@@ -137,7 +143,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
-          ref: d3e7893b0609fcd7df390375267a00356f09cb22
+          ref: 989a95e38cc74e659282c37ed55ba787ff13f12c
           path: .deps/pyowl-core
           fetch-depth: 0
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
@@ -149,7 +155,7 @@ jobs:
           path: wheelhouse
       - run: python -m pip install pytest==8.4.2
       - run: python -m pip install --no-deps .deps/pyowl-core
-      - run: python -m pip install --no-index --no-deps --find-links=wheelhouse pyowl2vec-star-projector==0.1.0
+      - run: python -m pip install --no-index --no-deps --find-links=wheelhouse pyowl2vec-star-projector==0.1.1
       - run: python tools/installed_smoke.py --require-native
       - run: python -m pytest -q tests/test_native_backend.py tests/test_backend.py
         env:
@@ -186,6 +192,8 @@ jobs:
       RUSTDOCFLAGS: -Zsanitizer=address
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
         with:
           toolchain: "nightly-2025-01-15"

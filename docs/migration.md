@@ -1,4 +1,11 @@
-# Migrating to `0.1.0`
+# Migrating to `0.1.1`
+
+## From `0.1.0`
+
+No application-code migration is required. The patch release adds the supported native wheels
+to the same distribution and retains the complete universal fallback. Release automation must
+publish all seven distributions together; it must not append current native artifacts to the
+existing 0.1.0 project release.
 
 ## From `0.1.0rc1`
 
@@ -14,12 +21,12 @@ Packaging automation should make these deliberate updates:
    backend then requests pinned `setuptools-rust==1.13.0`; Cargo and rustc must already exist.
 3. Keep `backend="python"` for quiet deterministic fallback. `backend="auto"` still warns once
    because native has not earned automatic preference.
-4. Install `pyowl-core==0.1.0` before testing a local offline projector artifact. Public package
+4. Install `pyowl-core==0.1.1` before testing a local offline projector artifact. Public package
    metadata intentionally retains the compatible range `pyowl-core>=0.1,<0.2`.
 
 The repository owner accepted the residual risks documented in
-`release/external-gates.json` for the initial production publication. This closure does not turn
-waived hosted matrix, private-index, advisory, or attestation work into completed evidence.
+`release/external-gates.json`. Hosted platform build and attestation are enforced by the atomic
+0.1.1 workflow; private-index, advisory, and unavailable-corpus risks remain explicitly recorded.
 
 The distribution name is `pyowl2vec-star-projector`; the import remains
 `pyowl2vec_star_projector`. It is intentionally different from the unrelated

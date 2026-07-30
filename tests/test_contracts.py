@@ -77,7 +77,7 @@ class OptionTests(unittest.TestCase):
 class ProvenanceTests(unittest.TestCase):
     def test_json_compatible_versioned_record(self) -> None:
         core = CoreProvenance(
-            package_version="0.1.0",
+            package_version="0.1.1",
             api_version=(0, 1),
             model_schema_version=1,
             wire_format_version=(1, 0),

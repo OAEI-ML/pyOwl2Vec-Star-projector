@@ -1,17 +1,17 @@
 # Release procedure
 
 The procedure separates reproducible local evidence from authenticated or hosted evidence. For
-0.1.0, the repository owner explicitly accepted the residual risk for external checks that could
-not be completed and authorized a local token upload. The exact closures are reviewable in
-`release/external-gates.json` and `release/owner-release-override.md`; they are not claims that the
-waived hosted evidence exists.
+0.1.1, the repository owner authorized the complete seven-distribution patch release through an
+environment-protected PyPI trusted publisher. The exact closures are reviewable in
+`release/external-gates.json` and `release/owner-release-authorization-0.1.1.md`; they are not
+claims that a hosted run has already succeeded.
 
 ## 1. Prepare and inspect
 
 - Use a clean, signed release commit and CPython 3.12 for deterministic tooling.
 - Install the exact compiler-free artifact environment from
   `release/fallback-build-requirements.txt`.
-- Publish and verify `pyowl-core==0.1.0` before uploading this distribution.
+- Publish and verify `pyowl-core==0.1.1` before uploading this distribution.
 - Confirm the selected core release contains the source baseline in
   `release/core-compatibility.json`. Source-checkout CI must use that exact commit; the package
   metadata remains a normal `>=0.1,<0.2` dependency and must never become a Git runtime
@@ -89,25 +89,26 @@ wheel and never starts a source build. Repeat with Cargo absent. If the index ca
 this selection, publish a separately named accelerator distribution while retaining the same
 projector import, API, and warning contract.
 
-Local `--find-links` selection is useful diagnostics. The owner waived private-index selection
-proof for the initial universal wheel and sdist; native wheels still require their own platform
-build, smoke, and binary audit before a later upload.
+Local `--find-links` selection is useful diagnostics. The owner retained the private-index
+selection waiver, but every native wheel must pass its own hosted platform build, smoke, and
+binary audit before the single atomic upload.
 
 ## 5. Supply-chain and final gate
 
 Run current `pip-audit` and `cargo audit` databases, inspect native symbols, attach both SBOMs,
 license inventory, corpus reports, `SHA256SUMS`, binary-audit output, and hosted matrix URLs.
-GitHub's release-candidate workflow creates OIDC build-provenance attestations when invoked in an
-authenticated repository context. Sign `SHA256SUMS` with the approved release identity and verify
-the signature before publication.
+GitHub's `release.yml` workflow creates OIDC build-provenance attestations for the complete
+distribution set in an authenticated repository context. It stages `SHA256SUMS`, release-audit,
+and release-gate evidence separately from the distributions sent to PyPI.
 
 ```bash
 python tools/release_gate.py --artifacts dist-a --audit-report release-audit.json \
   --include-external --report release-gate.json
 ```
 
-Exit status `2` means one or more external records are still unresolved; 0.1.0 records explicit
-owner-authorized closures and therefore requires exit status `0`. Confirm authenticated ownership
-of the normalized distribution name immediately before upload. Upload `pyowl-core==0.1.0` first,
-then the projector wheel and sdist with an account-scoped PyPI token supplied outside the
-repository.
+Exit status `2` means one or more external records are still unresolved; 0.1.1 records explicit
+owner-authorized closures and therefore requires exit status `0`. Configure the PyPI trusted
+publisher for the exact repository, `release.yml`, and `pypi` environment. Upload
+`pyowl-core==0.1.1` first, push annotated tag `v0.1.1`, then manually dispatch the atomic workflow
+from that tag with `publish=true`. Approve the protected environment only after all seven
+artifacts and their attestations pass. No PyPI API token is used by the workflow.

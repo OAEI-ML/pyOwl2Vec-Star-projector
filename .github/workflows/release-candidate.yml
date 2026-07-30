@@ -1,8 +1,6 @@
 name: Attested release artifacts
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +19,8 @@ jobs:
     environment: release-candidate
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
@@ -46,5 +46,5 @@ jobs:
             release/sbom/*.json
           if-no-files-found: error
 
-# This workflow intentionally has no package-index upload step. Publication is a separate,
-# authenticated maintainer action. The owner-authorized local publication path remains separate.
+# This manual workflow retains the fallback-only evidence path. Atomic trusted publication of
+# the complete fallback and native set is exclusively owned by release.yml.

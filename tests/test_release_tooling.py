@@ -44,6 +44,7 @@ EXPECTED_PROVENANCE_INPUTS = {
     ".github/workflows/native.yml",
     ".github/workflows/packaging.yml",
     ".github/workflows/release-candidate.yml",
+    ".github/workflows/release.yml",
     "MANIFEST.in",
     "_build_backend.py",
     "native/Cargo.lock",
@@ -53,6 +54,7 @@ EXPECTED_PROVENANCE_INPUTS = {
     "pyproject.toml",
     "release/fallback-build-requirements.txt",
     "release/core-compatibility.json",
+    "release/owner-release-authorization-0.1.1.md",
     "release/native-build-requirements.txt",
     "setup.py",
     "tools/audit_release.py",
@@ -132,7 +134,7 @@ def test_conditional_build_requirement_never_leaks_to_fallback(
 
 def test_version_and_generated_supply_chain_are_consistent() -> None:
     version = read_toml(ROOT / "pyproject.toml")["project"]["version"]
-    assert version == "0.1.0"
+    assert version == "0.1.1"
     for path, expected in generate(ROOT).items():
         assert path.read_bytes() == expected
     inventory = json.loads((ROOT / "release/license-inventory.json").read_text(encoding="utf-8"))
@@ -146,7 +148,7 @@ def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
     assert provenance["schema"] == "pyowl-projector.build-provenance/1"
     assert provenance["scope"] == "deterministic-build-and-release-recipe"
     assert provenance["distribution"] == "pyowl2vec-star-projector"
-    assert provenance["version"] == "0.1.0"
+    assert provenance["version"] == "0.1.1"
     assert provenance["source_date_epoch"] == {
         "source": "release commit timestamp",
         "command": "git log -1 --pretty=%ct",
@@ -394,20 +396,28 @@ def test_external_release_gates_record_explicit_owner_closure() -> None:
         "private-index-selection",
         "signed-provenance",
     }
-    assert document["candidate"] == "0.1.0"
+    assert document["candidate"] == "0.1.1"
     assert document["closure"] == {
         "authorized_by": "repository owner",
         "authorized_on": "2026-07-30",
-        "method": "explicit owner waiver",
-        "record": "release/owner-release-override.md",
+        "method": "explicit release authorization",
+        "record": "release/owner-release-authorization-0.1.1.md",
         "statement": (
             "The repository owner explicitly directed that every remaining release gate be "
-            "closed and that version 0.1.0 be promoted for production publication."
+            "closed and that the complete version 0.1.1 artifact set be published through "
+            "trusted publishing."
         ),
     }
     assert all(gate["status"] == "passed" for gate in gates)
     assert all(
-        gate["closure"] in {"owner waiver", "owner-authorized coordinated release"}
+        gate["closure"]
+        in {
+            "owner waiver",
+            "owner-authorized coordinated release",
+            "trusted-publisher configuration",
+            "workflow-enforced matrix",
+            "workflow-enforced attestation",
+        }
         for gate in gates
     )
     assert all(gate["evidence"] for gate in gates)
@@ -465,9 +475,12 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     native = (ROOT / ".github/workflows/native.yml").read_text(encoding="utf-8")
     packaging = (ROOT / ".github/workflows/packaging.yml").read_text(encoding="utf-8")
-    release = (ROOT / ".github/workflows/release-candidate.yml").read_text(encoding="utf-8")
+    candidate = (ROOT / ".github/workflows/release-candidate.yml").read_text(encoding="utf-8")
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
 
-    assert all("macos-13" not in workflow for workflow in (ci, native, packaging, release))
+    assert all(
+        "macos-13" not in workflow for workflow in (ci, native, packaging, candidate, release)
+    )
     assert "macos-15-intel" in ci
     assert native.count("macos-15-intel") == 3
     assert "pytest==8.4.2 setuptools==83.0.0 tomli==2.4.1" in ci
@@ -484,9 +497,39 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert "repository: liseda-lab/Exact-OM" in ci
     assert "ref: 08b859d40bb5c98e3dbdd46109bc4f2d5c0ffd3c" in ci
 
-    assert 'tags: ["v*"]' in packaging
-    assert 'tags: ["v*"]' in native
+    assert "workflow_call:" in packaging
+    assert "workflow_call:" in native
+    assert 'tags: ["v*"]' not in packaging
+    assert 'tags: ["v*"]' not in native
+    assert 'tags: ["v*"]' not in candidate
     assert 'tags: ["v*"]' in release
+
+
+def test_atomic_release_publishes_only_the_complete_audited_set() -> None:
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert "uses: ./.github/workflows/packaging.yml" in workflow
+    assert "uses: ./.github/workflows/native.yml" in workflow
+    assert "needs: [fallback-matrix, native-matrix]" in workflow
+    assert "assert len(artifacts) == 7" in workflow
+    assert "len(wheels) == 6 and len(sdists) == 1 and len(native) == 5" in workflow
+    for platform in (
+        "manylinux_2_17_x86_64",
+        "manylinux_2_17_aarch64",
+        "macosx_10_12_x86_64",
+        "macosx_11_0_arm64",
+        "win_amd64",
+    ):
+        assert platform in workflow
+    assert "--include-external" in workflow
+    assert "actions/attest-build-provenance@" in workflow
+    assert "environment: pypi" in workflow
+    publish = workflow.split("  publish:", maxsplit=1)[1]
+    assert "startsWith(github.ref, 'refs/tags/v')" in publish
+    assert "permissions:\n      id-token: write" in publish
+    assert "api-token" not in publish
+    assert "skip-existing: false" in publish
+    assert "skip-existing: true" not in workflow
 
 
 def test_consumer_fixture_is_checkout_stable_on_windows() -> None:
@@ -816,12 +859,13 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "d3e7893b0609fcd7df390375267a00356f09cb22"
+    implementation_commit = "989a95e38cc74e659282c37ed55ba787ff13f12c"
     redesign_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
     assert compatibility["tested_source"] == {
         "repository": "https://github.com/OAEI-ML/pyOWLCore",
         "commit": implementation_commit,
-        "version": "0.1.0",
+        "tree": "28dff7644baeff03ea72472c13b6c7b321b4873e",
+        "version": "0.1.1",
     }
     assert compatibility["release_evidence_source"] == {
         "commit": implementation_commit,
@@ -830,7 +874,7 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         "runtime_source_changed": False,
         "changed_paths": [],
         "summary": (
-            "The exact tested pyOWLCore implementation is the production 0.1.0 release source."
+            "The exact tested pyOWLCore implementation is the production 0.1.1 release source."
         ),
     }
     assert compatibility["historical_release_evidence_source"] == {

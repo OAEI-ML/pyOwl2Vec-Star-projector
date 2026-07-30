@@ -31,9 +31,8 @@ tables, changelog, and migration/release instructions are implemented. Local sam
 `--find-links` selection chooses the native wheel on a supported target and the universal wheel
 for a simulated unsupported target.
 
-The projector is coordinated with the exact `pyowl-core` 0.1.0 release source. The repository
-owner explicitly closed the remaining external gates for initial production publication by
-accepting their residual risks. This work package does not claim that waived private-index,
-hosted-platform, signed-provenance, advisory-feed, or unavailable-corpus evidence was generated;
-the machine-readable closures remain in `../../release/external-gates.json`. No credential is
-present in the repository.
+The 0.1.1 patch release is coordinated with the exact `pyowl-core` 0.1.1 release source. Its
+atomic workflow requires the compiler-free source/universal pair and all five claimed native
+wheels to pass hosted platform, audit, checksum, and OIDC-attestation gates before trusted
+publication. Private-index, advisory-feed, and unavailable-corpus residual risks remain in
+`../../release/external-gates.json`. No credential is present in the repository.

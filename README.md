@@ -38,7 +38,7 @@ Start with the [documentation index](docs/index.md) and
 details are in [the compatibility matrix](docs/compatibility.md) and
 [migration guide](docs/migration.md).
 
-The Python backend is complete. `0.1.0` also contains an equivalent optional Rust/PyO3 edge
+The Python backend is complete. `0.1.1` also contains an equivalent optional Rust/PyO3 edge
 engine:
 
 - `backend="python"` selects the complete, compiler-free fallback explicitly and quietly;
@@ -57,7 +57,7 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 ## Status
 
-Production release: `0.1.0`.
+Production release: `0.1.1`.
 
 All 184 pinned Scala invocations match in canonical edge bytes,
 including the expected typed inverse-property assertion failure and the loader-owned missing-
@@ -67,10 +67,11 @@ in-memory edge vector. Normal tests, installs, wheels, and sdists remain Java-fr
 
 P5 supplies conditional compiler-free builds, platform workflow definitions, offline install
 smokes, reproducibility/hash tooling, SBOMs, license inventory, compatibility tables, and release
-instructions. The repository owner explicitly accepted the residual risks from hosted checks
-that were unavailable for the initial compiler-free publication; every closure remains visible
-in the machine-readable [external gates](release/external-gates.json) and
-[owner override](release/owner-release-override.md). See also the [compatibility
+instructions. The 0.1.1 workflow publishes the universal wheel, source distribution, and all five
+supported native wheels atomically through an environment-protected PyPI trusted publisher.
+Every closure remains visible in the machine-readable
+[external gates](release/external-gates.json) and
+[0.1.1 authorization](release/owner-release-authorization-0.1.1.md). See also the [compatibility
 matrix](docs/compatibility.md), [migration notes](docs/migration.md), and
 [release procedure](RELEASING.md).
 

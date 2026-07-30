@@ -1,6 +1,6 @@
 # Native dependency license inventory
 
-This inventory corresponds to `Cargo.lock` for `0.1.0`. Registry source and checksums are in
+This inventory corresponds to `Cargo.lock` for `0.1.1`. Registry source and checksums are in
 that lockfile. Release automation must regenerate and audit this table when the lockfile changes.
 
 | Crate | Version | SPDX license expression |

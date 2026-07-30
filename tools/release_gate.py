@@ -51,6 +51,7 @@ def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, 
             (root / "release/core-compatibility.json").read_text(encoding="utf-8")
         )
         commit = str(document["tested_source"]["commit"])
+        tree = str(document["tested_source"]["tree"])
         constraint = str(document["dependency_constraint"])
         fixture = document["consumer_fixture"]
         golden = json.loads(
@@ -65,6 +66,8 @@ def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, 
         return False, "unsupported core compatibility evidence schema"
     if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         return False, "tested core source commit is not a full Git object ID"
+    if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
+        return False, "tested core source tree is not a full Git object ID"
     release_errors = release_evidence_errors(document, commit)
     if release_errors:
         return False, release_errors[0]

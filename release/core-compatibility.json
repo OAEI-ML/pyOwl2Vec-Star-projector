@@ -3,16 +3,17 @@
   "dependency_constraint": "pyowl-core>=0.1,<0.2",
   "tested_source": {
     "repository": "https://github.com/OAEI-ML/pyOWLCore",
-    "commit": "d3e7893b0609fcd7df390375267a00356f09cb22",
-    "version": "0.1.0"
+    "commit": "989a95e38cc74e659282c37ed55ba787ff13f12c",
+    "tree": "28dff7644baeff03ea72472c13b6c7b321b4873e",
+    "version": "0.1.1"
   },
   "release_evidence_source": {
-    "commit": "d3e7893b0609fcd7df390375267a00356f09cb22",
-    "implementation_commit": "d3e7893b0609fcd7df390375267a00356f09cb22",
+    "commit": "989a95e38cc74e659282c37ed55ba787ff13f12c",
+    "implementation_commit": "989a95e38cc74e659282c37ed55ba787ff13f12c",
     "classification": "production-release",
     "runtime_source_changed": false,
     "changed_paths": [],
-    "summary": "The exact tested pyOWLCore implementation is the production 0.1.0 release source."
+    "summary": "The exact tested pyOWLCore implementation is the production 0.1.1 release source."
   },
   "historical_release_evidence_source": {
     "commit": "005c3ccad129757b3a9be125dc064b812b607ef5",
