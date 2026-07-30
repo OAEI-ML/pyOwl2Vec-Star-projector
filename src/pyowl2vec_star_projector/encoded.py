@@ -693,9 +693,7 @@ def _recursive_leaf_source_lease(
             "core encoded recursive leaf segment lost its source owner"
         )
     if getattr(source, "scope", _MISSING) is not top_lease.scope:
-        raise SnapshotCompatibilityError(
-            "core encoded recursive leaf source changed closure scope"
-        )
+        raise SnapshotCompatibilityError("core encoded recursive leaf source changed closure scope")
     if retained is not None:
         cached = retained.get(id(source))
         if cached is not None:
@@ -733,9 +731,7 @@ def _apply_recursive_leaf_scope_map(
         ):
             mapped.append((lease, included, excluded, existing_maps, path))
             continue
-        mapped.append(
-            (lease, included, excluded, (*existing_maps, scope_map), path)
-        )
+        mapped.append((lease, included, excluded, (*existing_maps, scope_map), path))
     return tuple(mapped)
 
 
@@ -760,15 +756,11 @@ def _recursive_scope_map_applies(
         ):
             continue
         scalar_offset = _read_uint(buffers["field_values"], start, 8)
-        current_scope = buffers["scalar_bytes"][
-            scalar_offset : scalar_offset + 32
-        ]
+        current_scope = buffers["scalar_bytes"][scalar_offset : scalar_offset + 32]
         for prior_map in prior_maps:
             for map_offset in range(0, prior_map.nbytes, 64):
                 if current_scope == prior_map[map_offset : map_offset + 32]:
-                    current_scope = prior_map[
-                        map_offset + 32 : map_offset + 64
-                    ]
+                    current_scope = prior_map[map_offset + 32 : map_offset + 64]
                     break
         for map_offset in range(0, scope_map.nbytes, 64):
             if current_scope == scope_map[map_offset : map_offset + 32]:
@@ -789,9 +781,7 @@ def _apply_recursive_leaf_postings(
     if posting_mode == _POSTINGS_ALL:
         return rows
     if posting_mode not in {_POSTINGS_INCLUDE, _POSTINGS_EXCLUDE}:
-        raise SnapshotCompatibilityError(
-            "core encoded recursive leaf posting mode is invalid"
-        )
+        raise SnapshotCompatibilityError("core encoded recursive leaf posting mode is invalid")
     selected: list[_RecursiveCompositeRow] = []
     for lease, included, excluded, scope_maps, path in rows:
         source_local = lease.encoded_view is source_lease.encoded_view
@@ -831,9 +821,9 @@ def _resolve_private_recursive_leaf_plan(
     *,
     retain_empty_leaves: bool = False,
 ) -> (
-        tuple[
-            tuple[_CompositePlanRow, ...],
-            tuple[tuple[int, ...], ...],
+    tuple[
+        tuple[_CompositePlanRow, ...],
+        tuple[tuple[int, ...], ...],
         tuple[EncodedStructuralLease, ...],
         int | None,
         int | None,
@@ -854,25 +844,15 @@ def _resolve_private_recursive_leaf_plan(
         return None
 
     try:
-        direct_candidate = (
-            len(lease.segments) >= 2
-            and all(
-                cast(Any, segment).role == _SEGMENT_COMPOSITE_MEMBER
-                and tuple(
-                    cast(Any, child).role
-                    for child in cast(Any, segment).source.segments
-                )
-                == (_SEGMENT_DIRECT,)
-                for segment in lease.segments
-            )
+        direct_candidate = len(lease.segments) >= 2 and all(
+            cast(Any, segment).role == _SEGMENT_COMPOSITE_MEMBER
+            and tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
+            == (_SEGMENT_DIRECT,)
+            for segment in lease.segments
         )
     except Exception:
         direct_candidate = False
-    direct = (
-        _resolve_private_dynamic_member_composite(lease)
-        if direct_candidate
-        else None
-    )
+    direct = _resolve_private_dynamic_member_composite(lease) if direct_candidate else None
     if direct is not None:
         rows, max_work, max_workspace = direct
         containers = (lease, *tuple(row[0] for row in rows))
@@ -906,9 +886,7 @@ def _resolve_private_recursive_leaf_plan(
         if identity in active:
             raise SnapshotCompatibilityError("core encoded recursive leaf graph is cyclic")
         if identity not in retained:
-            validation_work += _private_encoded_lease_validation_work(
-                source_lease
-            )
+            validation_work += _private_encoded_lease_validation_work(source_lease)
             _enforce_public_limit(
                 lease.owner,
                 "max_canonical_work",
@@ -951,9 +929,7 @@ def _resolve_private_recursive_leaf_plan(
                 if frame.roles == (_SEGMENT_DIRECT,):
                     if retain_empty_leaves or frame.lease.buffers["root_kinds"].nbytes:
                         charge_leaf()
-                        frame.resolved.append(
-                            (frame.lease, None, None, (), (0,))
-                        )
+                        frame.resolved.append((frame.lease, None, None, (), (0,)))
                     result = tuple(frame.resolved)
                 elif frame.roles in {
                     (_SEGMENT_OVERLAY_BASE,),
@@ -961,9 +937,7 @@ def _resolve_private_recursive_leaf_plan(
                 }:
                     if len(frame.segments) == 2:
                         charge_leaf()
-                        frame.resolved.append(
-                            (frame.lease, None, None, (), (1,))
-                        )
+                        frame.resolved.append((frame.lease, None, None, (), (1,)))
                     result = tuple(frame.resolved)
                 else:
                     member_count = frame.roles.count(_SEGMENT_COMPOSITE_MEMBER)
@@ -971,11 +945,7 @@ def _resolve_private_recursive_leaf_plan(
                     expected = (_SEGMENT_COMPOSITE_MEMBER,) * member_count + (
                         (_SEGMENT_COMPOSITE_BRIDGE,) if bridge_count else ()
                     )
-                    if (
-                        member_count < 2
-                        or bridge_count > 1
-                        or frame.roles != expected
-                    ):
+                    if member_count < 2 or bridge_count > 1 or frame.roles != expected:
                         return None
                     if bridge_count:
                         charge_leaf()
@@ -992,9 +962,7 @@ def _resolve_private_recursive_leaf_plan(
             elif frame.roles == (_SEGMENT_DIRECT,):
                 if retain_empty_leaves or frame.lease.buffers["root_kinds"].nbytes:
                     charge_leaf()
-                    frame.resolved.append(
-                        (frame.lease, None, None, (), (0,))
-                    )
+                    frame.resolved.append((frame.lease, None, None, (), (0,)))
                 result = tuple(frame.resolved)
             elif frame.roles in {
                 (_SEGMENT_OVERLAY_BASE,),
@@ -1013,8 +981,7 @@ def _resolve_private_recursive_leaf_plan(
                     frame.stage = 1
                     cache_key = (
                         id(source_lease.encoded_view),
-                        cast(Any, base).posting_mode
-                        == _POSTINGS_INCLUDE,
+                        cast(Any, base).posting_mode == _POSTINGS_INCLUDE,
                     )
                     if cache_key in resolved_cache:
                         (
@@ -1033,8 +1000,7 @@ def _resolve_private_recursive_leaf_plan(
                         start(
                             source_lease,
                             frame.overlay_depth,
-                            local_only=cast(Any, base).posting_mode
-                            == _POSTINGS_INCLUDE,
+                            local_only=cast(Any, base).posting_mode == _POSTINGS_INCLUDE,
                         )
                     )
                     continue
@@ -1064,14 +1030,10 @@ def _resolve_private_recursive_leaf_plan(
                     pending_source,
                     base,
                 )
-                frame.resolved.extend(
-                    _prepend_recursive_leaf_segment(child_rows, 0)
-                )
+                frame.resolved.extend(_prepend_recursive_leaf_segment(child_rows, 0))
                 if len(frame.segments) == 2:
                     charge_leaf()
-                    frame.resolved.append(
-                        (frame.lease, None, None, (), (1,))
-                    )
+                    frame.resolved.append((frame.lease, None, None, (), (1,)))
                 result = tuple(frame.resolved)
             else:
                 if frame.stage == 0:
@@ -1080,11 +1042,7 @@ def _resolve_private_recursive_leaf_plan(
                     expected = (_SEGMENT_COMPOSITE_MEMBER,) * frame.member_count + (
                         (_SEGMENT_COMPOSITE_BRIDGE,) if frame.bridge_count else ()
                     )
-                    if (
-                        frame.member_count < 2
-                        or frame.bridge_count > 1
-                        or frame.roles != expected
-                    ):
+                    if frame.member_count < 2 or frame.bridge_count > 1 or frame.roles != expected:
                         return None
                     frame.stage = 1
 
@@ -1092,14 +1050,8 @@ def _resolve_private_recursive_leaf_plan(
                     member = frame.pending_segment
                     pending_source = frame.pending_source
                     child_overlay_span = frame.pending_overlay_span
-                    if (
-                        member is None
-                        or pending_source is None
-                        or child_overlay_span is None
-                    ):
-                        raise AssertionError(
-                            "recursive composite dependency was not retained"
-                        )
+                    if member is None or pending_source is None or child_overlay_span is None:
+                        raise AssertionError("recursive composite dependency was not retained")
                     frame.relative_overlay_span = max(
                         frame.relative_overlay_span,
                         frame.overlay_increment + child_overlay_span,
@@ -1139,8 +1091,7 @@ def _resolve_private_recursive_leaf_plan(
                     frame.pending_source = source_lease
                     cache_key = (
                         id(source_lease.encoded_view),
-                        cast(Any, member).posting_mode
-                        == _POSTINGS_INCLUDE,
+                        cast(Any, member).posting_mode == _POSTINGS_INCLUDE,
                     )
                     if cache_key in resolved_cache:
                         (
@@ -1159,8 +1110,7 @@ def _resolve_private_recursive_leaf_plan(
                         start(
                             source_lease,
                             frame.overlay_depth,
-                            local_only=cast(Any, member).posting_mode
-                            == _POSTINGS_INCLUDE,
+                            local_only=cast(Any, member).posting_mode == _POSTINGS_INCLUDE,
                         )
                     )
                     continue
@@ -1189,9 +1139,7 @@ def _resolve_private_recursive_leaf_plan(
                 break
             parent = stack[-1]
             if parent.pending_rows is not None:
-                raise AssertionError(
-                    "recursive leaf dependency result was already populated"
-                )
+                raise AssertionError("recursive leaf dependency result was already populated")
             parent.pending_rows = result
             parent.pending_overlay_span = frame.relative_overlay_span
         else:  # pragma: no cover - the explicit stack always returns a root result.
@@ -1208,10 +1156,7 @@ def _resolve_private_recursive_leaf_plan(
         (leaf, included, excluded, scope_maps)
         for leaf, included, excluded, scope_maps, _path in recursive_rows
     )
-    paths = tuple(
-        path
-        for _leaf, _included, _excluded, _map, path in recursive_rows
-    )
+    paths = tuple(path for _leaf, _included, _excluded, _map, path in recursive_rows)
     return (
         simple_rows,
         paths,
@@ -1268,9 +1213,7 @@ def _resolve_private_recursive_root_pair(
         return None
 
     retained: dict[int, EncodedStructuralLease] = {}
-    prefix_cache: dict[tuple[int, ...], EncodedStructuralLease] = {
-        (): root_manifest
-    }
+    prefix_cache: dict[tuple[int, ...], EncodedStructuralLease] = {(): root_manifest}
     validation_work = 0
 
     def retain(item: EncodedStructuralLease) -> None:
@@ -1347,28 +1290,22 @@ def _resolve_private_recursive_root_pair(
                                 "encoded recursive ROOT leaf changed its stable role"
                             )
                     else:
-                        root_roles = tuple(
-                            cast(Any, segment).role for segment in root_segments
-                        )
+                        root_roles = tuple(cast(Any, segment).role for segment in root_segments)
                         missing_delta = (
                             closure_role == _SEGMENT_OVERLAY_DELTA
                             and segment_index == 1
                             and root_roles == (_SEGMENT_OVERLAY_BASE,)
                         )
-                        member_count = root_roles.count(
-                            _SEGMENT_COMPOSITE_MEMBER
-                        )
+                        member_count = root_roles.count(_SEGMENT_COMPOSITE_MEMBER)
                         missing_bridge = (
                             closure_role == _SEGMENT_COMPOSITE_BRIDGE
                             and member_count >= 2
                             and segment_index == member_count
-                            and root_roles
-                            == (_SEGMENT_COMPOSITE_MEMBER,) * member_count
+                            and root_roles == (_SEGMENT_COMPOSITE_MEMBER,) * member_count
                         )
-                        if (
-                            not (missing_delta or missing_bridge)
-                            or not _recursive_empty_local_table(root_lease)
-                        ):
+                        if not (
+                            missing_delta or missing_bridge
+                        ) or not _recursive_empty_local_table(root_lease):
                             raise SnapshotCompatibilityError(
                                 "encoded recursive ROOT coordinate lost a canonical local leaf"
                             )
@@ -1384,9 +1321,7 @@ def _resolve_private_recursive_root_pair(
                         (),
                         path,
                     )
-                    selected: tuple[_RecursiveCompositeRow, ...] = (
-                        recursive_row,
-                    )
+                    selected: tuple[_RecursiveCompositeRow, ...] = (recursive_row,)
                     for root_segment, source_lease in reversed(root_references):
                         selected = _apply_recursive_leaf_scope_map(
                             selected,
@@ -1405,9 +1340,7 @@ def _resolve_private_recursive_root_pair(
                             "ROOT selection omitted one paired CLOSURE leaf"
                         )
                     leaf, included, excluded, scope_maps, _ = selected[0]
-                    paired_rows.append(
-                        (leaf, included, excluded, scope_maps)
-                    )
+                    paired_rows.append((leaf, included, excluded, scope_maps))
                     paired_paths.append(path)
                     break
 
@@ -1424,8 +1357,7 @@ def _resolve_private_recursive_root_pair(
                         _SEGMENT_OVERLAY_BASE,
                         _SEGMENT_COMPOSITE_MEMBER,
                     }
-                    or cast(Any, root_segment).owner
-                    is not cast(Any, closure_segment).owner
+                    or cast(Any, root_segment).owner is not cast(Any, closure_segment).owner
                     or cast(Any, root_segment).member_token
                     != cast(Any, closure_segment).member_token
                 ):
@@ -1447,9 +1379,7 @@ def _resolve_private_recursive_root_pair(
                 root_lease = next_lease
                 closure_view = cast(Any, closure_segment).source
                 prefix = next_prefix
-                child_roles = tuple(
-                    cast(Any, segment).role for segment in root_lease.segments
-                )
+                child_roles = tuple(cast(Any, segment).role for segment in root_lease.segments)
                 overlay_depth += int(
                     child_roles
                     in {
@@ -1466,9 +1396,7 @@ def _resolve_private_recursive_root_pair(
                     overlay_depth,
                 )
             else:  # pragma: no cover - nonempty paths always reach a terminal.
-                raise AssertionError(
-                    "recursive ROOT pairing completed without a terminal"
-                )
+                raise AssertionError("recursive ROOT pairing completed without a terminal")
     except _RecursiveLeafPlanUnsupported:
         return None
 
@@ -2066,10 +1994,7 @@ def _selects_every_root(
     return (
         root_count > 0
         and excluded_root_ids.nbytes == 4 * root_count
-        and all(
-            _read_uint(excluded_root_ids, index, 4) == index + 1
-            for index in range(root_count)
-        )
+        and all(_read_uint(excluded_root_ids, index, 4) == index + 1 for index in range(root_count))
     )
 
 
@@ -2081,11 +2006,7 @@ def _selects_only_named_subclass_roots(
 
     buffers = lease.buffers
     root_count = _row_count(buffers, "root_kinds")
-    if (
-        root_count < 2
-        or excluded_root_ids.nbytes == 0
-        or excluded_root_ids.nbytes % 4
-    ):
+    if root_count < 2 or excluded_root_ids.nbytes == 0 or excluded_root_ids.nbytes % 4:
         return False
     previous_position = 0
     for index in range(excluded_root_ids.nbytes // 4):
@@ -2096,10 +2017,9 @@ def _selects_only_named_subclass_roots(
         if _read_uint(buffers["root_kinds"], position - 1, 1) != _ROOT_AXIOM:
             return False
         root_id = _read_uint(buffers["root_ids"], position - 1, 4)
-        if (
-            _read_uint(buffers["node_tags"], root_id - 1, 2) != _TAG_SUB_CLASS_OF
-            or not _is_exact_named_subclass_root(buffers, root_id)
-        ):
+        if _read_uint(
+            buffers["node_tags"], root_id - 1, 2
+        ) != _TAG_SUB_CLASS_OF or not _is_exact_named_subclass_root(buffers, root_id):
             return False
     return True
 
@@ -2558,11 +2478,14 @@ def _resolve_private_scope_mapped_nested_overlay_composite(
     ):
         return None
     overlay_row: tuple[EncodedStructuralLease, memoryview | None, memoryview] | None = None
-    direct_row: tuple[
-        EncodedStructuralLease,
-        memoryview | None,
-        memoryview,
-    ] | None = None
+    direct_row: (
+        tuple[
+            EncodedStructuralLease,
+            memoryview | None,
+            memoryview,
+        ]
+        | None
+    ) = None
     for source, _included, excluded, scope_map in rows:
         assert scope_map is not None
         roles = tuple(cast(Any, segment).role for segment in source.segments)
@@ -2666,11 +2589,14 @@ def _resolve_private_scope_mapped_four_table_nested_composite(
     if rows is None or any(included is not None for _source, included, _excluded, _map in rows):
         return None
     overlay_row: tuple[EncodedStructuralLease, memoryview | None, memoryview] | None = None
-    mapped_row: tuple[
-        EncodedStructuralLease,
-        memoryview | None,
-        memoryview,
-    ] | None = None
+    mapped_row: (
+        tuple[
+            EncodedStructuralLease,
+            memoryview | None,
+            memoryview,
+        ]
+        | None
+    ) = None
     neutral_row: tuple[EncodedStructuralLease, memoryview | None] | None = None
     for source, _included, excluded, scope_map in rows:
         roles = tuple(cast(Any, segment).role for segment in source.segments)

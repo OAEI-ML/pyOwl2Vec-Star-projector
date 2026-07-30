@@ -1081,8 +1081,7 @@ class NativeEncodedDirectCompilation:
                         )
                     )
                     if self.composite_member_leases
-                    else len(self.container_leases)
-                    + int(self.root_annotation_lease is not None)
+                    else len(self.container_leases) + int(self.root_annotation_lease is not None)
                 ),
                 "encoded_segment_count": sum(len(lease.segments) for lease in retained_leases),
                 "encoded_staging_copy_bytes": 0,
@@ -1174,9 +1173,7 @@ def prepare_native_encoded_compilation(
         lease, container_leases, excluded_root_ids = resolved_aliases
     else:
         resolved_delta = (
-            None
-            if role_state is not None
-            else _resolve_private_single_overlay_delta(lease)
+            None if role_state is not None else _resolve_private_single_overlay_delta(lease)
         )
         if resolved_delta is not None:
             local_delta_lease = lease
@@ -1234,14 +1231,10 @@ def prepare_native_encoded_compilation(
                     None if len(composite_excluded_root_ids) < 4 else composite_excluded_root_ids[3]
                 )
                 mapped_scopes = tuple(
-                    value
-                    for value in composite_anonymous_scope_maps
-                    if type(value) is memoryview
+                    value for value in composite_anonymous_scope_maps if type(value) is memoryview
                 )
                 anonymous_scope_map = mapped_scopes[0] if mapped_scopes else None
-                right_anonymous_scope_map = (
-                    mapped_scopes[1] if len(mapped_scopes) > 1 else None
-                )
+                right_anonymous_scope_map = mapped_scopes[1] if len(mapped_scopes) > 1 else None
                 container_leases = tuple(
                     retained
                     for retained in retained_plan_leases
@@ -1257,23 +1250,23 @@ def prepare_native_encoded_compilation(
             (fourth_member_lease, fourth_excluded_root_ids),
         )
     )
-    if not composite_member_leases and options.include_literals and any(
-        member_lease is not None
-        and root_ids is not None
-        and root_ids.nbytes > 0
-        and _lease_contains_annotation_assertions(member_lease)
-        for member_lease, root_ids in literal_exclusion_members
+    if (
+        not composite_member_leases
+        and options.include_literals
+        and any(
+            member_lease is not None
+            and root_ids is not None
+            and root_ids.nbytes > 0
+            and _lease_contains_annotation_assertions(member_lease)
+            for member_lease, root_ids in literal_exclusion_members
+        )
     ):
         return (
             None,
             "native encoded segmented exclusions require a root-provenance join "
             "for literal projection",
         )
-    if (
-        options.include_literals
-        and not asserted_taxonomy_only
-        and composite_member_leases
-    ):
+    if options.include_literals and not asserted_taxonomy_only and composite_member_leases:
         assert merge_manifest_lease is not None
         root_merge_manifest_lease = _acquire_root_encoded_lease(
             view,
@@ -1304,8 +1297,7 @@ def prepare_native_encoded_compilation(
             if resolved_root_plan is None:
                 return (
                     None,
-                    "recursive ROOT annotation provenance does not pair every "
-                    "stable CLOSURE leaf",
+                    "recursive ROOT annotation provenance does not pair every stable CLOSURE leaf",
                 )
             (
                 root_rows,
@@ -1315,28 +1307,21 @@ def prepare_native_encoded_compilation(
                 _root_workspace_limit,
             ) = resolved_root_plan
         else:
-            resolved_root_composite = (
-                _resolve_private_dynamic_member_composite(
-                    root_merge_manifest_lease
-                )
+            resolved_root_composite = _resolve_private_dynamic_member_composite(
+                root_merge_manifest_lease
             )
             if resolved_root_composite is None:
                 return (
                     None,
-                    "composite ROOT annotation provenance is not an exact "
-                    "direct-member manifest",
+                    "composite ROOT annotation provenance is not an exact direct-member manifest",
                 )
-            root_rows, _root_work_limit, _root_workspace_limit = (
-                resolved_root_composite
-            )
+            root_rows, _root_work_limit, _root_workspace_limit = resolved_root_composite
             direct_closure_rows = tuple(
                 (
                     member,
                     included,
                     excluded,
-                    scope_map
-                    if type(scope_map) is memoryview
-                    else None,
+                    scope_map if type(scope_map) is memoryview else None,
                 )
                 for member, included, excluded, scope_map in closure_rows
             )
@@ -1926,25 +1911,17 @@ def prepare_native_encoded_direct(
             )
             for value in values
         ):
-            raise TypeError(
-                "dynamic composite selectors must be memoryviews or None"
-            )
+            raise TypeError("dynamic composite selectors must be memoryviews or None")
         if composite_member_paths:
             if not all(
-                type(value) is tuple
-                and all(type(scope_map) is memoryview for scope_map in value)
+                type(value) is tuple and all(type(scope_map) is memoryview for scope_map in value)
                 for value in composite_anonymous_scope_maps
             ):
-                raise TypeError(
-                    "recursive composite scope maps must be exact memoryview tuples"
-                )
+                raise TypeError("recursive composite scope maps must be exact memoryview tuples")
         elif not all(
-            value is None or type(value) is memoryview
-            for value in composite_anonymous_scope_maps
+            value is None or type(value) is memoryview for value in composite_anonymous_scope_maps
         ):
-            raise TypeError(
-                "direct composite scope maps must be memoryviews or None"
-            )
+            raise TypeError("direct composite scope maps must be memoryviews or None")
         if any(
             included is not None and excluded is not None
             for included, excluded in zip(
@@ -1967,9 +1944,7 @@ def prepare_native_encoded_direct(
                     "recursive composite paths must be nonempty exact nonnegative-int tuples"
                 )
         elif retain_empty_direct_leaves:
-            raise ValueError(
-                "retaining empty direct leaves requires a recursive composite plan"
-            )
+            raise ValueError("retaining empty direct leaves requires a recursive composite plan")
         if composite_member_paths:
             public_overlay_depth = _public_limit(
                 merge_manifest_lease.owner,
@@ -2000,23 +1975,17 @@ def prepare_native_encoded_direct(
                 or len(composite_root_included_root_ids) != member_count
                 or len(composite_root_excluded_root_ids) != member_count
                 or len(composite_root_anonymous_scope_maps) != member_count
-                or len(composite_root_member_paths)
-                not in {0, member_count}
+                or len(composite_root_member_paths) not in {0, member_count}
             ):
                 raise ValueError(
                     "dynamic composite ROOT plan must pair one row with every closure member"
                 )
             if root_merge_manifest_lease is None:
                 raise ValueError("dynamic composite ROOT plan requires its exact manifest lease")
-            if bool(composite_root_member_paths) != bool(
-                composite_member_paths
-            ):
-                raise ValueError(
-                    "dynamic composite ROOT plan must use the CLOSURE path form"
-                )
+            if bool(composite_root_member_paths) != bool(composite_member_paths):
+                raise ValueError("dynamic composite ROOT plan must use the CLOSURE path form")
             if not all(
-                type(member) is EncodedStructuralLease
-                for member in composite_root_member_leases
+                type(member) is EncodedStructuralLease for member in composite_root_member_leases
             ):
                 raise TypeError(
                     "dynamic composite ROOT members must be EncodedStructuralLease values"
@@ -2029,45 +1998,30 @@ def prepare_native_encoded_direct(
                 )
                 for value in values
             ):
-                raise TypeError(
-                    "dynamic composite ROOT selectors must be memoryviews or None"
-                )
+                raise TypeError("dynamic composite ROOT selectors must be memoryviews or None")
             if composite_root_member_paths:
                 if not all(
                     type(value) is tuple
-                    and all(
-                        type(scope_map) is memoryview
-                        for scope_map in value
-                    )
+                    and all(type(scope_map) is memoryview for scope_map in value)
                     for value in composite_root_anonymous_scope_maps
                 ):
                     raise TypeError(
-                        "recursive composite ROOT scope maps must be exact "
-                        "memoryview tuples"
+                        "recursive composite ROOT scope maps must be exact memoryview tuples"
                     )
-                if (
-                    composite_root_member_paths != composite_member_paths
-                    or not all(
-                        type(path) is tuple
-                        and path
-                        and all(
-                            type(index) is int and index >= 0
-                            for index in path
-                        )
-                        for path in composite_root_member_paths
-                    )
+                if composite_root_member_paths != composite_member_paths or not all(
+                    type(path) is tuple
+                    and path
+                    and all(type(index) is int and index >= 0 for index in path)
+                    for path in composite_root_member_paths
                 ):
                     raise ValueError(
-                        "recursive composite ROOT paths must exactly pair "
-                        "the CLOSURE coordinates"
+                        "recursive composite ROOT paths must exactly pair the CLOSURE coordinates"
                     )
             elif not all(
                 value is None or type(value) is memoryview
                 for value in composite_root_anonymous_scope_maps
             ):
-                raise TypeError(
-                    "direct composite ROOT scope maps must be memoryviews or None"
-                )
+                raise TypeError("direct composite ROOT scope maps must be memoryviews or None")
             if any(
                 included is not None and excluded is not None
                 for included, excluded in zip(
@@ -2114,8 +2068,7 @@ def prepare_native_encoded_direct(
         _validated_direct_descriptor_digest(member) for member in composite_member_leases
     )
     composite_root_member_descriptor_sha256 = tuple(
-        _validated_direct_descriptor_digest(member)
-        for member in composite_root_member_leases
+        _validated_direct_descriptor_digest(member) for member in composite_root_member_leases
     )
     local_delta_descriptor_sha256: bytes | None = None
     third_member_descriptor_sha256: bytes | None = None
@@ -2168,11 +2121,7 @@ def prepare_native_encoded_direct(
         or retain_empty_direct_leaves
     ):
         raise ValueError("canonical merge limits require a local delta lease")
-    if (
-        not dynamic_composite
-        and third_member_lease is not None
-        and merge_manifest_lease is None
-    ):
+    if not dynamic_composite and third_member_lease is not None and merge_manifest_lease is None:
         raise ValueError("third composite member requires a composite manifest lease")
     if (
         not dynamic_composite
@@ -2200,11 +2149,7 @@ def prepare_native_encoded_direct(
         and (third_member_lease is None or merge_manifest_lease is None)
     ):
         raise ValueError("nested composite member requires three retained merge tables")
-    if (
-        not dynamic_composite
-        and third_member_lease is None
-        and third_excluded_root_ids is not None
-    ):
+    if not dynamic_composite and third_member_lease is None and third_excluded_root_ids is not None:
         raise ValueError("third EXCLUDE root selection requires a third composite member")
     if (
         not dynamic_composite
@@ -2212,17 +2157,9 @@ def prepare_native_encoded_direct(
         and fourth_excluded_root_ids is not None
     ):
         raise ValueError("fourth EXCLUDE root selection requires a fourth composite member")
-    if (
-        not dynamic_composite
-        and nested_member_lease is not None
-        and included_root_ids is not None
-    ):
+    if not dynamic_composite and nested_member_lease is not None and included_root_ids is not None:
         raise ValueError("nested composite member does not support outer INCLUDE")
-    if (
-        not dynamic_composite
-        and included_root_ids is not None
-        and merge_manifest_lease is None
-    ):
+    if not dynamic_composite and included_root_ids is not None and merge_manifest_lease is None:
         raise ValueError("INCLUDE root selection requires a composite manifest lease")
     if (
         not dynamic_composite
@@ -2269,11 +2206,7 @@ def prepare_native_encoded_direct(
             and nested_member_lease is local_delta_lease
         )
         if (
-            not (
-                exact_two_member
-                or exact_nested_member
-                or exact_four_table_nested_member
-            )
+            not (exact_two_member or exact_nested_member or exact_four_table_nested_member)
             or included_root_ids is not None
             or (
                 excluded_root_ids is not None
@@ -2287,10 +2220,7 @@ def prepare_native_encoded_direct(
                 third_excluded_root_ids is not None
                 and not (exact_nested_member or exact_four_table_nested_member)
             )
-            or (
-                fourth_excluded_root_ids is not None
-                and not exact_four_table_nested_member
-            )
+            or (fourth_excluded_root_ids is not None and not exact_four_table_nested_member)
         ):
             raise ValueError(
                 "scope remapping requires an exact two-member or bounded nested-member composite"
@@ -2399,9 +2329,7 @@ def prepare_native_encoded_direct(
                     strict=True,
                 )
             )
-            composite_root_members: (
-                tuple[tuple[object, ...], ...] | None
-            )
+            composite_root_members: tuple[tuple[object, ...], ...] | None
             if composite_root_member_paths:
                 composite_root_members = tuple(
                     (

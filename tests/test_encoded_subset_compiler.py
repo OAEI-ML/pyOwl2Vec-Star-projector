@@ -841,9 +841,7 @@ def test_canonical_cursor_rejects_a_cyclic_node_graph_without_recursion() -> Non
     lease = _lease(view)
     columns = _EncodedColumns(lease)
     complement_id = next(
-        node_id
-        for node_id in range(1, columns.node_count + 1)
-        if columns.node_tag(node_id) == 32
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 32
     )
     field_index = columns._exact_fields(complement_id, 1)
     buffers = dict(lease.buffers)
@@ -3440,8 +3438,7 @@ def test_imported_annotation_provenance_resolves_segmented_root_selection() -> N
     assert len(prepared._annotation_provenance_leases) == 2
     assert all(item.owner is view for item in prepared._annotation_provenance_leases)
     assert all(
-        item.scope is pyowl_core.AxiomScope.ROOT
-        for item in prepared._annotation_provenance_leases
+        item.scope is pyowl_core.AxiomScope.ROOT for item in prepared._annotation_provenance_leases
     )
     assert list(prepared.iter_raw_edges()) == expected
     assert actual == expected
@@ -11617,16 +11614,13 @@ def test_deep_class_expression_graph_is_validated_iteratively() -> None:
     depth = 1_200
     view = _snapshot(
         " ".join(
-            f"SubClassOf(:Root{index} ObjectComplementOf(:Leaf{index}))"
-            for index in range(depth)
+            f"SubClassOf(:Root{index} ObjectComplementOf(:Leaf{index}))" for index in range(depth)
         )
     )
     lease = _lease(view)
     columns = _EncodedColumns(lease)
     complement_ids = tuple(
-        node_id
-        for node_id in range(1, columns.node_count + 1)
-        if columns.node_tag(node_id) == 32
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 32
     )
     assert len(complement_ids) == depth
     buffers = dict(lease.buffers)
@@ -12663,9 +12657,7 @@ def test_deep_data_range_graph_is_validated_iteratively() -> None:
     lease = _lease(view)
     columns = _EncodedColumns(lease)
     complement_ids = tuple(
-        node_id
-        for node_id in range(1, columns.node_count + 1)
-        if columns.node_tag(node_id) == 23
+        node_id for node_id in range(1, columns.node_count + 1) if columns.node_tag(node_id) == 23
     )
     assert len(complement_ids) == depth
     buffers = dict(lease.buffers)

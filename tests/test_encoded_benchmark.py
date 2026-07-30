@@ -132,9 +132,7 @@ def test_private_candidate_records_bound_counter_evidence_without_public_accepta
     assert result["source_revisions"] == {"projector": "1" * 40, "core": "2" * 40}
     assert result["production_acceptance"]["private_candidate_is_public"] is False
     blockers = result["production_acceptance"]["known_private_candidate_blockers"]
-    assert blockers == [
-        "private-candidate-evidence-cannot-substitute-for-public-acceptance"
-    ]
+    assert blockers == ["private-candidate-evidence-cannot-substitute-for-public-acceptance"]
 
     native_artifact = result["runtime_binding"]["projector"]["native_extension"]
     assert native_artifact["available"] is True

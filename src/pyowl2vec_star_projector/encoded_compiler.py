@@ -2620,8 +2620,7 @@ class _EncodedColumns:
             _TAG_DATA_COMPLEMENT_OF,
         }
         if not any(
-            self.node_tag(node_id) in recursive_tags
-            for node_id in range(1, self.node_count + 1)
+            self.node_tag(node_id) in recursive_tags for node_id in range(1, self.node_count + 1)
         ):
             return
 
@@ -2681,8 +2680,7 @@ class _EncodedColumns:
 
         recursive_tags = _AGGREGATE_TAGS | {_TAG_OBJECT_COMPLEMENT_OF}
         if not any(
-            self.node_tag(node_id) in recursive_tags
-            for node_id in range(1, self.node_count + 1)
+            self.node_tag(node_id) in recursive_tags for node_id in range(1, self.node_count + 1)
         ):
             return
 
@@ -2811,9 +2809,7 @@ class _CanonicalCursor:
             return cached
         self.columns.node_tag(node_id)
         active = {node_id}
-        frames: list[tuple[int, Iterator[int]]] = [
-            (node_id, self._iter_node_child_ids(node_id))
-        ]
+        frames: list[tuple[int, Iterator[int]]] = [(node_id, self._iter_node_child_ids(node_id))]
         while frames:
             current_id, children = frames[-1]
             try:
@@ -3544,11 +3540,7 @@ def _resolve_segment_groups(
                 pending_base = frame.pending_segment
                 pending_source_lease = frame.pending_source
                 source_groups = frame.pending_groups
-                if (
-                    pending_base is None
-                    or pending_source_lease is None
-                    or source_groups is None
-                ):
+                if pending_base is None or pending_source_lease is None or source_groups is None:
                     raise AssertionError("overlay segment dependency was not resolved")
                 source_groups = _apply_group_scope_map(
                     source_groups,
@@ -3592,11 +3584,7 @@ def _resolve_segment_groups(
                     expected = (_SEGMENT_COMPOSITE_MEMBER,) * frame.member_count + (
                         (_SEGMENT_COMPOSITE_BRIDGE,) if frame.bridge_count else ()
                     )
-                    if (
-                        frame.member_count < 2
-                        or frame.bridge_count > 1
-                        or frame.roles != expected
-                    ):
+                    if frame.member_count < 2 or frame.bridge_count > 1 or frame.roles != expected:
                         raise SnapshotCompatibilityError(
                             "encoded subset composite segment roles are invalid"
                         )

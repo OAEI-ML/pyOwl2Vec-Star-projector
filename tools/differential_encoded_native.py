@@ -131,20 +131,11 @@ def generate_case(seed: int) -> GeneratedCase:
         "InverseObjectProperties(:p0 :p2)",
         "SubObjectPropertyOf(ObjectPropertyChain(:p2 ObjectInverseOf(:p3)) :p0)",
         f"SubClassOf({tax_sub} {tax_super})",
-        (
-            f'SubClassOf(Annotation(:meta "variant-{metadata_value}") '
-            f"{tax_sub} {tax_super})"
-        ),
+        (f'SubClassOf(Annotation(:meta "variant-{metadata_value}") {tax_sub} {tax_super})'),
         f"SubClassOf(:C2 ObjectSomeValuesFrom({restriction_role} :C3))",
         f"SubClassOf(ObjectAllValuesFrom(ObjectInverseOf({role}) :C4) :C5)",
-        (
-            f"SubClassOf(:C6 ObjectMinCardinality({min_cardinality} "
-            f"{restriction_role} :C7))"
-        ),
-        (
-            f"SubClassOf(ObjectMaxCardinality({max_cardinality} "
-            f"{restriction_role} :C0) :C1)"
-        ),
+        (f"SubClassOf(:C6 ObjectMinCardinality({min_cardinality} {restriction_role} :C7))"),
+        (f"SubClassOf(ObjectMaxCardinality({max_cardinality} {restriction_role} :C0) :C1)"),
         f"SubClassOf(:C3 ObjectHasSelf({role}))",
         f"EquivalentClasses({pair_first} {pair_second} :C7)",
         (
@@ -154,10 +145,7 @@ def generate_case(seed: int) -> GeneratedCase:
         f"EquivalentClasses(:C7 ObjectSomeValuesFrom({restriction_role} :C0))",
         f"ClassAssertion({assertion_class} {source_individual})",
         f"ClassAssertion(:C1 _:anonymous-{seed:x})",
-        (
-            f"ObjectPropertyAssertion({role} {source_individual} "
-            f"_:target-{generator.next():x})"
-        ),
+        (f"ObjectPropertyAssertion({role} {source_individual} _:target-{generator.next():x})"),
         (
             "NegativeObjectPropertyAssertion("
             f"ObjectInverseOf(:p2) _:negative-{generator.next():x} {target_individual})"
@@ -183,10 +171,7 @@ def generate_case(seed: int) -> GeneratedCase:
             f'<urn:not-a-class-{seed:x}> "ignored")'
         ),
         f"FunctionalObjectProperty({role})",
-        (
-            f"SameIndividual({source_individual} {target_individual} "
-            f"_:same-{generator.next():x})"
-        ),
+        (f"SameIndividual({source_individual} {target_individual} _:same-{generator.next():x})"),
         f'DataPropertyAssertion(:dp {source_individual} "value-{generator.next():x}")',
         f"DisjointClasses({tax_sub} {tax_super})",
         f"HasKey({assertion_class} (:p0) (:dp))",
@@ -196,8 +181,7 @@ def generate_case(seed: int) -> GeneratedCase:
     ontology_annotation = f'Annotation(:meta "ontology-{generator.next():x}")'
     body = " ".join((ontology_annotation, *declarations, *axioms))
     source = (
-        f"Prefix(:=<urn:p7-generated-{seed:x}#>) "
-        f"Ontology(<urn:p7-generated-{seed:x}> {body})"
+        f"Prefix(:=<urn:p7-generated-{seed:x}#>) Ontology(<urn:p7-generated-{seed:x}> {body})"
     ).encode()
     options = ProjectionOptions(
         backend="python",
@@ -269,9 +253,7 @@ def _assert_semantic_parity(
     )
     for label, observed, wanted in pairs:
         if observed != wanted:
-            raise DifferentialMismatch(
-                f"seed {seed} provider {provider}: {label} differs"
-            )
+            raise DifferentialMismatch(f"seed {seed} provider {provider}: {label} differs")
 
 
 def _run_case(
@@ -390,11 +372,7 @@ def run_campaign(
     for seed in range(first_seed, first_seed + cases):
         case = generate_case(seed)
         option_key = _json_sha256(
-            {
-                name: value
-                for name, value in case.options.to_dict().items()
-                if name != "backend"
-            }
+            {name: value for name, value in case.options.to_dict().items() if name != "backend"}
         )
         for selected_provider in providers:
             selected_buffer_edges = 1 + ((buffer_edges - 1 + seed) % buffer_edges)

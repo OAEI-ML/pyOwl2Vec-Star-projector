@@ -1402,8 +1402,7 @@ def test_public_recursive_composites_retain_scala_instance_role_lifecycle_native
     )
     conflict_view = recursive(
         "SubObjectPropertyOf(:other :p)",
-        "InverseObjectProperties(:p :otherInverse) "
-        "SubClassOf(:X ObjectSomeValuesFrom(:p :Y))",
+        "InverseObjectProperties(:p :otherInverse) SubClassOf(:X ObjectSomeValuesFrom(:p :Y))",
     )
     python_options = ProjectionOptions(
         backend="python",
@@ -1485,10 +1484,7 @@ def test_public_recursive_scala_state_does_not_commit_failed_output_and_retries(
     members = (
         cast(
             pyowl_core.OntologyView,
-            _snapshot(
-                "SubObjectPropertyOf(:other :p) "
-                "InverseObjectProperties(:p :otherInverse)"
-            ),
+            _snapshot("SubObjectPropertyOf(:other :p) InverseObjectProperties(:p :otherInverse)"),
         ),
         cast(
             pyowl_core.OntologyView,
@@ -1522,9 +1518,7 @@ def test_public_recursive_scala_state_does_not_commit_failed_output_and_retries(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "recursive failed-output retry reached scalar traversal"
-            ),
+            side_effect=AssertionError("recursive failed-output retry reached scalar traversal"),
         ),
         pytest.raises(ProjectionResourceError),
     ):
@@ -1543,9 +1537,7 @@ def test_public_recursive_scala_state_does_not_commit_failed_output_and_retries(
     with patch.object(
         api_module,
         "prepare_streaming_compilation",
-        side_effect=AssertionError(
-            "recursive failed-output retry reached scalar traversal"
-        ),
+        side_effect=AssertionError("recursive failed-output retry reached scalar traversal"),
     ):
         actual = list(
             projector.iter_edges(
@@ -2684,23 +2676,12 @@ def test_hidden_iterator_combines_nested_scope_maps_with_local_delta_selection(
     assert compilation.composite_member_leases == tuple(row[0] for row in expected_rows)
     assert compilation.composite_included_root_ids == tuple(row[1] for row in expected_rows)
     assert compilation.composite_excluded_root_ids == tuple(row[2] for row in expected_rows)
-    assert compilation.composite_anonymous_scope_maps == tuple(
-        row[3] for row in expected_rows
-    )
+    assert compilation.composite_anonymous_scope_maps == tuple(row[3] for row in expected_rows)
     assert compilation.composite_member_paths == expected_paths
     assert compiler.composite_member_leases == compilation.composite_member_leases
-    assert (
-        compiler.composite_included_root_ids
-        == compilation.composite_included_root_ids
-    )
-    assert (
-        compiler.composite_excluded_root_ids
-        == compilation.composite_excluded_root_ids
-    )
-    assert (
-        compiler.composite_anonymous_scope_maps
-        == compilation.composite_anonymous_scope_maps
-    )
+    assert compiler.composite_included_root_ids == compilation.composite_included_root_ids
+    assert compiler.composite_excluded_root_ids == compilation.composite_excluded_root_ids
+    assert compiler.composite_anonymous_scope_maps == compilation.composite_anonymous_scope_maps
     assert compiler.composite_member_paths == compilation.composite_member_paths
     assert compilation.native_statistics.roots == 2
     assert compilation.native_statistics.object_property_assertions == 2
@@ -2875,9 +2856,7 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
 
     outer_selected_count = int(exclude_nested_delta) + int(exclude_neutral_direct)
     selector_count = (
-        outer_selected_count
-        + int(exclude_base_named)
-        + int(exclude_mapped_direct_named)
+        outer_selected_count + int(exclude_base_named) + int(exclude_mapped_direct_named)
     )
     expected_edges = 4 - outer_selected_count
     assert actual == expected
@@ -2894,23 +2873,12 @@ def test_hidden_iterator_combines_four_tables_with_two_scope_maps(
     assert compilation.composite_member_leases == tuple(row[0] for row in expected_rows)
     assert compilation.composite_included_root_ids == tuple(row[1] for row in expected_rows)
     assert compilation.composite_excluded_root_ids == tuple(row[2] for row in expected_rows)
-    assert compilation.composite_anonymous_scope_maps == tuple(
-        row[3] for row in expected_rows
-    )
+    assert compilation.composite_anonymous_scope_maps == tuple(row[3] for row in expected_rows)
     assert compilation.composite_member_paths == expected_paths
     assert compiler.composite_member_leases == compilation.composite_member_leases
-    assert (
-        compiler.composite_included_root_ids
-        == compilation.composite_included_root_ids
-    )
-    assert (
-        compiler.composite_excluded_root_ids
-        == compilation.composite_excluded_root_ids
-    )
-    assert (
-        compiler.composite_anonymous_scope_maps
-        == compilation.composite_anonymous_scope_maps
-    )
+    assert compiler.composite_included_root_ids == compilation.composite_included_root_ids
+    assert compiler.composite_excluded_root_ids == compilation.composite_excluded_root_ids
+    assert compiler.composite_anonymous_scope_maps == compilation.composite_anonymous_scope_maps
     assert compiler.composite_member_paths == compilation.composite_member_paths
     assert compilation.native_statistics.roots == expected_edges
     assert compilation.native_statistics.subclasses == 2 - outer_selected_count
@@ -10698,9 +10666,7 @@ def _scope_mapped_nested_overlay_composite(
     base = cast(
         pyowl_core.OntologyView,
         _snapshot(
-            f"{assertion} SubClassOf(:DropBase :Top)"
-            if exclude_base_named
-            else assertion,
+            f"{assertion} SubClassOf(:DropBase :Top)" if exclude_base_named else assertion,
             backend=provider_backend,
         ),
     )
@@ -10711,11 +10677,7 @@ def _scope_mapped_nested_overlay_composite(
     sibling = cast(
         pyowl_core.OntologyView,
         _snapshot(
-            (
-                f"{assertion} SubClassOf(:DropMapped :Top)"
-                if exclude_direct_named
-                else assertion
-            ),
+            (f"{assertion} SubClassOf(:DropMapped :Top)" if exclude_direct_named else assertion),
             backend=provider_backend,
         ),
     )
@@ -10764,14 +10726,12 @@ def _forge_selected_scope_mapped_members(
     nested_index = next(
         index
         for index, segment in enumerate(top_segments)
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (2, 3)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (2, 3)
     )
     direct_index = next(
         index
         for index, segment in enumerate(top_segments)
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (1,)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (1,)
         and any(
             type(axiom).__name__ == "ObjectPropertyAssertion"
             for axiom in cast(Any, segment).source.owner.iter_axioms()
@@ -10780,18 +10740,14 @@ def _forge_selected_scope_mapped_members(
     nested_scope_map = next(
         cast(Any, segment).anonymous_scope_map
         for segment in scope_segments
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (2, 3)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (2, 3)
     )
     direct_scope_maps = {
         bytes(cast(Any, segment).member_token): cast(Any, segment).anonymous_scope_map
         for segment in scope_segments
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (1,)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (1,)
     }
-    mapped_direct_scope_map = next(
-        value for value in direct_scope_maps.values() if value.nbytes
-    )
+    mapped_direct_scope_map = next(value for value in direct_scope_maps.values() if value.nbytes)
     assert nested_scope_map.nbytes == 64
     assert sum(value.nbytes == 64 for value in direct_scope_maps.values()) == 1
 
@@ -10802,15 +10758,13 @@ def _forge_selected_scope_mapped_members(
     source_nested = next(
         cast(Any, segment).source
         for segment in scope_segments
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (2, 3)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (2, 3)
     )
     source_base_view = cast(Any, source_nested.segments[0]).source
     source_direct_view = next(
         cast(Any, segment).source
         for segment in scope_segments
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (1,)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (1,)
         and cast(Any, segment).anonymous_scope_map.nbytes
     )
 
@@ -10839,10 +10793,7 @@ def _forge_selected_scope_mapped_members(
             donor_key,
             source_key,
         )
-        buffers = {
-            name: memoryview(bytes(value))
-            for name, value in view.buffers.items()
-        }
+        buffers = {name: memoryview(bytes(value)) for name, value in view.buffers.items()}
         buffers["scalar_bytes"] = memoryview(scalar_bytes)
         selected = replace(
             view,
@@ -10887,8 +10838,7 @@ def _forge_selected_scope_mapped_members(
         )
     for index, segment in enumerate(top_segments):
         roles = tuple(
-            cast(Any, child).role
-            for child in cast(Any, cast(Any, segment).source).segments
+            cast(Any, child).role for child in cast(Any, cast(Any, segment).source).segments
         )
         top_segments[index] = replace(
             cast(Any, segment),
@@ -11028,8 +10978,7 @@ def _forged_scope_mapped_four_table_nested_excludes(
         pyowl_core.OntologyView,
         _snapshot(
             (
-                "ObjectPropertyAssertion(:p _:same :j) "
-                "SubClassOf(:DropMapped :Top)"
+                "ObjectPropertyAssertion(:p _:same :j) SubClassOf(:DropMapped :Top)"
                 if exclude_mapped_direct_named
                 else "ObjectPropertyAssertion(:p _:same :j)"
             ),
@@ -11112,14 +11061,12 @@ def _forged_scope_mapped_four_table_nested_excludes(
     nested_index = next(
         index
         for index, segment in enumerate(segments)
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (2, 3)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (2, 3)
     )
     neutral_index = next(
         index
         for index, segment in enumerate(segments)
-        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments)
-        == (1,)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (1,)
         and not cast(Any, segment).anonymous_scope_map.nbytes
     )
     nested_segment = cast(Any, segments[nested_index])
@@ -14329,9 +14276,7 @@ def test_public_recursive_composite_activates_all_root_rules_in_every_mode(
             patch.object(
                 api_module,
                 "prepare_streaming_compilation",
-                side_effect=AssertionError(
-                    "recursive all-rule composite reached scalar traversal"
-                ),
+                side_effect=AssertionError("recursive all-rule composite reached scalar traversal"),
             ),
         ):
             projector = Projector()
@@ -14357,15 +14302,11 @@ def test_public_recursive_composite_activates_all_root_rules_in_every_mode(
     for field in _ALL_DYNAMIC_STATISTIC_FIELDS:
         assert getattr(statistics, field) == 1, field
     assert statistics.object_property_chains == 0
-    assert statistics.skipped_axioms == (
-        0 if mode == "asserted-taxonomy" else 27
-    )
+    assert statistics.skipped_axioms == (0 if mode == "asserted-taxonomy" else 27)
     assert statistics.equivalent_base_edges == (
         0 if mode == "asserted-taxonomy" else 1 if mode == "only-taxonomy" else 2
     )
-    assert statistics.domain_range_edges == (
-        0 if mode == "asserted-taxonomy" else 1
-    )
+    assert statistics.domain_range_edges == (0 if mode == "asserted-taxonomy" else 1)
     assert statistics.role_expansion_edges == (
         0 if mode == "asserted-taxonomy" else 2 if mode == "only-taxonomy" else 4
     )
@@ -14408,9 +14349,7 @@ def test_public_recursive_composite_pairs_root_annotations_without_flattening(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "recursive ROOT-rule composite reached scalar traversal"
-            ),
+            side_effect=AssertionError("recursive ROOT-rule composite reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -14440,9 +14379,7 @@ def test_public_recursive_composite_pairs_root_annotations_without_flattening(
     assert statistics.annotation_edges == 1
     assert statistics.root_provenance_buffer_bytes > 0
     assert statistics.edges == len(actual)
-    assert [
-        edge.destination for edge in actual if edge.relation == "rdfs:label"
-    ] == ["label"]
+    assert [edge.destination for edge in actual if edge.relation == "rdfs:label"] == ["label"]
 
 
 def test_public_recursive_composite_retains_empty_leaf_for_single_emitter(
@@ -14493,9 +14430,7 @@ def test_public_recursive_composite_retains_empty_leaf_for_single_emitter(
         return result
 
     def fail_scalar_compilation(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError(
-            "single-emitter recursive composite reached scalar traversal"
-        )
+        raise AssertionError("single-emitter recursive composite reached scalar traversal")
 
     monkeypatch.setattr(
         api_module,
@@ -14524,10 +14459,13 @@ def test_public_recursive_composite_retains_empty_leaf_for_single_emitter(
     assert len(captured) == 1
     compilation = captured[0]
     assert len(compilation.composite_member_leases) == 2
-    assert sum(
-        bool(member.buffers["root_kinds"].nbytes)
-        for member in compilation.composite_member_leases
-    ) == 1
+    assert (
+        sum(
+            bool(member.buffers["root_kinds"].nbytes)
+            for member in compilation.composite_member_leases
+        )
+        == 1
+    )
     assert compilation.native_statistics.roots == 1
     assert compilation.native_statistics.edges == 1
 
@@ -14603,9 +14541,7 @@ def test_public_recursive_include_retains_empty_sibling_after_pruning(
     expected_report = _completed_report(expected_projector)
 
     def fail_scalar_compilation(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError(
-            "selector-pruned recursive plan reached scalar traversal"
-        )
+        raise AssertionError("selector-pruned recursive plan reached scalar traversal")
 
     monkeypatch.setattr(
         api_module,
@@ -14678,9 +14614,7 @@ def test_public_recursive_stacked_selector_manifest_fails_closed(
     assert selected.lease is not None
     segments = list(selected.lease.segments)
     nested_index = next(
-        index
-        for index, segment in enumerate(segments)
-        if cast(Any, segment).owner is nested
+        index for index, segment in enumerate(segments) if cast(Any, segment).owner is nested
     )
     nested_encoded = cast(Any, segments[nested_index]).source
     nested_segments = list(nested_encoded.segments)
@@ -14774,9 +14708,7 @@ def test_public_iterator_compiles_nested_empty_alias_and_delta_graph() -> None:
     with patch.object(
         api_module,
         "prepare_streaming_compilation",
-        side_effect=AssertionError(
-            "nested empty-alias/delta graph reached scalar traversal"
-        ),
+        side_effect=AssertionError("nested empty-alias/delta graph reached scalar traversal"),
     ):
         projector = Projector()
         actual = list(
@@ -14818,11 +14750,7 @@ def test_recursive_root_pair_binds_omitted_overlay_delta_to_empty_table() -> Non
     )
     annotation = cast(
         pyowl_core.OntologyView,
-        _snapshot(
-            "AnnotationAssertion("
-            "<http://www.w3.org/2000/01/rdf-schema#label> :A "
-            '"label")'
-        ),
+        _snapshot('AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "label")'),
     )
     top = cast(
         pyowl_core.OntologyView,
@@ -14889,21 +14817,19 @@ def test_recursive_root_pair_binds_omitted_overlay_delta_to_empty_table() -> Non
     assert compilation.composite_member_paths == paths
     assert compilation.composite_root_member_paths == paths
     delta_index = paths.index((1, 1))
-    assert (
-        compilation.composite_member_leases[delta_index]
-        .buffers["root_kinds"]
-        .nbytes
-        == 1
-    )
+    assert compilation.composite_member_leases[delta_index].buffers["root_kinds"].nbytes == 1
     omitted_root = compilation.composite_root_member_leases[delta_index]
     assert omitted_root.owner is overlay
     assert omitted_root.buffers["root_kinds"].nbytes == 0
     assert tuple(cast(Any, segment).role for segment in omitted_root.segments) == (2,)
-    assert Edge(
-        "urn:native-integration#B",
-        "http://subclassof",
-        "urn:native-integration#Top",
-    ) in actual
+    assert (
+        Edge(
+            "urn:native-integration#B",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        in actual
+    )
     assert Edge("urn:native-integration#A", "rdfs:label", "label") in actual
 
 
@@ -14914,11 +14840,7 @@ def test_recursive_root_pair_binds_omitted_composite_bridge_to_empty_table() -> 
     )
     annotation = cast(
         pyowl_core.OntologyView,
-        _snapshot(
-            "AnnotationAssertion("
-            "<http://www.w3.org/2000/01/rdf-schema#label> :A "
-            '"label")'
-        ),
+        _snapshot('AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> :A "label")'),
     )
     addition = cast(
         pyowl_core.OntologyView,
@@ -15031,21 +14953,19 @@ def test_recursive_root_pair_binds_omitted_composite_bridge_to_empty_table() -> 
     assert compilation.composite_member_paths == paths
     assert compilation.composite_root_member_paths == paths
     bridge_index = paths.index((2,))
-    assert (
-        compilation.composite_member_leases[bridge_index]
-        .buffers["root_kinds"]
-        .nbytes
-        == 1
-    )
+    assert compilation.composite_member_leases[bridge_index].buffers["root_kinds"].nbytes == 1
     omitted_root = compilation.composite_root_member_leases[bridge_index]
     assert omitted_root.owner is top
     assert omitted_root.buffers["root_kinds"].nbytes == 0
     assert tuple(cast(Any, segment).role for segment in omitted_root.segments) == (4, 4)
-    assert Edge(
-        "urn:native-integration#B",
-        "http://subclassof",
-        "urn:native-integration#Top",
-    ) in actual
+    assert (
+        Edge(
+            "urn:native-integration#B",
+            "http://subclassof",
+            "urn:native-integration#Top",
+        )
+        in actual
+    )
     assert Edge("urn:native-integration#A", "rdfs:label", "label") in actual
 
 
@@ -15084,9 +15004,9 @@ def test_recursive_paired_manifests_share_one_native_validation_budget() -> None
     )
     by_scope: dict[object, dict[int, EncodedStructuralLease]] = {}
     for retained_lease in retained:
-        by_scope.setdefault(retained_lease.scope, {})[
-            id(retained_lease.encoded_view)
-        ] = retained_lease
+        by_scope.setdefault(retained_lease.scope, {})[id(retained_lease.encoded_view)] = (
+            retained_lease
+        )
     closure_work = sum(
         encoded_module._private_encoded_lease_validation_work(retained_lease)
         for retained_lease in by_scope[pyowl_core.AxiomScope.CLOSURE].values()
@@ -15109,15 +15029,9 @@ def test_recursive_paired_manifests_share_one_native_validation_budget() -> None
             composite_anonymous_scope_maps=compilation.composite_anonymous_scope_maps,
             composite_member_paths=compilation.composite_member_paths,
             composite_root_member_leases=compilation.composite_root_member_leases,
-            composite_root_included_root_ids=(
-                compilation.composite_root_included_root_ids
-            ),
-            composite_root_excluded_root_ids=(
-                compilation.composite_root_excluded_root_ids
-            ),
-            composite_root_anonymous_scope_maps=(
-                compilation.composite_root_anonymous_scope_maps
-            ),
+            composite_root_included_root_ids=(compilation.composite_root_included_root_ids),
+            composite_root_excluded_root_ids=(compilation.composite_root_excluded_root_ids),
+            composite_root_anonymous_scope_maps=(compilation.composite_root_anonymous_scope_maps),
             composite_root_member_paths=compilation.composite_root_member_paths,
             merge_manifest_lease=source_compiler.merge_manifest_lease,
             root_merge_manifest_lease=source_compiler.root_merge_manifest_lease,
@@ -15125,9 +15039,7 @@ def test_recursive_paired_manifests_share_one_native_validation_budget() -> None
             canonical_workspace_limit=1 << 34,
         )
     assert captured.value.__cause__ is not None
-    assert "paired recursive validation exceeds max_canonical_work" in str(
-        captured.value.__cause__
-    )
+    assert "paired recursive validation exceeds max_canonical_work" in str(captured.value.__cause__)
     source_compiler.cancel()
 
 
@@ -15179,12 +15091,8 @@ def test_hidden_iterator_projects_dynamic_root_literals_with_global_class_signat
     )
     assert len(closure.segments) == len(root.segments) == member_count
     assert [
-        (cast(Any, segment).member_token, cast(Any, segment).owner)
-        for segment in closure.segments
-    ] == [
-        (cast(Any, segment).member_token, cast(Any, segment).owner)
-        for segment in root.segments
-    ]
+        (cast(Any, segment).member_token, cast(Any, segment).owner) for segment in closure.segments
+    ] == [(cast(Any, segment).member_token, cast(Any, segment).owner) for segment in root.segments]
     captured: list[NativeEncodedDirectCompilation] = []
     captured_compilers: list[NativeEncodedDirectCompiler] = []
     real_prepare = native_module.prepare_native_encoded_compilation
@@ -15292,12 +15200,8 @@ def test_hidden_iterator_projects_dynamic_root_literals_with_global_class_signat
                 composite_excluded_root_ids=compilation.composite_excluded_root_ids,
                 composite_anonymous_scope_maps=compilation.composite_anonymous_scope_maps,
                 composite_root_member_leases=compilation.composite_root_member_leases,
-                composite_root_included_root_ids=(
-                    compilation.composite_root_included_root_ids
-                ),
-                composite_root_excluded_root_ids=(
-                    compilation.composite_root_excluded_root_ids
-                ),
+                composite_root_included_root_ids=(compilation.composite_root_included_root_ids),
+                composite_root_excluded_root_ids=(compilation.composite_root_excluded_root_ids),
                 composite_root_anonymous_scope_maps=(
                     compilation.composite_root_anonymous_scope_maps
                 ),
@@ -15371,8 +15275,7 @@ def test_hidden_iterator_projects_dynamic_root_literals_with_global_class_signat
                     compilation.composite_root_excluded_root_ids[index] for index in swapped
                 ),
                 composite_root_anonymous_scope_maps=tuple(
-                    compilation.composite_root_anonymous_scope_maps[index]
-                    for index in swapped
+                    compilation.composite_root_anonymous_scope_maps[index] for index in swapped
                 ),
                 merge_manifest_lease=source_compiler.merge_manifest_lease,
                 root_merge_manifest_lease=source_compiler.root_merge_manifest_lease,
@@ -15496,8 +15399,7 @@ def test_dynamic_root_proof_selects_duplicate_through_another_member(
         b"Declaration(Class(:A)) AnnotationAssertion(" + label + b' :A "duplicate"))'
     )
     imported_root = (
-        b"Prefix(:=<urn:d#>) Ontology(<urn:r15> "
-        b"Import(<urn:leaf>) SubClassOf(:Root15 :Top))"
+        b"Prefix(:=<urn:d#>) Ontology(<urn:r15> Import(<urn:leaf>) SubClassOf(:Root15 :Top))"
     )
     direct_document = (
         b"Prefix(:=<urn:d#>) Ontology(<urn:direct> "
@@ -15511,9 +15413,7 @@ def test_dynamic_root_proof_selects_duplicate_through_another_member(
                 imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
                 backend=provider_backend,
             ),
-            resolver=pyowl_core.MappingResolver(
-                {"urn:leaf": imported_leaf}
-            ),
+            resolver=pyowl_core.MappingResolver({"urn:leaf": imported_leaf}),
         ),
     )
     direct = cast(
@@ -15567,15 +15467,11 @@ def test_dynamic_root_proof_selects_duplicate_through_another_member(
     assert compilation.composite_member_leases[0].owner is imported
     assert compilation.composite_root_member_leases[0].owner is imported
     annotation_tag = (120).to_bytes(2, "little")
-    assert annotation_tag in bytes(
-        compilation.composite_member_leases[0].buffers["node_tags"]
-    )
+    assert annotation_tag in bytes(compilation.composite_member_leases[0].buffers["node_tags"])
     assert annotation_tag not in bytes(
         compilation.composite_root_member_leases[0].buffers["node_tags"]
     )
-    assert annotation_tag in bytes(
-        compilation.composite_root_member_leases[1].buffers["node_tags"]
-    )
+    assert annotation_tag in bytes(compilation.composite_root_member_leases[1].buffers["node_tags"])
     statistics = compilation.native_statistics
     assert statistics.annotation_assertions == 1
     assert statistics.selected_annotation_assertions == 1
@@ -15614,9 +15510,7 @@ def test_dynamic_root_annotation_uses_closure_wide_anonymous_order(
                 imports=pyowl_core.ImportPolicy.RESOLVE_LOCAL,
                 backend=provider_backend,
             ),
-            resolver=pyowl_core.MappingResolver(
-                {"urn:leaf": leaf_document}
-            ),
+            resolver=pyowl_core.MappingResolver({"urn:leaf": leaf_document}),
         ),
     )
     scalar_edges = Projector().project(
@@ -15627,9 +15521,7 @@ def test_dynamic_root_annotation_uses_closure_wide_anonymous_order(
             include_literals=True,
         ),
     )
-    expected_literal = [
-        edge for edge in scalar_edges if edge.relation == "rdfs:label"
-    ]
+    expected_literal = [edge for edge in scalar_edges if edge.relation == "rdfs:label"]
     assert expected_literal == [
         Edge("urn:r0#A", "rdfs:label", "_:genid2147483649"),
     ]
@@ -15816,11 +15708,7 @@ def test_dynamic_paired_validation_uses_one_aggregate_work_budget() -> None:
             root_rows,
         )
     assert captured.value.details["allowed"] == individual_limit
-    assert (
-        individual_limit
-        < captured.value.details["actual"]
-        <= closure_work + root_work
-    )
+    assert individual_limit < captured.value.details["actual"] <= closure_work + root_work
 
     with pytest.raises(ProjectionResourceError) as native_captured:
         prepare_native_encoded_direct(
@@ -16302,9 +16190,7 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
         )
     assert malformed.state == "failed"
 
-    mapped_construct_position = (
-        1 if int.from_bytes(mapped_excluded, "little") == 2 else 2
-    )
+    mapped_construct_position = 1 if int.from_bytes(mapped_excluded, "little") == 2 else 2
     mapped_construct_segments = list(segments)
     mapped_construct_segments[mapped_index] = replace(
         cast(Any, mapped_construct_segments[mapped_index]),
@@ -16320,12 +16206,7 @@ def test_selected_scope_mapped_four_table_rejects_hostile_bindings() -> None:
         encoded_view=mapped_construct_view,
         segments=tuple(mapped_construct_segments),
     )
-    assert (
-        _resolve_private_scope_mapped_four_table_nested_composite(
-            mapped_construct_lease
-        )
-        is None
-    )
+    assert _resolve_private_scope_mapped_four_table_nested_composite(mapped_construct_lease) is None
     mapped_construct = prepare_native_encoded_direct(
         base_lease,
         local_delta_lease=nested_lease,
@@ -17533,24 +17414,13 @@ def test_hidden_iterator_applies_each_four_table_exclusion_locally(
     assert compilation.composite_member_leases == tuple(row[0] for row in expected_rows)
     assert compilation.composite_included_root_ids == tuple(row[1] for row in expected_rows)
     assert compilation.composite_excluded_root_ids == tuple(row[2] for row in expected_rows)
-    assert compilation.composite_anonymous_scope_maps == tuple(
-        row[3] for row in expected_rows
-    )
+    assert compilation.composite_anonymous_scope_maps == tuple(row[3] for row in expected_rows)
     assert compilation.composite_member_paths == expected_paths
     assert all(value is None for value in compilation.composite_included_root_ids)
     assert compiler.composite_member_leases == compilation.composite_member_leases
-    assert (
-        compiler.composite_included_root_ids
-        == compilation.composite_included_root_ids
-    )
-    assert (
-        compiler.composite_excluded_root_ids
-        == compilation.composite_excluded_root_ids
-    )
-    assert (
-        compiler.composite_anonymous_scope_maps
-        == compilation.composite_anonymous_scope_maps
-    )
+    assert compiler.composite_included_root_ids == compilation.composite_included_root_ids
+    assert compiler.composite_excluded_root_ids == compilation.composite_excluded_root_ids
+    assert compiler.composite_anonymous_scope_maps == compilation.composite_anonymous_scope_maps
     assert compiler.composite_member_paths == compilation.composite_member_paths
     assert compilation.native_statistics.roots == len(expected_sources)
     assert compilation.native_statistics.subclasses == len(expected_sources)
@@ -17757,9 +17627,7 @@ def test_four_table_exclusions_reject_hostile_selector_identity_and_range() -> N
         encoded_view=malformed_nested_view,
         segments=tuple(malformed_nested_segments),
     )
-    malformed_nested_resolved = _resolve_private_four_table_nested_composite(
-        malformed_nested_lease
-    )
+    malformed_nested_resolved = _resolve_private_four_table_nested_composite(malformed_nested_lease)
     assert malformed_nested_resolved is not None
     malformed_nested = compiler(
         manifest=malformed_nested_lease,
@@ -17938,9 +17806,7 @@ def test_selected_nested_composites_feed_sink_digest_and_artifact(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "selected nested consumer plan reached scalar traversal"
-            ),
+            side_effect=AssertionError("selected nested consumer plan reached scalar traversal"),
         ),
     ):
         native_sink_report = Projector()._project_native_encoded_to_sink(
@@ -18514,9 +18380,7 @@ def test_scope_mapped_annotation_literals_activate_flat_and_reject_nested(
         patch.object(
             api_module,
             "prepare_streaming_compilation",
-            side_effect=AssertionError(
-                "scope-mapped literal projection reached scalar traversal"
-            ),
+            side_effect=AssertionError("scope-mapped literal projection reached scalar traversal"),
         ),
     ):
         projector = Projector()
@@ -18738,8 +18602,7 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     assert compiler.composite_member_paths == compilation.composite_member_paths
     nested_base_selector = cast(Any, nested_encoded.segments[0]).root_ids
     assert any(
-        selector is nested_base_selector
-        for selector in compilation.composite_excluded_root_ids
+        selector is nested_base_selector for selector in compilation.composite_excluded_root_ids
     )
     assert all(value is None for value in compilation.composite_included_root_ids)
     statistics = compilation.native_statistics
@@ -19165,15 +19028,12 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
             nested_base_encoded,
         )
     assert compilation.composite_member_paths == expected_paths
-    assert tuple(
-        member.encoded_view for member in compilation.composite_member_leases
-    ) == expected_members
-    assert tuple(
-        member.encoded_view for member in compilation.container_leases
-    ) == tuple(
-        retained
-        for retained in retained_views
-        if retained is not expected_members[0]
+    assert (
+        tuple(member.encoded_view for member in compilation.composite_member_leases)
+        == expected_members
+    )
+    assert tuple(member.encoded_view for member in compilation.container_leases) == tuple(
+        retained for retained in retained_views if retained is not expected_members[0]
     )
     assert compilation.lease is compilation.composite_member_leases[0]
     assert compilation.composite_anonymous_scope_maps == expected_scope_maps
@@ -19370,9 +19230,7 @@ def test_hidden_iterator_remaps_nested_silent_scopes_in_one_native_pass(
     assert compiler.composite_member_leases == compilation.composite_member_leases
     assert compiler.composite_member_paths == compilation.composite_member_paths
     retained_scope_maps = tuple(
-        scope_map
-        for chain in compilation.composite_anonymous_scope_maps
-        for scope_map in chain
+        scope_map for chain in compilation.composite_anonymous_scope_maps for scope_map in chain
     )
     assert nested_segment.anonymous_scope_map in retained_scope_maps
     assert direct_segment.anonymous_scope_map in retained_scope_maps
@@ -19890,9 +19748,7 @@ def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
         is None
     )
 
-    direct_construct_position = (
-        1 if int.from_bytes(direct_excluded, "little") == 2 else 2
-    )
+    direct_construct_position = 1 if int.from_bytes(direct_excluded, "little") == 2 else 2
     direct_construct_segments = list(segments)
     direct_construct_segments[direct_index] = replace(
         cast(Any, direct_construct_segments[direct_index]),
@@ -19908,10 +19764,7 @@ def test_selected_scope_mapped_nested_member_rejects_hostile_bindings() -> None:
         encoded_view=direct_construct_view,
         segments=tuple(direct_construct_segments),
     )
-    assert (
-        _resolve_private_scope_mapped_nested_overlay_composite(direct_construct_lease)
-        is None
-    )
+    assert _resolve_private_scope_mapped_nested_overlay_composite(direct_construct_lease) is None
     direct_construct = prepare_native_encoded_direct(
         base_lease,
         local_delta_lease=nested_lease,
@@ -20150,9 +20003,7 @@ def test_nested_exclusions_preserve_identity_and_reject_hostile_selectors() -> N
         encoded_view=nested_selected_view,
         segments=tuple(nested_selected),
     )
-    nested_selected_resolved = _resolve_private_nested_overlay_composite(
-        nested_selected_lease
-    )
+    nested_selected_resolved = _resolve_private_nested_overlay_composite(nested_selected_lease)
     assert nested_selected_resolved is not None
     selected_nested_excluded = nested_selected_resolved[4]
     assert selected_nested_excluded is nested_selected[nested_index].root_ids
@@ -20258,9 +20109,7 @@ def test_nested_exclusions_preserve_identity_and_reject_hostile_selectors() -> N
         encoded_view=malformed_nested_view,
         segments=tuple(malformed_nested_segments),
     )
-    malformed_nested_resolved = _resolve_private_nested_overlay_composite(
-        malformed_nested_lease
-    )
+    malformed_nested_resolved = _resolve_private_nested_overlay_composite(malformed_nested_lease)
     assert malformed_nested_resolved is not None
     malformed_nested = compiler(
         manifest=malformed_nested_lease,
@@ -20440,9 +20289,7 @@ def test_hidden_iterator_flattens_nested_overlay_with_two_direct_siblings(
     assert len(compilation.composite_member_paths) == 4
     assert compiler.composite_member_leases == compilation.composite_member_leases
     assert compiler.composite_member_paths == compilation.composite_member_paths
-    assert any(
-        selector is excluded for selector in compilation.composite_excluded_root_ids
-    )
+    assert any(selector is excluded for selector in compilation.composite_excluded_root_ids)
     assert all(value is None for value in compilation.composite_included_root_ids)
     statistics = compilation.native_statistics
     assert statistics.roots == 5
@@ -21134,10 +20981,7 @@ def test_hidden_iterator_activates_supported_nested_shapes_and_rejects_others(
     assert compilation.composite_root_member_leases == ()
     assert compilation.anonymous_scope_map is None
     assert compilation.right_anonymous_scope_map is None
-    assert all(
-        cast(Any, segment).anonymous_scope_map.nbytes == 0
-        for segment in top_lease.segments
-    )
+    assert all(cast(Any, segment).anonymous_scope_map.nbytes == 0 for segment in top_lease.segments)
     for member_lease in (
         compilation.local_delta_lease,
         compilation.third_member_lease,
@@ -21153,10 +20997,7 @@ def test_hidden_iterator_activates_supported_nested_shapes_and_rejects_others(
     nested_encoded = next(
         cast(Any, segment).source
         for segment in top_lease.segments
-        if tuple(
-            cast(Any, child).role for child in cast(Any, segment).source.segments
-        )
-        == (2, 3)
+        if tuple(cast(Any, child).role for child in cast(Any, segment).source.segments) == (2, 3)
     )
     nested_base_encoded = cast(Any, nested_encoded.segments[0]).source
     assert compilation.lease.encoded_view is nested_base_encoded
@@ -22666,14 +22507,10 @@ def _recursive_repeated_source_dag() -> tuple[
     top_encoded = cast(Any, lease.encoded_view)
     top_segments = list(cast(Any, top_encoded).segments)
     left_index = next(
-        index
-        for index, segment in enumerate(top_segments)
-        if cast(Any, segment).owner is left
+        index for index, segment in enumerate(top_segments) if cast(Any, segment).owner is left
     )
     right_index = next(
-        index
-        for index, segment in enumerate(top_segments)
-        if cast(Any, segment).owner is right
+        index for index, segment in enumerate(top_segments) if cast(Any, segment).owner is right
     )
     left_overlay_encoded = cast(Any, top_segments[left_index]).source
     right_overlay_encoded = cast(Any, top_segments[right_index]).source
@@ -22796,13 +22633,9 @@ def test_recursive_leaf_plan_reuses_dag_sources_at_distinct_paths() -> None:
     compilation = captured[0]
     assert len(compilation.composite_member_paths) == 4
     assert len(set(compilation.composite_member_paths)) == 4
-    source_identities = [
-        id(member.encoded_view) for member in compilation.composite_member_leases
-    ]
+    source_identities = [id(member.encoded_view) for member in compilation.composite_member_leases]
     repeated_identity = next(
-        identity
-        for identity in source_identities
-        if source_identities.count(identity) == 2
+        identity for identity in source_identities if source_identities.count(identity) == 2
     )
     repeated_paths = {
         path
@@ -22815,8 +22648,7 @@ def test_recursive_leaf_plan_reuses_dag_sources_at_distinct_paths() -> None:
     }
     assert len(repeated_paths) == 2
     retained_source_identities = [
-        id(retained.encoded_view)
-        for retained in (compilation.lease, *compilation.container_leases)
+        id(retained.encoded_view) for retained in (compilation.lease, *compilation.container_leases)
     ]
     assert len(retained_source_identities) == len(set(retained_source_identities))
     assert retained_source_identities.count(repeated_identity) == 1
@@ -22837,10 +22669,7 @@ def _recursive_shallow_then_deep_dag(
     )
 
     def load(body: str) -> pyowl_core.OntologyView:
-        source = (
-            "Prefix(:=<urn:native-integration#>) "
-            f"Ontology(<urn:native-integration> {body})"
-        )
+        source = f"Prefix(:=<urn:native-integration#>) Ontology(<urn:native-integration> {body})"
         return cast(
             pyowl_core.OntologyView,
             pyowl_core.load_snapshot(
@@ -22855,11 +22684,9 @@ def _recursive_shallow_then_deep_dag(
 
     shallow = load("SubClassOf(:Shallow :Top)")
     deep_base = load("SubClassOf(:Deep :Top)")
-    deep_view, _deep_lease, deep_chain, _deep_direct = (
-        _recursive_empty_overlay_lease(
-            deep_base,
-            depth=3,
-        )
+    deep_view, _deep_lease, deep_chain, _deep_direct = _recursive_empty_overlay_lease(
+        deep_base,
+        depth=3,
     )
     top = cast(
         pyowl_core.OntologyView,
@@ -22892,9 +22719,7 @@ def _recursive_shallow_then_deep_dag(
 
     top_segments = list(top_lease.segments)
     member_indices = [
-        index
-        for index, segment in enumerate(top_segments)
-        if cast(Any, segment).role == 4
+        index for index, segment in enumerate(top_segments) if cast(Any, segment).role == 4
     ]
     assert len(member_indices) == 2
     shallow_index, deep_index = member_indices
@@ -22979,9 +22804,7 @@ def test_recursive_native_constructor_rejects_cross_scope_reference() -> None:
     manifest = cast(Any, lease.encoded_view)
     segments = list(manifest.segments)
     reference_index = next(
-        index
-        for index, segment in enumerate(segments)
-        if cast(Any, segment).role in {1, 4}
+        index for index, segment in enumerate(segments) if cast(Any, segment).role in {1, 4}
     )
     reference = cast(Any, segments[reference_index])
     segments[reference_index] = replace(
@@ -23020,11 +22843,9 @@ def _recursive_include_pruned_deep_member() -> EncodedStructuralLease:
         pyowl_core.OntologyView,
         _snapshot("SubClassOf(:Deep :Top)"),
     )
-    deep_view, _deep_lease, deep_chain, _deep_direct = (
-        _recursive_empty_overlay_lease(
-            deep_base,
-            depth=5,
-        )
+    deep_view, _deep_lease, deep_chain, _deep_direct = _recursive_empty_overlay_lease(
+        deep_base,
+        depth=5,
     )
     sibling = cast(
         pyowl_core.OntologyView,
@@ -23145,8 +22966,7 @@ def test_recursive_include_prunes_deep_descendants_before_limits_and_native() ->
     assert paths == ((0, 2), (1, 0))
     assert len({id(container.encoded_view) for container in containers}) == 3
     selected_work = sum(
-        encoded_module._private_encoded_lease_validation_work(container)
-        for container in containers
+        encoded_module._private_encoded_lease_validation_work(container) for container in containers
     )
     assert max_workspace is not None
     real_public_limit = encoded_module._public_limit
@@ -23298,16 +23118,13 @@ def test_recursive_leaf_plan_composes_scope_maps_inner_to_outer() -> None:
     top_lease = selection.lease
     top_segments = list(top_lease.segments)
     wrapped_index = next(
-        index
-        for index, segment in enumerate(top_segments)
-        if cast(Any, segment).owner is wrapped
+        index for index, segment in enumerate(top_segments) if cast(Any, segment).owner is wrapped
     )
     wrapped_segment = cast(Any, top_segments[wrapped_index])
     wrapped_encoded = wrapped_segment.source
     inner_encoded = cast(Any, wrapped_encoded.segments[0]).source
     inner_targets = sorted(
-        bytes(cast(Any, segment).anonymous_scope_map[32:64])
-        for segment in inner_encoded.segments
+        bytes(cast(Any, segment).anonymous_scope_map[32:64]) for segment in inner_encoded.segments
     )
     outer_scope_map = memoryview(
         b"".join(
@@ -23378,15 +23195,11 @@ def test_recursive_leaf_plan_composes_scope_maps_inner_to_outer() -> None:
     assert report.provenance.ingestion.counters["per_row_ffi_calls"] == 0
     assert len(captured) == 1
     compilation = captured[0]
-    expected_rows: list[
-        tuple[tuple[int, ...], object, tuple[memoryview, ...]]
-    ] = []
+    expected_rows: list[tuple[tuple[int, ...], object, tuple[memoryview, ...]]] = []
     for top_index, segment in enumerate(top_segments):
         typed_segment = cast(Any, segment)
         if typed_segment.owner is plain:
-            expected_rows.append(
-                ((top_index, 0), typed_segment.source, ())
-            )
+            expected_rows.append(((top_index, 0), typed_segment.source, ()))
             continue
         assert typed_segment.owner is wrapped
         for inner_index, inner_segment in enumerate(inner_encoded.segments):
@@ -23404,15 +23217,13 @@ def test_recursive_leaf_plan_composes_scope_maps_inner_to_outer() -> None:
     assert compilation.composite_member_paths == tuple(
         path for path, _source, _maps in expected_rows
     )
-    assert tuple(
-        member.encoded_view for member in compilation.composite_member_leases
-    ) == tuple(source for _path, source, _maps in expected_rows)
+    assert tuple(member.encoded_view for member in compilation.composite_member_leases) == tuple(
+        source for _path, source, _maps in expected_rows
+    )
     assert compilation.composite_anonymous_scope_maps == tuple(
         maps for _path, _source, maps in expected_rows
     )
-    assertion_edges = [
-        edge for edge in actual if edge.relation == "urn:native-integration#p"
-    ]
+    assertion_edges = [edge for edge in actual if edge.relation == "urn:native-integration#p"]
     assert len(assertion_edges) == 2
     assert len({edge.source for edge in assertion_edges}) == 2
 
@@ -24369,9 +24180,7 @@ def test_public_iterator_compiles_empty_overlay_root_annotation_provenance() -> 
     with patch.object(
         api_module,
         "prepare_streaming_compilation",
-        side_effect=AssertionError(
-            "empty-overlay annotation provenance reached scalar traversal"
-        ),
+        side_effect=AssertionError("empty-overlay annotation provenance reached scalar traversal"),
     ):
         projector = Projector()
         actual = list(
@@ -24616,9 +24425,7 @@ def test_public_iterator_falls_back_transactionally_for_general_exporter(
         selected_backend="native",
     )
     assert selected.lease is not None
-    root_kinds = memoryview(
-        bytearray(selected.lease.buffers["root_kinds"])
-    ).toreadonly()
+    root_kinds = memoryview(bytearray(selected.lease.buffers["root_kinds"])).toreadonly()
     hostile_buffers = MappingProxyType(
         {
             **selected.lease.buffers,

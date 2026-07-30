@@ -55,9 +55,7 @@ from pyowl2vec_star_projector.native import (
 )
 
 NATIVE_AVAILABLE = probe_native_backend().available
-_EDGE_ALLOCATION_PROBE = (
-    "pyowl2vec_star_projector.native._NATIVE_ENCODED_EDGE_ALLOCATION_PROBE"
-)
+_EDGE_ALLOCATION_PROBE = "pyowl2vec_star_projector.native._NATIVE_ENCODED_EDGE_ALLOCATION_PROBE"
 _STATISTICS_ALLOCATION_PROBE = (
     "pyowl2vec_star_projector.native._NATIVE_ENCODED_STATISTICS_ALLOCATION_PROBE"
 )
@@ -215,7 +213,7 @@ def _expanded_expression_axiom_snapshot() -> object:
         "DataPropertyDomain(:dp "
         "ObjectComplementOf(ObjectSomeValuesFrom(:op :F))) "
         "DataPropertyRange(:dp DataUnionOf("
-        "<http://www.w3.org/2001/XMLSchema#string> DataOneOf(\"range\"))) "
+        '<http://www.w3.org/2001/XMLSchema#string> DataOneOf("range"))) '
         'DatatypeDefinition(:dt DataComplementOf(DataOneOf("definition"))) '
         "SubClassOf(:TaxA :TaxB) ClassAssertion(:Type :named) "
         "SubObjectPropertyOf(:child :r) "
@@ -255,7 +253,7 @@ def _annotation_metadata_root_snapshot() -> object:
         ":parentAnnotation <urn:annotation-range>) "
         "SubClassOf(:A :B) "
         "AnnotationAssertion(Annotation(<urn:meta> _:assertionMeta) "
-        "<http://www.w3.org/2000/01/rdf-schema#label> :A \"label\") "
+        '<http://www.w3.org/2000/01/rdf-schema#label> :A "label") '
         "SubObjectPropertyOf(:child :p) "
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
     )
@@ -269,8 +267,7 @@ def _annotated_non_role_axiom_snapshot() -> object:
         f"SubClassOf({metadata} :A :B)",
         f"SubClassOf({metadata} :B ObjectSomeValuesFrom(:p :C))",
         f"EquivalentClasses({metadata} :E :F)",
-        f"EquivalentClasses({metadata} :G "
-        "ObjectIntersectionOf(:H ObjectSomeValuesFrom(:p :I)))",
+        f"EquivalentClasses({metadata} :G ObjectIntersectionOf(:H ObjectSomeValuesFrom(:p :I)))",
         f"DisjointClasses({metadata} :J :K)",
         f"DisjointUnion({metadata} :Defined :L :M)",
         f"EquivalentObjectProperties({metadata} :q :r)",
@@ -592,12 +589,7 @@ def test_direct_excluded_root_posting_rejects_malformed_rows_before_output(
 def test_direct_excluded_root_posting_requires_one_complete_immutable_exporter(
     postings: memoryview,
 ) -> None:
-    lease = _lease(
-        _snapshot(
-            "Declaration(Class(:A)) Declaration(Class(:B)) "
-            "SubClassOf(:A :B)"
-        )
-    )
+    lease = _lease(_snapshot("Declaration(Class(:A)) Declaration(Class(:B)) SubClassOf(:A :B)"))
 
     with pytest.raises(NativeEncodedDirectUnsupported):
         prepare_native_encoded_direct(
@@ -719,9 +711,7 @@ def test_named_aggregate_equivalents_match_operand_order_roles_and_duplicates(
     assert statistics.roots == 6
     assert statistics.equivalents == 4
     assert statistics.aggregate_equivalents == 3
-    assert statistics.equivalent_base_edges == (
-        7 if only_taxonomy else 20 if bidirectional else 13
-    )
+    assert statistics.equivalent_base_edges == (7 if only_taxonomy else 20 if bidirectional else 13)
     assert statistics.ignored_equivalents == 0
     assert statistics.role_expansion_edges == (0 if only_taxonomy else 12)
     assert statistics.edges == len(expected)
@@ -791,13 +781,9 @@ def test_nested_aggregate_equivalence_emits_supported_siblings_in_rust(
                 order="encounter",
             ),
         )
-    expected = [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    expected = [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
     if mode != "asserted-taxonomy":
-        expected.append(
-            Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B")
-        )
+        expected.append(Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B"))
     if mode == "normal":
         expected.extend(
             [
@@ -844,9 +830,11 @@ def test_deep_nested_aggregate_equivalence_uses_one_bounded_output_call() -> Non
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Root", SUBCLASS_OF, "urn:native-direct#Side199")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Root", SUBCLASS_OF, "urn:native-direct#Side199")]
+    )
     assert statistics.aggregate_equivalents == 1
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
 
@@ -858,10 +846,7 @@ def test_deep_complement_restriction_recursion_uses_one_bounded_output_call() ->
             recursive = f"ObjectComplementOf({recursive})"
         else:
             recursive = f"ObjectSomeValuesFrom(:ignored{index:03d} {recursive})"
-    view = _snapshot(
-        "EquivalentClasses(:Root "
-        f"ObjectIntersectionOf(:Direct {recursive}))"
-    )
+    view = _snapshot(f"EquivalentClasses(:Root ObjectIntersectionOf(:Direct {recursive}))")
     expected = Projector().project(
         view,
         options=ProjectionOptions(backend="python", order="encounter"),
@@ -872,9 +857,11 @@ def test_deep_complement_restriction_recursion_uses_one_bounded_output_call() ->
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Root", SUBCLASS_OF, "urn:native-direct#Direct")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Root", SUBCLASS_OF, "urn:native-direct#Direct")]
+    )
     assert statistics.aggregate_equivalents == 1
     assert statistics.role_expansion_edges == 0
     assert statistics.ingestion_counters["native_boundary_calls"] == 1
@@ -1335,10 +1322,14 @@ def test_asserted_taxonomy_preflights_swrl_extensions_without_leakage() -> None:
         include_literals=True,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#TaxA", SUBCLASS_OF, "urn:native-direct#TaxB"),
-        Edge("urn:native-direct#TaxB", SUPERCLASS_OF, "urn:native-direct#TaxA"),
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge("urn:native-direct#TaxA", SUBCLASS_OF, "urn:native-direct#TaxB"),
+            Edge("urn:native-direct#TaxB", SUPERCLASS_OF, "urn:native-direct#TaxA"),
+        ]
+    )
     assert statistics.swrl_rules == 2
     assert statistics.annotation_edges == 0
     assert statistics.domain_range_edges == 0
@@ -1347,8 +1338,7 @@ def test_asserted_taxonomy_preflights_swrl_extensions_without_leakage() -> None:
 
 def test_many_swrl_extensions_cross_one_zero_output_bounded_call() -> None:
     rules = " ".join(
-        f'SWRLRule(Annotation(<urn:rule-meta-{index:03d}> "{index}") () ())'
-        for index in range(250)
+        f'SWRLRule(Annotation(<urn:rule-meta-{index:03d}> "{index}") () ())' for index in range(250)
     )
     compiler = prepare_native_encoded_direct(_lease(_swrl_snapshot(rules)))
     edges, statistics = compiler.compile_batch(
@@ -1380,9 +1370,11 @@ def test_recursive_swrl_data_range_predicate_is_validated_and_silent() -> None:
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
+    )
     assert statistics.swrl_rules == 1
     assert statistics.skipped_axioms == 0
     assert statistics.role_expansion_edges == 0
@@ -1409,10 +1401,14 @@ def test_recursive_swrl_class_predicate_is_validated_and_silent() -> None:
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After"),
-        Edge("urn:native-direct#After", SUPERCLASS_OF, "urn:native-direct#Before"),
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After"),
+            Edge("urn:native-direct#After", SUPERCLASS_OF, "urn:native-direct#Before"),
+        ]
+    )
     assert statistics.swrl_rules == 1
     assert statistics.skipped_axioms == 0
     assert statistics.role_expansion_edges == 0
@@ -2326,8 +2322,7 @@ def test_hostile_non_role_axiom_annotation_sets_fail_before_output(
 
 def test_many_annotation_metadata_roots_cross_one_zero_output_bounded_call() -> None:
     annotations = " ".join(
-        f"Annotation(<urn:ontology-meta-{index:03d}> _:value{index:03d})"
-        for index in range(63)
+        f"Annotation(<urn:ontology-meta-{index:03d}> _:value{index:03d})" for index in range(63)
     )
     subproperties = " ".join(
         "SubAnnotationPropertyOf("
@@ -2340,8 +2335,7 @@ def test_many_annotation_metadata_roots_cross_one_zero_output_bounded_call() -> 
         for index in range(62)
     )
     ranges = " ".join(
-        f"AnnotationPropertyRange(:range{index:03d} <urn:range-{index:03d}>)"
-        for index in range(62)
+        f"AnnotationPropertyRange(:range{index:03d} <urn:range-{index:03d}>)" for index in range(62)
     )
     compiler = prepare_native_encoded_direct(
         _lease(_snapshot(f"{annotations} {subproperties} {domains} {ranges}"))
@@ -2389,17 +2383,13 @@ def test_cyclic_annotation_metadata_graph_fails_before_output(corrupt_table: str
         )
         annotation_set_field = field_start + 2
         length = int.from_bytes(
-            field_lengths[
-                annotation_set_field * 8 : (annotation_set_field + 1) * 8
-            ],
+            field_lengths[annotation_set_field * 8 : (annotation_set_field + 1) * 8],
             "little",
         )
         if length:
             cyclic_annotation = node_id
             cyclic_item_start = int.from_bytes(
-                field_values[
-                    annotation_set_field * 8 : (annotation_set_field + 1) * 8
-                ],
+                field_values[annotation_set_field * 8 : (annotation_set_field + 1) * 8],
                 "little",
             )
             break
@@ -2407,8 +2397,8 @@ def test_cyclic_annotation_metadata_graph_fails_before_output(corrupt_table: str
     assert cyclic_item_start is not None
 
     item_values = bytearray(target.buffers["item_values"])
-    item_values[cyclic_item_start * 8 : (cyclic_item_start + 1) * 8] = (
-        cyclic_annotation.to_bytes(8, "little")
+    item_values[cyclic_item_start * 8 : (cyclic_item_start + 1) * 8] = cyclic_annotation.to_bytes(
+        8, "little"
     )
     hostile = _replace_buffers(
         target,
@@ -2459,18 +2449,14 @@ def test_annotation_edge_limit_and_anonymous_values_match_scalar_ids() -> None:
             order="encounter",
         ),
     )
-    actual, statistics = prepare_native_encoded_direct(
-        _lease(anonymous_view)
-    ).compile_batch(
+    actual, statistics = prepare_native_encoded_direct(_lease(anonymous_view)).compile_batch(
         bidirectional=False,
         max_edges=1,
         max_iri_bytes=1024 * 1024,
         include_literals=True,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#A", "rdfs:label", "_:genid2147483648")
-    ]
+    assert actual == expected == [Edge("urn:native-direct#A", "rdfs:label", "_:genid2147483648")]
     assert statistics.anonymous_individuals == 1
     assert statistics.annotation_edges == 1
 
@@ -2582,9 +2568,9 @@ def test_hostile_annotation_metadata_axiom_fields_fail_before_output(
             'Annotation(<urn:ontology-meta> "ontology") '
             'SubAnnotationPropertyOf(Annotation(<urn:meta> "sub") :sub :super) '
             'AnnotationPropertyDomain(Annotation(<urn:meta> "domain") '
-            ':domain <urn:domain>) '
+            ":domain <urn:domain>) "
             'AnnotationPropertyRange(Annotation(<urn:meta> "range") '
-            ':range <urn:range>) '
+            ":range <urn:range>) "
             "SubClassOf(:Before :After)"
         )
     )
@@ -2932,9 +2918,13 @@ def test_general_exporter_hostile_layouts_fail_before_retention(
     elif layout == "strided":
         candidate = memoryview(raw).toreadonly()[::2]
     elif layout == "multidimensional":
-        candidate = memoryview(raw).toreadonly().cast(
-            "B",
-            shape=(2, len(raw) // 2),
+        candidate = (
+            memoryview(raw)
+            .toreadonly()
+            .cast(
+                "B",
+                shape=(2, len(raw) // 2),
+            )
         )
     else:
         assert layout == "signed"
@@ -3019,9 +3009,7 @@ def test_noncanonical_packed_bytes_layouts_are_rejected_before_output() -> None:
         NativeEncodedDirectUnsupported,
         match=f"encoded buffer {overlap_name} does not match the canonical packed bytes layout",
     ):
-        prepare_native_encoded_direct(
-            _replace_buffers(overlapping, {overlap_name: overlap_buffer})
-        )
+        prepare_native_encoded_direct(_replace_buffers(overlapping, {overlap_name: overlap_buffer}))
 
     with pytest.raises(
         NativeEncodedDirectUnsupported,
@@ -3049,9 +3037,11 @@ def test_recursive_complement_class_assertion_matches_scalar(body: str) -> None:
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
+    )
     assert statistics.ignored_class_assertions == 1
     assert statistics.role_expansion_edges == 0
 
@@ -3076,9 +3066,11 @@ def test_complement_wrapped_aggregate_axioms_match_scalar(body: str) -> None:
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
+    )
     assert statistics.role_expansion_edges == 0
 
 
@@ -3119,9 +3111,11 @@ def test_nested_aggregate_nonprojecting_consumers_match_scalar(
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
+    )
     assert getattr(statistics, counter) == 1
     assert statistics.role_expansion_edges == 0
 
@@ -3216,9 +3210,7 @@ def test_cyclic_recursive_class_expression_fails_before_output() -> None:
 
     references = {
         node_id: int.from_bytes(
-            recursive_values[
-                complement_field(node_id) * 8 : (complement_field(node_id) + 1) * 8
-            ],
+            recursive_values[complement_field(node_id) * 8 : (complement_field(node_id) + 1) * 8],
             "little",
         )
         for node_id in complement_ids
@@ -3778,9 +3770,7 @@ def test_hostile_property_chain_rows_fail_before_output(corruption: str) -> None
         if corruption == "wrong-item":
             declaration_field = field_start(tagged_nodes(60)[0])
             replacement = int.from_bytes(
-                buffers["field_values"][
-                    declaration_field * 8 : (declaration_field + 1) * 8
-                ],
+                buffers["field_values"][declaration_field * 8 : (declaration_field + 1) * 8],
                 "little",
             )
         else:
@@ -4022,10 +4012,10 @@ def test_many_data_class_expression_roots_cross_one_zero_output_bounded_call() -
     axioms = " ".join(
         (
             f"SubClassOf(:A{index:03d} DataExactCardinality("
-            f"{index} :p{index:03d} DataOneOf(\"{index}\")))"
+            f'{index} :p{index:03d} DataOneOf("{index}")))'
             if index % 2 == 0
             else "ClassAssertion(ObjectComplementOf("
-            f"DataHasValue(:p{index:03d} \"value{index:03d}\"@en)) :i{index:03d})"
+            f'DataHasValue(:p{index:03d} "value{index:03d}"@en)) :i{index:03d})'
         )
         for index in range(250)
     )
@@ -4056,8 +4046,7 @@ def test_many_expanded_expression_axiom_roots_cross_one_zero_output_bounded_call
             )
         elif family == 1:
             axioms.append(
-                f"HasKey(DataSomeValuesFrom(:dp{index:03d} {xsd_string}) "
-                f"() (:dp{index:03d}))"
+                f"HasKey(DataSomeValuesFrom(:dp{index:03d} {xsd_string}) () (:dp{index:03d}))"
             )
         elif family == 2:
             axioms.append(
@@ -4066,13 +4055,11 @@ def test_many_expanded_expression_axiom_roots_cross_one_zero_output_bounded_call
             )
         elif family == 3:
             axioms.append(
-                f"DataPropertyRange(:dp{index:03d} DataUnionOf({xsd_string} "
-                f'DataOneOf("{index}")))'
+                f'DataPropertyRange(:dp{index:03d} DataUnionOf({xsd_string} DataOneOf("{index}")))'
             )
         else:
             axioms.append(
-                f"DatatypeDefinition(:dt{index:03d} "
-                f'DataComplementOf(DataOneOf("{index}")))'
+                f'DatatypeDefinition(:dt{index:03d} DataComplementOf(DataOneOf("{index}")))'
             )
     compiler = prepare_native_encoded_direct(_lease(_snapshot(" ".join(axioms))))
     edges, statistics = compiler.compile_batch(
@@ -4463,8 +4450,7 @@ def test_hostile_complement_operand_fails_before_output() -> None:
     "body",
     [
         "SubClassOf(:A ObjectExactCardinality(256 ObjectInverseOf(:p) :B))",
-        "SubClassOf(:A DataExactCardinality(256 :p "
-        "<http://www.w3.org/2001/XMLSchema#integer>))",
+        "SubClassOf(:A DataExactCardinality(256 :p <http://www.w3.org/2001/XMLSchema#integer>))",
     ],
     ids=["object", "data"],
 )
@@ -4505,9 +4491,11 @@ def test_recursive_or_exact_nonprojecting_variants_match_scalar(body: str) -> No
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
+    )
     assert statistics.subclasses == 2
     assert statistics.ignored_subclasses == 1
     assert statistics.role_expansion_edges == 0
@@ -4558,9 +4546,11 @@ def test_recursive_data_range_variants_match_scalar_state_neutrality(
         asserted_taxonomy_only=mode == "asserted-taxonomy",
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
+    )
     assert statistics.subclasses == 2
     assert statistics.ignored_subclasses == 1
     assert statistics.role_expansion_edges == 0
@@ -4639,8 +4629,7 @@ def test_cyclic_recursive_data_range_fails_before_output() -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) "
-        "ObjectComplementOf(:B)))",
+        "SubClassOf(:A ObjectSomeValuesFrom(ObjectInverseOf(:p) ObjectComplementOf(:B)))",
         "SubClassOf(:A ObjectSomeValuesFrom(:p ObjectIntersectionOf(:B :C)))",
         "SubClassOf(ObjectSomeValuesFrom(:p :A) ObjectAllValuesFrom(:q :B))",
     ],
@@ -4662,9 +4651,11 @@ def test_complex_restriction_shapes_match_scalar_state_neutrality(body: str) -> 
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("urn:native-direct#Before", SUBCLASS_OF, "urn:native-direct#After")]
+    )
     assert statistics.subclasses == 2
     assert statistics.ignored_subclasses == 1
     assert statistics.role_expansion_edges == 0
@@ -4750,9 +4741,11 @@ def test_non_axiom_anonymous_individuals_do_not_shift_scalar_blank_ids() -> None
         max_iri_bytes=1024 * 1024,
     )
 
-    assert actual == expected == [
-        Edge("_:genid2147483648", "urn:native-direct#p", "urn:native-direct#named")
-    ]
+    assert (
+        actual
+        == expected
+        == [Edge("_:genid2147483648", "urn:native-direct#p", "urn:native-direct#named")]
+    )
     assert statistics.anonymous_individuals == 1
     assert statistics.ontology_annotations == 1
     assert statistics.swrl_rules == 1
@@ -4765,7 +4758,7 @@ def test_all_axiom_reachable_anonymous_individuals_share_one_scalar_id_space(
     view = _snapshot(
         "Declaration(Class(:A)) "
         "AnnotationAssertion("
-        "<http://www.w3.org/2000/01/rdf-schema#label> _:silentSubject \"ignored\") "
+        '<http://www.w3.org/2000/01/rdf-schema#label> _:silentSubject "ignored") '
         "ObjectPropertyAssertion(Annotation(<urn:meta> _:metadata) "
         ":p _:edge :named) "
         "AnnotationAssertion("
@@ -4797,9 +4790,7 @@ def test_all_axiom_reachable_anonymous_individuals_share_one_scalar_id_space(
         if value.startswith("_:genid")
     }
     assert len(generated) == 2
-    assert generated <= {
-        f"_:genid{2_147_483_648 + index}" for index in range(4)
-    }
+    assert generated <= {f"_:genid{2_147_483_648 + index}" for index in range(4)}
     assert statistics.anonymous_individuals == 4
     assert statistics.annotation_edges == 1
 
@@ -4829,10 +4820,14 @@ def test_asserted_taxonomy_preflights_anonymous_axioms_without_leakage() -> None
         include_literals=True,
     )
 
-    assert actual == expected == [
-        Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B"),
-        Edge("urn:native-direct#B", SUPERCLASS_OF, "urn:native-direct#A"),
-    ]
+    assert (
+        actual
+        == expected
+        == [
+            Edge("urn:native-direct#A", SUBCLASS_OF, "urn:native-direct#B"),
+            Edge("urn:native-direct#B", SUPERCLASS_OF, "urn:native-direct#A"),
+        ]
+    )
     assert statistics.anonymous_individuals == 4
     assert statistics.annotation_edges == 0
     assert statistics.skipped_axioms == 0
@@ -4840,8 +4835,7 @@ def test_asserted_taxonomy_preflights_anonymous_axioms_without_leakage() -> None
 
 def test_many_anonymous_assertions_use_one_bounded_call_and_contiguous_ids() -> None:
     assertions = " ".join(
-        f"ObjectPropertyAssertion(:p _:source{index:03d} :named{index:03d})"
-        for index in range(250)
+        f"ObjectPropertyAssertion(:p _:source{index:03d} :named{index:03d})" for index in range(250)
     )
     compiler = prepare_native_encoded_direct(_lease(_snapshot(assertions)))
     edges, statistics = compiler.compile_batch(
@@ -4862,8 +4856,7 @@ def test_many_anonymous_assertions_use_one_bounded_call_and_contiguous_ids() -> 
 def test_noncanonical_axiom_anonymous_order_fails_before_output() -> None:
     lease = _lease(
         _snapshot(
-            "ObjectPropertyAssertion(:p _:first :named) "
-            "ObjectPropertyAssertion(:p _:third :named)"
+            "ObjectPropertyAssertion(:p _:first :named) ObjectPropertyAssertion(:p _:third :named)"
         )
     )
     tags = lease.buffers["node_tags"]
@@ -4896,9 +4889,10 @@ def test_noncanonical_axiom_anonymous_order_fails_before_output() -> None:
     scalar = bytearray(lease.buffers["scalar_bytes"])
     first_scope = scalar_range(anonymous_ids[0], 0)
     second_scope = scalar_range(anonymous_ids[1], 0)
-    assert scalar[first_scope[0] : first_scope[0] + first_scope[1]] == scalar[
-        second_scope[0] : second_scope[0] + second_scope[1]
-    ]
+    assert (
+        scalar[first_scope[0] : first_scope[0] + first_scope[1]]
+        == scalar[second_scope[0] : second_scope[0] + second_scope[1]]
+    )
     first_key = scalar_range(anonymous_ids[0], 1)
     second_key = scalar_range(anonymous_ids[1], 1)
     assert first_key[1] == second_key[1] > 0
@@ -4977,8 +4971,7 @@ def test_role_set_corruption_and_expanded_edge_limit_fail_before_publication() -
     assert malformed.state == "failed"
 
     restrictions = " ".join(
-        "SubClassOf("
-        f":A{index:03d} ObjectSomeValuesFrom(ObjectInverseOf(:p) :B{index:03d}))"
+        f"SubClassOf(:A{index:03d} ObjectSomeValuesFrom(ObjectInverseOf(:p) :B{index:03d}))"
         for index in range(250)
     )
     expanded = prepare_native_encoded_direct(
@@ -5108,9 +5101,7 @@ def test_native_owner_and_exact_bytes_exporters_live_until_handle_drop() -> None
 
 
 def test_retained_role_state_matches_ordered_scala_instance_calls_across_views() -> None:
-    role_view = _snapshot(
-        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
-    )
+    role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
     consumer_view = _snapshot(
         "SubClassOf(:A ObjectSomeValuesFrom(:p :B)) "
         "ObjectPropertyDomain(:p :D) ObjectPropertyRange(:p :R)"
@@ -5416,6 +5407,7 @@ def test_private_native_batch_validates_edge_payload_before_cursor_commit(
     )
     remaining_edges = batches.remaining_edges
     boundary_calls = batches.boundary_calls
+
     def corrupting_allocation_probe(edge: Edge) -> None:
         object.__setattr__(edge, "source", "urn:corrupted")
 
@@ -5583,9 +5575,7 @@ def test_private_native_batch_factory_results_are_validated_before_session_commi
 
 def test_private_native_coarse_list_uses_bounded_internal_chunks() -> None:
     edge_count = 600
-    view = _snapshot(
-        " ".join(f"SubClassOf(:C{index} :Top)" for index in range(edge_count))
-    )
+    view = _snapshot(" ".join(f"SubClassOf(:C{index} :Top)" for index in range(edge_count)))
     expected = Projector().project(
         view,
         options=ProjectionOptions(
@@ -5879,6 +5869,7 @@ def test_private_native_final_payloads_validate_before_state_commit(
     )
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
+
     def corrupting_edge_probe(edge: Edge) -> None:
         object.__setattr__(edge, "source", "urn:corrupted")
 
@@ -6422,6 +6413,7 @@ def test_private_native_iterator_revalidates_statistics_after_allocation_probe(
     )
     role_state = prepare_native_encoded_role_state()
     compiler = prepare_native_encoded_direct(_lease(view))
+
     def statistics_mutating_iterator_probe(
         iterator: NativeEncodedDirectBatchIterator,
     ) -> None:
@@ -6535,9 +6527,7 @@ def test_failed_private_batch_compile_does_not_commit_retained_role_state() -> N
     assert role_state.subrole_property_count == 0
     assert role_state.inverse_property_count == 0
 
-    role_view = _snapshot(
-        "SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)"
-    )
+    role_view = _snapshot("SubObjectPropertyOf(:child :p) InverseObjectProperties(:p :pinv)")
     empty_batches = prepare_native_encoded_direct(_lease(role_view)).iter_batches(
         bidirectional=False,
         max_edges=1,

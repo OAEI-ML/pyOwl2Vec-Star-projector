@@ -52,8 +52,7 @@ def test_small_campaign_matches_both_zero_copy_provider_layouts() -> None:
     assert report["semantic_option_combinations"] == 8
     assert report["total_edges"] == 398
     assert (
-        report["cases_sha256"]
-        == "0c599e2d2704990af6fe62c0464a4dec601937801f5789fa0d299c66cceb08a9"
+        report["cases_sha256"] == "0c599e2d2704990af6fe62c0464a4dec601937801f5789fa0d299c66cceb08a9"
     )
     assert report["passed"] is True
     records = report["cases"]

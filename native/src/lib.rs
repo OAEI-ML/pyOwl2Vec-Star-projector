@@ -1047,28 +1047,26 @@ impl EncodedDirectCompiler {
                             )
                             .map_err(kernel_error)
                         }
+                    } else if let Some(retained) = retained_role_state.as_ref() {
+                        retained.prepare_overlay_batches_uncommitted_claimed(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            max_work,
+                            max_workspace_bytes,
+                        )
                     } else {
-                        if let Some(retained) = retained_role_state.as_ref() {
-                            retained.prepare_overlay_batches_uncommitted_claimed(
-                                columns,
-                                delta_columns,
-                                options,
-                                &self.state,
-                                max_work,
-                                max_workspace_bytes,
-                            )
-                        } else {
-                            prepare_single_overlay_delta_batches_uncommitted(
-                                columns,
-                                delta_columns,
-                                options,
-                                &self.state,
-                                None,
-                                max_work,
-                                max_workspace_bytes,
-                            )
-                            .map_err(kernel_error)
-                        }
+                        prepare_single_overlay_delta_batches_uncommitted(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                        .map_err(kernel_error)
                     }
                 } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
@@ -2170,28 +2168,26 @@ impl EncodedDirectCompiler {
                             )
                             .map_err(kernel_error)
                         }
+                    } else if let Some(retained) = retained_role_state.as_ref() {
+                        retained.prepare_overlay_batches_uncommitted_claimed(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            max_work,
+                            max_workspace_bytes,
+                        )
                     } else {
-                        if let Some(retained) = retained_role_state.as_ref() {
-                            retained.prepare_overlay_batches_uncommitted_claimed(
-                                columns,
-                                delta_columns,
-                                options,
-                                &self.state,
-                                max_work,
-                                max_workspace_bytes,
-                            )
-                        } else {
-                            prepare_single_overlay_delta_batches_uncommitted(
-                                columns,
-                                delta_columns,
-                                options,
-                                &self.state,
-                                None,
-                                max_work,
-                                max_workspace_bytes,
-                            )
-                            .map_err(kernel_error)
-                        }
+                        prepare_single_overlay_delta_batches_uncommitted(
+                            columns,
+                            delta_columns,
+                            options,
+                            &self.state,
+                            None,
+                            max_work,
+                            max_workspace_bytes,
+                        )
+                        .map_err(kernel_error)
                     }
                 } else if let Some(retained) = retained_role_state.as_ref() {
                     retained.prepare_batches_uncommitted_claimed(
@@ -4291,15 +4287,15 @@ fn recursive_topology_node<'py>(
     Ok(node)
 }
 
-fn recursive_topology_frame<'py>(
+fn recursive_topology_frame(
     identity: usize,
     selection: RecursiveLeafSelection,
-    node: RecursiveValidatedTopologyNode<'py>,
+    node: RecursiveValidatedTopologyNode<'_>,
     parent_overlay_depth: usize,
     max_overlay_depth: usize,
     max_leaves: usize,
     retain_empty_direct_leaves: bool,
-) -> PyResult<RecursiveTopologyFrame<'py>> {
+) -> PyResult<RecursiveTopologyFrame<'_>> {
     let absolute_overlay_depth = parent_overlay_depth
         .checked_add(node.overlay_increment)
         .ok_or_else(|| {
@@ -5952,8 +5948,8 @@ fn general_buffer_retention_error(name: &str) -> PyErr {
     ))
 }
 
-fn retain_direct_exporters<'py>(
-    candidates: Vec<ValidatedDirectBuffer<'py>>,
+fn retain_direct_exporters(
+    candidates: Vec<ValidatedDirectBuffer<'_>>,
 ) -> PyResult<Vec<RetainedDirectBuffer>> {
     if let Some(candidate) = candidates
         .iter()
@@ -5964,8 +5960,8 @@ fn retain_direct_exporters<'py>(
     retain_direct_bytes_exporters(candidates)
 }
 
-fn retain_direct_bytes_exporters<'py>(
-    borrowed: Vec<ValidatedDirectBuffer<'py>>,
+fn retain_direct_bytes_exporters(
+    borrowed: Vec<ValidatedDirectBuffer<'_>>,
 ) -> PyResult<Vec<RetainedDirectBuffer>> {
     let mut retained = Vec::new();
     retained

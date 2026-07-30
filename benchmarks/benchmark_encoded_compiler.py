@@ -618,8 +618,7 @@ def run(
         raise ValueError("private native candidate requires projector_backend='native'")
     if private_native_surface not in _PRIVATE_NATIVE_SURFACES:
         raise ValueError(
-            "private_native_surface must be one of "
-            + ", ".join(sorted(_PRIVATE_NATIVE_SURFACES))
+            "private_native_surface must be one of " + ", ".join(sorted(_PRIVATE_NATIVE_SURFACES))
         )
     if not private_native_candidate and private_native_surface != "iterator":
         raise ValueError(

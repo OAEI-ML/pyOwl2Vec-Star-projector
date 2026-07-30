@@ -8,6 +8,7 @@
 //! one materialized vector explicitly.
 
 use std::borrow::Cow;
+use std::cmp::Ordering as CmpOrdering;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -8356,13 +8357,17 @@ pub(crate) mod canonical_merge {
             return Err(KernelError::resource(message));
         }
         let actual_bytes = allocation_bytes::<T>(result.capacity())?;
-        if actual_bytes > requested_bytes {
-            if let Err(error) = budget.claim_workspace(actual_bytes - requested_bytes) {
-                budget.release_workspace(requested_bytes)?;
-                return Err(error);
+        match actual_bytes.cmp(&requested_bytes) {
+            CmpOrdering::Greater => {
+                if let Err(error) = budget.claim_workspace(actual_bytes - requested_bytes) {
+                    budget.release_workspace(requested_bytes)?;
+                    return Err(error);
+                }
             }
-        } else if requested_bytes > actual_bytes {
-            budget.release_workspace(requested_bytes - actual_bytes)?;
+            CmpOrdering::Less => {
+                budget.release_workspace(requested_bytes - actual_bytes)?;
+            }
+            CmpOrdering::Equal => {}
         }
         Ok((result, actual_bytes))
     }
@@ -8885,16 +8890,20 @@ pub(crate) mod canonical_merge {
                         KernelError::malformed("encoded canonical cursor capacity regressed")
                     })?;
                 let actual = allocation_bytes::<EmitTask<'a>>(actual_growth)?;
-                if actual > requested {
-                    if let Err(error) = budget.claim_workspace(actual - requested) {
-                        let previous_bytes = allocation_bytes::<EmitTask<'a>>(previous)?;
-                        self.stack = Vec::new();
-                        budget.release_workspace(requested)?;
-                        budget.release_workspace(previous_bytes)?;
-                        return Err(error);
+                match actual.cmp(&requested) {
+                    CmpOrdering::Greater => {
+                        if let Err(error) = budget.claim_workspace(actual - requested) {
+                            let previous_bytes = allocation_bytes::<EmitTask<'a>>(previous)?;
+                            self.stack = Vec::new();
+                            budget.release_workspace(requested)?;
+                            budget.release_workspace(previous_bytes)?;
+                            return Err(error);
+                        }
                     }
-                } else if requested > actual {
-                    budget.release_workspace(requested - actual)?;
+                    CmpOrdering::Less => {
+                        budget.release_workspace(requested - actual)?;
+                    }
+                    CmpOrdering::Equal => {}
                 }
             }
             self.stack.push(task);
@@ -12446,11 +12455,11 @@ impl PlannedExpressionKey<'_> {
     }
 }
 
-fn planned_expression_key<'a>(
-    columns: DirectColumns<'a>,
+fn planned_expression_key(
+    columns: DirectColumns<'_>,
     node_id: usize,
     maximum_iri: usize,
-) -> Result<PlannedExpressionKey<'a>, KernelError> {
+) -> Result<PlannedExpressionKey<'_>, KernelError> {
     let tag = columns.node_tag(node_id)?;
     let (rank, named_iri) = match tag {
         TAG_ENTITY => (1001, Some(columns.named_class_iri(node_id, maximum_iri)?)),
