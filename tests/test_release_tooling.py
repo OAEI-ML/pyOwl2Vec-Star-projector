@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import tarfile
@@ -311,7 +312,7 @@ def test_stable_build_input_reader_accepts_windows_path_stat_identity_gap(
         st_mode=handle.st_mode,
         st_ino=0,
         st_dev=0,
-        st_size=handle.st_size,
+        st_size=handle.st_size + 1,
         st_mtime_ns=handle.st_mtime_ns,
         st_ctime_ns=handle.st_ctime_ns,
     )
@@ -321,11 +322,37 @@ def test_stable_build_input_reader_accepts_windows_path_stat_identity_gap(
         handle,
         handle,
         path_identity,
+        handle,
         windows=True,
     )
 
 
-def test_stable_build_input_reader_rejects_windows_cross_channel_change(
+def test_stable_build_input_reader_reopens_final_windows_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "input.txt"
+    path.write_bytes(b"captured")
+    original_lstat = Path.lstat
+
+    def windows_lstat(selected: Path):
+        observed = original_lstat(selected)
+        return SimpleNamespace(
+            st_mode=observed.st_mode,
+            st_ino=0,
+            st_dev=0,
+            st_size=observed.st_size + 1,
+            st_mtime_ns=observed.st_mtime_ns,
+            st_ctime_ns=observed.st_ctime_ns,
+        )
+
+    monkeypatch.setattr(Path, "lstat", windows_lstat)
+    monkeypatch.setattr(os, "name", "nt")
+
+    assert read_stable_regular_file(path, label="input.txt") == b"captured"
+
+
+def test_stable_build_input_reader_rejects_windows_reopened_handle_change(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "input.txt"
@@ -335,7 +362,7 @@ def test_stable_build_input_reader_rejects_windows_cross_channel_change(
         st_mode=handle.st_mode,
         st_ino=0,
         st_dev=0,
-        st_size=handle.st_size + 1,
+        st_size=handle.st_size,
         st_mtime_ns=handle.st_mtime_ns,
         st_ctime_ns=handle.st_ctime_ns,
     )
@@ -345,6 +372,14 @@ def test_stable_build_input_reader_rejects_windows_cross_channel_change(
         handle,
         handle,
         path_identity,
+        SimpleNamespace(
+            st_mode=handle.st_mode,
+            st_ino=handle.st_ino + 1,
+            st_dev=handle.st_dev,
+            st_size=handle.st_size,
+            st_mtime_ns=handle.st_mtime_ns,
+            st_ctime_ns=handle.st_ctime_ns,
+        ),
         windows=True,
     )
 

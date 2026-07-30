@@ -51,6 +51,7 @@ def _stable_stat_snapshots(
     opened: os.stat_result,
     completed: os.stat_result,
     final: os.stat_result,
+    reopened: os.stat_result | None,
     *,
     windows: bool,
 ) -> bool:
@@ -68,26 +69,15 @@ def _stable_stat_snapshots(
         )
 
     # CPython's current Windows path-stat fast path does not populate the
-    # device and file-index fields that fstat obtains from the open handle.
-    # Compare each observation channel independently, then bind them through
-    # the portable content metadata they both report.
+    # device and file-index fields that fstat obtains from an open handle, and
+    # some metadata fields can differ between the two APIs. Compare path
+    # observations independently, then bind the consumed handle to a second
+    # handle opened from the final path.
     if _stat_identity(initial) != _stat_identity(final):
         return False
     if _stat_identity(opened) != _stat_identity(completed):
         return False
-    path_content = (
-        stat.S_IFMT(initial.st_mode),
-        initial.st_size,
-        initial.st_mtime_ns,
-        initial.st_ctime_ns,
-    )
-    handle_content = (
-        stat.S_IFMT(opened.st_mode),
-        opened.st_size,
-        opened.st_mtime_ns,
-        opened.st_ctime_ns,
-    )
-    return path_content == handle_content
+    return reopened is not None and _stat_identity(opened) == _stat_identity(reopened)
 
 
 def _consume_stable_regular_file(
@@ -109,6 +99,10 @@ def _consume_stable_regular_file(
             position = stream.tell()
             completed = os.fstat(stream.fileno())
         final = path.lstat()
+        reopened = None
+        if os.name == "nt":
+            with path.open("rb") as verification_stream:
+                reopened = os.fstat(verification_stream.fileno())
     except OSError as error:
         raise ValueError(f"cannot read {label}: {error}") from error
     if (
@@ -117,6 +111,7 @@ def _consume_stable_regular_file(
             opened,
             completed,
             final,
+            reopened,
             windows=os.name == "nt",
         )
         or not stat.S_ISREG(opened.st_mode)
