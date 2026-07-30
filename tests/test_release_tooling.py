@@ -859,12 +859,12 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "989a95e38cc74e659282c37ed55ba787ff13f12c"
+    implementation_commit = "0aab7b137b5a6eef173b8ec000aa84ff8d41e196"
     redesign_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
     assert compatibility["tested_source"] == {
         "repository": "https://github.com/OAEI-ML/pyOWLCore",
         "commit": implementation_commit,
-        "tree": "28dff7644baeff03ea72472c13b6c7b321b4873e",
+        "tree": "ca01ade1c99f804b7be550ac245a94fbf7411149",
         "version": "0.1.1",
     }
     assert compatibility["release_evidence_source"] == {
