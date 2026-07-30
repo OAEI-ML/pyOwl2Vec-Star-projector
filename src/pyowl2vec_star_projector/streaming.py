@@ -32,6 +32,13 @@ _FIELD_LENGTHS = struct.Struct(">III")
 _MAX_FIELD_BYTES = (1 << 32) - 1
 
 
+def _restrict_owner_file_permissions(descriptor: int) -> None:
+    """Apply POSIX owner-only permissions when the platform exposes fchmod."""
+    fchmod = getattr(os, "fchmod", None)
+    if fchmod is not None:
+        fchmod(descriptor, 0o600)
+
+
 class CancellationTokenLike(Protocol):
     """Structural subset of the core cancellation token used by projection."""
 
@@ -188,7 +195,7 @@ class _SpillWorkspace:
         try:
             descriptor, name = tempfile.mkstemp(prefix="run-", suffix=".bin", dir=self.directory)
             path = Path(name)
-            os.fchmod(descriptor, 0o600)
+            _restrict_owner_file_permissions(descriptor)
             with os.fdopen(descriptor, "w+b", buffering=1024 * 1024) as stream:
                 descriptor = None
                 self._grow(_RUN_HEADER.size, stage="run-header")
@@ -535,7 +542,7 @@ class _DistinctIndex:
             descriptor, name = tempfile.mkstemp(
                 prefix="seen-", suffix=".sqlite3", dir=workspace.directory
             )
-            os.fchmod(descriptor, 0o600)
+            _restrict_owner_file_permissions(descriptor)
             os.close(descriptor)
             descriptor = None
             path = Path(name)

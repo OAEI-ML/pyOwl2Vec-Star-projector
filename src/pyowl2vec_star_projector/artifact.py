@@ -17,7 +17,11 @@ from .errors import InvalidProjectionOptionsError, ProjectionResourceError
 from .model import Edge
 from .options import ProjectionOptions
 from .provenance import ProjectionReport
-from .streaming import CancellationTokenLike, StreamingLimits
+from .streaming import (
+    CancellationTokenLike,
+    StreamingLimits,
+    _restrict_owner_file_permissions,
+)
 
 _COPY_CHUNK = 1024 * 1024
 _NATIVE_SEMANTIC_API_VERSION = 1
@@ -87,7 +91,7 @@ class _EdgePayload:
             descriptor, name = tempfile.mkstemp(
                 prefix="edges-", suffix=".jsonl", dir=self.directory
             )
-            os.fchmod(descriptor, 0o600)
+            _restrict_owner_file_permissions(descriptor)
             self.path = Path(name)
             os.close(descriptor)
             descriptor = None
@@ -438,7 +442,7 @@ def _write_destination(
     try:
         descriptor, name = tempfile.mkstemp(prefix=".pyowl2vec-artifact-", dir=target.parent)
         temporary = Path(name)
-        os.fchmod(descriptor, 0o600)
+        _restrict_owner_file_permissions(descriptor)
         with os.fdopen(descriptor, "wb", buffering=_COPY_CHUNK) as writer:
             descriptor = None
             written = _copy_artifact(writer, metadata, payload, cancellation_token)

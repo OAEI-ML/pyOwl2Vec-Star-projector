@@ -28,13 +28,24 @@ from pyowl2vec_star_projector import (
     probe_native_backend,
 )
 from pyowl2vec_star_projector.artifact import json_record
-from pyowl2vec_star_projector.streaming import _SpillWorkspace, iter_edge_policy
+from pyowl2vec_star_projector.streaming import (
+    _restrict_owner_file_permissions,
+    _SpillWorkspace,
+    iter_edge_policy,
+)
 
 from .support.core_views import Capabilities, ConformingView, fixture_view
 
 
 def _canonical_options(**changes: Any) -> ProjectionOptions:
     return ProjectionOptions(backend="python", order="canonical", **changes)
+
+
+def test_private_file_permissions_tolerate_platform_without_fchmod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr(os, "fchmod")
+    _restrict_owner_file_permissions(-1)
 
 
 def test_external_sort_is_invariant_across_buffers_fan_in_and_duplicate_policy(
