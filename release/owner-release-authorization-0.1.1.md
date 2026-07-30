@@ -6,8 +6,8 @@ The repository owner explicitly directed that all remaining external gates be cl
 the complete current-main 0.1.1 patch release be published after the coordinated pyOWLCore 0.1.1
 release.
 
-The exact tested core source is commit `0aab7b137b5a6eef173b8ec000aa84ff8d41e196`,
-tree `ca01ade1c99f804b7be550ac245a94fbf7411149`.
+The exact tested core source is commit `b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19`,
+tree `e72fc93248cd363a5c67dac9efffb367a71c2b1d`.
 
 This authorization is a risk acceptance, not a claim that a hosted workflow has already run.
 `external-gates.json` records each closure and residual risk. Publication is fail-closed on one
