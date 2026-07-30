@@ -1,6 +1,6 @@
-# Migrating to `0.1.0rc1`
+# Migrating to `0.1.0`
 
-## From `0.1.0b1`
+## From `0.1.0rc1`
 
 No application-code migration is required. Public imports, option defaults, edge semantics,
 warning/error types, profile name, batch-sink protocol, and portable artifact bytes are
@@ -14,8 +14,12 @@ Packaging automation should make these deliberate updates:
    backend then requests pinned `setuptools-rust==1.13.0`; Cargo and rustc must already exist.
 3. Keep `backend="python"` for quiet deterministic fallback. `backend="auto"` still warns once
    because native has not earned automatic preference.
-4. Treat `0.1.0rc1` as an unpublished candidate until every entry in
-   `release/external-gates.json` has authenticated evidence.
+4. Install `pyowl-core==0.1.0` before testing a local offline projector artifact. Public package
+   metadata intentionally retains the compatible range `pyowl-core>=0.1,<0.2`.
+
+The repository owner accepted the residual risks documented in
+`release/external-gates.json` for the initial production publication. This closure does not turn
+waived hosted matrix, private-index, advisory, or attestation work into completed evidence.
 
 The distribution name is `pyowl2vec-star-projector`; the import remains
 `pyowl2vec_star_projector`. It is intentionally different from the unrelated

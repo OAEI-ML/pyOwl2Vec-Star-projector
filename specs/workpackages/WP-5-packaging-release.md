@@ -1,7 +1,7 @@
 # WP-P5 — Packaging, compatibility matrix, and 0.1 release
 
-**Target:** `0.1.0`. **Depends on:** P2–P4. **Status:** implemented as `0.1.0rc1`;
-final release externally blocked.
+**Target:** `0.1.0`. **Depends on:** P2–P4. **Status:** production release prepared under explicit
+owner acceptance of the documented residual risks.
 
 ## Deliverables
 
@@ -31,8 +31,9 @@ tables, changelog, and migration/release instructions are implemented. Local sam
 `--find-links` selection chooses the native wheel on a supported target and the universal wheel
 for a simulated unsupported target.
 
-This work package does **not** claim the final acceptance paragraph yet. Authenticated package-name
-ownership, a compatible ordinary-index `pyowl-core` release, a disposable private-index proof,
-hosted platform runs, signed attestations, current advisory feeds, and unavailable release corpora
-are explicit blockers in `../../release/external-gates.json`. The candidate remains `0.1.0rc1` and
-no publication workflow or credential is present.
+The projector is coordinated with the exact `pyowl-core` 0.1.0 release source. The repository
+owner explicitly closed the remaining external gates for initial production publication by
+accepting their residual risks. This work package does not claim that waived private-index,
+hosted-platform, signed-provenance, advisory-feed, or unavailable-corpus evidence was generated;
+the machine-readable closures remain in `../../release/external-gates.json`. No credential is
+present in the repository.

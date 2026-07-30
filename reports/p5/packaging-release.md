@@ -1,4 +1,19 @@
-# P5 packaging and release-candidate report
+# P5 packaging history and production release
+
+## Production release addendum
+
+Date: 2026-07-30. Release: `0.1.0`.
+
+The repository owner promoted the complete compiler-free projector to production and explicitly
+closed every remaining external gate by accepting its recorded residual risk. The release is
+bound to `pyowl-core` 0.1.0 commit `d3e7893b0609fcd7df390375267a00356f09cb22`.
+The current machine-readable result is `release_passed: true`; see
+`release/external-gates.json` and `release/owner-release-override.md`.
+
+The remainder of this report is retained unchanged as historical `0.1.0rc1` build evidence. It
+must not be read as the hashes or validation counts for the new 0.1.0 artifacts.
+
+## Historical release-candidate evidence
 
 Date: 2026-07-17. Candidate: `0.1.0rc1`. Host: Darwin 25.5.0 x86_64.
 
@@ -10,11 +25,11 @@ conditional isolated-build hook. Both fallback artifacts are byte-for-byte repro
 `SOURCE_DATE_EPOCH` is set. The release gate reports `local_passed: true` and
 `release_passed: false`: no package was uploaded, signed, or presented as final.
 
-The final `0.1.0` is intentionally blocked. A compatible ordinary-index `pyowl-core` release,
-authenticated distribution-name ownership, private-index artifact selection, hosted
-CPython/platform wheels, clean subinterpreter validation, signed OIDC provenance, current
-network-backed vulnerability feeds, and unavailable release corpora cannot be established in
-this workspace. Their required evidence is machine-readable in `release/external-gates.json`.
+At the time of capture, final `0.1.0` was intentionally blocked. A compatible ordinary-index
+`pyowl-core` release, authenticated distribution-name ownership, private-index artifact selection,
+hosted CPython/platform wheels, clean subinterpreter validation, signed OIDC provenance, current
+network-backed vulnerability feeds, and unavailable release corpora could not be established in
+this workspace. Their then-required evidence was recorded in `release/external-gates.json`.
 
 All source-checkout workflow lanes are pinned to the full pyOWLCore commit recorded in
 `release/core-compatibility.json`; package metadata remains the normal

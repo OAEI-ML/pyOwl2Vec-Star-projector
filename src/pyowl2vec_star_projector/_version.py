@@ -1,6 +1,6 @@
 """Package and compatibility version constants."""
 
-__version__ = "0.1.0rc1"
+__version__ = "0.1.0"
 
 PROJECTOR_API_VERSION = 1
 BATCH_SINK_PROTOCOL_VERSION = 1

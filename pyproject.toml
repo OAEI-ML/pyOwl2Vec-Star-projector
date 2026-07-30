@@ -5,7 +5,7 @@ backend-path = ["."]
 
 [project]
 name = "pyowl2vec-star-projector"
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "Java-free OWL2Vec* projection over shared pyowl-core ontology views"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,7 +19,7 @@ license-files = [
 authors = [{ name = "OAEI-ML contributors" }]
 keywords = ["OWL", "ontology", "OWL2Vec", "projection", "semantic-web"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",

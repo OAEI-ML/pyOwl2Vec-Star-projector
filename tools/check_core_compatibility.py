@@ -16,6 +16,7 @@ else:
     from release_support import read_stable_regular_file
 
 _RELEASE_ONLY_CLASSIFICATION = "behavior-preserving-release-evidence-only"
+_PRODUCTION_RELEASE_CLASSIFICATION = "production-release"
 _RUNTIME_SOURCE_PREFIXES = ("src/", "native/")
 _RUNTIME_SOURCE_FILES = frozenset({"pyproject.toml", "setup.py", "_build_backend.py"})
 _COMPARATOR_ONLY_PREFIXES = (
@@ -97,11 +98,25 @@ def release_evidence_errors(
     if not isinstance(release_commit, str) or re.fullmatch(r"[0-9a-f]{40}", release_commit) is None:
         return ["core release-evidence source is not an exact 40-character commit"]
     errors: list[str] = []
+    classification = source.get("classification")
+    if classification == _PRODUCTION_RELEASE_CLASSIFICATION:
+        if release_commit != implementation_commit:
+            errors.append("core production release source differs from the tested implementation")
+        if source.get("implementation_commit") != implementation_commit:
+            errors.append("core release-evidence source names a different implementation revision")
+        if source.get("runtime_source_changed") is not False:
+            errors.append("core production release source does not describe the tested tree")
+        if source.get("changed_paths") != []:
+            errors.append("core production release source lists changes beyond the tested tree")
+        summary = source.get("summary")
+        if not isinstance(summary, str) or not summary.strip():
+            errors.append("core release-evidence source has no summary")
+        return errors
     if release_commit == implementation_commit:
         errors.append("core release-evidence revision does not follow the implementation revision")
     if source.get("implementation_commit") != implementation_commit:
         errors.append("core release-evidence source names a different implementation revision")
-    if source.get("classification") != _RELEASE_ONLY_CLASSIFICATION:
+    if classification != _RELEASE_ONLY_CLASSIFICATION:
         errors.append("core release-evidence source has an unsupported classification")
     if source.get("runtime_source_changed") is not False:
         errors.append("core release-evidence source does not preserve runtime sources")
@@ -142,6 +157,8 @@ def release_evidence_checkout_errors(
         _git_output(core_root, "cat-file", "-e", f"{release_commit}^{{commit}}")
     except ValueError as error:
         return [f"cannot resolve core release-evidence Git objects: {error}"]
+    if source["classification"] == _PRODUCTION_RELEASE_CLASSIFICATION:
+        return []
 
     errors: list[str] = []
     try:

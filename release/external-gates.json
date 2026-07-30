@@ -1,48 +1,62 @@
 {
   "schema": "pyowl-projector.external-release-gates/1",
-  "candidate": "0.1.0rc1",
+  "candidate": "0.1.0",
+  "closure": {
+    "authorized_by": "repository owner",
+    "authorized_on": "2026-07-30",
+    "method": "explicit owner waiver",
+    "record": "release/owner-release-override.md",
+    "statement": "The repository owner explicitly directed that every remaining release gate be closed and that version 0.1.0 be promoted for production publication."
+  },
   "gates": [
     {
       "id": "pyowl-core-release",
-      "status": "blocked",
-      "reason": "The approved compatibility source is still versioned 0.1.0.dev0 and no controlled pyowl-core 0.1 release artifact is available to an ordinary package-index install.",
-      "required_evidence": "Publish an audited pyowl-core>=0.1,<0.2 artifact containing the approved compatibility commit, then repeat clean online and offline dependency resolution against that exact release."
+      "status": "passed",
+      "closure": "owner-authorized coordinated release",
+      "evidence": "Projector compatibility and source-checkout lanes are bound to pyOWLCore 0.1.0 commit d3e7893b0609fcd7df390375267a00356f09cb22. The owner accepted local dependency-order publication with pyowl-core uploaded first.",
+      "residual_risk": "The projector upload must follow successful pyowl-core 0.1.0 publication and index verification."
     },
     {
       "id": "distribution-name-ownership",
-      "status": "blocked",
-      "reason": "An authenticated PyPI/TestPyPI organization owner must prove control of the normalized name pyowl2vec-star-projector immediately before publication.",
-      "required_evidence": "Authenticated project-owner or reservation record plus recovery-owner review; an anonymous index search is insufficient."
+      "status": "passed",
+      "closure": "owner waiver",
+      "evidence": "The repository owner authorized publication with their authenticated PyPI account token.",
+      "residual_risk": "Authenticated ownership is ultimately confirmed only when PyPI accepts the first upload."
     },
     {
       "id": "private-index-selection",
-      "status": "blocked",
-      "reason": "No authenticated private package index is available in this workspace.",
-      "required_evidence": "Upload the same-version universal wheel, sdist, and representative native wheels to a disposable private index; record pip selection on supported and unsupported targets."
+      "status": "passed",
+      "closure": "owner waiver",
+      "evidence": "The owner waived disposable-private-index staging and authorized direct production publication of the audited universal wheel and sdist.",
+      "residual_risk": "Same-version native-versus-universal index selection was not staged on a private index."
     },
     {
       "id": "hosted-platform-matrix",
-      "status": "blocked",
-      "reason": "This macOS workspace cannot execute Linux x86_64/aarch64, macOS arm64, and Windows x86_64 clean VMs for CPython 3.10-3.13.",
-      "required_evidence": "Successful packaging and installed-smoke workflow run for every claimed target, including native binary audits."
+      "status": "passed",
+      "closure": "owner waiver",
+      "evidence": "The owner accepted the complete platform-neutral Python fallback as the initial production artifact and waived hosted native-wheel matrix completion for this publication.",
+      "residual_risk": "Native wheels for Linux, Windows, and macOS architectures remain subject to their platform workflows before separate upload."
     },
     {
       "id": "subinterpreter-runtime-matrix",
-      "status": "blocked",
-      "reason": "PyO3 0.28 deliberately rejects extension loading in CPython subinterpreters, and this host's CPython 3.12 aborts while tearing down a subinterpreter after importing the standard-library hashlib extension.",
-      "required_evidence": "On an approved clean CPython build, prove full Python projection and teardown in a subinterpreter, prove auto fallback without importing _native, and prove explicit native selection raises NativeBackendUnavailableError; retain native as unsupported until its extension framework passes an equivalent import/parity test."
+      "status": "passed",
+      "closure": "owner waiver",
+      "evidence": "The owner accepted the documented subinterpreter limitation; the pure-Python fallback remains the production-safe default and native probing rejects unsupported runtimes.",
+      "residual_risk": "Full projection and teardown were not demonstrated across an approved CPython subinterpreter matrix."
     },
     {
       "id": "signed-provenance",
-      "status": "blocked",
-      "reason": "The workspace has no release identity, signing key, or authenticated GitHub attestation context.",
-      "required_evidence": "OIDC build-provenance attestations and signed SHA256SUMS from the approved release identity."
+      "status": "passed",
+      "closure": "owner waiver",
+      "evidence": "The owner waived OIDC attestation and signed-checksum prerequisites for the local token upload.",
+      "residual_risk": "Initial PyPI artifacts will not carry hosted OIDC provenance or an owner signature."
     },
     {
       "id": "release-corpora",
-      "status": "blocked",
-      "reason": "The committed P4 checkpoint proves that the pinned local NCIT source loads and projects successfully. GO bytes and a licensed SNOMED-scale corpus are absent, and no approved hosted/reference-machine corpus run is available in this workspace.",
-      "required_evidence": "Provide pinned lawful acquisition manifests for GO and a licensed-or-equivalent SNOMED-scale corpus, then complete robust hosted/reference-machine P4/P5 reports for GO, NCIT, and the licensed-scale corpus meeting the memory, determinism, and throughput gates. The committed NCIT checkpoint is valid local evidence, not a release median.",
+      "status": "passed",
+      "closure": "owner waiver",
+      "evidence": "The owner accepted the committed NCIT evidence and waived absent GO and licensed-scale corpus runs for 0.1.0.",
+      "residual_risk": "GO and licensed SNOMED-scale performance evidence remains unavailable.",
       "completed_local_evidence": {
         "report": "reports/p4/streaming.md",
         "corpus": "OAEI Bio-ML NCIT source",
@@ -54,9 +68,10 @@
     },
     {
       "id": "hosted-vulnerability-audits",
-      "status": "blocked",
-      "reason": "Current vulnerability databases and platform binary audit services are network-backed and not present in the restricted workspace.",
-      "required_evidence": "Successful pip-audit and cargo-audit runs against current advisory databases plus auditwheel, delocate, or delvewheel output for each native wheel."
+      "status": "passed",
+      "closure": "owner waiver",
+      "evidence": "The owner waived network-backed advisory and platform binary audits for the compiler-free initial artifact set.",
+      "residual_risk": "Current advisory-database results and native-wheel binary audit output are not attached."
     }
   ]
 }

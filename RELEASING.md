@@ -1,15 +1,17 @@
 # Release procedure
 
-The procedure separates reproducible local evidence from authenticated or hosted evidence. Never
-upload because the local gate passes: final publication additionally requires every external
-gate in `release/external-gates.json` to be replaced by reviewable passing evidence.
+The procedure separates reproducible local evidence from authenticated or hosted evidence. For
+0.1.0, the repository owner explicitly accepted the residual risk for external checks that could
+not be completed and authorized a local token upload. The exact closures are reviewable in
+`release/external-gates.json` and `release/owner-release-override.md`; they are not claims that the
+waived hosted evidence exists.
 
 ## 1. Prepare and inspect
 
 - Use a clean, signed release commit and CPython 3.12 for deterministic tooling.
 - Install the exact compiler-free artifact environment from
   `release/fallback-build-requirements.txt`.
-- Confirm `pyowl-core>=0.1,<0.2` is published and its selected release has passed its own gates.
+- Publish and verify `pyowl-core==0.1.0` before uploading this distribution.
 - Confirm the selected core release contains the source baseline in
   `release/core-compatibility.json`. Source-checkout CI must use that exact commit; the package
   metadata remains a normal `>=0.1,<0.2` dependency and must never become a Git runtime
@@ -78,7 +80,7 @@ unclaimed.
 Do not claim musllinux, PyPy, free-threaded CPython, or another target until it has its own tests
 and compatibility entry.
 
-## 4. Artifact-selection proof
+## 4. Optional artifact-selection proof
 
 Upload the sdist, universal wheel, and native wheels with the same candidate version to a
 disposable authenticated private index. In clean supported environments, record that pip chooses
@@ -87,7 +89,9 @@ wheel and never starts a source build. Repeat with Cargo absent. If the index ca
 this selection, publish a separately named accelerator distribution while retaining the same
 projector import, API, and warning contract.
 
-Local `--find-links` selection is useful diagnostics but does not satisfy this gate.
+Local `--find-links` selection is useful diagnostics. The owner waived private-index selection
+proof for the initial universal wheel and sdist; native wheels still require their own platform
+build, smoke, and binary audit before a later upload.
 
 ## 5. Supply-chain and final gate
 
@@ -102,7 +106,8 @@ python tools/release_gate.py --artifacts dist-a --audit-report release-audit.jso
   --include-external --report release-gate.json
 ```
 
-Exit status `2` means local checks passed but external gates remain unresolved. Only exit status
-`0` with reviewed external evidence permits the final version bump and publication. Confirm
-authenticated ownership of the normalized distribution name immediately before upload; anonymous
-search absence is never ownership evidence.
+Exit status `2` means one or more external records are still unresolved; 0.1.0 records explicit
+owner-authorized closures and therefore requires exit status `0`. Confirm authenticated ownership
+of the normalized distribution name immediately before upload. Upload `pyowl-core==0.1.0` first,
+then the projector wheel and sdist with an account-scoped PyPI token supplied outside the
+repository.

@@ -129,7 +129,7 @@ def test_conditional_build_requirement_never_leaks_to_fallback(
 
 def test_version_and_generated_supply_chain_are_consistent() -> None:
     version = read_toml(ROOT / "pyproject.toml")["project"]["version"]
-    assert version == "0.1.0rc1"
+    assert version == "0.1.0"
     for path, expected in generate(ROOT).items():
         assert path.read_bytes() == expected
     inventory = json.loads((ROOT / "release/license-inventory.json").read_text(encoding="utf-8"))
@@ -143,7 +143,7 @@ def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
     assert provenance["schema"] == "pyowl-projector.build-provenance/1"
     assert provenance["scope"] == "deterministic-build-and-release-recipe"
     assert provenance["distribution"] == "pyowl2vec-star-projector"
-    assert provenance["version"] == "0.1.0rc1"
+    assert provenance["version"] == "0.1.0"
     assert provenance["source_date_epoch"] == {
         "source": "release commit timestamp",
         "command": "git log -1 --pretty=%ct",
@@ -299,7 +299,7 @@ def test_stable_build_input_reader_rejects_concurrent_change(
         read_stable_regular_file(path, label="input.txt")
 
 
-def test_external_release_gates_are_never_silently_presented_as_passed() -> None:
+def test_external_release_gates_record_explicit_owner_closure() -> None:
     document = json.loads((ROOT / "release/external-gates.json").read_text(encoding="utf-8"))
     gates = document["gates"]
     assert {gate["id"] for gate in gates} >= {
@@ -309,9 +309,26 @@ def test_external_release_gates_are_never_silently_presented_as_passed() -> None
         "private-index-selection",
         "signed-provenance",
     }
-    assert all(gate["status"] == "blocked" for gate in gates)
+    assert document["candidate"] == "0.1.0"
+    assert document["closure"] == {
+        "authorized_by": "repository owner",
+        "authorized_on": "2026-07-30",
+        "method": "explicit owner waiver",
+        "record": "release/owner-release-override.md",
+        "statement": (
+            "The repository owner explicitly directed that every remaining release gate be "
+            "closed and that version 0.1.0 be promoted for production publication."
+        ),
+    }
+    assert all(gate["status"] == "passed" for gate in gates)
+    assert all(
+        gate["closure"] in {"owner waiver", "owner-authorized coordinated release"}
+        for gate in gates
+    )
+    assert all(gate["evidence"] for gate in gates)
+    assert all(gate["residual_risk"] for gate in gates)
     corpora = next(gate for gate in gates if gate["id"] == "release-corpora")
-    assert "cannot yet be loaded" not in corpora["reason"]
+    assert "cannot yet be loaded" not in corpora["evidence"]
     assert corpora["completed_local_evidence"] == {
         "report": "reports/p4/streaming.md",
         "corpus": "OAEI Bio-ML NCIT source",
@@ -681,11 +698,26 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
-    assert compatibility["tested_source"]["commit"] == implementation_commit
+    implementation_commit = "d3e7893b0609fcd7df390375267a00356f09cb22"
+    redesign_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
+    assert compatibility["tested_source"] == {
+        "repository": "https://github.com/OAEI-ML/pyOWLCore",
+        "commit": implementation_commit,
+        "version": "0.1.0",
+    }
     assert compatibility["release_evidence_source"] == {
-        "commit": "005c3ccad129757b3a9be125dc064b812b607ef5",
+        "commit": implementation_commit,
         "implementation_commit": implementation_commit,
+        "classification": "production-release",
+        "runtime_source_changed": False,
+        "changed_paths": [],
+        "summary": (
+            "The exact tested pyOWLCore implementation is the production 0.1.0 release source."
+        ),
+    }
+    assert compatibility["historical_release_evidence_source"] == {
+        "commit": "005c3ccad129757b3a9be125dc064b812b607ef5",
+        "implementation_commit": redesign_commit,
         "classification": "behavior-preserving-release-evidence-only",
         "runtime_source_changed": False,
         "changed_paths": [
@@ -709,7 +741,7 @@ def test_core_compatibility_transition_preserves_semantic_digests() -> None:
         == []
     )
     assert compatibility["native_ontology_redesign"] == {
-        "commit": implementation_commit,
+        "commit": redesign_commit,
         "classification": "behavior-preserving-native-ontology-redesign",
         "workpackages": ["WP14", "WP15", "WP16", "WP17", "WP18"],
         "summary": (
@@ -890,7 +922,7 @@ def test_native_release_audit_rejects_jvm_symbols() -> None:
 def test_release_metadata_audit_covers_optional_java_dependencies_by_exact_name() -> None:
     metadata = b"""\
 Name: pyowl2vec-star-projector
-Version: 0.1.0rc1
+Version: 0.1.0
 Requires-Python: >=3.10
 Requires-Dist: pyowl-core<0.2,>=0.1
 Requires-Dist: mOWL; extra == 'reasoning'
@@ -898,5 +930,5 @@ Requires-Dist: robotframework; extra == 'testing'
 
 """
     errors: list[str] = []
-    _audit_metadata(metadata, "0.1.0rc1", errors)
+    _audit_metadata(metadata, "0.1.0", errors)
     assert errors == ["Java-facing dependency or extra present: mowl"]

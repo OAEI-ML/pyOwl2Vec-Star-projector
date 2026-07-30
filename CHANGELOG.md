@@ -5,6 +5,13 @@ from packaging or performance changes because profile output is a data contract.
 
 ## Unreleased
 
+## 0.1.0 — 2026-07-30
+
+The complete compiler-free projector is promoted to production. Runtime compatibility and every
+source-checkout lane are bound to `pyowl-core` 0.1.0. The repository owner explicitly closed the
+remaining external release gates by accepting their documented residual risks; this does not
+claim that waived hosted evidence was generated.
+
 ### Added
 
 - Kernel v47 extends the hidden P7 overlay seam to one canonical terminal-adjacent `EXCLUDE`

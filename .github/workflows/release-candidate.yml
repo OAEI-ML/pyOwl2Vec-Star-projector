@@ -1,4 +1,4 @@
-name: Attested release candidate
+name: Attested release artifacts
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
           subject-path: dist/*
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: attested-release-candidate
+          name: attested-release-artifacts
           path: |
             dist/*
             release/*.json
@@ -45,4 +45,4 @@ jobs:
           if-no-files-found: error
 
 # This workflow intentionally has no package-index upload step. Publication is a separate,
-# authenticated maintainer action after every external gate has passing evidence.
+# authenticated maintainer action. The owner-authorized local publication path remains separate.

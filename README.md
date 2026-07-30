@@ -38,14 +38,14 @@ Start with the [documentation index](docs/index.md) and
 details are in [the compatibility matrix](docs/compatibility.md) and
 [migration guide](docs/migration.md).
 
-The Python backend is complete. `0.1.0rc1` also contains an equivalent optional Rust/PyO3 edge
+The Python backend is complete. `0.1.0` also contains an equivalent optional Rust/PyO3 edge
 engine:
 
 - `backend="python"` selects the complete, compiler-free fallback explicitly and quietly;
 - `backend="auto"` uses the measured default backend and warns once when Python is selected; and
 - `backend="native"` selects the extension explicitly or fails clearly when it is unavailable.
 
-The P3 real-corpus measurements did not meet the required 2x end-to-end threshold, so this beta
+The P3 real-corpus measurements did not meet the required 2x end-to-end threshold, so this release
 keeps native opt-in even when installed. This is a performance decision only: Python and native
 produce the same ordered edges, multiplicities, diagnostics, and typed semantic errors. Explicit
 Python is quiet; an unavailable explicit native request fails instead of silently changing
@@ -57,7 +57,7 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 ## Status
 
-Unpublished release candidate: `0.1.0rc1`; planned final release: `0.1.0`.
+Production release: `0.1.0`.
 
 All 184 pinned Scala invocations match in canonical edge bytes,
 including the expected typed inverse-property assertion failure and the loader-owned missing-
@@ -67,11 +67,12 @@ in-memory edge vector. Normal tests, installs, wheels, and sdists remain Java-fr
 
 P5 supplies conditional compiler-free builds, platform workflow definitions, offline install
 smokes, reproducibility/hash tooling, SBOMs, license inventory, compatibility tables, and release
-instructions. Final publication is deliberately blocked until authenticated name ownership,
-private-index selection, hosted matrices, signed provenance, current advisory audits, and release
-corpora have evidence. See the [compatibility matrix](docs/compatibility.md), [migration
-notes](docs/migration.md), [release procedure](RELEASING.md), and machine-readable
-[external gates](release/external-gates.json).
+instructions. The repository owner explicitly accepted the residual risks from hosted checks
+that were unavailable for the initial compiler-free publication; every closure remains visible
+in the machine-readable [external gates](release/external-gates.json) and
+[owner override](release/owner-release-override.md). See also the [compatibility
+matrix](docs/compatibility.md), [migration notes](docs/migration.md), and
+[release procedure](RELEASING.md).
 
 P6 now ships a versioned consumer-conformance kit. Its CC0 fixture and three deterministic
 goldens exercise Exact-compatible OWL2Vec*, literal, and dedicated taxonomy settings. The probe
