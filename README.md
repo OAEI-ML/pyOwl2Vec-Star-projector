@@ -1,12 +1,16 @@
 # pyOwl2Vec-Star-projector
 
+[![PyPI](https://img.shields.io/pypi/v/pyowl2vec-star-projector)](https://pypi.org/project/pyowl2vec-star-projector/)
+[![Python](https://img.shields.io/pypi/pyversions/pyowl2vec-star-projector)](https://pypi.org/project/pyowl2vec-star-projector/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 `pyOwl2Vec-Star-projector` is a Java-free OWL2Vec* projection package for Python 3.10 and newer.
 Its complete pure-Python compiler implements the pinned mOWL compatibility profile, including
 historical bag multiplicity, role-map defects, lifecycle replay, annotation rendering, and
 deterministic output. The Scala oracle is quarantined maintainer infrastructure and is never an
 install, runtime, test, or release dependency.
 
-The package will consume the same `pyowl_core.OntologyView` used by parsers, reasoners, and
+The package consumes the same `pyowl_core.OntologyView` used by parsers, reasoners, and
 callers—normally a concrete `OntologySnapshot`, and optionally a persistent `OntologyOverlay` or
 zero-copy `OntologyComposite`. An in-process projection therefore does not parse, serialize,
 materialize, or copy an ontology.
@@ -18,6 +22,21 @@ The first compatibility profile is pinned to mOWL's Scala
 at commit `d9935369144f9a618ece38b7b2a8f4293afe8c26`. Java is permitted only in a quarantined
 development oracle that generates checked-in goldens. It is never an install, runtime, test, or
 release dependency.
+
+## Installation
+
+```bash
+python -m pip install pyowl2vec-star-projector
+```
+
+The normal installation includes the complete Python projector and requires no
+Java or native compiler. Supported platform wheels may also contain the optional
+Rust engine; select it explicitly with `ProjectionOptions(backend="native")`.
+
+Start with the [documentation index](docs/index.md) and
+[getting-started guide](docs/getting-started.md). Compatibility and migration
+details are in [the compatibility matrix](docs/compatibility.md) and
+[migration guide](docs/migration.md).
 
 The Python backend is complete. `0.1.0rc1` also contains an equivalent optional Rust/PyO3 edge
 engine:
