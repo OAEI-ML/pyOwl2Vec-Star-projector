@@ -1,1 +1,6 @@
+LICENSE text eol=lf
+NOTICE text eol=lf
+THIRD_PARTY_NOTICES.md text eol=lf
+native/THIRD_PARTY_LICENSES.md text eol=lf
+src/pyowl2vec_star_projector/conformance_data/LICENSE text eol=lf
 src/pyowl2vec_star_projector/conformance_data/consumer.ofn text eol=lf

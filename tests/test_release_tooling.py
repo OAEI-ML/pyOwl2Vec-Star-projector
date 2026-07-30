@@ -558,9 +558,16 @@ def test_atomic_release_publishes_only_the_complete_audited_set() -> None:
     assert "skip-existing: true" not in workflow
 
 
-def test_consumer_fixture_is_checkout_stable_on_windows() -> None:
+def test_release_payloads_are_checkout_stable_on_windows() -> None:
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
-    assert "src/pyowl2vec_star_projector/conformance_data/consumer.ofn text eol=lf" in attributes
+    assert set(attributes) == {
+        "LICENSE text eol=lf",
+        "NOTICE text eol=lf",
+        "THIRD_PARTY_NOTICES.md text eol=lf",
+        "native/THIRD_PARTY_LICENSES.md text eol=lf",
+        "src/pyowl2vec_star_projector/conformance_data/LICENSE text eol=lf",
+        "src/pyowl2vec_star_projector/conformance_data/consumer.ofn text eol=lf",
+    }
 
 
 def test_native_workflow_runs_bounded_p7_contract_on_installed_wheel() -> None:
