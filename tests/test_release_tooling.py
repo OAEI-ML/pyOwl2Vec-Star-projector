@@ -492,6 +492,8 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert "e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c" in native
     assert "--default-toolchain 1.83.0" in native
     assert "MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}" in native
+    assert "CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014" in native
+    assert "CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014" in native
     assert native.count("pyowl-core==0.1.1") == 3
     assert "pip install --no-deps {project}/.deps/pyowl-core" not in native
     assert "python -m pip install --no-deps .deps/pyowl-core" not in native
@@ -501,11 +503,18 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
         "macosx_13_0_x86_64",
         "macosx_13_0_arm64",
         "win_amd64",
+        "manylinux_2_17_x86_64",
+        "manylinux_2_17_aarch64",
+        "macosx_10_12_x86_64",
+        "macosx_11_0_arm64",
         "musllinux_1_2_x86_64",
         "musllinux_1_2_aarch64",
     ):
         assert platform in native
-    assert native.count("expected: py3-none-any.whl") == 3
+    assert native.count("expected: py3-none-any.whl") == 7
+    assert native.count("core_backend: pure") == 2
+    assert native.count("core_backend: native") == 3
+    assert "          persist-credentials: false\n        with:" not in native
     assert "needs: core-artifact-resolution" in native
     assert "pyowl-core==0.1.1" in packaging
     assert "--implementation py --abi none" in packaging

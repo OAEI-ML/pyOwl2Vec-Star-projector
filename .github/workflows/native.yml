@@ -29,6 +29,10 @@ jobs:
           - {lane: macos-x86_64, platform: macosx_13_0_x86_64, implementation: cp, abi: cp312, expected: cp312-cp312-macosx_13_0_x86_64.whl}
           - {lane: macos-arm64, platform: macosx_13_0_arm64, implementation: cp, abi: cp312, expected: cp312-cp312-macosx_13_0_arm64.whl}
           - {lane: windows-x86_64, platform: win_amd64, implementation: cp, abi: cp312, expected: cp312-cp312-win_amd64.whl}
+          - {lane: manylinux-2-17-x86_64-fallback, platform: manylinux_2_17_x86_64, implementation: cp, abi: cp312, expected: py3-none-any.whl}
+          - {lane: manylinux-2-17-aarch64-fallback, platform: manylinux_2_17_aarch64, implementation: cp, abi: cp312, expected: py3-none-any.whl}
+          - {lane: macos-10-12-x86_64-fallback, platform: macosx_10_12_x86_64, implementation: cp, abi: cp312, expected: py3-none-any.whl}
+          - {lane: macos-11-arm64-fallback, platform: macosx_11_0_arm64, implementation: cp, abi: cp312, expected: py3-none-any.whl}
           - {lane: musllinux-x86_64-fallback, platform: musllinux_1_2_x86_64, implementation: cp, abi: cp312, expected: py3-none-any.whl}
           - {lane: musllinux-aarch64-fallback, platform: musllinux_1_2_aarch64, implementation: cp, abi: cp312, expected: py3-none-any.whl}
           - {lane: forced-pure-fallback, platform: any, implementation: py, abi: none, expected: py3-none-any.whl}
@@ -80,32 +84,36 @@ jobs:
           - os: ubuntu-latest
             artifact: linux-x86_64
             cibw-arch: x86_64
+            core_backend: pure
           - os: ubuntu-24.04-arm
             artifact: linux-aarch64
             cibw-arch: aarch64
+            core_backend: pure
           - os: macos-15-intel
             artifact: macos-x86_64
             cibw-arch: x86_64
             macos_deployment_target: "10.12"
+            core_backend: native
           - os: macos-14
             artifact: macos-arm64
             cibw-arch: arm64
             macos_deployment_target: "11.0"
+            core_backend: native
           - os: windows-latest
             artifact: windows-x86_64
             cibw-arch: AMD64
+            core_backend: native
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          persist-credentials: false
-        with:
           repository: OAEI-ML/pyOWLCore
           ref: b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19
           path: .deps/pyowl-core
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
@@ -120,6 +128,8 @@ jobs:
           CIBW_ARCHS: ${{ matrix.cibw-arch }}
           CIBW_BUILD: cp310-*
           CIBW_SKIP: "*-musllinux* *-win32"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
           CIBW_BEFORE_ALL_LINUX: >-
             set -eu;
             rustup_arch="$(uname -m)";
@@ -138,14 +148,20 @@ jobs:
               ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool";
             done;
             rm -f /tmp/rustup-init
-          CIBW_ENVIRONMENT: PYOWL2VEC_BUILD_NATIVE=1
+          CIBW_ENVIRONMENT: >-
+            CORE_BACKEND=${{ matrix.core_backend }}
+            PYOWL2VEC_BUILD_NATIVE=1
           CIBW_ENVIRONMENT_MACOS: >-
+            CORE_BACKEND=${{ matrix.core_backend }}
             PYOWL2VEC_BUILD_NATIVE=1
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BEFORE_TEST: >-
             pip install --only-binary=:all: --no-deps pyowl-core==0.1.1
           CIBW_TEST_COMMAND: >-
-            python -c "import pyowl_core._native as n; n.self_test()" &&
+            python -c "import importlib.util, os;
+            found = importlib.util.find_spec('pyowl_core._native') is not None;
+            assert found == (os.environ['CORE_BACKEND'] == 'native'),
+            (found, os.environ['CORE_BACKEND'])" &&
             python {project}/tools/installed_smoke.py --require-native
       - if: runner.os == 'Linux'
         run: python -m pip install auditwheel==6.4.2 && auditwheel show wheelhouse/*.whl
