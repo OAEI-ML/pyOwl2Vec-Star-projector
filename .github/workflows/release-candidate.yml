@@ -1,6 +1,8 @@
 name: Attested release artifacts
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ["v*"]
   schedule:
     - cron: "17 3 * * 2"
   workflow_dispatch:
@@ -41,7 +42,7 @@ jobs:
           - os: ubuntu-24.04-arm
             artifact: linux-aarch64
             cibw-arch: aarch64
-          - os: macos-13
+          - os: macos-15-intel
             artifact: macos-x86_64
             cibw-arch: x86_64
           - os: macos-14
@@ -66,12 +67,30 @@ jobs:
           toolchain: "1.83.0"
       - run: python tools/check_core_compatibility.py --core-root .deps/pyowl-core
         env:
-          PYTHONPATH: src:.deps/pyowl-core/src
+          PYTHONPATH: "src${{ runner.os == 'Windows' && ';' || ':' }}.deps/pyowl-core/src"
       - uses: pypa/cibuildwheel@65b8265957fd86372d9689a0acdfd55813970d5d # v3.1.4
         env:
           CIBW_ARCHS: ${{ matrix.cibw-arch }}
           CIBW_BUILD: cp310-*
           CIBW_SKIP: "*-musllinux* *-win32"
+          CIBW_BEFORE_ALL_LINUX: >-
+            set -eu;
+            rustup_arch="$(uname -m)";
+            case "$rustup_arch" in
+              x86_64) rustup_sha256=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c ;;
+              aarch64) rustup_sha256=e3853c5a25252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c ;;
+              *) echo "unsupported rustup architecture: $rustup_arch" >&2; exit 1 ;;
+            esac;
+            curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location
+            --output /tmp/rustup-init
+            "https://static.rust-lang.org/rustup/archive/1.28.2/$rustup_arch-unknown-linux-gnu/rustup-init";
+            echo "$rustup_sha256  /tmp/rustup-init" | sha256sum --check --strict;
+            chmod +x /tmp/rustup-init;
+            /tmp/rustup-init -y --profile minimal --default-toolchain 1.83.0;
+            for tool in cargo rustc rustup; do
+              ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool";
+            done;
+            rm -f /tmp/rustup-init
           CIBW_ENVIRONMENT: PYOWL2VEC_BUILD_NATIVE=1
           CIBW_BEFORE_TEST: pip install --no-deps {project}/.deps/pyowl-core
           CIBW_TEST_COMMAND: python {project}/tools/installed_smoke.py --require-native
@@ -95,14 +114,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-14, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-14, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         include:
           - os: ubuntu-latest
             artifact: linux-x86_64
           - os: ubuntu-24.04-arm
             artifact: linux-aarch64
-          - os: macos-13
+          - os: macos-15-intel
             artifact: macos-x86_64
           - os: macos-14
             artifact: macos-arm64

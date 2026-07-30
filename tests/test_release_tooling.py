@@ -37,6 +37,7 @@ from tools.release_support import read_stable_regular_file, read_toml
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = re.compile(r"(?m)^\s*-?\s*uses:\s+([^\s#]+)")
 EXPECTED_PROVENANCE_INPUTS = {
+    ".gitattributes",
     ".github/workflows/ci.yml",
     ".github/workflows/native.yml",
     ".github/workflows/packaging.yml",
@@ -374,6 +375,35 @@ def test_rust_workflow_toolchains_are_immutable() -> None:
         re.fullmatch(r"(?:[0-9]+\.[0-9]+\.[0-9]+|nightly-[0-9]{4}-[0-9]{2}-[0-9]{2})", item)
         for item in observed
     )
+
+
+def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    native = (ROOT / ".github/workflows/native.yml").read_text(encoding="utf-8")
+    packaging = (ROOT / ".github/workflows/packaging.yml").read_text(encoding="utf-8")
+    release = (ROOT / ".github/workflows/release-candidate.yml").read_text(encoding="utf-8")
+
+    assert all("macos-13" not in workflow for workflow in (ci, native, packaging, release))
+    assert "macos-15-intel" in ci
+    assert native.count("macos-15-intel") == 3
+    assert "pytest==8.4.2 setuptools==83.0.0 tomli==2.4.1" in ci
+    assert 'PYOWL_CORE_BUILD_NATIVE: "0"' in packaging
+    assert "runner.os == 'Windows' && ';' || ':'" in native
+
+    assert "CIBW_BEFORE_ALL_LINUX" in native
+    assert "rustup/archive/1.28.2" in native
+    assert "20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c" in native
+    assert "e3853c5a25252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c" in native
+    assert "--default-toolchain 1.83.0" in native
+
+    assert 'tags: ["v*"]' in packaging
+    assert 'tags: ["v*"]' in native
+    assert 'tags: ["v*"]' in release
+
+
+def test_consumer_fixture_is_checkout_stable_on_windows() -> None:
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert "src/pyowl2vec_star_projector/conformance_data/consumer.ofn text eol=lf" in attributes
 
 
 def test_native_workflow_runs_bounded_p7_contract_on_installed_wheel() -> None:

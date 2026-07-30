@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -45,6 +46,8 @@ jobs:
           python tools/release_gate.py --artifacts dist-a
           --audit-report release-audit.json --report release-gate.json
       - run: python -m build .deps/pyowl-core --wheel --outdir wheelhouse
+        env:
+          PYOWL_CORE_BUILD_NATIVE: "0"
       - run: python -m pip download --dest wheelhouse setuptools==83.0.0 wheel==0.46.3
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

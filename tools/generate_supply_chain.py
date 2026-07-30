@@ -35,6 +35,7 @@ _PYTHON_BUILD_LICENSES = {
     ("semantic-version", "2.10.0"): "BSD-2-Clause",
 }
 _BUILD_INPUT_PATHS = (
+    ".gitattributes",
     ".github/workflows/ci.yml",
     ".github/workflows/native.yml",
     ".github/workflows/packaging.yml",
