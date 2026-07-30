@@ -46,6 +46,50 @@ def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]
     )
 
 
+def _stable_stat_snapshots(
+    initial: os.stat_result,
+    opened: os.stat_result,
+    completed: os.stat_result,
+    final: os.stat_result,
+    *,
+    windows: bool,
+) -> bool:
+    if not windows:
+        return (
+            len(
+                {
+                    _stat_identity(initial),
+                    _stat_identity(opened),
+                    _stat_identity(completed),
+                    _stat_identity(final),
+                }
+            )
+            == 1
+        )
+
+    # CPython's current Windows path-stat fast path does not populate the
+    # device and file-index fields that fstat obtains from the open handle.
+    # Compare each observation channel independently, then bind them through
+    # the portable content metadata they both report.
+    if _stat_identity(initial) != _stat_identity(final):
+        return False
+    if _stat_identity(opened) != _stat_identity(completed):
+        return False
+    path_content = (
+        stat.S_IFMT(initial.st_mode),
+        initial.st_size,
+        initial.st_mtime_ns,
+        initial.st_ctime_ns,
+    )
+    handle_content = (
+        stat.S_IFMT(opened.st_mode),
+        opened.st_size,
+        opened.st_mtime_ns,
+        opened.st_ctime_ns,
+    )
+    return path_content == handle_content
+
+
 def _consume_stable_regular_file(
     path: Path,
     *,
@@ -67,13 +111,17 @@ def _consume_stable_regular_file(
         final = path.lstat()
     except OSError as error:
         raise ValueError(f"cannot read {label}: {error}") from error
-    identities = {
-        _stat_identity(initial),
-        _stat_identity(opened),
-        _stat_identity(completed),
-        _stat_identity(final),
-    }
-    if len(identities) != 1 or not stat.S_ISREG(opened.st_mode) or position != opened.st_size:
+    if (
+        not _stable_stat_snapshots(
+            initial,
+            opened,
+            completed,
+            final,
+            windows=os.name == "nt",
+        )
+        or not stat.S_ISREG(opened.st_mode)
+        or position != opened.st_size
+    ):
         raise ValueError(f"{label} changed while reading")
     return result
 

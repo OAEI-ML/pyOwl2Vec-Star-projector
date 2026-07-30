@@ -10,6 +10,7 @@ import tarfile
 import warnings
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,7 +33,7 @@ from tools.audit_release import (
 from tools.generate_supply_chain import build_provenance, generate
 from tools.hash_artifacts import create_manifest, verify_manifest
 from tools.release_gate import local_checks
-from tools.release_support import read_stable_regular_file, read_toml
+from tools.release_support import _stable_stat_snapshots, read_stable_regular_file, read_toml
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = re.compile(r"(?m)^\s*-?\s*uses:\s+([^\s#]+)")
@@ -300,6 +301,54 @@ def test_stable_build_input_reader_rejects_concurrent_change(
         read_stable_regular_file(path, label="input.txt")
 
 
+def test_stable_build_input_reader_accepts_windows_path_stat_identity_gap(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "input.txt"
+    path.write_bytes(b"captured")
+    handle = path.stat()
+    path_identity = SimpleNamespace(
+        st_mode=handle.st_mode,
+        st_ino=0,
+        st_dev=0,
+        st_size=handle.st_size,
+        st_mtime_ns=handle.st_mtime_ns,
+        st_ctime_ns=handle.st_ctime_ns,
+    )
+
+    assert _stable_stat_snapshots(
+        path_identity,
+        handle,
+        handle,
+        path_identity,
+        windows=True,
+    )
+
+
+def test_stable_build_input_reader_rejects_windows_cross_channel_change(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "input.txt"
+    path.write_bytes(b"captured")
+    handle = path.stat()
+    path_identity = SimpleNamespace(
+        st_mode=handle.st_mode,
+        st_ino=0,
+        st_dev=0,
+        st_size=handle.st_size + 1,
+        st_mtime_ns=handle.st_mtime_ns,
+        st_ctime_ns=handle.st_ctime_ns,
+    )
+
+    assert not _stable_stat_snapshots(
+        path_identity,
+        handle,
+        handle,
+        path_identity,
+        windows=True,
+    )
+
+
 def test_external_release_gates_record_explicit_owner_closure() -> None:
     document = json.loads((ROOT / "release/external-gates.json").read_text(encoding="utf-8"))
     gates = document["gates"]
@@ -393,8 +442,12 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert "CIBW_BEFORE_ALL_LINUX" in native
     assert "rustup/archive/1.28.2" in native
     assert "20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c" in native
-    assert "e3853c5a25252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c" in native
+    assert "e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c" in native
     assert "--default-toolchain 1.83.0" in native
+    assert "MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}" in native
+
+    assert "repository: liseda-lab/Exact-OM" in ci
+    assert "ref: 08b859d40bb5c98e3dbdd46109bc4f2d5c0ffd3c" in ci
 
     assert 'tags: ["v*"]' in packaging
     assert 'tags: ["v*"]' in native
