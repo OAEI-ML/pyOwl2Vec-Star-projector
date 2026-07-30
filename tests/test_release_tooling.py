@@ -484,7 +484,6 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert "macos-15-intel" in ci
     assert native.count("macos-15-intel") == 3
     assert "pytest==8.4.2 setuptools==83.0.0 tomli==2.4.1" in ci
-    assert 'PYOWL_CORE_BUILD_NATIVE: "0"' in packaging
     assert "runner.os == 'Windows' && ';' || ':'" in native
 
     assert "CIBW_BEFORE_ALL_LINUX" in native
@@ -493,6 +492,24 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert "e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c" in native
     assert "--default-toolchain 1.83.0" in native
     assert "MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}" in native
+    assert native.count("pyowl-core==0.1.1") == 3
+    assert "pip install --no-deps {project}/.deps/pyowl-core" not in native
+    assert "python -m pip install --no-deps .deps/pyowl-core" not in native
+    for platform in (
+        "manylinux_2_28_x86_64",
+        "manylinux_2_28_aarch64",
+        "macosx_13_0_x86_64",
+        "macosx_13_0_arm64",
+        "win_amd64",
+        "musllinux_1_2_x86_64",
+        "musllinux_1_2_aarch64",
+    ):
+        assert platform in native
+    assert native.count("expected: py3-none-any.whl") == 3
+    assert "needs: core-artifact-resolution" in native
+    assert "pyowl-core==0.1.1" in packaging
+    assert "--implementation py --abi none" in packaging
+    assert "python -m build .deps/pyowl-core" not in packaging
 
     assert "repository: liseda-lab/Exact-OM" in ci
     assert "ref: 08b859d40bb5c98e3dbdd46109bc4f2d5c0ffd3c" in ci

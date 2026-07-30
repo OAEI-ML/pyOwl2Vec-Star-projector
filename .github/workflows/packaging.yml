@@ -47,9 +47,12 @@ jobs:
       - run: >-
           python tools/release_gate.py --artifacts dist-a
           --audit-report release-audit.json --report release-gate.json
-      - run: python -m build .deps/pyowl-core --wheel --outdir wheelhouse
-        env:
-          PYOWL_CORE_BUILD_NATIVE: "0"
+      - name: Download exact published pure core wheel
+        run: >-
+          python -m pip download --only-binary=:all: --no-deps
+          --dest wheelhouse --platform any --python-version 3.12
+          --implementation py --abi none pyowl-core==0.1.1
+      - run: python -c "from pathlib import Path; wheels=tuple(Path('wheelhouse').glob('pyowl_core-0.1.1-*.whl')); assert len(wheels) == 1 and wheels[0].name.endswith('-py3-none-any.whl'), wheels"
       - run: python -m pip download --dest wheelhouse setuptools==83.0.0 wheel==0.46.3
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -101,6 +104,7 @@ jobs:
             "$PYTHON_IMAGE" sh -eu -c '
               python -m venv /venv
               /venv/bin/python -m pip install --no-index --no-deps /wheelhouse/pyowl_core*.whl
+              /venv/bin/python -c "import importlib.util; assert importlib.util.find_spec('"'"'pyowl_core._native'"'"') is None"
               if [ "$ARTIFACT_KIND" = wheel ]; then
                 /venv/bin/python -m pip install --no-index --no-deps /dist/*-py3-none-any.whl
               else
