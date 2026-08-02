@@ -7,6 +7,7 @@ the projector; none of them alter core equality, fingerprints, or view state.
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, fields
 from typing import Any, cast
@@ -46,6 +47,12 @@ from pyowl_core.model import (
     Class as OWLClass,
 )
 
+from ._version import (
+    CORE_ADAPTER_PROTOCOL_VERSION,
+    CORE_API_VERSION,
+    CORE_MODEL_SCHEMA_VERSION,
+    CORE_WIRE_FORMAT_VERSION,
+)
 from .diagnostics import ProjectionDiagnostic
 from .errors import SnapshotCompatibilityError, UnsupportedAxiomShapeError
 from .model import Edge
@@ -672,24 +679,43 @@ def validate_view(view: object) -> OntologyViewLike:
     adapter = getattr(capabilities, "adapter_protocol", None)
     model = getattr(capabilities, "model_schema", None)
     wire = getattr(capabilities, "wire_format", None)
+    core = importlib.import_module("pyowl_core")
+    api = getattr(core, "API_VERSION", None)
     versions_are_typed = type(adapter) is int and type(model) is int
+    api_is_typed = (
+        isinstance(api, tuple)
+        and len(api) == 2
+        and all(type(item) is int and item >= 0 for item in api)
+    )
     wire_is_typed = (
         isinstance(wire, tuple)
         and len(wire) == 2
         and all(type(item) is int and item >= 0 for item in wire)
     )
-    actual_wire_major = cast(tuple[int, int], wire)[0] if wire_is_typed else -1
-    wire_is_supported = actual_wire_major == 1
-    if not versions_are_typed or adapter != 1 or model != 1 or not wire_is_supported:
+    actual_api = cast(tuple[int, int], api) if api_is_typed else (-1, -1)
+    actual_wire = cast(tuple[int, int], wire) if wire_is_typed else (-1, -1)
+    if (
+        not versions_are_typed
+        or actual_api != CORE_API_VERSION
+        or adapter != CORE_ADAPTER_PROTOCOL_VERSION
+        or model != CORE_MODEL_SCHEMA_VERSION
+        or actual_wire != CORE_WIRE_FORMAT_VERSION
+    ):
         raise SnapshotCompatibilityError(
-            "incompatible pyowl-core adapter/model/wire schema",
+            "incompatible pyowl-core API/adapter/model/wire schema",
             details={
-                "expected_adapter_protocol": 1,
-                "expected_model_schema": 1,
-                "expected_wire_major": 1,
+                "expected_api_major": CORE_API_VERSION[0],
+                "expected_api_minor": CORE_API_VERSION[1],
+                "expected_adapter_protocol": CORE_ADAPTER_PROTOCOL_VERSION,
+                "expected_model_schema": CORE_MODEL_SCHEMA_VERSION,
+                "expected_wire_major": CORE_WIRE_FORMAT_VERSION[0],
+                "expected_wire_minor": CORE_WIRE_FORMAT_VERSION[1],
+                "actual_api_major": actual_api[0],
+                "actual_api_minor": actual_api[1],
                 "actual_adapter_protocol": adapter if type(adapter) is int else -1,
                 "actual_model_schema": model if type(model) is int else -1,
-                "actual_wire_major": actual_wire_major,
+                "actual_wire_major": actual_wire[0],
+                "actual_wire_minor": actual_wire[1],
             },
         )
     return view  # type: ignore[return-value]

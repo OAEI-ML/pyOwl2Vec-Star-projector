@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
-from pyowl_core.backends.native_views import ENCODED_STRUCTURAL_DESCRIPTOR_V1
+from pyowl_core.backends.native_views import ENCODED_STRUCTURAL_DESCRIPTOR_V2
 
 from pyowl2vec_star_projector import ProjectionOptions, Projector
 from pyowl2vec_star_projector.backend import BackendSelection
@@ -30,10 +30,10 @@ _CLOSURE_SCOPE = "closure-token"
 class _EncodedStructuralView:
     def __init__(self, owner: object, *, writable: bool) -> None:
         self.schema_name = ENCODED_SCHEMA_NAME
-        self.schema_version = 1
-        self.model_schema = 1
+        self.schema_version = 2
+        self.model_schema = 2
         self.owner = owner
-        self.descriptor = ENCODED_STRUCTURAL_DESCRIPTOR_V1
+        self.descriptor = ENCODED_STRUCTURAL_DESCRIPTOR_V2
         self.descriptor_digest = hashlib.sha256(self.descriptor).digest()
         self.structural_fingerprint = "encoded-fingerprint"
         self.scope = _CLOSURE_SCOPE
@@ -66,7 +66,7 @@ class _View:
         writable: bool = False,
     ) -> None:
         self.capabilities = SimpleNamespace(
-            model_schema=1,
+            model_schema=2,
             encoded_view_schemas=schemas,
         )
         self.structural_fingerprint = "snapshot-fingerprint"
@@ -104,7 +104,7 @@ def _one_node_buffers() -> dict[str, memoryview]:
 
 class EncodedNativeDispatchTests(unittest.TestCase):
     def test_python_path_never_requests_encoded_buffers(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         decision = select_ingestion(
             view,
             selected_backend="python",
@@ -115,7 +115,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         self.assertEqual(view.calls, [])
 
     def test_scalar_native_compatibility_does_not_probe_core_without_feature(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         decision = select_ingestion(
             view,
             selected_backend="native",
@@ -139,7 +139,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         self.assertEqual(view.calls, [])
 
     def test_exact_public_schema_acquires_one_identity_preserving_lease(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         decision = select_ingestion(
             view,
             selected_backend="native",
@@ -157,10 +157,10 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         )
         self.assertEqual(len(view.calls), 1)
         _, options = view.calls[0]
-        self.assertEqual(options, {"schema_version": 1, "scope": "closure-token"})
+        self.assertEqual(options, {"schema_version": 2, "scope": "closure-token"})
 
     def test_malformed_advertised_buffer_fails_without_scalar_fallback(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1}, writable=True)
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2}, writable=True)
         with self.assertRaisesRegex(SnapshotCompatibilityError, "writable buffer"):
             select_ingestion(
                 view,
@@ -169,8 +169,19 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                 core_module=_core(),
             )
 
+    def test_model_schema_must_match_the_exact_projector_contract(self) -> None:
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
+        view.capabilities.model_schema = 1
+        with self.assertRaisesRegex(SnapshotCompatibilityError, "projector contract"):
+            select_ingestion(
+                view,
+                selected_backend="native",
+                native_features=frozenset({ENCODED_NATIVE_FEATURE}),
+                core_module=_core(),
+            )
+
     def test_encoded_fingerprint_is_distinct_from_the_owner_fingerprint(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         decision = select_ingestion(
             view,
             selected_backend="native",
@@ -185,7 +196,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         )
 
     def test_encoded_fingerprint_wrong_type_fails_before_native_compilation(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         encoded = _EncodedStructuralView(view, writable=False)
         cast(Any, encoded).structural_fingerprint = None
         view.view = lambda _view_type, **_options: encoded  # type: ignore[method-assign]
@@ -198,7 +209,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
             )
 
     def test_descriptor_digest_mismatch_fails_before_native_compilation(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         encoded = _EncodedStructuralView(view, writable=False)
         encoded.descriptor_digest = b"x" * 32
         view.view = lambda _view_type, **_options: encoded  # type: ignore[method-assign]
@@ -211,7 +222,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
             )
 
     def test_descriptor_digest_is_derived_from_the_minimal_public_surface(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         encoded = _EncodedStructuralView(view, writable=False)
         del encoded.descriptor_digest
         view.view = lambda _view_type, **_options: encoded  # type: ignore[method-assign]
@@ -230,7 +241,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         )
 
     def test_self_consistent_descriptor_drift_fails_before_native_compilation(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         encoded = _EncodedStructuralView(view, writable=False)
         encoded.descriptor += b" "
         encoded.descriptor_digest = hashlib.sha256(encoded.descriptor).digest()
@@ -260,7 +271,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         }
         for label, buffers in cases.items():
             with self.subTest(label):
-                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
                 encoded = _EncodedStructuralView(view, writable=False)
                 encoded.buffers = buffers
                 view.view = (  # type: ignore[method-assign]
@@ -283,7 +294,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         }
         for label, column in cases.items():
             with self.subTest(label):
-                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
                 encoded = _EncodedStructuralView(view, writable=False)
                 encoded.buffers["root_kinds"] = column
                 view.view = (  # type: ignore[method-assign]
@@ -310,7 +321,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         }
         for label, mutate in cases.items():
             with self.subTest(label):
-                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
                 encoded = _EncodedStructuralView(view, writable=False)
                 mutate(encoded)
                 view.view = (  # type: ignore[method-assign]
@@ -328,7 +339,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                     )
 
     def test_column_offsets_bounds_and_references_fail_closed(self) -> None:
-        valid_view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        valid_view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         valid = _EncodedStructuralView(valid_view, writable=False)
         valid.buffers = _one_node_buffers()
         valid_view.view = lambda _view_type, **_options: valid  # type: ignore[method-assign]
@@ -390,7 +401,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
 
         for label, buffers in cases.items():
             with self.subTest(label):
-                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
                 encoded = _EncodedStructuralView(view, writable=False)
                 encoded.buffers = buffers
                 view.view = (  # type: ignore[method-assign]
@@ -408,10 +419,10 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                     )
 
     def test_referenced_segment_postings_are_bounded_by_source_roots(self) -> None:
-        source_owner = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        source_owner = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         source = _EncodedStructuralView(source_owner, writable=False)
         source.buffers = _one_node_buffers()
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         encoded = _EncodedStructuralView(view, writable=False)
         segment = encoded.segments[0]
         segment.role = 2
@@ -447,13 +458,13 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                 "max_index_bytes",
                 8,
                 _EncodedStructuralView(
-                    _View(schemas={ENCODED_SCHEMA_NAME: 1}), writable=False
+                    _View(schemas={ENCODED_SCHEMA_NAME: 2}), writable=False
                 ).buffers,
             ),
         }
         for label, (limit_name, allowed, buffers) in cases.items():
             with self.subTest(label):
-                view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+                view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
                 view.load_options = SimpleNamespace(  # type: ignore[attr-defined]
                     limits=SimpleNamespace(**{limit_name: allowed})
                 )
@@ -475,7 +486,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
                     )
 
     def test_encoded_lease_keeps_the_exact_owner_alive(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         reference = weakref.ref(view)
         decision = select_ingestion(
             view,
@@ -491,7 +502,7 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         self.assertIsNone(reference())
 
     def test_advertised_schema_requires_the_public_core_type(self) -> None:
-        view = _View(schemas={ENCODED_SCHEMA_NAME: 1})
+        view = _View(schemas={ENCODED_SCHEMA_NAME: 2})
         with self.assertRaisesRegex(SnapshotCompatibilityError, "public view type"):
             select_ingestion(
                 view,
@@ -504,9 +515,9 @@ class EncodedNativeDispatchTests(unittest.TestCase):
         view = fixture_view("equivalence-ordering")
         cast(Any, view).capabilities = SimpleNamespace(
             adapter_protocol=1,
-            model_schema=1,
-            wire_format=(1, 1),
-            encoded_view_schemas={ENCODED_SCHEMA_NAME: 1},
+            model_schema=2,
+            wire_format=(1, 2),
+            encoded_view_schemas={ENCODED_SCHEMA_NAME: 2},
         )
         selection = BackendSelection("native", "native")
         with (

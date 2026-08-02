@@ -15,14 +15,15 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
+from ._version import CORE_MODEL_SCHEMA_VERSION
 from .errors import SnapshotCompatibilityError
 from .provenance import IngestionPath
 
 ENCODED_SCHEMA_NAME = "pyowl-core/structural-columns"
-ENCODED_SCHEMA_VERSION = 1
+ENCODED_SCHEMA_VERSION = 2
 ENCODED_NATIVE_FEATURE = "encoded-structural-compiler-v1"
 ENCODED_DESCRIPTOR_SHA256 = bytes.fromhex(
-    "9ad29db6a7e616f65cea2957bc5ba8d1f9b99ef0eb1fe1432c09be25786267b5"
+    "c51d0eb7ecf6f29ad3495fe7c40a2ea6741cf03a7cf194d51417bb810df90f51"
 )
 ENCODED_BUFFER_WIDTHS: Mapping[str, int] = MappingProxyType(
     {
@@ -2974,8 +2975,19 @@ def _validate_encoded_view(
             },
         )
     expected_model = getattr(getattr(source_view, "capabilities", None), "model_schema", None)
-    if type(model_schema) is not int or model_schema != expected_model:
-        raise SnapshotCompatibilityError("core encoded view model schema does not match its owner")
+    if (
+        type(model_schema) is not int
+        or model_schema != CORE_MODEL_SCHEMA_VERSION
+        or expected_model != CORE_MODEL_SCHEMA_VERSION
+    ):
+        raise SnapshotCompatibilityError(
+            "core encoded view model schema does not match its owner or projector contract",
+            details={
+                "expected_model_schema": CORE_MODEL_SCHEMA_VERSION,
+                "actual_model_schema": model_schema if type(model_schema) is int else -1,
+                "owner_model_schema": expected_model if type(expected_model) is int else -1,
+            },
+        )
     if owner is not source_view:
         raise SnapshotCompatibilityError(
             "core encoded view did not retain the exact source view identity"
@@ -3022,7 +3034,7 @@ def _validate_encoded_view(
         missing = sorted(set(ENCODED_BUFFER_WIDTHS) - set(validated_buffers))
         extra = sorted(set(validated_buffers) - set(ENCODED_BUFFER_WIDTHS))
         raise SnapshotCompatibilityError(
-            "core encoded schema 1 buffer set differs",
+            "core encoded schema 2 buffer set differs",
             details={"missing": repr(missing), "extra": repr(extra)},
         )
     for name, width in ENCODED_BUFFER_WIDTHS.items():
@@ -3404,7 +3416,7 @@ def _segment_root_count(
         or type(getattr(source, "schema_version", None)) is not int
         or getattr(source, "schema_version", None) != ENCODED_SCHEMA_VERSION
         or type(getattr(source, "model_schema", None)) is not int
-        or getattr(source, "model_schema", None) != 1
+        or getattr(source, "model_schema", None) != CORE_MODEL_SCHEMA_VERSION
     ):
         raise SnapshotCompatibilityError("core encoded segment source schema is incompatible")
     source_descriptor = getattr(source, "descriptor", None)

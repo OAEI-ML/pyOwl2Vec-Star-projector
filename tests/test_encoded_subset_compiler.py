@@ -128,7 +128,7 @@ def _lease(
 ) -> EncodedStructuralLease:
     encoded = view.view(  # type: ignore[attr-defined]
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
         materialize_segments=materialize_segments,
     )
@@ -143,7 +143,7 @@ def _lease(
 def _root_lease(view: object) -> EncodedStructuralLease:
     encoded = view.view(  # type: ignore[attr-defined]
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.ROOT,
     )
     return _validate_encoded_view(
@@ -8448,12 +8448,15 @@ def test_segmented_ignored_shapes_preserve_differential_diagnostics_and_leases()
     )
     source = _snapshot(source_body)
     delta = _snapshot(delta_body)
-    overlay = _snapshot(f"{source_body} {delta_body}")
+    overlay = apply_delta(
+        source,
+        OntologyDelta(add_axioms=tuple(delta.iter_axioms())),  # type: ignore[attr-defined]
+    )
     composite = compose_views(source, delta)
     rows = (
         (
             overlay,
-            _overlay_delta_lease(overlay, _lease(source), _lease(delta)),
+            _lease(overlay),
             {id(source)},
         ),
         (

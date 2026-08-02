@@ -353,7 +353,7 @@ def _swrl_extension_snapshot() -> object:
 def _lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     return _validate_encoded_view(
@@ -367,7 +367,7 @@ def _lease(view: object) -> EncodedStructuralLease:
 def _root_lease(view: object) -> EncodedStructuralLease:
     encoded = cast(Any, view).view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.ROOT,
     )
     return _validate_encoded_view(
@@ -3713,7 +3713,7 @@ def test_valid_utf8_anonymous_role_hashes_match_encoded_scalar_order() -> None:
         == expected
         == [
             Edge("urn:native-direct#D", "urn:native-direct#p", "urn:native-direct#R"),
-            Edge("urn:native-direct#R", "urn:native-direct#one", "urn:native-direct#D"),
+            Edge("urn:native-direct#R", "urn:native-direct#two", "urn:native-direct#D"),
         ]
     )
     assert statistics.inverse_object_properties == 3
@@ -4717,9 +4717,9 @@ def test_anonymous_object_assertions_match_exact_scalar_blank_id_order() -> None
 
     assert actual == expected
     assert set(actual) == {
-        Edge("_:genid2147483649", "urn:native-direct#p", "_:genid2147483648"),
-        Edge("_:genid2147483649", "urn:native-direct#p", "urn:native-direct#i"),
-        Edge("urn:native-direct#i", "urn:native-direct#p", "_:genid2147483648"),
+        Edge("_:genid2147483648", "urn:native-direct#p", "_:genid2147483649"),
+        Edge("_:genid2147483648", "urn:native-direct#p", "urn:native-direct#i"),
+        Edge("urn:native-direct#i", "urn:native-direct#p", "_:genid2147483649"),
     }
     assert statistics.anonymous_individuals == 2
     assert statistics.object_property_assertions == 3

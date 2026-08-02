@@ -16,7 +16,7 @@ def test_oaei_optional_dependency_and_import_cycle_are_detected(tmp_path: Path) 
     projector_package = projector / "src" / "projector"
     projector_package.mkdir(parents=True)
     (projector / "pyproject.toml").write_text(
-        '[project]\nname="projector"\ndependencies=["pyowl-core>=0.1,<0.2"]\n',
+        '[project]\nname="projector"\ndependencies=["pyowl-core>=0.2,<0.3"]\n',
         encoding="utf-8",
     )
     (projector_package / "__init__.py").write_text("", encoding="utf-8")

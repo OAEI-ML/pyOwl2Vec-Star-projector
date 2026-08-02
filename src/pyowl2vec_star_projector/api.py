@@ -12,7 +12,11 @@ from os import PathLike
 from time import perf_counter
 from typing import Any, BinaryIO
 
-from ._version import BATCH_SINK_PROTOCOL_VERSION
+from ._version import (
+    BATCH_SINK_PROTOCOL_VERSION,
+    CORE_API_VERSION,
+    CORE_WIRE_FORMAT_VERSION,
+)
 from .artifact import (
     CanonicalEdgeDigest,
     EdgeArtifactResult,
@@ -1317,7 +1321,11 @@ def _loader_diagnostics_digest(view: object) -> str:
 def _core_provenance(view: object) -> CoreProvenance:
     core = importlib.import_module("pyowl_core")
     capabilities = view.capabilities  # type: ignore[attr-defined]
-    wire = getattr(capabilities, "wire_format", getattr(core, "WIRE_FORMAT_VERSION", (1, 0)))
+    wire = getattr(
+        capabilities,
+        "wire_format",
+        getattr(core, "WIRE_FORMAT_VERSION", CORE_WIRE_FORMAT_VERSION),
+    )
     identity = _identity_index_provenance(view, core)
     if identity is None:
         manifest_digest, document_identities = _manifest_provenance(view)
@@ -1326,7 +1334,7 @@ def _core_provenance(view: object) -> CoreProvenance:
         manifest_digest, document_identities, loader_diagnostics_digest = identity
     return CoreProvenance(
         package_version=str(getattr(core, "__version__", "unknown")),
-        api_version=tuple(getattr(core, "API_VERSION", (0, 0))),
+        api_version=tuple(getattr(core, "API_VERSION", CORE_API_VERSION)),
         model_schema_version=int(capabilities.model_schema),
         wire_format_version=tuple(wire),
         adapter_protocol_version=int(capabilities.adapter_protocol),

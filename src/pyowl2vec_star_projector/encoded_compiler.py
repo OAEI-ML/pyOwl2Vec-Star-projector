@@ -3689,7 +3689,7 @@ def _validate_empty_local_columns(
 ) -> None:
     if set(lease.buffers) != set(ENCODED_BUFFER_WIDTHS):
         raise SnapshotCompatibilityError(
-            f"encoded subset {family} local buffer set differs from schema 1"
+            f"encoded subset {family} local buffer set differs from schema 2"
         )
     for name, width in ENCODED_BUFFER_WIDTHS.items():
         value = lease.buffers[name]

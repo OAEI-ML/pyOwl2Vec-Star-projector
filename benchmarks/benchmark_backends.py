@@ -29,8 +29,8 @@ from pyowl2vec_star_projector.native import iter_native_policy
 @dataclass(frozen=True, slots=True)
 class _Capabilities:
     adapter_protocol: int = 1
-    model_schema: int = 1
-    wire_format: tuple[int, int] = (1, 0)
+    model_schema: int = 2
+    wire_format: tuple[int, int] = (1, 2)
 
 
 class _IndexedDocumentView:

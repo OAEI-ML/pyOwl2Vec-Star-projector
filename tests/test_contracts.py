@@ -8,7 +8,12 @@ from typing import cast
 from pyowl2vec_star_projector import (
     BATCH_SINK_PROTOCOL_VERSION,
     COMPILER_CACHE_SCHEMA,
+    CORE_ADAPTER_PROTOCOL_VERSION,
+    CORE_API_VERSION,
+    CORE_MODEL_SCHEMA_VERSION,
+    CORE_WIRE_FORMAT_VERSION,
     EDGE_ARTIFACT_SCHEMA,
+    ENCODED_SCHEMA_VERSION,
     INGESTION_PROVENANCE_SCHEMA,
     PROJECTOR_API_VERSION,
     REFERENCE_PROFILE,
@@ -24,6 +29,13 @@ from pyowl2vec_star_projector import (
 
 
 class EdgeTests(unittest.TestCase):
+    def test_core_compatibility_ledger_is_frozen_for_0_2(self) -> None:
+        self.assertEqual(CORE_API_VERSION, (0, 2))
+        self.assertEqual(CORE_ADAPTER_PROTOCOL_VERSION, 1)
+        self.assertEqual(CORE_MODEL_SCHEMA_VERSION, 2)
+        self.assertEqual(CORE_WIRE_FORMAT_VERSION, (1, 2))
+        self.assertEqual(ENCODED_SCHEMA_VERSION, 2)
+
     def test_value_identity_and_utf8_key(self) -> None:
         edge = Edge("http://e/é", "http://subclassof", "http://e/z")
         self.assertEqual(edge, Edge(*edge.as_tuple()))
@@ -77,10 +89,10 @@ class OptionTests(unittest.TestCase):
 class ProvenanceTests(unittest.TestCase):
     def test_json_compatible_versioned_record(self) -> None:
         core = CoreProvenance(
-            package_version="0.1.1",
-            api_version=(0, 1),
-            model_schema_version=1,
-            wire_format_version=(1, 0),
+            package_version="0.2.0",
+            api_version=(0, 2),
+            model_schema_version=2,
+            wire_format_version=(1, 2),
             adapter_protocol_version=1,
             structural_fingerprint="s",
             logical_fingerprint="l",
@@ -109,16 +121,16 @@ class ProvenanceTests(unittest.TestCase):
         encoded = IngestionProvenance(
             path="encoded-native",
             encoded_schema_name="pyowl-core/structural-columns",
-            encoded_schema_version=1,
+            encoded_schema_version=2,
             encoded_descriptor_sha256="ab" * 32,
         )
-        self.assertEqual(encoded.encoded_schema_version, 1)
+        self.assertEqual(encoded.encoded_schema_version, 2)
 
     def test_ingestion_diagnostics_are_bounded_immutable_and_json_safe(self) -> None:
         provenance = IngestionProvenance(
             path="encoded-native",
             encoded_schema_name="pyowl-core/structural-columns",
-            encoded_schema_version=1,
+            encoded_schema_version=2,
             encoded_descriptor_sha256="ab" * 32,
             encoded_view_publication_seconds=0.125,
             consumer_compile_seconds=0.25,
@@ -181,7 +193,7 @@ class ProvenanceTests(unittest.TestCase):
         metadata = {
             "path": "encoded-native",
             "encoded_schema_name": "pyowl-core/structural-columns",
-            "encoded_schema_version": 1,
+            "encoded_schema_version": 2,
             "encoded_descriptor_sha256": "ab" * 32,
         }
         names = (

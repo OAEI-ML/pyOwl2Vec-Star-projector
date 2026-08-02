@@ -281,7 +281,7 @@ def test_cancellation_propagates_the_core_exception() -> None:
 class BadCapabilities:
     adapter_protocol: int = 2
     model_schema: int = 99
-    wire_format: tuple[int, int] = (1, 0)
+    wire_format: tuple[int, int] = (1, 2)
 
 
 def test_malformed_and_incompatible_views_fail_before_compilation() -> None:
@@ -304,7 +304,7 @@ def test_malformed_and_incompatible_views_fail_before_compilation() -> None:
 
     class MalformedCapabilities:
         adapter_protocol = True
-        model_schema = 1
+        model_schema = 2
         wire_format = (1, "zero")
 
     BadView.capabilities = MalformedCapabilities()  # type: ignore[assignment]
@@ -312,9 +312,27 @@ def test_malformed_and_incompatible_views_fail_before_compilation() -> None:
         Projector().project(BadView(), options=ProjectionOptions(backend="python"))
 
     MalformedCapabilities.adapter_protocol = 1
+    MalformedCapabilities.wire_format = (1, 1)
+    with pytest.raises(SnapshotCompatibilityError, match="wire") as wrong_minor:
+        Projector().project(BadView(), options=ProjectionOptions(backend="python"))
+    assert wrong_minor.value.details["expected_wire_minor"] == 2
+    assert wrong_minor.value.details["actual_wire_minor"] == 1
+
     MalformedCapabilities.wire_format = (2, 0)
     with pytest.raises(SnapshotCompatibilityError, match="wire"):
         Projector().project(BadView(), options=ProjectionOptions(backend="python"))
+
+
+def test_core_api_minor_mismatch_fails_before_view_traversal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = fixture_view("equivalence-ordering")
+    monkeypatch.setattr(pyowl_core, "API_VERSION", (0, 1))
+    with pytest.raises(SnapshotCompatibilityError, match="API") as raised:
+        Projector().project(view, options=ProjectionOptions(backend="python"))
+    assert raised.value.details["expected_api_minor"] == 2
+    assert raised.value.details["actual_api_minor"] == 1
+    assert view.iterated_identities == []
 
 
 def test_wire_source_kind_and_taxonomy_backend_validation() -> None:

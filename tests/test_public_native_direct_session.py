@@ -107,7 +107,7 @@ def _assert_public_direct_report(
     assert ingestion.path == "encoded-native"
     assert ingestion.reason is None
     assert ingestion.encoded_schema_name == "pyowl-core/structural-columns"
-    assert ingestion.encoded_schema_version == 1
+    assert ingestion.encoded_schema_version == 2
     counters = ingestion.counters
     assert counters["native_compiled_edges"] == 4
     assert counters["native_output_vector_edges"] == 0

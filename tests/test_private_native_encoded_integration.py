@@ -478,7 +478,7 @@ def test_public_iterator_matches_scalar_and_reports_exact_native_batches(
     assert ingestion.path == "encoded-native"
     assert ingestion.reason is None
     assert ingestion.encoded_schema_name == "pyowl-core/structural-columns"
-    assert ingestion.encoded_schema_version == 1
+    assert ingestion.encoded_schema_version == 2
     assert ingestion.encoded_view_publication_seconds is not None
     assert ingestion.consumer_compile_seconds is not None
     counters = dict(ingestion.counters)
@@ -2063,7 +2063,7 @@ def test_hidden_iterator_proves_single_document_annotation_selection(
     assert view.report.backend == provider_backend.value  # type: ignore[attr-defined]
     closure = view.view(  # type: ignore[attr-defined]
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     exporter_count = len({id(buffer.obj) for buffer in closure.buffers.values()})
@@ -2486,7 +2486,7 @@ def test_hidden_iterator_compiles_empty_overlay_alias_without_flattening(
     overlay = pyowl_core.apply_delta(base, pyowl_core.OntologyDelta())
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert len(top_encoded.segments) == 1
@@ -2976,7 +2976,7 @@ def test_hidden_iterator_projects_two_local_object_property_class_roots(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -3163,7 +3163,7 @@ def test_hidden_iterator_projects_two_local_named_subclasses(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -3414,7 +3414,7 @@ def test_hidden_iterator_projects_two_local_named_class_assertions(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -3823,7 +3823,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_class_axiom(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -4379,7 +4379,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_equivalence(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -4632,7 +4632,7 @@ def test_hidden_iterator_compiles_one_silent_local_ignored_object_property_class
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -4908,7 +4908,7 @@ def test_hidden_iterator_projects_one_local_object_property_class_axiom(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -5116,7 +5116,7 @@ def test_hidden_iterator_compiles_one_state_neutral_local_property_chain(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -5378,7 +5378,7 @@ def test_hidden_iterator_recomputes_base_for_one_local_role_axiom(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -5841,7 +5841,7 @@ def test_hidden_iterator_compiles_one_state_neutral_local_annotation_root(
     overlay = pyowl_core.apply_delta(base, delta)
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -6106,7 +6106,7 @@ def test_hidden_iterator_compiles_one_silent_local_class_disjointness_axiom(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -6291,7 +6291,7 @@ def test_hidden_iterator_compiles_one_silent_local_annotation_property_axiom(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -6468,7 +6468,7 @@ def test_hidden_iterator_compiles_one_silent_local_has_key(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -6667,7 +6667,7 @@ def test_hidden_iterator_compiles_one_silent_local_object_property_axiom(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -6820,7 +6820,7 @@ def test_hidden_iterator_compiles_one_named_subclass_overlay_delta_without_flatt
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -6972,7 +6972,7 @@ def test_hidden_iterator_composes_one_base_exclusion_with_one_local_delta(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -7151,7 +7151,7 @@ def test_hidden_iterator_compiles_one_silent_local_declaration(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -7353,7 +7353,7 @@ def test_hidden_iterator_compiles_one_named_local_restriction(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -7536,7 +7536,7 @@ def test_hidden_iterator_compiles_one_named_local_class_assertion(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -7704,7 +7704,7 @@ def test_hidden_iterator_compiles_one_named_local_object_property_assertion(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -7875,7 +7875,7 @@ def test_hidden_iterator_compiles_one_silent_local_negative_object_assertion(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -8045,7 +8045,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_assertion(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -8215,7 +8215,7 @@ def test_hidden_iterator_compiles_one_silent_local_negative_data_property_assert
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -8376,7 +8376,7 @@ def test_hidden_iterator_compiles_one_silent_local_sub_data_property_axiom(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -8541,7 +8541,7 @@ def test_hidden_iterator_compiles_one_silent_local_equivalent_data_properties(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -8708,7 +8708,7 @@ def test_hidden_iterator_compiles_one_silent_local_disjoint_data_properties(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -8875,7 +8875,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_domain(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -9042,7 +9042,7 @@ def test_hidden_iterator_compiles_one_silent_local_data_property_range(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -9198,7 +9198,7 @@ def test_hidden_iterator_compiles_one_silent_local_functional_data_property(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -9367,7 +9367,7 @@ def test_hidden_iterator_compiles_one_silent_local_datatype_definition(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -9545,7 +9545,7 @@ def test_hidden_iterator_compiles_one_silent_local_individual_set(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -9787,7 +9787,7 @@ def test_hidden_iterator_projects_nonempty_multi_root_emitting_overlay(
     )
     top_encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (2, 3)
@@ -11632,7 +11632,7 @@ def test_hidden_iterator_compiles_exact_two_member_composite_without_flattening(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -11904,7 +11904,7 @@ def test_hidden_iterator_deduplicates_two_member_composite_canonically(
     composite = _two_member_duplicate_subclass_composite(provider_backend)
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -11993,7 +11993,7 @@ def test_hidden_iterator_remaps_anonymous_class_carriers_in_one_native_pass(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -12178,7 +12178,7 @@ def test_hidden_iterator_remaps_silent_non_axiom_scopes_in_one_native_pass(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -12308,7 +12308,7 @@ def test_hidden_iterator_remaps_silent_annotation_assertion_scopes(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -12436,7 +12436,7 @@ def test_hidden_iterator_remaps_individual_set_scopes_in_one_native_pass(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -12566,7 +12566,7 @@ def test_hidden_iterator_remaps_data_assertion_scopes_in_one_native_pass(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -12696,7 +12696,7 @@ def test_hidden_iterator_remaps_anonymous_object_assertion_scopes_in_one_native_
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -12833,7 +12833,7 @@ def test_hidden_iterator_remaps_negative_object_assertion_scopes_in_one_native_p
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -13969,7 +13969,7 @@ def test_hidden_iterator_compiles_dynamic_direct_members_and_deduplicates(
     composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert len(top_encoded.segments) == member_count
@@ -15081,12 +15081,12 @@ def test_hidden_iterator_projects_dynamic_root_literals_with_global_class_signat
     composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(*members))
     closure = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     root = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.ROOT,
     )
     assert len(closure.segments) == len(root.segments) == member_count
@@ -15426,10 +15426,12 @@ def test_dynamic_root_proof_selects_duplicate_through_another_member(
     composite = cast(pyowl_core.OntologyView, pyowl_core.compose_views(imported, direct))
     closure = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
-    assert cast(Any, closure.segments[0]).owner is imported
+    closure_owners = [cast(Any, segment).owner for segment in closure.segments]
+    assert len(closure_owners) == 2
+    assert {id(owner) for owner in closure_owners} == {id(imported), id(direct)}
     captured: list[NativeEncodedDirectCompilation] = []
     real_prepare = native_module.prepare_native_encoded_compilation
 
@@ -15464,14 +15466,28 @@ def test_dynamic_root_proof_selects_duplicate_through_another_member(
     ]
     assert len(captured) == 1
     compilation = captured[0]
-    assert compilation.composite_member_leases[0].owner is imported
-    assert compilation.composite_root_member_leases[0].owner is imported
-    annotation_tag = (120).to_bytes(2, "little")
-    assert annotation_tag in bytes(compilation.composite_member_leases[0].buffers["node_tags"])
-    assert annotation_tag not in bytes(
-        compilation.composite_root_member_leases[0].buffers["node_tags"]
+    imported_index = next(
+        index
+        for index, lease in enumerate(compilation.composite_member_leases)
+        if lease.owner is imported
     )
-    assert annotation_tag in bytes(compilation.composite_root_member_leases[1].buffers["node_tags"])
+    direct_index = next(
+        index
+        for index, lease in enumerate(compilation.composite_member_leases)
+        if lease.owner is direct
+    )
+    assert compilation.composite_root_member_leases[imported_index].owner is imported
+    assert compilation.composite_root_member_leases[direct_index].owner is direct
+    annotation_tag = (120).to_bytes(2, "little")
+    assert annotation_tag in bytes(
+        compilation.composite_member_leases[imported_index].buffers["node_tags"]
+    )
+    assert annotation_tag not in bytes(
+        compilation.composite_root_member_leases[imported_index].buffers["node_tags"]
+    )
+    assert annotation_tag in bytes(
+        compilation.composite_root_member_leases[direct_index].buffers["node_tags"]
+    )
     statistics = compilation.native_statistics
     assert statistics.annotation_assertions == 1
     assert statistics.selected_annotation_assertions == 1
@@ -16361,14 +16377,20 @@ def test_dynamic_scope_mapped_composite_accepts_neutral_manifest_base(
         selected_backend="native",
     ).lease
     assert top_lease is not None
-    assert [cast(Any, segment).anonymous_scope_map.nbytes for segment in top_lease.segments] == [
-        0,
-        64,
-        64,
+    scope_map_sizes = [
+        cast(Any, segment).anonymous_scope_map.nbytes for segment in top_lease.segments
     ]
+    assert sorted(scope_map_sizes) == [0, 64, 64]
+    neutral_index = next(
+        index
+        for index, segment in enumerate(top_lease.segments)
+        if cast(Any, segment).owner is neutral
+    )
+    assert scope_map_sizes[neutral_index] == 0
     resolved = _resolve_private_dynamic_member_composite(top_lease)
     assert resolved is not None
-    assert [row[3] is not None for row in resolved[0]] == [False, True, True]
+    assert sum(row[3] is not None for row in resolved[0]) == 2
+    assert resolved[0][neutral_index][3] is None
     python_options = ProjectionOptions(backend="python", order="encounter")
     expected_projector = Projector()
     expected = expected_projector.project(composite, options=python_options)
@@ -16411,17 +16433,21 @@ def test_dynamic_scope_mapped_composite_accepts_neutral_manifest_base(
     _assert_semantic_report_parity(expected_report, report)
     assert len(captured) == 1
     compilation = captured[0]
-    assert (
-        compilation.composite_member_leases[0].encoded_view
-        is cast(
-            Any,
-            top_lease.segments[0],
-        ).source
+    assert all(
+        member.encoded_view is cast(Any, segment).source
+        for member, segment in zip(
+            compilation.composite_member_leases,
+            top_lease.segments,
+            strict=True,
+        )
     )
-    assert compilation.composite_anonymous_scope_maps[0] is None
-    assert compilation.composite_anonymous_scope_maps[1:] == tuple(
-        cast(Any, segment).anonymous_scope_map for segment in top_lease.segments[1:]
-    )
+    assert compilation.composite_anonymous_scope_maps[neutral_index] is None
+    for index, segment in enumerate(top_lease.segments):
+        if index != neutral_index:
+            assert (
+                compilation.composite_anonymous_scope_maps[index]
+                is cast(Any, segment).anonymous_scope_map
+            )
     statistics = compilation.native_statistics
     assert statistics.roots == 3
     assert statistics.subclasses == 1
@@ -16758,7 +16784,7 @@ def test_hidden_iterator_compiles_two_exact_exclude_composite_members(
     composite = _two_member_dual_exclude_subclass_composite(provider_backend)
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -17033,7 +17059,7 @@ def test_hidden_iterator_merges_three_all_exclude_members_in_one_native_pass(
     composite = _three_member_all_exclude_subclass_composite(provider_backend)
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4, 4)
@@ -17168,7 +17194,7 @@ def test_hidden_iterator_merges_four_all_exclude_members_in_one_native_pass(
     composite = _four_member_all_exclude_subclass_composite(provider_backend)
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4, 4, 4)
@@ -18509,7 +18535,7 @@ def test_hidden_iterator_flattens_one_nested_overlay_member_into_one_native_pass
     composite = _nested_overlay_member_subclass_composite(provider_backend)
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -18887,7 +18913,7 @@ def test_hidden_iterator_remaps_nested_member_scopes_in_one_native_pass(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -19127,7 +19153,7 @@ def test_hidden_iterator_remaps_nested_silent_scopes_in_one_native_pass(
     )
     top_encoded = composite.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert tuple(segment.role for segment in top_encoded.segments) == (4, 4)
@@ -22700,7 +22726,7 @@ def _recursive_shallow_then_deep_dag(
 
     shallow_encoded = shallow.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     deep_source = shallow_encoded
@@ -22873,7 +22899,7 @@ def _recursive_include_pruned_deep_member() -> EncodedStructuralLease:
 
     deep_source = deep_base.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     deep_owner: object = deep_base
@@ -22897,7 +22923,7 @@ def _recursive_include_pruned_deep_member() -> EncodedStructuralLease:
     )
     sibling_encoded = sibling.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     source_segments[0] = replace(
@@ -22932,7 +22958,7 @@ def _recursive_include_pruned_deep_member() -> EncodedStructuralLease:
     assert tuple(cast(Any, segment).role for segment in outer_segments) == (4, 4)
     other_encoded = other.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     outer_segments[0] = replace(
@@ -23282,7 +23308,7 @@ def _recursive_empty_overlay_lease(
     assert depth >= 1
     source_encoded = base.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     direct_encoded = source_encoded
@@ -23334,7 +23360,7 @@ def _recursive_overlay_lease_with_exclusions(
     assert all(0 <= level < depth for level in exclusion_levels)
     source_encoded = base.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     direct_encoded = source_encoded
@@ -23748,7 +23774,7 @@ def test_hidden_iterator_compiles_one_excluding_overlay_without_flattening(
     )
     encoded = overlay.view(
         pyowl_core.EncodedStructuralView,
-        schema_version=1,
+        schema_version=2,
         scope=pyowl_core.AxiomScope.CLOSURE,
     )
     assert len(encoded.segments) == 1
