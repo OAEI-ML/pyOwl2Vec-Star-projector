@@ -3,8 +3,8 @@
   "dependency_constraint": "pyowl-core>=0.2,<0.3",
   "tested_source": {
     "repository": "https://github.com/OAEI-ML/pyOWLCore",
-    "commit": "c65316cb6194806a941016a533ee79aba2b35887",
-    "tree": "3769e94f908e45401c1200209ad2a3e20f31fa4f",
+    "commit": "7d501d2b16d859d00ee9dcc2933dd78faf173891",
+    "tree": "9728fe62ff0806dff0eaf712810d2dea330bb29d",
     "version": "0.2.0"
   },
   "public_contract": {
@@ -17,8 +17,8 @@
     "encoded_descriptor_sha256": "c51d0eb7ecf6f29ad3495fe7c40a2ea6741cf03a7cf194d51417bb810df90f51"
   },
   "release_evidence_source": {
-    "commit": "c65316cb6194806a941016a533ee79aba2b35887",
-    "implementation_commit": "c65316cb6194806a941016a533ee79aba2b35887",
+    "commit": "7d501d2b16d859d00ee9dcc2933dd78faf173891",
+    "implementation_commit": "7d501d2b16d859d00ee9dcc2933dd78faf173891",
     "classification": "production-release",
     "runtime_source_changed": false,
     "changed_paths": [],

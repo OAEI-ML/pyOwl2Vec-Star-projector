@@ -500,7 +500,10 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     packaging = (ROOT / ".github/workflows/packaging.yml").read_text(encoding="utf-8")
     candidate = (ROOT / ".github/workflows/release-candidate.yml").read_text(encoding="utf-8")
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    core_commit = "c65316cb6194806a941016a533ee79aba2b35887"
+    compatibility = json.loads(
+        (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
+    )
+    core_commit = compatibility["tested_source"]["commit"]
 
     assert all(
         "macos-13" not in workflow for workflow in (ci, native, packaging, candidate, release)
@@ -557,6 +560,26 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert 'tags: ["v*"]' not in native
     assert 'tags: ["v*"]' not in candidate
     assert 'tags: ["v*"]' in release
+
+
+def test_core_release_identity_agrees_across_workflows_docs_and_gates() -> None:
+    compatibility = json.loads(
+        (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
+    )
+    commit = compatibility["tested_source"]["commit"]
+    tree = compatibility["tested_source"]["tree"]
+    external = json.loads((ROOT / "release/external-gates.json").read_text(encoding="utf-8"))
+    core_gate = next(gate for gate in external["gates"] if gate["id"] == "pyowl-core-release")
+
+    for relative in (
+        "docs/compatibility.md",
+        "release/owner-release-authorization-0.2.0.md",
+    ):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        assert commit in text, f"{relative} does not name the tested pyOWLCore commit"
+        assert tree in text, f"{relative} does not name the tested pyOWLCore tree"
+    assert commit in core_gate["evidence"]
+    assert tree in core_gate["evidence"]
 
 
 def test_atomic_release_publishes_only_the_complete_audited_set() -> None:
@@ -931,12 +954,12 @@ def test_core_compatibility_transition_pins_model2_and_preserves_edges() -> None
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "c65316cb6194806a941016a533ee79aba2b35887"
+    implementation_commit = "7d501d2b16d859d00ee9dcc2933dd78faf173891"
     redesign_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
     assert compatibility["tested_source"] == {
         "repository": "https://github.com/OAEI-ML/pyOWLCore",
         "commit": implementation_commit,
-        "tree": "3769e94f908e45401c1200209ad2a3e20f31fa4f",
+        "tree": "9728fe62ff0806dff0eaf712810d2dea330bb29d",
         "version": "0.2.0",
     }
     assert compatibility["public_contract"] == {

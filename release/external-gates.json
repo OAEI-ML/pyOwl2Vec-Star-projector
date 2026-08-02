@@ -13,7 +13,7 @@
       "id": "pyowl-core-release",
       "status": "passed",
       "closure": "owner-authorized coordinated release",
-      "evidence": "Projector compatibility and source-checkout lanes are bound to pyOWLCore 0.2.0 commit c65316cb6194806a941016a533ee79aba2b35887 and tree 3769e94f908e45401c1200209ad2a3e20f31fa4f. The owner accepted dependency-order publication with pyowl-core uploaded first.",
+      "evidence": "Projector compatibility and source-checkout lanes are bound to pyOWLCore 0.2.0 commit 7d501d2b16d859d00ee9dcc2933dd78faf173891 and tree 9728fe62ff0806dff0eaf712810d2dea330bb29d. The owner accepted dependency-order publication with pyowl-core uploaded first.",
       "residual_risk": "The projector upload must follow successful pyowl-core 0.2.0 publication and index verification."
     },
     {
