@@ -954,12 +954,12 @@ def test_core_compatibility_transition_pins_model2_and_preserves_edges() -> None
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "422a63363e0b67857eebfca6dd67595ebaad7a09"
+    implementation_commit = "85415249251b84474735a3581b94bb1d881bb902"
     redesign_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
     assert compatibility["tested_source"] == {
         "repository": "https://github.com/OAEI-ML/pyOWLCore",
         "commit": implementation_commit,
-        "tree": "56dc47d73870a786a1248d89bf10a89155fcffff",
+        "tree": "724396db74844daa7a3453ea28449b076bc7aacf",
         "version": "0.2.0",
     }
     assert compatibility["public_contract"] == {
