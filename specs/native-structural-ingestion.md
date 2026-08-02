@@ -4,24 +4,18 @@ Status: normative successor optimization for the implemented projector. It prese
 `mowl-d993536-v1`, all public edge/artifact contracts, deterministic streaming, and the complete
 pure-Python fallback.
 
-Implementation note (2026-07-24): this document is the acceptance design, not a statement that
-the production Rust compiler exists. The broad internal structural-columns slice described in
-section 2 is currently implemented in Python. Rust has only the private, unadvertised direct
-exact-`bytes` unannotated named-class foundation recorded in the P7 report: declarations,
-named taxonomy and simple named-property/named-filler restriction `SubClassOf`, named-only
-`EquivalentClasses`, named `ClassAssertion`, named-property `ObjectPropertyAssertion` over named
-individuals, skipped named-or-inverse `NegativeObjectPropertyAssertion`, and paired named
-object-property domain/range roots. Unannotated named-or-inverse `SubObjectPropertyOf` and
-`InverseObjectProperties` roots build the exact compatibility role maps used to expand restrictions
-and domain/range products; equivalent/disjoint object-property sets and the seven object-property
-characteristics are validated and skipped. Positive inverse assertions reproduce the pinned typed
-reference failure. Normal projection still uses Python semantic compilation followed by the older
-Rust edge-policy bridge. All annotations and property chains, anonymous assertion operands, complex
-class expressions, mmap and general segmented exporters, and every other constructor remain
-outside that private Rust slice. One hidden adapter exception admits a bounded chain of canonical
-empty `OVERLAY_BASE`/`ALL` aliases whose terminal fully revalidated source is exact-direct; it
-retains every container and the source while passing only the terminal source buffers to the
-unchanged Rust direct kernel.
+Implementation note (2026-08-02): native `0.2.0` wheels advertise
+`encoded-structural-compiler-v1`. Explicit native public operations negotiate pyOWLCore
+structural-columns schema 2 and use the bounded Rust cursor for admitted exact full-`bytes`, native
+packed-bytes, and segmented plans across the complete pinned rule/options matrix. Valid plans or
+exporters outside that admitted envelope select whole-operation scalar-native compilation before
+output; malformed advertised data fails typed. General readonly/mmap exporters remain outside the
+zero-copy path at the `abi3-py310` floor, and `auto` remains Python pending its performance gate.
+
+Dated kernel and checkpoint paragraphs below preserve the pre-promotion implementation history.
+Statements in those paragraphs that the capability was private, absent from the feature ledger, or
+unreachable through public dispatch describe those earlier revisions and are superseded by this
+implementation note.
 
 ## 1. Objective
 
@@ -50,17 +44,17 @@ edge iterator/batch/session is closed and validates:
 
 The package never imports `pyowl_core._native`, borrows a private arena, or persists encoded dense
 IDs. A scalar-only provider remains supported by the complete Python compiler. Explicit
-`backend="native"` may use the existing scalar/batched compatibility bridge until encoded-native
-passes its promotion gates; provenance names `scalar-python`, `scalar-native`, or
-`encoded-native` ingestion. Malformed advertised encoded data fails before output and cannot
-silently switch paths after partial emission.
+`backend="native"` negotiates encoded-native first and uses the scalar/batched compatibility bridge
+for a valid unadmitted plan; provenance names `scalar-python`, `scalar-native`, or `encoded-native`
+ingestion. Malformed advertised encoded data fails before output and cannot silently switch paths
+after partial emission.
 
 Before any compiler dispatch, the public adapter checks closure scope, the bounded segment family,
 fixed-width column pairing, monotone offsets, and root/node/item/scalar/posting references directly
 over retained read-only byte views. This validation constructs no OWL value or dense-ID cache and
-does not advertise or promote the unfinished encoded-native compiler path.
+precedes advertised encoded-native plan preparation.
 
-The hidden direct adapter may resolve a bounded chain of canonical empty-local overlay aliases.
+The encoded-native adapter may resolve a bounded chain of canonical empty-local overlay aliases.
 Every manifest contains one `OVERLAY_BASE` segment; every container has an empty anonymous-scope
 map plus canonical empty local structural columns; and every segment is `ALL`, except that the
 terminal-adjacent segment may carry one nonempty sorted `EXCLUDE` posting table. The terminal
@@ -123,12 +117,12 @@ overwrite behavior. `SubObjectPropertyOf` axioms whose subproperty is an ordered
 mutate that role state. Each increments `ignored_shapes` once without adding a grouped diagnostic,
 matching the scalar role scan. Ignored chains still contribute to OWLAPI hash-set capacity, so
 unrelated executable role axioms retain their exact scalar visitation and overwrite order.
-For the hidden Projector candidate, one retained native state belongs to the same non-concurrent
+For the encoded-native Projector path, one retained native state belongs to the same non-concurrent
 `scala-instance` lock and call history as its Projector. Each successfully prepared call snapshots
 the maps into the scalar-compatible shadow. If any stateful call selects a whole-operation scalar
 compiler, that shadow becomes authoritative and later calls on the Projector cannot re-enter the
-native state. Isolated calls never receive a retained handle. The public encoded feature remains
-unadvertised until the rest of the production gates pass.
+native state. Isolated calls never receive a retained handle. The feature is advertised for
+explicit native selection; automatic backend preference remains gated by performance evidence.
 Annotations on every otherwise-executable declaration/logical axiom are
 fully preflighted and remain part of canonical root identity, preserving annotated-variant
 multiplicity and cross-table structural deduplication. Annotation property/value hashes contribute
@@ -314,8 +308,8 @@ counters cover inspected roots/nodes/scalar bytes, silent ontology annotations, 
 root-provenance roots/nodes,
 supported axiom kinds, referenced/member segments, posting/scope rows,
 source/delta/bridge/selected and deduplicated roots, canonical bytes compared, batches, raw edges,
-and scalar fallbacks. This slice is intentionally absent from the native feature ledger; it does
-not change public backend promotion.
+and scalar fallbacks. The native feature ledger advertises this compiler for explicit native
+selection; this does not make native the automatic backend.
 
 ## 3. Native projection compiler
 
@@ -445,7 +439,10 @@ backend remains opt-in and documentation reports measured limitations.
 
 ## 7. Versions, packaging, and consumers
 
-Implementation records the compatible core package/API/adapter and exact encoded schema range.
+Projector 0.2.0 requires pyOWLCore `>=0.2,<0.3`, API `(0, 2)`, adapter protocol `1`, model schema
+`2`, wire `(1, 2)`, and encoded structural schema `2` with descriptor SHA-256
+`c51d0eb7ecf6f29ad3495fe7c40a2ea6741cf03a7cf194d51417bb810df90f51`.
+Implementation records that exact contract.
 It increments `COMPILER_CACHE_SCHEMA` when private compilation/cache meaning changes, but does not
 change the projection profile or artifact schema without a semantic/artifact change. Unsupported
 caches rebuild rather than reinterpret IDs.

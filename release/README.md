@@ -14,11 +14,11 @@ ran.
 - `external-gates.json`: explicit owner-authorized closures and retained residual risks for checks
   which could not be proven in this workspace.
 - `owner-release-override.md`: human-readable authorization and scope for those closures.
-- `core-compatibility.json`: exact pyOWLCore 0.1.1 release commit for reproducible source-checkout
-  CI, the historical comparator-only evidence successor, the published dependency range, and
-  reviewed old/new fixture fingerprints.
-- `owner-release-authorization-0.1.1.md`: version-specific owner authorization for the complete
-  atomic patch release; the historical 0.1.0 override remains unchanged.
+- `core-compatibility.json`: exact pyOWLCore 0.2.0 release commit and public API/model/wire/encoded
+  contract for reproducible source-checkout CI, plus the published dependency range and repinned
+  fixture fingerprints.
+- `owner-release-authorization-0.2.0.md`: version-specific owner authorization for the complete
+  atomic release; earlier authorizations remain as historical records.
 
 Regenerate and compare the deterministic records with
 `python tools/generate_supply_chain.py --check`. Per-build hashes, signatures, attestations,

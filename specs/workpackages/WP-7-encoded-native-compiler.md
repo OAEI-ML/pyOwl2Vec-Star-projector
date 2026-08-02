@@ -1,10 +1,16 @@
 # WP-P7 — Encoded-view complete native compiler
 
-**Target:** compatible `0.1.x` successor or next minor selected by implementation review.
+**Target:** `0.2.0`.
 **Depends on:** P3–P6 and a frozen pyowl-core WP17 encoded-view candidate.
-**Status:** implementation checkpoint in progress; capability unadvertised and acceptance open.
+**Status:** encoded capability implemented and advertised for explicit native selection; automatic
+backend promotion, general stable-ABI exporters, and broader performance/platform evidence remain
+open.
 
-## Current implementation checkpoint
+## Historical pre-promotion implementation checkpoints
+
+The chronology below records the private checkpoints that led to promotion in commit `46b066f`.
+Statements that the feature ledger omitted the compiler or that public dispatch could not select
+it describe those earlier revisions and are superseded by the status above.
 
 As of 2026-07-21, the broad structural-columns decoder/compiler in
 `encoded_compiler.py` is Python, and the production Rust backend still receives already-created

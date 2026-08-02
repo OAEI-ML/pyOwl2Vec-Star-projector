@@ -1,36 +1,40 @@
 # Compatibility matrix
 
-This table is normative for `0.1.1`. “Workflow target” means the repository has an executable CI
+This table is normative for `0.2.0`. “Workflow target” means the repository has an executable CI
 definition; publication still requires the tag-scoped hosted run to pass. Accepted residual risks
 remain explicit in `release/external-gates.json`.
 
 ## Semantic and interchange contracts
 
-| Contract | `0.1.1` value | Compatibility rule |
+| Contract | `0.2.0` value | Compatibility rule |
 |---|---|---|
-| Projector API | `PROJECTOR_API_VERSION = 1` | Additions may ship in `0.1.x`; incompatible call semantics require a major API value. |
+| Projector API | `PROJECTOR_API_VERSION = 1` | Compatible additions may ship within the `0.2.x` line; incompatible call semantics require a major API value. |
 | Reference profile | `mowl-d993536-v1` | Frozen Scala-observed edge bag; changed behavior requires a new named profile. |
 | Edge artifact | `pyowl-projector.edge-list/1` | Readers reject unsupported major schemas; backend selection is excluded from portable bytes. |
 | Batch sink | `BATCH_SINK_PROTOCOL_VERSION = 1` | Synchronous immutable tuple batches; returning is backpressure acknowledgement. |
 | Compiler cache | `pyowl-projector.compiler-cache/1` | Cache keys include core fingerprints/versions, profile, normalized options, schema, and package version. |
 | Consumer conformance | `pyowl-projector.consumer-conformance/1` | Packaged CC0 fixture/goldens; incompatible fixture or assertion changes require a new schema major. |
-| Core model | `pyowl-core>=0.1,<0.2` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
+| Core package | `pyowl-core>=0.2,<0.3` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
+| Core API/adapter | API `(0, 2)`, adapter `1` | The projector rejects another API line or adapter protocol before traversal. |
+| Core model/wire | model `2`, wire `(1, 2)` | Model-1 fingerprints and stale wire/cache artifacts are not silently reinterpreted. |
+| Core encoded view | `pyowl-core/structural-columns` schema `2` | Native direct ingestion requires the frozen schema-2 descriptor digest; otherwise whole-operation scalar fallback or a typed compatibility failure applies. |
 
-Source-checkout CI is pinned to pyOWLCore 0.1.1 commit
-`b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19`, tree
-`e72fc93248cd363a5c67dac9efffb367a71c2b1d`, as recorded in
+Source-checkout CI is pinned to pyOWLCore 0.2.0 commit
+`c65316cb6194806a941016a533ee79aba2b35887`, tree
+`3769e94f908e45401c1200209ad2a3e20f31fa4f`, as recorded in
 `release/core-compatibility.json`. This is reproducibility evidence for the release, not a Git
-dependency: installed metadata intentionally retains `pyowl-core>=0.1,<0.2`. The
-reviewed structural-fingerprint transition from the pre-correction core is recorded in
-`release/core-compatibility.json`; logical/signature fingerprints and projector edge bytes did
-not change. The historical direct core successor
+dependency: installed metadata intentionally retains `pyowl-core>=0.2,<0.3`. Model schema 2
+changes the fixture's structural, logical, and signature fingerprint domains. The projector's
+three canonical edge sequences and digests remain unchanged and are repinned alongside those
+new core fingerprints. The historical direct core successor
 `005c3ccad129757b3a9be125dc064b812b607ef5` is recorded only as comparator release evidence:
 the compatibility checker verifies its ancestry and exact comparator-only diff while keeping the
 historical runtime pin on the paired implementation revision.
 
-`0.1.0b1`, `0.1.0rc1`, `0.1.0`, and `0.1.1` use identical values in every row. Portable edge
-artifacts remain byte-compatible when the core fingerprints and normalized semantic options are
-the same.
+`0.1.0b1`, `0.1.0rc1`, `0.1.0`, and `0.1.1` remain one historical compatibility line. `0.2.0`
+requires pyOWLCore's coordinated API/model/wire/encoded-schema transition. Portable edge
+artifacts remain byte-compatible because the profile and edge schema are unchanged, while
+compiler caches and provenance records are regenerated under the new core identity.
 
 ## Interpreter and artifact targets
 
@@ -43,7 +47,7 @@ the same.
 | macOS arm64 | yes | `macosx` | Native runner parity plus delocate. |
 | Windows x86_64 | yes | `win_amd64` | Clean 3.10–3.13 smoke plus delvewheel. |
 | Other Python 3.10+ platform | yes when compatible | none | Pip must select the universal wheel without invoking a compiler. |
-| musllinux | yes when pure Python is usable | not claimed in `0.1.1` | Add only after a dedicated build and binary audit. |
+| musllinux | yes when pure Python is usable | not claimed in `0.2.0` | Add only after a dedicated build and binary audit. |
 | CPython subinterpreters | host-runtime dependent | deliberately unavailable | `auto` falls back before extension import; clean full-projection smoke is an external gate. |
 | PyPy/free-threaded CPython | unclaimed | unclaimed | Requires dedicated compatibility policy and tests. |
 
@@ -64,9 +68,9 @@ import during subinterpreter teardown, so it cannot provide that release evidenc
 | Request | Native extension state | Result |
 |---|---|---|
 | `backend="python"` | any | Complete Python backend; no fallback warning. |
-| `backend="native"` | usable | Native bounded edge-policy processing with identical ordered output. |
+| `backend="native"` | usable | Negotiates the advertised encoded-native compiler first; supported schema-2 plans run there, while valid unadmitted plans select whole-operation scalar-native processing before output. |
 | `backend="native"` | absent/unusable | `NativeBackendUnavailableError` with the load cause. |
-| `backend="auto"` | any in `0.1.1` | Python plus one first-projection `NativeBackendFallbackWarning`; native remains experimental because its performance gate is unmet. |
+| `backend="auto"` | any in `0.2.0` | Python plus one first-projection `NativeBackendFallbackWarning`; native remains experimental because its performance gate is unmet. |
 
 Import never emits the warning. A compiler or native-extension failure never disables the
 complete Python projector.

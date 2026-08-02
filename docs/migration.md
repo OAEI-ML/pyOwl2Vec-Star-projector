@@ -1,4 +1,28 @@
-# Migrating to `0.1.1`
+# Migrating to `0.2.0`
+
+## From `0.1.1`
+
+Upgrade pyOWLCore and the projector together:
+
+```bash
+python -m pip install --upgrade \
+  "pyowl-core>=0.2,<0.3" \
+  "pyowl2vec-star-projector>=0.2,<0.3"
+```
+
+The projection profile, edge values, public projection calls, and backend
+selection policy are unchanged. The compatibility boundary is intentionally
+stricter: projector 0.2.0 requires pyOWLCore API `(0, 2)`, adapter protocol `1`,
+model schema `2`, wire `(1, 2)`, and encoded structural schema `2` with its
+frozen descriptor digest. An older core or a forged mixed-version view fails
+before ontology traversal.
+
+Delete or regenerate projector compiler caches and any consumer cache keyed by
+pyOWLCore fingerprints. Model schema 2 changes the fingerprint domain and
+anonymous-individual identity scheme; model-1 cache entries and encoded schema-1
+columns must not be relabeled. Cross-process producers and consumers must both
+negotiate wire `(1, 2)`. The packaged conformance fixture pins the new core
+fingerprints while retaining the same three canonical edge digests.
 
 ## From `0.1.0`
 
@@ -21,12 +45,12 @@ Packaging automation should make these deliberate updates:
    backend then requests pinned `setuptools-rust==1.13.0`; Cargo and rustc must already exist.
 3. Keep `backend="python"` for quiet deterministic fallback. `backend="auto"` still warns once
    because native has not earned automatic preference.
-4. Install `pyowl-core==0.1.1` before testing a local offline projector artifact. Public package
-   metadata intentionally retains the compatible range `pyowl-core>=0.1,<0.2`.
+4. Install `pyowl-core==0.2.0` before testing a local offline projector artifact. Public package
+   metadata intentionally retains the compatible range `pyowl-core>=0.2,<0.3`.
 
 The repository owner accepted the residual risks documented in
 `release/external-gates.json`. Hosted platform build and attestation are enforced by the atomic
-0.1.1 workflow; private-index, advisory, and unavailable-corpus risks remain explicitly recorded.
+0.2.0 workflow; private-index, advisory, and unavailable-corpus risks remain explicitly recorded.
 
 The distribution name is `pyowl2vec-star-projector`; the import remains
 `pyowl2vec_star_projector`. It is intentionally different from the unrelated

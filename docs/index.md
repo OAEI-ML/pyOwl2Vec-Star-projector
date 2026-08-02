@@ -15,7 +15,8 @@ python -m pip install pyowl2vec-star-projector
   streaming, artifacts, and backend selection.
 - [Compatibility matrix](compatibility.md) lists supported Python versions,
   artifact targets, semantic contracts, and backend behavior.
-- [Migration guide](migration.md) explains changes introduced by `0.1.0`.
+- [Migration guide](migration.md) explains the coordinated pyOWLCore/projector `0.2.0`
+  upgrade and preserves guidance for earlier releases.
 - The repository [README](../README.md) documents advanced streaming limits,
   consumer conformance, and performance evidence.
 - [Release procedure](../RELEASING.md) is for maintainers publishing signed

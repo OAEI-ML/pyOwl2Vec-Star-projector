@@ -38,7 +38,7 @@ Start with the [documentation index](docs/index.md) and
 details are in [the compatibility matrix](docs/compatibility.md) and
 [migration guide](docs/migration.md).
 
-The Python backend is complete. `0.1.1` also contains an equivalent optional Rust/PyO3 edge
+The Python backend is complete. `0.2.0` also contains an equivalent optional Rust/PyO3 edge
 engine:
 
 - `backend="python"` selects the complete, compiler-free fallback explicitly and quietly;
@@ -57,7 +57,7 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
 ## Status
 
-Production release: `0.1.1`.
+Production release: `0.2.0`.
 
 All 184 pinned Scala invocations match in canonical edge bytes,
 including the expected typed inverse-property assertion failure and the loader-owned missing-
@@ -67,11 +67,11 @@ in-memory edge vector. Normal tests, installs, wheels, and sdists remain Java-fr
 
 P5 supplies conditional compiler-free builds, platform workflow definitions, offline install
 smokes, reproducibility/hash tooling, SBOMs, license inventory, compatibility tables, and release
-instructions. The 0.1.1 workflow publishes the universal wheel, source distribution, and all five
+instructions. The 0.2.0 workflow publishes the universal wheel, source distribution, and all five
 supported native wheels atomically through an environment-protected PyPI trusted publisher.
 Every closure remains visible in the machine-readable
 [external gates](release/external-gates.json) and
-[0.1.1 authorization](release/owner-release-authorization-0.1.1.md). See also the [compatibility
+[0.2.0 authorization](release/owner-release-authorization-0.2.0.md). See also the [compatibility
 matrix](docs/compatibility.md), [migration notes](docs/migration.md), and
 [release procedure](RELEASING.md).
 
@@ -206,8 +206,16 @@ Use `--require-encoded-native` only as a release-evidence gate. It fails unless 
 selects encoded-native and exposes a complete zero-forbidden-counter, zero-staging-copy,
 released-GIL record; it never relabels scalar fallback as accelerated evidence.
 
-P7 development can separately measure the unadvertised exact-direct candidate with
-`--private-native-candidate`. This calls the hidden iterator, labels every sample
+In `0.2.0`, native wheels advertise `encoded-structural-compiler-v1`. An explicit
+`backend="native"` request negotiates pyOWLCore structural-columns schema 2 and selects the Rust
+compiler for its supported direct and segmented plans across iterator, sink, digest, artifact,
+and asserted-taxonomy entry points. A valid but unsupported plan selects the whole-operation
+scalar-native compiler before output; malformed advertised metadata or buffers fail with a typed
+compatibility error. `backend="auto"` still selects Python because the end-to-end performance gate
+for making native the default has not passed.
+
+P7 development can separately measure the lower-level exact-direct candidate with
+`--private-native-candidate`. This calls the internal iterator, labels every sample
 `private-native-candidate`, hashes the complete ingestion and core-operation ledgers, and records
 the loaded distribution `RECORD`, package module, native binary, feature ledger, and kernel
 version. Supply the exact 40-character revisions with `--projector-revision` and
@@ -216,12 +224,12 @@ loaded from installed distribution payloads. Source-tree runs can prove the priv
 cannot pass that installed-evidence gate.
 
 Private-candidate mode is deliberately incompatible with `--require-encoded-native` and can never
-set public `acceptance_ready`. Its evidence records the current production blockers: only exact
+set public `acceptance_ready`. Its evidence isolates implementation limits: only exact
 full `bytes` exporters or the canonical eleven-column packed direct-`bytes` arena are supported,
-public iterator/sink/digest/artifact dispatch is unchanged, and the public Scala-instance lifecycle
-remains scalar. The hidden iterator does retain Scala-instance role maps natively across ordered
-calls, while maintaining a scalar-compatible shadow and selecting the scalar lifecycle permanently
-after any native decline or other whole-operation scalar selection. Its native output is now a
+and general stable-ABI buffer exporters such as mmap remain a transactional fallback. The public
+encoded path uses the same retained Scala-instance role maps across ordered calls, while
+maintaining a scalar-compatible shadow and selecting the scalar lifecycle permanently after any
+native decline or other whole-operation scalar selection. Its native output is a
 resumable cursor: each drain owns at most the configured batch, reports zero vector-backed output
 edges, and commits only after its final `Edge` tuple exists. No intermediate Python tuple-edge list
 is returned to the wrapper, and a final-edge allocation failure leaves the cursor retryable.
@@ -236,6 +244,12 @@ The exact installed-wheel candidate checkpoints are recorded in
 and
 [`reports/p7/evidence/installed-final-result-checkpoint.json`](reports/p7/evidence/installed-final-result-checkpoint.json);
 they are explicitly private, incomplete, and not release-performance evidence.
+
+### Historical pre-promotion checkpoint chronology
+
+The detailed records below preserve the private evidence sequence that led to public promotion.
+Statements there that ordinary dispatch was unchanged or the feature ledger lacked the compiler
+describe those checkpoint revisions; the active `0.2.0` behavior is the public contract above.
 
 The final bounded-batch transaction is independently hash-bound in
 [`reports/p7/evidence/installed-final-batch-checkpoint.json`](reports/p7/evidence/installed-final-batch-checkpoint.json).
@@ -359,8 +373,7 @@ iterator-publication, factory-validation, edge-factory-validation, canonical-wra
 final-payload-validation, complete-batch-validation, direct-edge-allocation, and
 direct-statistics-allocation and direct-iterator-allocation checkpoints advance the private kernel
 through v32, v33, v34, v35, v36, v37, v38, v39, v40, v41, v42, v43, v44, v45, and v46 while the
-public feature ledger remains exactly
-`abi3-py310` and `bounded-batches`.
+public feature ledger remains exactly `abi3-py310` and `bounded-batches`.
 
 The hidden candidate also proves root-scoped annotation provenance before admitting visible
 annotations. Kernel v30 retains an unequal exact-direct root table alongside the closure and joins
@@ -434,17 +447,12 @@ matrix covers CPython 3.10 through 3.13.
 PYOWL2VEC_BUILD_NATIVE=1 python -m build --wheel
 ```
 
-The advertised Rust boundary owns only strings for edge batches. Closing a projection iterator
-cancels and clears its processor; native panics are contained and resource failures become stable
-projector exceptions. An unadvertised P7 foundation additionally retains exact public
-structural-column views backed by full immutable `bytes` exporters or the native provider's
-canonical eleven-column packed immutable-`bytes` arena for a direct, unannotated named-class and
-named-role kernel (`SubClassOf`, `EquivalentClasses`, `ClassAssertion`, simple restrictions, and
-named-individual object-property assertions plus domain/range products); negative named/inverse
-object-property assertions are validated and skipped, while positive inverse assertions preserve
-the pinned typed failure. Unannotated named/inverse subproperty and inverse-property axioms now
-expand restriction and domain/range edges in exact compatibility order; object-property
-equivalence, disjointness, and characteristics are validated skipped roots. It is not selected by
-production dispatch and is not a complete compiler. See the
+The legacy scalar-native edge-policy bridge owns only bounded edge strings. The advertised
+encoded-native compiler instead retains exact schema-2 full-`bytes` or native packed-bytes leases,
+including admitted segmented plans, and covers the pinned rule/options matrix for those admitted
+plans without flattening, staging copies, or per-row FFI. A valid unadmitted exporter or plan—notably
+a general readonly/mmap exporter at the `abi3-py310` floor—selects whole-operation scalar-native
+processing before output. Closing a projection iterator cancels and clears its processor; native
+panics are contained and resource failures become stable projector exceptions. See the
 [P3 report](reports/p3/native-backend.md) for parity, performance, memory, and binary evidence.
 The [P4 report](reports/p4/streaming.md) covers bounded external sorting and artifacts.

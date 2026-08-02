@@ -1,6 +1,7 @@
-# WP-P5 — Packaging, compatibility matrix, and 0.1 release
+# WP-P5 — Packaging, compatibility matrix, and production release
 
-**Target:** `0.1.0`. **Depends on:** P2–P4. **Status:** production release prepared under explicit
+**Target:** `0.2.0` (successor release of the original `0.1.0` package). **Depends on:** P2–P4.
+**Status:** production release prepared under explicit
 owner acceptance of the documented residual risks.
 
 ## Deliverables
@@ -31,7 +32,7 @@ tables, changelog, and migration/release instructions are implemented. Local sam
 `--find-links` selection chooses the native wheel on a supported target and the universal wheel
 for a simulated unsupported target.
 
-The 0.1.1 patch release is coordinated with the exact `pyowl-core` 0.1.1 release source. Its
+The 0.2.0 release is coordinated with the exact `pyowl-core` 0.2.0 release source. Its
 atomic workflow requires the compiler-free source/universal pair and all five claimed native
 wheels to pass hosted platform, audit, checksum, and OIDC-attestation gates before trusted
 publication. Private-index, advisory-feed, and unavailable-corpus residual risks remain in

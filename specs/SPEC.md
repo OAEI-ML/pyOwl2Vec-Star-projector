@@ -1,4 +1,4 @@
-# pyOwl2Vec-Star-projector 0.1 specification
+# pyOwl2Vec-Star-projector v1 projection profile / pyOWLCore 0.2 contract
 
 ## 1. Objective
 
@@ -16,7 +16,7 @@ The distribution name is `pyowl2vec-star-projector`; the import package is
 
 ## 2. Scope
 
-Version `0.1` projects the TBox, RBox, ABox, and selected class annotations supported by the
+The version-1 projection profile projects the TBox, RBox, ABox, and selected class annotations supported by the
 pinned Scala target. It includes imports already resolved into the supplied snapshot. It exposes
 a dedicated asserted-taxonomy projection for Exact-OM in addition to the historical
 `only_taxonomy` flag, whose upstream behavior is misleading.

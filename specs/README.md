@@ -1,6 +1,7 @@
 # Specification index
 
-These documents define the initial `pyowl2vec-star-projector` `0.1.x` line. The key words
+These documents define the `pyowl2vec-star-projector` `0.2.x` behavior and its coordinated
+pyOWLCore 0.2 compatibility contract. The key words
 **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative in the RFC 2119 sense.
 
 ## Normative documents
@@ -42,7 +43,7 @@ pyowl-core <--- pyowl2vec-star-projector
 OAEI-Bio-ML-eval
 ```
 
-The projector MUST depend on `pyowl-core>=0.1,<0.2` and MUST NOT depend on Exact-OM, OAEI,
+The projector MUST depend on `pyowl-core>=0.2,<0.3` and MUST NOT depend on Exact-OM, OAEI,
 pyELK, or pyHermiT. This keeps every package independently installable and prevents a cycle.
 
 ## Work packages
@@ -65,7 +66,8 @@ owned conformance kit, Exact baseline comparator, handoff benchmark, and depende
 implemented. Exact's consumer-side WP-M M0–M4 migration has landed in its own repository; M5 and
 cross-repository release acceptance remain open there.
 
-P7 is the successor performance package. Its fail-closed encoded compiler checkpoint is in
-progress and does not change the completed P0–P6 semantic evidence. It remains unadvertised until
-the acceptance evidence in [`../reports/p7/encoded-native-compiler.md`](../reports/p7/encoded-native-compiler.md)
-and the work package is complete.
+P7's fail-closed encoded compiler is advertised in `0.2.0` native wheels and selected by explicit
+native requests for supported direct and segmented schema-2 plans. Valid unadmitted plans fall
+back transactionally before output, and `auto` remains Python until its end-to-end performance
+gate passes. The historical checkpoints and remaining breadth/performance limits are recorded in
+[`../reports/p7/encoded-native-compiler.md`](../reports/p7/encoded-native-compiler.md).

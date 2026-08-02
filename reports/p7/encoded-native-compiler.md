@@ -1,10 +1,26 @@
-# P7 encoded-native compiler checkpoint
+# P7 encoded-native compiler promotion and checkpoint history
+
+## 0.2.0 promotion addendum
+
+Commit `46b066f` promoted `encoded-structural-compiler-v1` into the native extension feature
+ledger and public explicit-native dispatch. Public iterator/materialized projection, batch sink,
+canonical digest, portable artifact, and asserted-taxonomy operations negotiate the exact
+pyOWLCore structural-columns schema before traversal. Supported direct and segmented plans retain
+their schema-2 bytes/packed-bytes owners and execute through the bounded Rust cursor; valid
+unadmitted plans select the whole-operation scalar-native compiler before output, while malformed
+advertised data fails with a typed compatibility error. `backend="auto"` remains Python because
+the end-to-end default-promotion performance gate is unmet. General readonly/mmap exporters also
+remain a transactional fallback at the `abi3-py310` floor.
+
+The remainder of this report preserves the evidence chronology that preceded promotion. Its
+statements that the feature was private, absent, or unreachable from public dispatch describe
+those recorded revisions and are not the current `0.2.0` state.
 
 Date: 2026-07-24. Projector product through `e531a02`, benchmark harness through `5ac8ef3`,
 deterministic generated verification through `4e0f54d`, and encoded-column validation through
 `bf24a90`. pyOWLCore candidate revision: `6750aa0`. Exact-OM integration revision: `fe46141`.
 
-## Outcome
+## Historical pre-promotion outcome
 
 P7 is **not accepted, publicly integrated, advertised, or promoted**. Production projection still
 uses the Python semantic compiler. When the native backend is selected through a public API, that
@@ -2755,7 +2771,7 @@ fail-closed. The feature ledger remains exactly `abi3-py310` and `bounded-batche
 These are local source-tree checks. They do not replace hosted wheels, sanitizers, fuzzing,
 licensed corpora, performance thresholds, or the Exact acceptance matrix.
 
-## Acceptance ledger
+## Historical pre-promotion acceptance ledger
 
 | WP-P7 requirement | Current truthful state |
 |---|---|
@@ -2775,7 +2791,7 @@ licensed corpora, performance thresholds, or the Exact acceptance matrix.
 | Exact shared-stack acceptance | Open for this kernel |
 | Wheels/SBOM/platform matrix | Open for this kernel |
 
-## Promotion decision and next work
+## Historical pre-promotion decision and next work
 
 Public `auto` and explicit native negotiation remain unchanged. Before advertising
 `encoded-structural-compiler-v1`, P7 still needs:

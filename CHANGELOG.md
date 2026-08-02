@@ -5,6 +5,22 @@ from packaging or performance changes because profile output is a data contract.
 
 ## Unreleased
 
+## 0.2.0 — 2026-08-02
+
+- Require pyOWLCore `>=0.2,<0.3` and fail closed on API `(0, 2)`, model schema
+  `2`, wire `(1, 2)`, adapter protocol `1`, or encoded structural schema `2`
+  incompatibility.
+- Migrate direct encoded ingestion and the retained Rust compiler to the frozen
+  schema-2 descriptor while preserving the pinned OWL2Vec* edge profile and
+  canonical edge digests.
+- Advertise `encoded-structural-compiler-v1` in native wheels and route explicit
+  native iterator, sink, digest, artifact, and asserted-taxonomy operations
+  through it for supported direct and segmented plans, with transactional
+  scalar-native fallback for valid unadmitted plans.
+- Repin consumer-conformance fingerprints, source-checkout CI, supply-chain
+  evidence, release documentation, and package metadata to the coordinated
+  pyOWLCore 0.2.0 production source.
+
 ## 0.1.1 — 2026-07-30
 
 - Publish the current native-enabled implementation as one atomic seven-distribution set: source

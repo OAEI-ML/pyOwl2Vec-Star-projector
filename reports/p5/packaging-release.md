@@ -1,6 +1,18 @@
 # P5 packaging history and production release
 
-## Production release addendum
+## 0.2.0 production release addendum
+
+Date: 2026-08-02. Release: `0.2.0`.
+
+The coordinated release requires `pyowl-core>=0.2,<0.3` and is bound to the exact pyOWLCore
+commit and tree in `release/core-compatibility.json`. Core model schema 2 changes the structural,
+logical, and signature fingerprint domains; the three packaged projector edge digests remain
+unchanged. The compiler-free wheel and sdist, optional native wheel, exact installed smokes,
+2,627-test suite, strict type/lint checks, artifact audit, and local release gate pass in the
+current preparation workspace. The atomic hosted workflow remains responsible for all five
+platform-native wheels, attestations, and publication.
+
+## Historical 0.1.0 production release addendum
 
 Date: 2026-07-30. Release: `0.1.0`.
 
@@ -31,11 +43,11 @@ hosted CPython/platform wheels, clean subinterpreter validation, signed OIDC pro
 network-backed vulnerability feeds, and unavailable release corpora could not be established in
 this workspace. Their then-required evidence was recorded in `release/external-gates.json`.
 
-All source-checkout workflow lanes are pinned to the full pyOWLCore commit recorded in
-`release/core-compatibility.json`; package metadata remains the normal
-`pyowl-core>=0.1,<0.2` range. The core's reviewed canonical-identity correction changes only the
-structural fingerprints recorded in conformance evidence. Logical/signature fingerprints and
-every projected edge digest remain unchanged.
+For that historical candidate, source-checkout workflow lanes were pinned to the then-current
+pyOWLCore commit. The reviewed canonical-identity correction changed only the structural
+fingerprints recorded in that candidate's conformance evidence; its logical/signature
+fingerprints and every projected edge digest remained unchanged. The active 0.2.0 dependency and
+fingerprint contract is described in the addendum above.
 
 ## Artifact design
 

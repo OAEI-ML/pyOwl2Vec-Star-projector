@@ -1,6 +1,6 @@
 # P0 dependency inventory
 
-Runtime dependency: `pyowl-core>=0.1,<0.2`, the shared structural ontology layer.
+Runtime dependency: `pyowl-core>=0.2,<0.3`, the shared structural ontology layer.
 The projector defines no fallback parser or ontology records.
 
 Build dependencies are setuptools and wheel. Test, lint, typing, artifact build,

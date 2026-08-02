@@ -46,8 +46,12 @@ serialize it again.
   lower-latency encounter order.
 - `backend="auto" | "python" | "native"` controls acceleration.
 
-An explicit native request fails when no compatible extension is available.
-`auto` may select Python and reports the reason through projection provenance.
+An explicit native request fails when no compatible extension is available. With a `0.2.0`
+native wheel, it first negotiates the schema-2 encoded compiler; supported ontology-view plans run
+there, while a valid unsupported plan falls back as one complete operation before emitting edges.
+Malformed advertised encoded data fails instead of falling back. In `0.2.0`, `auto` selects Python
+and reports the reason through projection provenance because native has not passed the default-
+promotion performance gate.
 
 ## Stream large projections
 

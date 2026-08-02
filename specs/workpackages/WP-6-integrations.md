@@ -1,6 +1,6 @@
 # WP-P6 — Consumer migration and conformance
 
-**Target:** projector `0.1.x`, Exact-OM `2.1.0`. **Depends on:** P5. **Status:** projector-side
+**Target:** projector `0.2.x`, Exact-OM `2.1.0`. **Depends on:** P5. **Status:** projector-side
 kit implemented; Exact WP-M M0–M4 landed; cross-repository M5/release acceptance remains open.
 
 ## Deliverables

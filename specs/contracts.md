@@ -11,11 +11,16 @@ EDGE_ARTIFACT_SCHEMA = "pyowl-projector.edge-list/1"
 COMPILER_CACHE_SCHEMA = "pyowl-projector.compiler-cache/1"
 CONSUMER_CONFORMANCE_SCHEMA = "pyowl-projector.consumer-conformance/1"
 REFERENCE_PROFILE = "mowl-d993536-v1"
+CORE_API_VERSION = (0, 2)
+CORE_ADAPTER_PROTOCOL_VERSION = 1
+CORE_MODEL_SCHEMA_VERSION = 2
+CORE_WIRE_FORMAT_VERSION = (1, 2)
 ```
 
 `pyowl-core` separately owns its package SemVer, `MODEL_SCHEMA_VERSION`,
-`WIRE_FORMAT_VERSION`, and `ADAPTER_PROTOCOL_VERSION`. The projector records but never aliases
-or increments those values.
+`WIRE_FORMAT_VERSION`, and `ADAPTER_PROTOCOL_VERSION`. The `CORE_*` constants are projector-side
+compatibility requirements, not ownership aliases: version 0.2.0 fails closed before traversal
+unless the imported core and supplied view match every value.
 
 ## 2. Python API
 
@@ -121,8 +126,9 @@ materialized.
 Python pickle, a temporary ontology path, and "send the original path and parse again" are
 forbidden protocols. Producers use `pyowl_core.encode_snapshot(snapshot)` or a durable core wire
 file. Consumers use `decode_snapshot(buffer)` or `open_snapshot(path, mmap=True, verify=True)`.
-The core wire carries the closure/resolution manifest and fingerprint. Unsupported wire major
-versions fail clearly; supported minor evolution follows the core contract.
+The core wire carries the closure/resolution manifest and fingerprint. Projector 0.2.0 requires
+wire `(1, 2)` exactly; producers using another minor or major must upgrade the projector or
+regenerate the handoff rather than relying on implicit compatibility.
 
 IPC orchestration may transport wire bytes or a wire-file descriptor/path. Such a path is a
 versioned core snapshot artifact, never an OWL source path. A cache key includes at least:
@@ -287,11 +293,12 @@ no Python iterator factory or constructor callback. It must validate ordered mem
 canonical factory identity, exact owner/statistics identities, batch bound, zero yielded/batch/peak
 counters, initial boundary count one, and terminal state `active` before session or retained roles
 publish. Layout, payload, probe, or factory failure publishes neither.
-The hidden P7 integration checkpoint also exercises this cursor through the existing version-1
-batch-sink, canonical-digest, and portable-artifact implementations. It must preserve the same
-policy, report, cancellation, cleanup, and byte contracts, including no report after sink failure.
-This is private evidence only: normal public entry points still follow the advertised feature
-ledger and cannot select the unadvertised compiler.
+The P7 integration checkpoint exercises this cursor through the existing version-1 batch-sink,
+canonical-digest, and portable-artifact implementations. It MUST preserve the same policy, report,
+cancellation, cleanup, and byte contracts, including no report after sink failure. Native wheels
+advertise `encoded-structural-compiler-v1`; explicit native public entry points select it for an
+admitted schema-2 plan and select one whole-operation scalar-native compiler before output for a
+valid unadmitted plan.
 Zero operation counters assert that the projector handoff itself did not perform that work; they do
 not describe acquisition completed before an existing view was supplied. The publication duration
 includes public encoded-view acquisition and the Projector adapter's in-place validation. These
@@ -305,7 +312,7 @@ matching machine-specific fields.
 
 ## 8. Stability
 
-The `0.1` package may add fields with defaults, but it may not silently change profile behavior,
+The `0.2` package may add fields with defaults, but it may not silently change profile behavior,
 edge ordering, warning timing, or artifact bytes. A future default profile requires a documented
 minor release and an opt-in period; removing an old profile requires a major release.
 

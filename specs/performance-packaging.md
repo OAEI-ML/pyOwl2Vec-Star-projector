@@ -134,7 +134,7 @@ and uninstall. Native wheels additionally run native parity and extension audit 
 
 ## 8. Dependencies and supply chain
 
-Runtime requires only `pyowl-core>=0.1,<0.2` plus standard-library functionality for the Python
+Runtime requires only `pyowl-core>=0.2,<0.3` plus standard-library functionality for the Python
 backend. Build-only Rust/PyO3 dependencies are lockfile-pinned and absent from fallback builds.
 No runtime or optional extra may install Java-facing packages.
 

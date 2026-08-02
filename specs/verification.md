@@ -116,7 +116,7 @@ Generated snapshots check that:
 Malformed options and corrupt/unsupported core wire inputs have typed, stable failure tests.
 
 P7 also supplies `tools/differential_encoded_native.py`, a bounded deterministic valid-input
-campaign for the unadvertised encoded cursor. SplitMix64 keeps source generation stable across
+campaign for the encoded-native cursor. SplitMix64 keeps source generation stable across
 supported Python versions; each failure identifies only the seed, provider, and violated invariant.
 The exact checkpoint covers both supported direct exporter layouts, all 32
 semantic-boolean/duplicate/order combinations, and batch bounds one through seven while comparing
@@ -125,7 +125,7 @@ staging copy, per-row FFI, or a missing released-GIL record. It supplements rath
 the malformed, mutational, sanitizer, Scala-oracle, segmented-provider, and corpus matrices.
 
 P7 also supplies `tools/hostile_encoded_native.py`, a bounded deterministic invalid-column
-campaign for the same private cursor. Twenty-nine predefined cases exercise tag, reference,
+campaign for the same compiler. Twenty-nine predefined cases exercise tag, reference,
 canonicality, offset, shape, and scalar validation across all eleven structural columns and both
 supported direct exporter layouts. Every case requires a typed compatibility failure before
 output, equal direct/Projector and provider-layout failures, terminal failed state without a batch
@@ -134,8 +134,9 @@ runs the maximum 256 generated sources, or 14,848 cases. It remains finite inval
 verification, not coverage-guided or mutational fuzzing, sanitizer evidence, or an exhaustive
 invalid-input claim.
 
-The exact empty-overlay-alias checkpoints exercise the hidden cursor through both supported direct
-exporter layouts behind canonical `OVERLAY_BASE`/`ALL` containers. The recursive checkpoint
+The historical exact empty-overlay-alias checkpoints exercised the pre-promotion cursor through
+both supported direct exporter layouts behind canonical `OVERLAY_BASE`/`ALL` containers. The
+recursive checkpoint
 requires exact scalar edge/report parity through a three-container chain, every owner to remain
 retained until cursor close, 44 retained and 11 Rust-detached zero-copy buffers, four segments,
 three referenced views, and zero posting, staging, flattening, scalar-materialization, or
@@ -144,9 +145,9 @@ publication; reduced depth and cumulative-work limits and a transitive cycle lik
 output. Edited and annotation-sensitive overlays still select one whole-operation scalar compiler,
 while malformed referenced columns fail before output or report publication. This focused slice
 alone does not establish posting, local-delta, composite, mmap, public-dispatch, or corpus
-acceptance.
+acceptance by themselves; current public selection is covered separately by promotion tests.
 
-The exact kernel-v47 excluding-overlay checkpoint adds one nonempty `EXCLUDE` table on the
+The historical kernel-v47 excluding-overlay checkpoint added one nonempty `EXCLUDE` table on the
 terminal-adjacent alias in the same bounded empty-local chain. Twenty-one installed integration
 cases cover both direct exporter layouts; taxonomy/restriction, subrole, inverse, domain, range,
 silent annotation, and nonadjacent-projecting-root removal; anonymous-ID recomputation;
@@ -158,8 +159,8 @@ out-of-range, duplicate, and descending `u32` rows plus sliced or mutable export
 successful case requires exact scalar ordered-edge/report parity, encoded-native ingestion, exact
 posting-byte accounting, 22 retained structural buffers and 12 native inputs for one container,
 and zero selection indexing, flattening, staging copy, scalar materialization, or per-row FFI. The
-terminal exact-direct source is still validated in full, including excluded roots. This focused
-result does not establish multiple-selection composition, `INCLUDE`, local deltas,
+terminal exact-direct source is still validated in full, including excluded roots. That historical
+focused result did not establish multiple-selection composition, `INCLUDE`, local deltas,
 annotation-sensitive aliases, composite, mmap, public-dispatch, corpus, performance, or release
 acceptance.
 

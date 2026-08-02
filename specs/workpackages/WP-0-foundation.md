@@ -9,7 +9,7 @@ release gate; P0 performs no publishing action.
 ## Deliverables
 
 - Create the PEP 621 package for Python `>=3.10` with import name
-  `pyowl2vec_star_projector` and `pyowl-core>=0.1,<0.2`.
+  `pyowl2vec_star_projector` and `pyowl-core>=0.2,<0.3`.
 - Implement only public value objects, option validation, version constants, typed errors,
   provenance schemas, and backend selection seams. No projection rules land here.
 - Pin the compatibility baseline and check source/blob/toolchain digests.

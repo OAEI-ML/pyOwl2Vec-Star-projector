@@ -1,9 +1,9 @@
 # Release procedure
 
 The procedure separates reproducible local evidence from authenticated or hosted evidence. For
-0.1.1, the repository owner authorized the complete seven-distribution patch release through an
+0.2.0, the repository owner authorized the complete seven-distribution release through an
 environment-protected PyPI trusted publisher. The exact closures are reviewable in
-`release/external-gates.json` and `release/owner-release-authorization-0.1.1.md`; they are not
+`release/external-gates.json` and `release/owner-release-authorization-0.2.0.md`; they are not
 claims that a hosted run has already succeeded.
 
 ## 1. Prepare and inspect
@@ -11,10 +11,10 @@ claims that a hosted run has already succeeded.
 - Use a clean, signed release commit and CPython 3.12 for deterministic tooling.
 - Install the exact compiler-free artifact environment from
   `release/fallback-build-requirements.txt`.
-- Publish and verify `pyowl-core==0.1.1` before uploading this distribution.
+- Publish and verify `pyowl-core==0.2.0` before uploading this distribution.
 - Confirm the selected core release contains the source baseline in
   `release/core-compatibility.json`. Source-checkout CI must use that exact commit; the package
-  metadata remains a normal `>=0.1,<0.2` dependency and must never become a Git runtime
+  metadata remains a normal `>=0.2,<0.3` dependency and must never become a Git runtime
   dependency.
 - Run `python tools/generate_supply_chain.py --check` and review both CycloneDX SBOMs and the
   machine-readable license inventory.
@@ -106,9 +106,9 @@ python tools/release_gate.py --artifacts dist-a --audit-report release-audit.jso
   --include-external --report release-gate.json
 ```
 
-Exit status `2` means one or more external records are still unresolved; 0.1.1 records explicit
+Exit status `2` means one or more external records are still unresolved; 0.2.0 records explicit
 owner-authorized closures and therefore requires exit status `0`. Configure the PyPI trusted
 publisher for the exact repository, `release.yml`, and `pypi` environment. Upload
-`pyowl-core==0.1.1` first, push annotated tag `v0.1.1`, then manually dispatch the atomic workflow
+`pyowl-core==0.2.0` first, push annotated tag `v0.2.0`, then manually dispatch the atomic workflow
 from that tag with `publish=true`. Approve the protected environment only after all seven
 artifacts and their attestations pass. No PyPI API token is used by the workflow.
