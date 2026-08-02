@@ -7,8 +7,8 @@ closed and that the complete current-main 0.2.0 release be published after the
 coordinated pyOWLCore 0.2.0 release.
 
 The exact tested core source is commit
-`85415249251b84474735a3581b94bb1d881bb902`, tree
-`724396db74844daa7a3453ea28449b076bc7aacf`.
+`d39fe9c9bb9513db8c14fe2bc6d4864377901ad1`, tree
+`d29bbcc65684c5a246b5d952a91d8a62e07e1b35`.
 
 This authorization accepts the recorded residual risks; it is not a claim that
 a hosted workflow has already run. `external-gates.json` records each closure
