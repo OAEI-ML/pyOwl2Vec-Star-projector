@@ -18,7 +18,7 @@ else:
 _NAMESPACE = uuid.UUID("2a582b0c-c26a-45a9-8a1f-9a2783ca1fef")
 _PROJECT_NAME = "pyowl2vec-star-projector"
 _PROJECT_LICENSE = "Apache-2.0"
-_RUNTIME_DEPENDENCY = "pyowl-core>=0.1,<0.2"
+_RUNTIME_DEPENDENCY = "pyowl-core>=0.2,<0.3"
 _CRATES_IO_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 _PINNED_REQUIREMENT = re.compile(
     r"([A-Za-z0-9][A-Za-z0-9._-]*)==([A-Za-z0-9][A-Za-z0-9.!+_-]*)"
@@ -50,7 +50,7 @@ _BUILD_INPUT_PATHS = (
     "pyproject.toml",
     "release/fallback-build-requirements.txt",
     "release/core-compatibility.json",
-    "release/owner-release-authorization-0.1.1.md",
+    "release/owner-release-authorization-0.2.0.md",
     "release/native-build-requirements.txt",
     "setup.py",
     "tools/audit_release.py",
@@ -454,10 +454,10 @@ def generate(root: Path) -> dict[Path, bytes]:
     )
     core = _component(
         "pyowl-core",
-        "0.1.x",
+        "0.2.x",
         "Apache-2.0",
-        "pkg:pypi/pyowl-core@0.1.x",
-        properties=[{"name": "pyowl-projector:version-constraint", "value": ">=0.1,<0.2"}],
+        "pkg:pypi/pyowl-core@0.2.x",
+        properties=[{"name": "pyowl-projector:version-constraint", "value": ">=0.2,<0.3"}],
     )
     runtime_bom = _bom(version, "runtime", runtime_root, [core])
 
@@ -544,7 +544,7 @@ def generate(root: Path) -> dict[Path, bytes]:
             "version": version,
             "license": "Apache-2.0",
         },
-        "runtime": [{"name": "pyowl-core", "version": ">=0.1,<0.2", "license": "Apache-2.0"}],
+        "runtime": [{"name": "pyowl-core", "version": ">=0.2,<0.3", "license": "Apache-2.0"}],
         "python_build": python_build_inventory,
         "native": native_licenses,
         "native_license_selection": {

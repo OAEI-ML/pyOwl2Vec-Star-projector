@@ -1,19 +1,28 @@
 {
   "schema": "pyowl-projector.core-compatibility/1",
-  "dependency_constraint": "pyowl-core>=0.1,<0.2",
+  "dependency_constraint": "pyowl-core>=0.2,<0.3",
   "tested_source": {
     "repository": "https://github.com/OAEI-ML/pyOWLCore",
-    "commit": "b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19",
-    "tree": "e72fc93248cd363a5c67dac9efffb367a71c2b1d",
-    "version": "0.1.1"
+    "commit": "c65316cb6194806a941016a533ee79aba2b35887",
+    "tree": "3769e94f908e45401c1200209ad2a3e20f31fa4f",
+    "version": "0.2.0"
+  },
+  "public_contract": {
+    "api_version": [0, 2],
+    "adapter_protocol_version": 1,
+    "model_schema_version": 2,
+    "wire_format_version": [1, 2],
+    "encoded_schema_name": "pyowl-core/structural-columns",
+    "encoded_schema_version": 2,
+    "encoded_descriptor_sha256": "c51d0eb7ecf6f29ad3495fe7c40a2ea6741cf03a7cf194d51417bb810df90f51"
   },
   "release_evidence_source": {
-    "commit": "b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19",
-    "implementation_commit": "b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19",
+    "commit": "c65316cb6194806a941016a533ee79aba2b35887",
+    "implementation_commit": "c65316cb6194806a941016a533ee79aba2b35887",
     "classification": "production-release",
     "runtime_source_changed": false,
     "changed_paths": [],
-    "summary": "The exact tested pyOWLCore implementation is the production 0.1.1 release source."
+    "summary": "The exact tested pyOWLCore implementation is the production 0.2.0 release source."
   },
   "historical_release_evidence_source": {
     "commit": "005c3ccad129757b3a9be125dc064b812b607ef5",
@@ -56,14 +65,14 @@
   },
   "consumer_fixture": {
     "sha256": "84e1b6cf5088cbb7ea4276f26b5b461a4cfe74aed257abbab20ba78c1136ef0d",
-    "structural_fingerprint": "443361ca770168b6676a729820f98da38bfdebc8b073ecac90cba07f882130e8",
-    "logical_fingerprint": "dfda0e29d2072f91dd1c36e0f0916938a0f01a38921b11d29abf4b88acd7f2f6",
-    "signature_fingerprint": "e7635e71e34d667cdd2a5965a33028f8b54dbead943eaed5ec7d1dfcbe1ea16a",
+    "structural_fingerprint": "ac6aa595be4b38e59986e3b22172a363772956cb2c457c41171436f1fa36ddc6",
+    "logical_fingerprint": "6dd0da7dedc75206abbe0281bdaa7a399aa6809d64110d5178fe1bf79c007b97",
+    "signature_fingerprint": "dd6e75a180ad6a40d37423ac8be25b93e1d46a85a46c5821d0ab14926b3e59b0",
     "edge_digests": {
       "exact-owl2vec": "80866e23827159cd5312cb0e267c5e012371476561db0f394a3d97a11055f602",
       "exact-owl2vec-literals": "ed09a9e55221a6ef533c2f61a05628741946b6fdf61a0c1b45ed051d7660ed76",
       "exact-taxonomy": "8a1e0c6b8aead777c4992648f9f075d3e9269ae2c7fbfea739770050566bddd5"
     }
   },
-  "semantic_change": false
+  "semantic_change": true
 }

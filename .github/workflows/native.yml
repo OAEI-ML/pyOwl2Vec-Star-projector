@@ -45,7 +45,7 @@ jobs:
           python -m pip download --only-binary=:all: --no-deps
           --dest core-wheel --platform ${{ matrix.platform }}
           --python-version 3.12 --implementation ${{ matrix.implementation }}
-          --abi ${{ matrix.abi }} pyowl-core==0.1.1
+          --abi ${{ matrix.abi }} pyowl-core==0.2.0
       - name: Require the target-specific backend policy
         env:
           EXPECTED_SUFFIX: ${{ matrix.expected }}
@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
-          ref: b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19
+          ref: c65316cb6194806a941016a533ee79aba2b35887
           path: .deps/pyowl-core
           fetch-depth: 0
           persist-credentials: false
@@ -156,7 +156,7 @@ jobs:
             PYOWL2VEC_BUILD_NATIVE=1
             MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}
           CIBW_BEFORE_TEST: >-
-            pip install --only-binary=:all: --no-deps pyowl-core==0.1.1
+            pip install --only-binary=:all: --no-deps pyowl-core==0.2.0
           CIBW_TEST_COMMAND: >-
             python -c "import importlib.util, os;
             found = importlib.util.find_spec('pyowl_core._native') is not None;
@@ -209,9 +209,9 @@ jobs:
       - name: Install exact published native core wheel
         run: >-
           python -m pip install --only-binary=:all: --no-deps
-          pyowl-core==0.1.1
+          pyowl-core==0.2.0
       - run: python -c "import pyowl_core._native as n; n.self_test()"
-      - run: python -m pip install --no-index --no-deps --find-links=wheelhouse pyowl2vec-star-projector==0.1.1
+      - run: python -m pip install --no-index --no-deps --find-links=wheelhouse pyowl2vec-star-projector==0.2.0
       - run: python tools/installed_smoke.py --require-native
       - run: python -m pytest -q tests/test_native_backend.py tests/test_backend.py
         env:

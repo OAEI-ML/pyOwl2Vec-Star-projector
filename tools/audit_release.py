@@ -36,6 +36,7 @@ else:
     )
 
 _NATIVE_SUFFIXES = (".dll", ".dylib", ".pyd", ".so")
+_GENERATED_PYTHON_SUFFIXES = (".pyc", ".pyo")
 _WHEEL_FILENAME = re.compile(
     r"(?P<distribution>[A-Za-z0-9_]+)-(?P<version>[A-Za-z0-9_.!+]+)"
     r"(?:-(?P<build>[0-9][A-Za-z0-9_.]*))?"
@@ -138,6 +139,8 @@ def audit_artifact(
     names = tuple(lowered)
     for name in names:
         wrapped = f"/{name}/"
+        if "/__pycache__/" in wrapped or name.endswith(_GENERATED_PYTHON_SUFFIXES):
+            errors.append(f"generated Python bytecode shipped: {name}")
         if name.endswith(FORBIDDEN_BINARY_SUFFIXES):
             errors.append(f"forbidden Java-family binary: {name}")
         if any(part in wrapped for part in FORBIDDEN_PATH_PARTS):
@@ -380,7 +383,7 @@ def _audit_metadata(content: bytes, expected_version: str, errors: list[str]) ->
         errors.append(f"unexpected Requires-Python: {metadata['Requires-Python']!r}")
     requirements = metadata.get_all("Requires-Dist", [])
     base = [item for item in requirements if "extra ==" not in item]
-    if len(base) != 1 or not re.match(r"^pyowl-core\s*<0\.2,>=0\.1$", base[0]):
+    if len(base) != 1 or not re.match(r"^pyowl-core\s*<0\.3,>=0\.2$", base[0]):
         errors.append(f"unexpected base dependencies: {base!r}")
     for requirement in requirements:
         match = _REQUIREMENT_NAME.match(requirement)

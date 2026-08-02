@@ -52,7 +52,9 @@ def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, 
         )
         commit = str(document["tested_source"]["commit"])
         tree = str(document["tested_source"]["tree"])
+        core_version = str(document["tested_source"]["version"])
         constraint = str(document["dependency_constraint"])
+        public_contract = document["public_contract"]
         fixture = document["consumer_fixture"]
         golden = json.loads(
             (root / "src/pyowl2vec_star_projector/conformance_data/goldens.json").read_text(
@@ -68,6 +70,20 @@ def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, 
         return False, "tested core source commit is not a full Git object ID"
     if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
         return False, "tested core source tree is not a full Git object ID"
+    if core_version != "0.2.0":
+        return False, "tested core source is not the coordinated 0.2.0 release"
+    if public_contract != {
+        "api_version": [0, 2],
+        "adapter_protocol_version": 1,
+        "model_schema_version": 2,
+        "wire_format_version": [1, 2],
+        "encoded_schema_name": "pyowl-core/structural-columns",
+        "encoded_schema_version": 2,
+        "encoded_descriptor_sha256": (
+            "c51d0eb7ecf6f29ad3495fe7c40a2ea6741cf03a7cf194d51417bb810df90f51"
+        ),
+    }:
+        return False, "core public compatibility contract is not the frozen 0.2.0 ledger"
     release_errors = release_evidence_errors(document, commit)
     if release_errors:
         return False, release_errors[0]

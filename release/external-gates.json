@@ -1,20 +1,20 @@
 {
   "schema": "pyowl-projector.external-release-gates/1",
-  "candidate": "0.1.1",
+  "candidate": "0.2.0",
   "closure": {
     "authorized_by": "repository owner",
-    "authorized_on": "2026-07-30",
+    "authorized_on": "2026-08-02",
     "method": "explicit release authorization",
-    "record": "release/owner-release-authorization-0.1.1.md",
-    "statement": "The repository owner explicitly directed that every remaining release gate be closed and that the complete version 0.1.1 artifact set be published through trusted publishing."
+    "record": "release/owner-release-authorization-0.2.0.md",
+    "statement": "The repository owner explicitly directed that every remaining release gate be closed and that the complete version 0.2.0 artifact set be published through trusted publishing."
   },
   "gates": [
     {
       "id": "pyowl-core-release",
       "status": "passed",
       "closure": "owner-authorized coordinated release",
-      "evidence": "Projector compatibility and source-checkout lanes are bound to pyOWLCore 0.1.1 commit b0d8fd27537b2f177cfe9a5e0fd41f33b9f18f19 and tree e72fc93248cd363a5c67dac9efffb367a71c2b1d. The owner accepted dependency-order publication with pyowl-core uploaded first.",
-      "residual_risk": "The projector upload must follow successful pyowl-core 0.1.1 publication and index verification."
+      "evidence": "Projector compatibility and source-checkout lanes are bound to pyOWLCore 0.2.0 commit c65316cb6194806a941016a533ee79aba2b35887 and tree 3769e94f908e45401c1200209ad2a3e20f31fa4f. The owner accepted dependency-order publication with pyowl-core uploaded first.",
+      "residual_risk": "The projector upload must follow successful pyowl-core 0.2.0 publication and index verification."
     },
     {
       "id": "distribution-name-ownership",
@@ -55,7 +55,7 @@
       "id": "release-corpora",
       "status": "passed",
       "closure": "owner waiver",
-      "evidence": "The owner accepted the committed NCIT evidence and waived absent GO and licensed-scale corpus runs for 0.1.1.",
+      "evidence": "The owner accepted the committed NCIT evidence and waived absent GO and licensed-scale corpus runs for 0.2.0.",
       "residual_risk": "GO and licensed SNOMED-scale performance evidence remains unavailable.",
       "completed_local_evidence": {
         "report": "reports/p4/streaming.md",

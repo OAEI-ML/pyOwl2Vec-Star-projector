@@ -25,6 +25,16 @@ _COMPARATOR_ONLY_PREFIXES = (
 )
 
 
+def _version_pair(value: object) -> list[int] | None:
+    if (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and all(type(item) is int and item >= 0 for item in value)
+    ):
+        return list(value)
+    return None
+
+
 def _git_output(root: Path, *arguments: str) -> str:
     completed = subprocess.run(
         ("git", "-C", str(root), *arguments),
@@ -41,11 +51,13 @@ def _git_output(root: Path, *arguments: str) -> str:
 def _checkout_errors(
     core_root: Path,
     expected_commit: str,
+    expected_tree: str,
     imported_module: Path,
 ) -> list[str]:
     errors: list[str] = []
     try:
         actual_commit = _git_output(core_root, "rev-parse", "--verify", "HEAD^{commit}")
+        actual_tree = _git_output(core_root, "rev-parse", "--verify", "HEAD^{tree}")
         status = _git_output(
             core_root,
             "status",
@@ -64,6 +76,8 @@ def _checkout_errors(
         errors.append(
             f"pyOWLCore checkout is {actual_commit}, expected exact commit {expected_commit}"
         )
+    if actual_tree != expected_tree:
+        errors.append(f"pyOWLCore tree is {actual_tree}, expected exact tree {expected_tree}")
     if status:
         errors.append("pyOWLCore checkout has tracked runtime-source changes")
     resolved_module = imported_module.resolve()
@@ -222,10 +236,19 @@ def compatibility_errors(root: Path, core_root: Path) -> list[str]:
         import pyowl_core
 
         from pyowl2vec_star_projector import (
+            CORE_ADAPTER_PROTOCOL_VERSION,
+            CORE_API_VERSION,
+            CORE_MODEL_SCHEMA_VERSION,
+            CORE_WIRE_FORMAT_VERSION,
             consumer_conformance_cases,
             consumer_conformance_fixture,
             consumer_conformance_fixture_metadata,
             verify_consumer_conformance,
+        )
+        from pyowl2vec_star_projector.encoded import (
+            ENCODED_DESCRIPTOR_SHA256,
+            ENCODED_SCHEMA_NAME,
+            ENCODED_SCHEMA_VERSION,
         )
     except ImportError as error:
         return [f"cannot import public consumer APIs: {error}"]
@@ -233,7 +256,9 @@ def compatibility_errors(root: Path, core_root: Path) -> list[str]:
         evidence = _load_evidence(root)
         source = evidence["tested_source"]
         expected_commit = source["commit"]
+        expected_tree = source["tree"]
         expected_version = source["version"]
+        expected_contract = evidence["public_contract"]
         fixture_evidence = evidence["consumer_fixture"]
     except (KeyError, TypeError, ValueError) as error:
         return [f"invalid core compatibility evidence: {error}"]
@@ -244,6 +269,10 @@ def compatibility_errors(root: Path, core_root: Path) -> list[str]:
         return ["tested pyOWLCore source is not an exact 40-character commit"]
     if not isinstance(expected_version, str):
         return ["tested pyOWLCore version is not a string"]
+    if not isinstance(expected_tree, str) or re.fullmatch(r"[0-9a-f]{40}", expected_tree) is None:
+        return ["tested pyOWLCore tree is not an exact 40-character object ID"]
+    if not isinstance(expected_contract, dict):
+        return ["tested pyOWLCore public contract is not an object"]
     if not isinstance(fixture_evidence, dict):
         return ["consumer fixture evidence is not an object"]
 
@@ -260,12 +289,53 @@ def compatibility_errors(root: Path, core_root: Path) -> list[str]:
     if not isinstance(module_file, str):
         errors.append("imported pyowl_core has no filesystem source")
     else:
-        errors.extend(_checkout_errors(core_root, expected_commit, Path(module_file)))
+        errors.extend(
+            _checkout_errors(
+                core_root,
+                expected_commit,
+                expected_tree,
+                Path(module_file),
+            )
+        )
     observed_version = getattr(pyowl_core, "__version__", None)
     if observed_version != expected_version:
         errors.append(
             f"imported pyowl_core version is {observed_version!r}, expected {expected_version!r}"
         )
+
+    descriptor_digest = getattr(pyowl_core, "ENCODED_STRUCTURAL_DESCRIPTOR_SHA256_V2", None)
+    observed_contract = {
+        "api_version": _version_pair(getattr(pyowl_core, "API_VERSION", None)),
+        "adapter_protocol_version": getattr(pyowl_core, "ADAPTER_PROTOCOL_VERSION", None),
+        "model_schema_version": getattr(pyowl_core, "MODEL_SCHEMA_VERSION", None),
+        "wire_format_version": _version_pair(getattr(pyowl_core, "WIRE_FORMAT_VERSION", None)),
+        "encoded_schema_name": getattr(
+            pyowl_core,
+            "ENCODED_STRUCTURAL_SCHEMA_NAME_V2",
+            None,
+        ),
+        "encoded_schema_version": getattr(
+            pyowl_core,
+            "ENCODED_STRUCTURAL_SCHEMA_VERSION_V2",
+            None,
+        ),
+        "encoded_descriptor_sha256": (
+            descriptor_digest.hex() if isinstance(descriptor_digest, bytes) else None
+        ),
+    }
+    if observed_contract != expected_contract:
+        errors.append("imported pyowl_core public contract differs from compatibility evidence")
+    projector_contract = {
+        "api_version": list(CORE_API_VERSION),
+        "adapter_protocol_version": CORE_ADAPTER_PROTOCOL_VERSION,
+        "model_schema_version": CORE_MODEL_SCHEMA_VERSION,
+        "wire_format_version": list(CORE_WIRE_FORMAT_VERSION),
+        "encoded_schema_name": ENCODED_SCHEMA_NAME,
+        "encoded_schema_version": ENCODED_SCHEMA_VERSION,
+        "encoded_descriptor_sha256": ENCODED_DESCRIPTOR_SHA256.hex(),
+    }
+    if projector_contract != expected_contract:
+        errors.append("projector compatibility constants differ from core compatibility evidence")
 
     metadata = consumer_conformance_fixture_metadata()
     for field in (
