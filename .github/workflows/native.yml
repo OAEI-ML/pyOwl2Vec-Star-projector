@@ -254,4 +254,18 @@ jobs:
         with:
           toolchain: "nightly-2025-02-21"
           components: rust-src
-      - run: cargo test --manifest-path native/Cargo.toml --locked --no-default-features --target x86_64-unknown-linux-gnu
+      - name: Run pure Rust tests with leak detection
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+        run: >-
+          cargo test --manifest-path native/Cargo.toml --locked
+          --no-default-features --target x86_64-unknown-linux-gnu
+          encoded_direct::tests::
+      - name: Run the complete native suite with address checks
+        env:
+          # CPython retains process-global interpreter allocations at shutdown.
+          # Keep ASan enabled while excluding those non-project lifetime leaks.
+          ASAN_OPTIONS: detect_leaks=0
+        run: >-
+          cargo test --manifest-path native/Cargo.toml --locked
+          --no-default-features --target x86_64-unknown-linux-gnu

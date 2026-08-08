@@ -496,6 +496,9 @@ def test_rust_workflow_toolchains_are_immutable() -> None:
         "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
         in workflow
     )
+    assert "ASAN_OPTIONS: detect_leaks=1" in workflow
+    assert "encoded_direct::tests::" in workflow
+    assert "ASAN_OPTIONS: detect_leaks=0" in workflow
 
 
 def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
