@@ -241,7 +241,7 @@ jobs:
           if-no-files-found: error
 
   address-sanitizer:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -Zsanitizer=address
@@ -252,6 +252,6 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
         with:
-          toolchain: "nightly-2025-01-15"
+          toolchain: "nightly-2025-02-21"
           components: rust-src
       - run: cargo test --manifest-path native/Cargo.toml --locked --no-default-features --target x86_64-unknown-linux-gnu

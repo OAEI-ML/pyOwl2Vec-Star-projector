@@ -179,7 +179,7 @@ def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
     assert provenance["tools"] == {
         "cargo_manifest_rust_version": "1.83",
         "rust_toolchain": "1.83.0",
-        "rust_sanitizer_toolchain": "nightly-2025-01-15",
+        "rust_sanitizer_toolchain": "nightly-2025-02-21",
         "cibuildwheel_action": ("pypa/cibuildwheel@65b8265957fd86372d9689a0acdfd55813970d5d"),
         "offline_python_images": {
             "3.10": (
@@ -487,10 +487,14 @@ def test_rust_workflow_toolchains_are_immutable() -> None:
         toolchains = re.findall(r'(?m)^\s+toolchain:\s*"([^"]+)"\s*$', block)
         assert len(toolchains) == 1
         observed.extend(toolchains)
-    assert observed == ["1.83.0", "1.83.0", "nightly-2025-01-15"]
+    assert observed == ["1.83.0", "1.83.0", "nightly-2025-02-21"]
     assert all(
         re.fullmatch(r"(?:[0-9]+\.[0-9]+\.[0-9]+|nightly-[0-9]{4}-[0-9]{2}-[0-9]{2})", item)
         for item in observed
+    )
+    assert (
+        "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
+        in workflow
     )
 
 
