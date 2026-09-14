@@ -115,6 +115,7 @@ class EncodedStructuralLease:
     buffers: Mapping[str, memoryview]
     buffer_names: tuple[str, ...]
     segments: tuple[object, ...]
+    native_validated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +155,7 @@ def select_ingestion(
     native_features: frozenset[str] = _EMPTY_FEATURES,
     backend_fallback_reason: str | None = None,
     core_module: object | None = None,
+    require_native_validation: bool = False,
 ) -> EncodedNegotiation:
     """Select encoded-native only after both sides advertise the public contract.
 
@@ -199,11 +201,14 @@ def select_ingestion(
         )
     scope_type = getattr(core, "AxiomScope", None)
     scope = getattr(scope_type, "CLOSURE", "closure")
+    if require_native_validation and not callable(getattr(core, "native_validation_report", None)):
+        raise SnapshotCompatibilityError("core does not provide native validation receipts")
     try:
         encoded = factory(
             encoded_type,
             schema_version=ENCODED_SCHEMA_VERSION,
             scope=scope,
+            **({"require_native_validation": True} if require_native_validation else {}),
         )
     except MemoryError:
         raise
@@ -216,7 +221,13 @@ def select_ingestion(
                 "cause": type(error).__name__,
             },
         ) from error
-    lease = _validate_encoded_view(view, encoded, encoded_type, scope)
+    lease = _validate_encoded_view(
+        view,
+        encoded,
+        encoded_type,
+        scope,
+        require_native_validation=require_native_validation,
+    )
     return EncodedNegotiation("encoded-native", lease=lease)
 
 
@@ -287,6 +298,7 @@ def _acquire_root_encoded_lease(
             encoded_type,
             schema_version=closure_lease.schema_version,
             scope=root_scope,
+            **({"require_native_validation": True} if closure_lease.native_validated else {}),
         )
     except MemoryError:
         raise
@@ -299,7 +311,13 @@ def _acquire_root_encoded_lease(
             "core failed to publish root-scoped encoded annotation provenance",
             details={"cause": type(error).__name__},
         ) from error
-    return _validate_encoded_view(source_view, encoded, encoded_type, root_scope)
+    return _validate_encoded_view(
+        source_view,
+        encoded,
+        encoded_type,
+        root_scope,
+        require_native_validation=closure_lease.native_validated,
+    )
 
 
 def _resolve_private_overlay_aliases(
@@ -2945,6 +2963,8 @@ def _validate_encoded_view(
     encoded: object,
     encoded_type: type[object],
     requested_scope: object,
+    *,
+    require_native_validation: bool = False,
 ) -> EncodedStructuralLease:
     if not isinstance(encoded, encoded_type):
         raise SnapshotCompatibilityError("core encoded view factory returned the wrong public type")
@@ -3047,11 +3067,32 @@ def _validate_encoded_view(
         dict(sorted(validated_buffers.items()))
     )
     local_buffer_bytes = sum(value.nbytes for value in frozen_buffers.values())
-    local_root_count = _validate_column_references(
-        frozen_buffers,
-        source_view,
-        local_buffer_bytes=local_buffer_bytes,
-    )
+    if require_native_validation:
+        core = importlib.import_module("pyowl_core")
+        validator = getattr(core, "validate_encoded_structural_view_v2", None)
+        if not callable(validator):
+            raise SnapshotCompatibilityError("core does not provide native validation receipts")
+        try:
+            checked = validator(
+                encoded,
+                expected_owner=source_view,
+                expected_scope=requested_scope,
+                expected_document_key=None,
+                require_native_validation=True,
+            )
+        except Exception as error:
+            raise SnapshotCompatibilityError(
+                "core native validation receipt was rejected"
+            ) from error
+        if checked is not encoded:
+            raise SnapshotCompatibilityError("native validation replaced the retained encoded view")
+        local_root_count = frozen_buffers["root_kinds"].nbytes
+    else:
+        local_root_count = _validate_column_references(
+            frozen_buffers,
+            source_view,
+            local_buffer_bytes=local_buffer_bytes,
+        )
     segments = _validate_segments(
         raw_segments,
         top_owner=source_view,
@@ -3074,6 +3115,7 @@ def _validate_encoded_view(
         buffers=frozen_buffers,
         buffer_names=tuple(frozen_buffers),
         segments=segments,
+        native_validated=require_native_validation,
     )
 
 

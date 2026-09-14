@@ -58,7 +58,8 @@ class StreamingLimits:
     ``max_temporary_bytes`` bounds simultaneously live private files.
     ``max_spill_bytes`` bounds all bytes written, including merge passes.
     The defaults limit file descriptors while leaving corpus-dependent byte and
-    edge limits to the caller.
+    edge limits to the caller. ``native_buffer_bytes`` caps the strict native
+    canonical workspace; non-strict edge policy keeps its existing behavior.
     """
 
     merge_fan_in: int = 32
@@ -67,8 +68,10 @@ class StreamingLimits:
     max_spill_bytes: int | None = None
     max_temporary_bytes: int | None = None
     cancellation_check_interval: int = 4_096
+    native_buffer_bytes: int = 64 * 1024**2
 
     def __post_init__(self) -> None:
+        _positive_int("native_buffer_bytes", self.native_buffer_bytes)
         _positive_int("merge_fan_in", self.merge_fan_in, minimum=2)
         _positive_int("max_open_files", self.max_open_files, minimum=3)
         _positive_int("cancellation_check_interval", self.cancellation_check_interval)

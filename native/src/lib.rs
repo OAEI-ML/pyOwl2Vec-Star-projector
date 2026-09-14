@@ -12,6 +12,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+mod canonical;
 mod encoded_direct;
 
 use std::collections::{HashMap, HashSet};
@@ -42,7 +43,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 130;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 131;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -2721,6 +2722,103 @@ impl EncodedDirectCompiler {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn canonicalize_batches(
+        &self,
+        py: Python<'_>,
+        directory: String,
+        buffer_edges: usize,
+        buffer_bytes: usize,
+        fan_in: usize,
+        max_open_files: usize,
+        max_spill_bytes: usize,
+        max_temporary_bytes: usize,
+        unique: bool,
+    ) -> PyResult<NativeCanonicalOutput> {
+        let mut stream = {
+            let mut output = self
+                .batch_output
+                .lock()
+                .map_err(|_| PyRuntimeError::new_err("native batch output failed"))?;
+            if !output.prepared || output.draining || output.cancelled || output.edge_batches != 0 {
+                return Err(PyValueError::new_err(
+                    "canonical output requires an untouched prepared batch cursor",
+                ));
+            }
+            output.draining = true;
+            output.stream.take()
+        };
+        let result = guarded(|| {
+            let slices: [&[u8]; BUFFER_COUNT] =
+                std::array::from_fn(|index| self.buffers[index].as_slice());
+            let columns = self.retained_base_columns(DirectColumns::from_ordered(slices))?;
+            let dynamic = self.dynamic_composite_columns(columns)?;
+            py.detach(|| {
+                let mut spool = canonical::CanonicalSpool::new(
+                    directory.into(),
+                    canonical::Limits {
+                        edges: buffer_edges,
+                        bytes: buffer_bytes,
+                        fan_in,
+                        max_open_files,
+                        spill: max_spill_bytes,
+                        temporary: max_temporary_bytes,
+                    },
+                    unique,
+                )?;
+                if let Some(stream) = stream.as_mut() {
+                    while stream.remaining_edges() > 0 {
+                        // Bounded native generation pages never become Python Edge objects.
+                        let (edges, cursor) = match dynamic.as_ref() {
+                            Some(composite) => stream.prepare_next_composite_batch(
+                                &composite.closure,
+                                &self.state,
+                                1,
+                            )?,
+                            None => stream.prepare_next_batch(columns, &self.state, 1)?,
+                        };
+                        for edge in edges {
+                            spool.push(edge, &self.state)?;
+                        }
+                        stream.commit_cursor(cursor);
+                    }
+                }
+                spool.finish(&self.state)?;
+                Ok(spool)
+            })
+            .map_err(kernel_error)
+        });
+        let mut output = self
+            .batch_output
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("native batch output failed"))?;
+        output.draining = false;
+        if let Some(stream) = stream {
+            output.membership_counters = stream.membership_counters();
+        }
+        let spool = match result {
+            Ok(spool) if !output.cancelled => spool,
+            Ok(_) => {
+                return Err(EncodedDirectCancelledError::new_err(
+                    "canonical compilation cancelled",
+                ))
+            }
+            Err(error) => {
+                output.cancel();
+                return Err(error);
+            }
+        };
+        output.remaining_edges = 0;
+        output.exhausted = true;
+        let metrics = spool.metrics();
+        Ok(NativeCanonicalOutput {
+            spool: Mutex::new(Some(spool)),
+            state: AtomicU8::new(STATE_FINISHED),
+            draining: AtomicBool::new(false),
+            metrics: Mutex::new(metrics),
+        })
+    }
+
     fn set_membership_workspace_limit(&self, limit: usize) -> PyResult<()> {
         if self.state.load(Ordering::Acquire) != STATE_IDLE {
             return Err(PyValueError::new_err(
@@ -2929,6 +3027,137 @@ impl EncodedDirectCompiler {
             })
         });
         self.finish_result(result)
+    }
+}
+
+#[pyclass(module = "pyowl2vec_star_projector._native", frozen)]
+struct NativeCanonicalOutput {
+    spool: Mutex<Option<canonical::CanonicalSpool>>,
+    state: AtomicU8,
+    draining: AtomicBool,
+    metrics: Mutex<[usize; 9]>,
+}
+
+#[pymethods]
+impl NativeCanonicalOutput {
+    fn next_batch(
+        &self,
+        py: Python<'_>,
+        amount: usize,
+        edge_factory: &Bound<'_, PyAny>,
+        edge_type: &Bound<'_, PyAny>,
+        edge_allocation_probe: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyTuple>> {
+        if amount == 0 {
+            return Err(PyValueError::new_err(
+                "canonical batch size must be positive",
+            ));
+        }
+        if self.state.load(Ordering::Acquire) == STATE_CANCELLED {
+            return Err(EncodedDirectCancelledError::new_err(
+                "canonical output closed",
+            ));
+        }
+        if self.draining.swap(true, Ordering::AcqRel) {
+            return Err(PyValueError::new_err("canonical output already draining"));
+        }
+        let mut spool = match self
+            .spool
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("canonical output failed"))?
+            .take()
+        {
+            Some(spool) => spool,
+            None => {
+                self.draining.store(false, Ordering::Release);
+                return Ok(PyTuple::empty(py).unbind());
+            }
+        };
+        let result = guarded(|| {
+            let prepared = py
+                .detach(|| spool.prepare_page(amount, &self.state).map(|_| ()))
+                .map_err(kernel_error);
+            if let Err(error) = prepared {
+                self.state.store(STATE_CANCELLED, Ordering::Release);
+                return Err(error);
+            }
+            let edges = spool
+                .prepare_page(amount, &self.state)
+                .map_err(kernel_error)?;
+            let edge_type = require_direct_edge_layout(
+                py,
+                edge_type,
+                "canonical Edge type has an incompatible allocation layout",
+            )?;
+            require_canonical_factory(
+                edge_factory,
+                edge_type.as_any(),
+                "canonical Edge factory changed",
+            )?;
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(edges.len())
+                .map_err(|_| PyMemoryError::new_err("canonical publication allocation failed"))?;
+            for edge in edges {
+                let value = allocate_exact_edge(py, &edge_type, edge)?;
+                if let Some(probe) = edge_allocation_probe {
+                    probe.call1((value.bind(py),))?;
+                }
+                values.push(value);
+            }
+            require_canonical_factory(
+                edge_factory,
+                edge_type.as_any(),
+                "canonical Edge factory changed",
+            )?;
+            require_exact_edge_batch_results(
+                py,
+                &values,
+                edge_type.as_any(),
+                edges,
+                "canonical Edge allocation changed its final values",
+            )?;
+            require_direct_edge_layout(
+                py,
+                edge_type.as_any(),
+                "canonical Edge type changed during allocation",
+            )?;
+            let batch = PyTuple::new(py, values)?.unbind();
+            if self.state.load(Ordering::Acquire) == STATE_CANCELLED {
+                return Err(EncodedDirectCancelledError::new_err(
+                    "canonical output cancelled during publication",
+                ));
+            }
+            spool.commit_page();
+            Ok(batch)
+        });
+        *self
+            .metrics
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("canonical metrics failed"))? = spool.metrics();
+        if self.state.load(Ordering::Acquire) != STATE_CANCELLED {
+            *self
+                .spool
+                .lock()
+                .map_err(|_| PyRuntimeError::new_err("canonical output failed"))? = Some(spool);
+        }
+        self.draining.store(false, Ordering::Release);
+        result
+    }
+    #[getter]
+    fn counters(&self) -> PyResult<Vec<usize>> {
+        self.metrics
+            .lock()
+            .map(|values| values.to_vec())
+            .map_err(|_| PyRuntimeError::new_err("canonical metrics failed"))
+    }
+    fn close(&self) -> PyResult<()> {
+        self.state.store(STATE_CANCELLED, Ordering::Release);
+        self.spool
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("canonical output failed"))?
+            .take();
+        Ok(())
     }
 }
 
@@ -6186,6 +6415,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
             "abi3-py310",
             "bounded-batches",
             "encoded-structural-compiler-v1",
+            "native-canonical-v1",
         ),
     )?;
     module.add(
@@ -6210,6 +6440,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.py().get_type::<EncodedDirectReferenceError>(),
     )?;
     module.add_class::<EdgeBatchProcessor>()?;
+    module.add_class::<NativeCanonicalOutput>()?;
     module.add_class::<EncodedDirectRoleState>()?;
     module.add_class::<EncodedDirectCompiler>()?;
     Ok(())

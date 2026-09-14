@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import importlib
 import sys
+import tempfile
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from os import PathLike
 from types import MappingProxyType
 from typing import Any, Protocol, cast
 
@@ -33,10 +35,10 @@ from .errors import (
 )
 from .model import Edge
 from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
-from .streaming import CancellationTokenLike
+from .streaming import CancellationTokenLike, SpillMetrics, StreamingLimits
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 130
+ENCODED_DIRECT_KERNEL_VERSION = 131
 _AnonymousScopePlan = memoryview | tuple[memoryview, ...] | None
 
 
@@ -955,6 +957,7 @@ class NativeEncodedDirectCompilation:
     native_statistics: NativeEncodedDirectStatistics
     statistics: CompileStatistics
     role_state: NativeEncodedDirectRoleState | None = None
+    canonical_counters: tuple[int, ...] | None = None
 
     @property
     def diagnostics(self) -> tuple[ProjectionDiagnostic, ...]:
@@ -1065,6 +1068,26 @@ class NativeEncodedDirectCompilation:
         ):
             raise ProjectionError("native class membership counters are invalid")
         membership_counters = dict(zip(names, membership, strict=True))
+        if self.lease.native_validated:
+            membership_counters["native_validation_receipt"] = True
+        if self.canonical_counters is not None:
+            membership_counters.update(
+                zip(
+                    (
+                        "native_canonical_raw_edges",
+                        "native_canonical_distinct_edges",
+                        "native_canonical_published_edges",
+                        "native_canonical_runs",
+                        "native_canonical_merge_passes",
+                        "native_canonical_peak_spill_bytes",
+                        "native_canonical_spill_bytes",
+                        "native_canonical_peak_reserved_bytes",
+                        "native_canonical_sort_calls",
+                    ),
+                    self.canonical_counters,
+                    strict=True,
+                )
+            )
         retained_subroles = 0 if self.role_state is None else self.role_state.subrole_property_count
         retained_inverses = 0 if self.role_state is None else self.role_state.inverse_property_count
         return MappingProxyType(
@@ -1123,6 +1146,78 @@ class NativeEncodedDirectCompilation:
             }
         )
 
+    def iter_canonical_edges(
+        self,
+        *,
+        buffer_edges: int,
+        temp_directory: PathLike[str] | str | None,
+        limits: StreamingLimits,
+        cancellation_token: CancellationTokenLike | None,
+        metrics_sink: Callable[[SpillMetrics], object],
+    ) -> Iterator[Edge]:
+        kernel = self.compiler._kernel
+        module = self.compiler._module
+        output: Any = None
+        try:
+            if cancellation_token is not None:
+                cancellation_token.check()
+            with tempfile.TemporaryDirectory(
+                prefix="pyowl2vec-native-", dir=temp_directory
+            ) as directory:
+                owner_limit = _public_limit(self.lease.owner, "max_index_bytes")
+                buffer_bytes = min(
+                    limits.native_buffer_bytes, sys.maxsize if owner_limit is None else owner_limit
+                )
+                output = _call_encoded_direct(
+                    module,
+                    lambda: kernel.canonicalize_batches(
+                        directory,
+                        buffer_edges,
+                        buffer_bytes,
+                        limits.merge_fan_in,
+                        limits.max_open_files,
+                        sys.maxsize if limits.max_spill_bytes is None else limits.max_spill_bytes,
+                        sys.maxsize
+                        if limits.max_temporary_bytes is None
+                        else limits.max_temporary_bytes,
+                        self.options.duplicates == "unique",
+                    ),
+                )
+                while True:
+                    if cancellation_token is not None:
+                        cancellation_token.check()
+                    page = _call_encoded_direct(
+                        module,
+                        lambda: output.next_batch(
+                            buffer_edges,
+                            _PROJECTOR_EDGE_TYPE,
+                            _PROJECTOR_EDGE_TYPE,
+                            _NATIVE_ENCODED_EDGE_ALLOCATION_PROBE,
+                        ),
+                    )
+                    if not page:
+                        break
+                    yield from page
+                values = tuple(output.counters)
+                if len(values) != 9 or any(type(value) is not int or value < 0 for value in values):
+                    raise ProjectionError("native canonical output returned invalid counters")
+                self.canonical_counters = values
+                self.statistics.raw_edges = values[0]
+                self.statistics.distinct_edges = values[1]
+                self.statistics.duplicate_edges = values[0] - values[1]
+                metrics_sink(SpillMetrics(values[3], values[4], values[5], values[6]))
+                output.close()
+                output = None
+        except OSError as error:
+            raise ProjectionResourceError(
+                "native canonical temporary I/O failed",
+                details={"stage": "native-canonical", "errno": error.errno or -1},
+            ) from error
+        finally:
+            if output is not None:
+                output.close()
+            self.batches.close()
+
     def iter_raw_edges(
         self,
         cancellation_token: CancellationTokenLike | None = None,
@@ -1146,6 +1241,7 @@ def prepare_native_encoded_compilation(
     cancellation_token: CancellationTokenLike | None,
     role_state: NativeEncodedDirectRoleState | None = None,
     asserted_taxonomy_only: bool = False,
+    native_buffer_bytes: int | None = None,
 ) -> tuple[NativeEncodedDirectCompilation | None, str | None]:
     """Prepare the advertised encoded compiler or request whole-call fallback."""
 
@@ -1452,7 +1548,9 @@ def prepare_native_encoded_compilation(
         batches = compiler.iter_batches(
             bidirectional=options.bidirectional_taxonomy,
             max_edges=maximum_edges,
-            max_iri_bytes=sys.maxsize,
+            max_iri_bytes=sys.maxsize
+            if native_buffer_bytes is None
+            else max(1, native_buffer_bytes // 128),
             batch_edges=batch_edges,
             asserted_taxonomy_only=asserted_taxonomy_only,
             only_taxonomy=options.only_taxonomy,
@@ -1634,6 +1732,11 @@ def _native_annotation_provenance_selection(
     annotation identities before counting or publishing edges.
     """
 
+    core = importlib.import_module("pyowl_core")
+    proof = getattr(core, "encoded_scopes_equivalent", None)
+    root_scope = getattr(type(closure_lease.scope), "ROOT", None)
+    if callable(proof) and root_scope is not None and proof(view, closure_lease.scope, root_scope):
+        return None, None
     root_lease = _acquire_root_encoded_lease(view, closure_lease)
     if root_lease is None:
         return None, "core view does not support root-scoped native annotation provenance"

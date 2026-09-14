@@ -44,6 +44,7 @@ class ProjectionOptions:
     order: EdgeOrder = "canonical"
     compatibility_state: CompatibilityState = "isolated"
     backend: Backend = "auto"
+    require_native_pipeline: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.profile, str) or self.profile not in SUPPORTED_PROFILES:
@@ -64,7 +65,19 @@ class ProjectionOptions:
             cast(tuple[str, ...], COMPATIBILITY_STATES),
         )
         _choice("backend", self.backend, cast(tuple[str, ...], BACKENDS))
+        _strict_bool("require_native_pipeline", self.require_native_pipeline)
+        if self.require_native_pipeline and self.backend == "python":
+            raise InvalidProjectionOptionsError(
+                "require_native_pipeline conflicts with backend='python'"
+            )
+        if self.require_native_pipeline and self.order != "canonical":
+            raise InvalidProjectionOptionsError(
+                "strict native projection currently requires canonical order"
+            )
 
     def to_dict(self) -> dict[str, str | bool]:
         """Return a normalized JSON-compatible option record."""
-        return cast(dict[str, str | bool], asdict(self))
+        values = cast(dict[str, str | bool], asdict(self))
+        if not self.require_native_pipeline:
+            values.pop("require_native_pipeline")
+        return values

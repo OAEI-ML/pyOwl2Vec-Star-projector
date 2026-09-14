@@ -220,7 +220,7 @@ impl KernelError {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct DirectEdge {
     pub(crate) source: String,
     pub(crate) relation: String,
@@ -15625,7 +15625,7 @@ fn check_cancel(state: &AtomicU8, index: usize) -> Result<(), KernelError> {
     }
 }
 
-fn cancellable_sort_unstable_by<T, F>(
+pub(crate) fn cancellable_sort_unstable_by<T, F>(
     values: &mut [T],
     state: &AtomicU8,
     mut compare: F,

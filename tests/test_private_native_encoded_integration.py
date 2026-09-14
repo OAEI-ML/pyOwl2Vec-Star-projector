@@ -2105,7 +2105,11 @@ def test_hidden_iterator_proves_single_document_annotation_selection(
 
     assert actual == expected
     _assert_semantic_report_parity(expected_report, actual_report)
-    assert acquire_root.call_count == 1
+    proof = getattr(pyowl_core, "encoded_scopes_equivalent", None)
+    proven_equal = callable(proof) and proof(
+        view, pyowl_core.AxiomScope.ROOT, pyowl_core.AxiomScope.CLOSURE
+    )
+    assert acquire_root.call_count == (0 if proven_equal else 1)
     assert actual_report.provenance.ingestion.path == "encoded-native"
 
 
@@ -24337,6 +24341,7 @@ def test_public_iterator_advertises_and_selects_encoded_compiler(
         "abi3-py310",
         "bounded-batches",
         ENCODED_NATIVE_FEATURE,
+        "native-canonical-v1",
     }
 
     compilations: list[NativeEncodedDirectCompilation] = []

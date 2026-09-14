@@ -7,7 +7,7 @@ import importlib
 import json
 import threading
 from collections.abc import Callable, Iterator
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from os import PathLike
 from time import perf_counter
 from typing import Any, BinaryIO
@@ -388,6 +388,7 @@ class Projector:
         duplicates: DuplicatePolicy = "preserve",
         order: EdgeOrder = "canonical",
         backend: Backend = "auto",
+        require_native_pipeline: bool = False,
         buffer_edges: int = 250_000,
         temp_directory: PathLike[str] | None = None,
         streaming_limits: StreamingLimits | None = None,
@@ -400,6 +401,7 @@ class Projector:
                 duplicates=duplicates,
                 order=order,
                 backend=backend,
+                require_native_pipeline=require_native_pipeline,
                 buffer_edges=buffer_edges,
                 temp_directory=temp_directory,
                 streaming_limits=streaming_limits,
@@ -415,6 +417,7 @@ class Projector:
         duplicates: DuplicatePolicy = "preserve",
         order: EdgeOrder = "canonical",
         backend: Backend = "auto",
+        require_native_pipeline: bool = False,
         buffer_edges: int = 250_000,
         temp_directory: PathLike[str] | None = None,
         streaming_limits: StreamingLimits | None = None,
@@ -427,6 +430,27 @@ class Projector:
             raise InvalidProjectionOptionsError("duplicates must be 'preserve' or 'unique'")
         if order not in ("canonical", "encounter"):
             raise InvalidProjectionOptionsError("order must be 'canonical' or 'encounter'")
+        if type(require_native_pipeline) is not bool:
+            raise InvalidProjectionOptionsError("require_native_pipeline must be bool")
+        if require_native_pipeline:
+            return self._iter_view(
+                view,
+                ProjectionOptions(
+                    bidirectional_taxonomy=bidirectional,
+                    only_taxonomy=True,
+                    duplicates=duplicates,
+                    order=order,
+                    backend=backend,
+                    require_native_pipeline=True,
+                ),
+                source_kind=_view_source_kind(view),
+                native_batch_edges=buffer_edges,
+                buffer_edges=buffer_edges,
+                temp_directory=temp_directory,
+                streaming_limits=_streaming_limits(streaming_limits),
+                cancellation_token=cancellation_token,
+                asserted_taxonomy_only=True,
+            )
         selection = select_backend(backend)
         selection, _native_version, native_features = _activate_selection(selection)
         warn_if_auto_fallback(selection)
@@ -536,9 +560,14 @@ class Projector:
         streaming_limits: StreamingLimits | None = None,
         cancellation_token: CancellationTokenLike | None = None,
         private_encoded_direct: bool = False,
+        asserted_taxonomy_only: bool = False,
     ) -> Iterator[Edge]:
         def generate() -> Iterator[Edge]:
             acquired = False
+            with self._metadata_lock:
+                self._last_report = None
+            if options.require_native_pipeline:
+                require_native_pipeline_support()
             native_encoded_compilation: NativeEncodedDirectCompilation | None = None
             if options.compatibility_state == "scala-instance":
                 acquired = self._scala_lock.acquire(blocking=False)
@@ -548,8 +577,14 @@ class Projector:
                         details={"compatibility_state": "scala-instance"},
                     )
             try:
-                selection = select_backend(options.backend)
+                selection = select_backend(
+                    "native" if options.require_native_pipeline else options.backend
+                )
                 selection, native_version, native_features = _activate_selection(selection)
+                if options.require_native_pipeline and "native-canonical-v1" not in native_features:
+                    raise NativeBackendUnavailableError(
+                        "native kernel does not support strict canonical output"
+                    )
                 warn_if_auto_fallback(selection)
                 checked = validate_view(view)
                 publication_started = perf_counter()
@@ -565,6 +600,16 @@ class Projector:
                         selected_backend=selection.selected,
                         native_features=native_features,
                         backend_fallback_reason=selection.fallback_reason,
+                        require_native_validation=options.require_native_pipeline,
+                    )
+                if options.require_native_pipeline and (
+                    private_encoded_direct
+                    or ingestion.path != "encoded-native"
+                    or ingestion.lease is None
+                    or not ingestion.lease.native_validated
+                ):
+                    raise SnapshotCompatibilityError(
+                        "strict native projection requires validated public native ingestion"
                     )
                 publication_seconds = perf_counter() - publication_started
                 encoded_view_publication_seconds = (
@@ -621,6 +666,10 @@ class Projector:
                                     max_total_edges=limits.max_total_edges,
                                     cancellation_token=cancellation_token,
                                     role_state=native_role_state,
+                                    asserted_taxonomy_only=asserted_taxonomy_only,
+                                    native_buffer_bytes=limits.native_buffer_bytes
+                                    if options.require_native_pipeline
+                                    else None,
                                 )
                             )
                         except (
@@ -630,6 +679,11 @@ class Projector:
                             direct_fallback_reason = (
                                 f"{native_direct_label} direct compiler unavailable: {error}"
                             )
+                    if native_encoded_compilation is None and options.require_native_pipeline:
+                        raise SnapshotCompatibilityError(
+                            direct_fallback_reason
+                            or "strict native compiler declined the encoded view"
+                        )
                     if native_encoded_compilation is None:
                         reason = direct_fallback_reason or (
                             f"{native_direct_label} direct compiler declined the encoded view"
@@ -693,17 +747,27 @@ class Projector:
                         raw_edges,
                         batch_edges=native_batch_edges,
                     )
-                compiled_edges = iter_edge_policy(
-                    raw_edges,
-                    duplicates=options.duplicates,
-                    order=options.order,
-                    buffer_edges=buffer_edges,
-                    temp_directory=temp_directory,
-                    limits=limits,
-                    statistics=compilation.statistics,
-                    cancellation_token=cancellation_token,
-                    metrics_sink=self._remember_spill_metrics,
-                )
+                if options.require_native_pipeline:
+                    assert native_encoded_compilation is not None
+                    compiled_edges = native_encoded_compilation.iter_canonical_edges(
+                        buffer_edges=buffer_edges,
+                        temp_directory=temp_directory,
+                        limits=limits,
+                        cancellation_token=cancellation_token,
+                        metrics_sink=self._remember_spill_metrics,
+                    )
+                else:
+                    compiled_edges = iter_edge_policy(
+                        raw_edges,
+                        duplicates=options.duplicates,
+                        order=options.order,
+                        buffer_edges=buffer_edges,
+                        temp_directory=temp_directory,
+                        limits=limits,
+                        statistics=compilation.statistics,
+                        cancellation_token=cancellation_token,
+                        metrics_sink=self._remember_spill_metrics,
+                    )
                 for edge in compiled_edges:
                     output_count += 1
                     yield edge
@@ -874,7 +938,12 @@ def project_source(
 ) -> list[Edge]:
     """Coerce any core ``OntologyInput`` exactly once, then project by identity."""
     projector = Projector()
-    view, source_kind = _coerce_once(source, load_options=load_options, resolver=resolver)
+    view, source_kind = _coerce_once(
+        source,
+        load_options=load_options,
+        resolver=resolver,
+        require_native_pipeline=bool(options and options.require_native_pipeline),
+    )
     effective = options or ProjectionOptions()
     return list(
         projector._iter_view(
@@ -899,7 +968,12 @@ def iter_source_edges(
 ) -> Iterator[Edge]:
     _positive_int("buffer_edges", buffer_edges)
     projector = Projector()
-    view, source_kind = _coerce_once(source, load_options=load_options, resolver=resolver)
+    view, source_kind = _coerce_once(
+        source,
+        load_options=load_options,
+        resolver=resolver,
+        require_native_pipeline=bool(options and options.require_native_pipeline),
+    )
     return projector._iter_view(
         view,
         options or ProjectionOptions(),
@@ -1017,6 +1091,7 @@ def project_taxonomy(
     duplicates: DuplicatePolicy = "preserve",
     order: EdgeOrder = "canonical",
     backend: Backend = "auto",
+    require_native_pipeline: bool = False,
     load_options: object | None = None,
     resolver: object | None = None,
     buffer_edges: int = 250_000,
@@ -1024,13 +1099,20 @@ def project_taxonomy(
     streaming_limits: StreamingLimits | None = None,
     cancellation_token: CancellationTokenLike | None = None,
 ) -> list[Edge]:
-    view, _ = _coerce_once(source, load_options=load_options, resolver=resolver)
+    ProjectionOptions(backend=backend, order=order, require_native_pipeline=require_native_pipeline)
+    view, _ = _coerce_once(
+        source,
+        load_options=load_options,
+        resolver=resolver,
+        require_native_pipeline=require_native_pipeline,
+    )
     return Projector().project_taxonomy(
         view,
         bidirectional=bidirectional,
         duplicates=duplicates,
         order=order,
         backend=backend,
+        require_native_pipeline=require_native_pipeline,
         buffer_edges=buffer_edges,
         temp_directory=temp_directory,
         streaming_limits=streaming_limits,
@@ -1045,6 +1127,7 @@ def iter_taxonomy_edges(
     duplicates: DuplicatePolicy = "preserve",
     order: EdgeOrder = "canonical",
     backend: Backend = "auto",
+    require_native_pipeline: bool = False,
     load_options: object | None = None,
     resolver: object | None = None,
     buffer_edges: int = 250_000,
@@ -1052,13 +1135,20 @@ def iter_taxonomy_edges(
     streaming_limits: StreamingLimits | None = None,
     cancellation_token: CancellationTokenLike | None = None,
 ) -> Iterator[Edge]:
-    view, _ = _coerce_once(source, load_options=load_options, resolver=resolver)
+    ProjectionOptions(backend=backend, order=order, require_native_pipeline=require_native_pipeline)
+    view, _ = _coerce_once(
+        source,
+        load_options=load_options,
+        resolver=resolver,
+        require_native_pipeline=require_native_pipeline,
+    )
     return Projector().iter_taxonomy_edges(
         view,
         bidirectional=bidirectional,
         duplicates=duplicates,
         order=order,
         backend=backend,
+        require_native_pipeline=require_native_pipeline,
         buffer_edges=buffer_edges,
         temp_directory=temp_directory,
         streaming_limits=streaming_limits,
@@ -1066,14 +1156,40 @@ def iter_taxonomy_edges(
     )
 
 
+def require_native_pipeline_support() -> None:
+    """Fail before loading an ontology if strict native runtime support is absent."""
+    _, _, features = _activate_selection(select_backend("native"))
+    if "native-canonical-v1" not in features:
+        raise NativeBackendUnavailableError("native kernel lacks canonical pipeline support")
+    try:
+        core = importlib.import_module("pyowl_core")
+        available = getattr(core, "native_validation_available", None)
+        supported = callable(available) and available() is True
+    except ImportError as error:
+        raise NativeBackendUnavailableError(
+            "core native validation runtime is unavailable"
+        ) from error
+    if not supported:
+        raise NativeBackendUnavailableError("core binary lacks native validation receipt support")
+
+
 def _coerce_once(
     source: object,
     *,
     load_options: object | None,
     resolver: object | None,
+    require_native_pipeline: bool = False,
 ) -> tuple[object, SourceKind]:
     try:
         core = importlib.import_module("pyowl_core")
+        if require_native_pipeline:
+            require_native_pipeline_support()
+            selected: Any = load_options if load_options is not None else core.LoadOptions()
+            if not isinstance(selected, core.LoadOptions):
+                raise InvalidProjectionOptionsError("load_options must be core LoadOptions")
+            if selected.backend is core.BackendPreference.PYTHON:
+                raise InvalidProjectionOptionsError("strict projection cannot use a Python loader")
+            load_options = replace(selected, backend=core.BackendPreference.NATIVE)
     except ImportError as error:  # pragma: no cover - declared dependency
         raise SnapshotCompatibilityError("pyowl-core is not installed") from error
     coerce = getattr(core, "coerce_snapshot", None)
@@ -1354,5 +1470,6 @@ __all__ = [
     "iter_taxonomy_edges",
     "project_source",
     "project_taxonomy",
+    "require_native_pipeline_support",
     "write_edge_artifact",
 ]

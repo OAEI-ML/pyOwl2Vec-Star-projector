@@ -21,6 +21,7 @@ from .api import (
     iter_taxonomy_edges,
     project_source,
     project_taxonomy,
+    require_native_pipeline_support,
     write_edge_artifact,
 )
 from .artifact import CanonicalEdgeDigest, EdgeArtifactResult
@@ -131,6 +132,7 @@ __all__ = [
     "probe_native_backend",
     "project_source",
     "project_taxonomy",
+    "require_native_pipeline_support",
     "select_backend",
     "verify_consumer_conformance",
     "write_edge_artifact",

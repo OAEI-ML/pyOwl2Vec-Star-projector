@@ -5,6 +5,15 @@ that lockfile. Release automation must regenerate and audit this table when the 
 
 | Crate | Version | SPDX license expression |
 |---|---:|---|
+| block-buffer | 0.10.4 | MIT OR Apache-2.0 |
+| cfg-if | 1.0.4 | MIT OR Apache-2.0 |
+| cpufeatures | 0.2.17 | MIT OR Apache-2.0 |
+| crypto-common | 0.1.7 | MIT OR Apache-2.0 |
+| digest | 0.10.7 | MIT OR Apache-2.0 |
+| generic-array | 0.14.7 | MIT |
+| sha2 | 0.10.9 | MIT OR Apache-2.0 |
+| typenum | 1.20.1 | MIT OR Apache-2.0 |
+| version_check | 0.9.5 | MIT/Apache-2.0 |
 | heck | 0.5.0 | MIT OR Apache-2.0 |
 | libc | 0.2.186 | MIT OR Apache-2.0 |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 |
@@ -21,8 +30,8 @@ that lockfile. Release automation must regenerate and audit this table when the 
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 
 For binary distribution this project selects the Apache-2.0 alternative wherever a crate offers
-`MIT OR Apache-2.0`; the complete Apache-2.0 text is shipped as the project `LICENSE`. The two
-additional terms required by the selected expressions—LLVM-exception and Unicode-3.0—are bundled
+`MIT OR Apache-2.0`; the complete Apache-2.0 text is shipped as the project `LICENSE`. The additional
+terms required by the selected expressions—MIT, LLVM-exception and Unicode-3.0—are bundled
 below. None of the pinned crate roots contains a `NOTICE` file.
 
 The generated native CycloneDX SBOM and machine-readable inventory cross-check this table against
@@ -72,3 +81,27 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA FILES OR SOFTWAR
 Except as contained in this notice, the name of a copyright holder shall not be used in advertising
 or otherwise to promote the sale, use or other dealings in these Data Files or Software without
 prior written authorization of the copyright holder.
+
+## MIT license (generic-array)
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Bartłomiej Kamiński
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

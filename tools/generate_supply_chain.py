@@ -550,7 +550,7 @@ def generate(root: Path) -> dict[Path, bytes]:
         "native_license_selection": {
             "dual_license_choice": "Apache-2.0",
             "base_text": "LICENSE",
-            "additional_texts": ["LLVM-exception", "Unicode-3.0"],
+            "additional_texts": ["MIT", "LLVM-exception", "Unicode-3.0"],
             "bundle": "native/THIRD_PARTY_LICENSES.md",
         },
         "behavioral_references": [

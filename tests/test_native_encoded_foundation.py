@@ -6599,4 +6599,5 @@ def test_encoded_capability_is_advertised() -> None:
         "abi3-py310",
         "bounded-batches",
         ENCODED_NATIVE_FEATURE,
+        "native-canonical-v1",
     )

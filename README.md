@@ -55,6 +55,32 @@ Start with the [specification index](specs/README.md). The normative API and beh
 [`SPEC.md`](specs/SPEC.md), while the observed Scala quirks that must remain projector-local are
 catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 
+## Required native execution
+
+`ProjectionOptions(require_native_pipeline=True)` opts into public native projection with
+canonical output. Public `project_taxonomy` / `iter_taxonomy_edges` accept the same keyword
+and preserve their distinct asserted-subclass-only semantics. `backend="auto"` then selects native; explicit Python or encounter order is
+rejected. `require_native_pipeline_support()` checks the actual core/projector binaries before
+loading any ontology. Defaults remain unchanged. This requires the candidate core's public native validation
+receipt capability and projector kernel 131 (`native-canonical-v1`); older combinations fail early.
+
+The admitted strict input family is a retained native snapshot, including resolved imports.
+Decoded, mapped, composite and overlay owners retain their existing non-strict APIs but are not
+currently admitted by core's strict receipt capability. The projector verifies the exact owner,
+buffers and scope, then uses the native compiler without scalar or indexed-byte fallback.
+A public owner/scope proof can avoid publishing a redundant ROOT table; unequal or unproven
+selections retain the existing ROOT/closure annotation join.
+
+Canonical sorting, exact duplicate handling, run checksums and bounded spill merging execute in
+Rust. Only final Edge pages cross into Python; iterator, list, digest and artifact APIs retain
+existing semantic payloads. `StreamingLimits.native_buffer_bytes` defaults to 64 MiB, capped by
+the owner's index budget, and reserves bounded sorting, merging, publication and metadata space.
+Many tiny runs can exhaust the bounded run-metadata reservation even when edge pages fit.
+Oversized rows and resource failures raise typed errors; configured spill/temporary byte and
+file-descriptor limits still apply. Diagnostic counters distinguish reserved native workspace,
+run/merge counts and actual published edges; they are not RSS measurements. Requested final
+Python objects remain caller-owned interface memory. No corpus speedup is claimed by these tests.
+
 ## Status
 
 Production release: `0.2.0`.

@@ -17,6 +17,7 @@ default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
+sha2 = "=0.10.9"
 pyo3 = { version = "=0.28.3", features = ["abi3-py310"] }
 
 [build-dependencies]

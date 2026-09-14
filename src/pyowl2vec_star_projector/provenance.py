@@ -39,6 +39,16 @@ _INGESTION_COUNTERS = frozenset(
         "native_batch_edges",
         "native_boundary_calls",
         "native_compiled_edges",
+        "native_validation_receipt",
+        "native_canonical_raw_edges",
+        "native_canonical_distinct_edges",
+        "native_canonical_published_edges",
+        "native_canonical_runs",
+        "native_canonical_merge_passes",
+        "native_canonical_peak_spill_bytes",
+        "native_canonical_spill_bytes",
+        "native_canonical_peak_reserved_bytes",
+        "native_canonical_sort_calls",
         "native_class_index_builds",
         "native_class_index_build_visits",
         "native_class_index_keys",
@@ -166,7 +176,7 @@ class IngestionProvenance:
         if set(counters) - _INGESTION_COUNTERS:
             raise ValueError("ingestion counters contain unsupported fields")
         for name, value in counters.items():
-            if name == "encoded_compiler_gil_released":
+            if name in {"encoded_compiler_gil_released", "native_validation_receipt"}:
                 if type(value) is not bool:
                     raise ValueError("encoded compiler GIL counter must be bool")
             elif type(value) is not int or value < 0:

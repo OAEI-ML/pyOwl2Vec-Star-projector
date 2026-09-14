@@ -163,7 +163,10 @@ def test_version_and_generated_supply_chain_are_consistent() -> None:
     inventory = json.loads((ROOT / "release/license-inventory.json").read_text(encoding="utf-8"))
     assert inventory["project"]["version"] == version
     assert inventory["java_components"] == []
-    assert len(inventory["native"]) == 14
+    locked = read_toml(ROOT / "native/Cargo.lock")["package"]
+    assert {(row["name"], row["version"]) for row in inventory["native"]} == {
+        (row["name"], row["version"]) for row in locked if "source" in row
+    }
 
 
 def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
