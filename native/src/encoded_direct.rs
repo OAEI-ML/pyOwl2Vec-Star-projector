@@ -9,7 +9,6 @@
 
 use std::borrow::Cow;
 use std::cmp::Ordering as CmpOrdering;
-#[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -3569,6 +3568,98 @@ struct CompositeNodeCoordinate {
     canonical_order: usize,
 }
 
+/// Exact membership only: sorted keys never determine projection order.
+#[derive(Debug, Default)]
+struct ClassMembership {
+    iris: Vec<String>,
+    builds: usize,
+    visits: usize,
+    bytes: usize,
+    peak_bytes: usize,
+    queries: AtomicUsize,
+    comparisons: AtomicUsize,
+}
+
+impl ClassMembership {
+    fn check_bytes(&mut self, bytes: usize, limit: usize) -> Result<(), KernelError> {
+        if bytes > limit {
+            return Err(KernelError::resource(
+                "class membership workspace exceeds its limit",
+            ));
+        }
+        self.peak_bytes = self.peak_bytes.max(bytes);
+        Ok(())
+    }
+
+    fn push(&mut self, iri: &str, limit: usize) -> Result<(), KernelError> {
+        let slot = std::mem::size_of::<String>();
+        if self.iris.len() == self.iris.capacity() {
+            let capacity = self
+                .iris
+                .capacity()
+                .max(8)
+                .checked_mul(2)
+                .ok_or_else(|| KernelError::resource("class membership capacity overflow"))?;
+            let allocation = capacity
+                .checked_mul(slot)
+                .ok_or_else(|| KernelError::resource("class membership workspace overflow"))?;
+            let peak = self
+                .bytes
+                .checked_add(allocation)
+                .ok_or_else(|| KernelError::resource("class membership workspace overflow"))?;
+            self.check_bytes(peak, limit)?;
+            let previous = self.iris.capacity();
+            self.iris
+                .try_reserve_exact(capacity - self.iris.len())
+                .map_err(|_| KernelError::resource("class membership allocation failed"))?;
+            self.bytes += (self.iris.capacity() - previous) * slot;
+        }
+        let bytes = self
+            .bytes
+            .checked_add(iri.len())
+            .ok_or_else(|| KernelError::resource("class membership workspace overflow"))?;
+        self.check_bytes(bytes, limit)?;
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(iri.len())
+            .map_err(|_| KernelError::resource("class membership key allocation failed"))?;
+        owned.push_str(iri);
+        self.bytes = bytes;
+        self.iris.push(owned);
+        Ok(())
+    }
+
+    fn finish(&mut self, state: &AtomicU8) -> Result<(), KernelError> {
+        cancellable_sort_unstable_by(&mut self.iris, state, |a, b| a.as_bytes().cmp(b.as_bytes()))?;
+        self.iris.dedup();
+        self.bytes = self.iris.capacity() * std::mem::size_of::<String>()
+            + self.iris.iter().map(String::capacity).sum::<usize>();
+        Ok(())
+    }
+
+    fn contains(&self, iri: &str) -> bool {
+        self.queries.fetch_add(1, Ordering::Relaxed);
+        self.iris
+            .binary_search_by(|key| {
+                self.comparisons.fetch_add(1, Ordering::Relaxed);
+                key.as_bytes().cmp(iri.as_bytes())
+            })
+            .is_ok()
+    }
+
+    fn counters(&self) -> [usize; 7] {
+        [
+            self.builds,
+            self.visits,
+            self.iris.len(),
+            self.queries.load(Ordering::Relaxed),
+            self.comparisons.load(Ordering::Relaxed),
+            self.bytes,
+            self.peak_bytes,
+        ]
+    }
+}
+
 #[derive(Debug)]
 struct DirectPreparation {
     role_state: OwnedRoleState,
@@ -3580,7 +3671,7 @@ struct DirectPreparation {
     anonymous_ids: AnonymousIds,
     selected_annotation_nodes: Option<Vec<usize>>,
     composite_annotation_roots: Vec<CompositeRootCoordinate>,
-    composite_class_nodes: Vec<CompositeNodeCoordinate>,
+    class_membership: ClassMembership,
     composite_anonymous_nodes: Vec<CompositeNodeCoordinate>,
     overlay_deltas: Vec<OwnedOverlayDelta>,
     local_object_property_classes: Vec<OwnedLocalObjectPropertyClass>,
@@ -3600,6 +3691,7 @@ pub(crate) struct PreparedDirectBatches {
 
 #[derive(Clone, Copy)]
 pub(crate) struct DirectColumns<'a> {
+    membership_workspace_limit: usize,
     root_kinds: &'a [u8],
     root_ids: &'a [u8],
     included_root_ids: &'a [u8],
@@ -3635,7 +3727,13 @@ impl<'a> DirectColumns<'a> {
             item_values: buffers[8],
             item_lengths: buffers[9],
             scalar_bytes: buffers[10],
+            membership_workspace_limit: usize::MAX,
         }
+    }
+
+    pub(crate) fn with_membership_workspace_limit(mut self, limit: usize) -> Self {
+        self.membership_workspace_limit = limit;
+        self
     }
 
     pub(crate) fn with_excluded_root_ids(mut self, excluded_root_ids: &'a [u8]) -> Self {
@@ -5258,30 +5356,37 @@ impl<'a> DirectColumns<'a> {
         self.validate_annotation_set(start + 2)
     }
 
-    fn contains_class_iri(
+    fn class_membership(
         self,
-        target: &str,
         maximum_iri: usize,
         state: &AtomicU8,
-    ) -> Result<bool, KernelError> {
+    ) -> Result<ClassMembership, KernelError> {
+        let mut index = ClassMembership {
+            builds: 1,
+            ..ClassMembership::default()
+        };
         for node_id in 1..=self.node_count() {
             check_cancel(state, node_id)?;
-            if self.node_tag(node_id)? != TAG_ENTITY {
-                continue;
-            }
-            let (kind, iri_id) = self.entity(node_id)?;
-            if kind == b"class" && self.iri(iri_id, maximum_iri)? == target {
-                return Ok(true);
+            index.visits += 1;
+            if self.node_tag(node_id)? == TAG_ENTITY {
+                let (kind, iri_id) = self.entity(node_id)?;
+                if kind == b"class" {
+                    index.push(
+                        self.iri(iri_id, maximum_iri)?,
+                        self.membership_workspace_limit,
+                    )?;
+                }
             }
         }
-        Ok(false)
+        index.finish(state)?;
+        Ok(index)
     }
 
     fn annotation_projection(
         self,
         node_id: usize,
         maximum_iri: usize,
-        state: &AtomicU8,
+        membership: &ClassMembership,
     ) -> Result<Option<AnnotationProjection<'a>>, KernelError> {
         if self.node_tag(node_id)? != TAG_ANNOTATION_ASSERTION {
             return Err(KernelError::malformed(
@@ -5306,7 +5411,7 @@ impl<'a> DirectColumns<'a> {
                 ));
             }
         };
-        if !self.contains_class_iri(source, maximum_iri, state)? {
+        if !membership.contains(source) {
             return Ok(None);
         }
         let relation = match property {
@@ -7332,6 +7437,7 @@ impl<'a> DirectColumns<'a> {
         root_rule_indexes: &[u8],
         maximum_iri: usize,
         state: &AtomicU8,
+        membership: &ClassMembership,
     ) -> Result<AnnotationEdgeCounts, KernelError> {
         let mut counts = AnnotationEdgeCounts::default();
         for root_index in 0..self.root_count() {
@@ -7345,7 +7451,8 @@ impl<'a> DirectColumns<'a> {
             {
                 continue;
             }
-            let Some(projection) = self.annotation_projection(node_id, maximum_iri, state)? else {
+            let Some(projection) = self.annotation_projection(node_id, maximum_iri, membership)?
+            else {
                 continue;
             };
             counts.edges = counts
@@ -7369,11 +7476,13 @@ impl<'a> DirectColumns<'a> {
         selected_roots: &[usize],
         maximum_iri: usize,
         state: &AtomicU8,
+        membership: &ClassMembership,
     ) -> Result<AnnotationEdgeCounts, KernelError> {
         let mut counts = AnnotationEdgeCounts::default();
         for (index, node_id) in selected_roots.iter().copied().enumerate() {
             check_cancel(state, index)?;
-            let Some(projection) = self.annotation_projection(node_id, maximum_iri, state)? else {
+            let Some(projection) = self.annotation_projection(node_id, maximum_iri, membership)?
+            else {
                 continue;
             };
             counts.edges = counts
@@ -10722,7 +10831,7 @@ impl DirectEmissionCursor {
                         if let Some(projection) = composite_annotation_projection(
                             composite_columns,
                             coordinate,
-                            &preparation.composite_class_nodes,
+                            &preparation.class_membership,
                             preparation.options.max_iri_bytes,
                             state,
                         )? {
@@ -10772,7 +10881,7 @@ impl DirectEmissionCursor {
                     if let Some(projection) = columns.annotation_projection(
                         node_id,
                         preparation.options.max_iri_bytes,
-                        state,
+                        &preparation.class_membership,
                     )? {
                         let edge = annotation_edge(projection, &preparation.anonymous_ids)?;
                         return self.publish(edge, preparation);
@@ -11113,6 +11222,10 @@ impl DirectEmissionCursor {
 }
 
 impl PreparedDirectBatches {
+    pub(crate) fn membership_counters(&self) -> [usize; 7] {
+        self.preparation.class_membership.counters()
+    }
+
     pub(crate) fn statistics(&self) -> DirectCompileStats {
         self.preparation.statistics
     }
@@ -11349,12 +11462,28 @@ fn prepare_direct<'a>(
     } else {
         counts.object_property_assertions
     };
+    let class_membership =
+        if !asserted_taxonomy_only && include_literals && selected_annotation_assertions != 0 {
+            columns.class_membership(max_iri_bytes, state)?
+        } else {
+            ClassMembership::default()
+        };
     let annotation_counts = if asserted_taxonomy_only || !include_literals {
         AnnotationEdgeCounts::default()
     } else if let Some(selected) = selected_annotation_nodes.as_deref() {
-        columns.selected_annotation_edge_counts(selected, max_iri_bytes, state)?
+        columns.selected_annotation_edge_counts(
+            selected,
+            max_iri_bytes,
+            state,
+            &class_membership,
+        )?
     } else {
-        columns.annotation_edge_counts(&root_rule_plan.rule_indexes, max_iri_bytes, state)?
+        columns.annotation_edge_counts(
+            &root_rule_plan.rule_indexes,
+            max_iri_bytes,
+            state,
+            &class_membership,
+        )?
     };
     let skipped_axioms = if asserted_taxonomy_only {
         0
@@ -11489,7 +11618,7 @@ fn prepare_direct<'a>(
         anonymous_ids,
         selected_annotation_nodes,
         composite_annotation_roots: Vec::new(),
-        composite_class_nodes: Vec::new(),
+        class_membership,
         composite_anonymous_nodes: Vec::new(),
         overlay_deltas: Vec::new(),
         local_object_property_classes: Vec::new(),
@@ -13789,12 +13918,35 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
         prepared.preparation.anonymous_ids.single_position = None;
         prepared.preparation.anonymous_ids.global_positions = Some(global_positions);
     }
+    let mut class_membership = ClassMembership::default();
+    if root_columns.is_some() && options.include_literals && !options.asserted_taxonomy_only {
+        class_membership.builds = 1;
+        let limit = columns
+            .iter()
+            .map(|column| column.membership_workspace_limit)
+            .min()
+            .unwrap_or(0)
+            .min(
+                local_workspace
+                    .limit
+                    .saturating_sub(local_workspace.claimed),
+            );
+        for (position, coordinate) in composite_class_nodes.iter().enumerate() {
+            check_cancel(state, position)?;
+            class_membership.visits += 1;
+            let member = columns[coordinate.table];
+            let (_kind, iri) = member.entity(coordinate.node_id)?;
+            class_membership.push(member.iri(iri, options.max_iri_bytes)?, limit)?;
+        }
+        class_membership.finish(state)?;
+        local_workspace.claim(class_membership.peak_bytes)?;
+    }
     let composite_annotation_counts =
         if root_columns.is_some() && options.include_literals && !options.asserted_taxonomy_only {
             composite_annotation_edge_counts(
                 columns,
                 &composite_annotation_roots,
-                &composite_class_nodes,
+                &class_membership,
                 options.max_iri_bytes,
                 state,
             )?
@@ -13906,7 +14058,9 @@ pub(crate) fn prepare_dynamic_composite_batches_with_root_uncommitted(
     }
     prepared.preparation.options = emission_options;
     prepared.preparation.composite_annotation_roots = composite_annotation_roots;
-    prepared.preparation.composite_class_nodes = composite_class_nodes;
+    if root_columns.is_some() {
+        prepared.preparation.class_membership = class_membership;
+    }
     prepared.preparation.composite_anonymous_nodes = composite_anonymous_nodes;
     prepared.preparation.overlay_deltas = overlay_deltas;
     Ok(prepared)
@@ -15304,37 +15458,12 @@ fn annotation_edge(
     })
 }
 
-fn composite_contains_class_iri(
-    columns: &[DirectColumns<'_>],
-    class_nodes: &[CompositeNodeCoordinate],
-    target: &str,
-    maximum_iri: usize,
-    state: &AtomicU8,
-) -> Result<bool, KernelError> {
-    for (index, coordinate) in class_nodes.iter().copied().enumerate() {
-        check_cancel(state, index)?;
-        let member = columns.get(coordinate.table).ok_or_else(|| {
-            KernelError::malformed("encoded class coordinate references an unknown table")
-        })?;
-        if member.node_tag(coordinate.node_id)? != TAG_ENTITY {
-            return Err(KernelError::malformed(
-                "encoded class coordinate no longer references an Entity",
-            ));
-        }
-        let (kind, iri_id) = member.entity(coordinate.node_id)?;
-        if kind == b"class" && member.iri(iri_id, maximum_iri)? == target {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 fn composite_annotation_projection<'a>(
     columns: &[DirectColumns<'a>],
     coordinate: CompositeRootCoordinate,
-    class_nodes: &[CompositeNodeCoordinate],
+    membership: &ClassMembership,
     maximum_iri: usize,
-    state: &AtomicU8,
+    _state: &AtomicU8,
 ) -> Result<Option<AnnotationProjection<'a>>, KernelError> {
     let member = columns.get(coordinate.table).ok_or_else(|| {
         KernelError::malformed("encoded annotation coordinate references an unknown table")
@@ -15366,7 +15495,7 @@ fn composite_annotation_projection<'a>(
             ));
         }
     };
-    if !composite_contains_class_iri(columns, class_nodes, source, maximum_iri, state)? {
+    if !membership.contains(source) {
         return Ok(None);
     }
     let relation = match property {
@@ -15411,7 +15540,7 @@ fn composite_annotation_edge(
 fn composite_annotation_edge_counts(
     columns: &[DirectColumns<'_>],
     annotation_roots: &[CompositeRootCoordinate],
-    class_nodes: &[CompositeNodeCoordinate],
+    membership: &ClassMembership,
     maximum_iri: usize,
     state: &AtomicU8,
 ) -> Result<AnnotationEdgeCounts, KernelError> {
@@ -15419,7 +15548,7 @@ fn composite_annotation_edge_counts(
     for (index, coordinate) in annotation_roots.iter().copied().enumerate() {
         check_cancel(state, index)?;
         let Some(projection) =
-            composite_annotation_projection(columns, coordinate, class_nodes, maximum_iri, state)?
+            composite_annotation_projection(columns, coordinate, membership, maximum_iri, state)?
         else {
             continue;
         };
@@ -29927,6 +30056,90 @@ mod tests {
         assert_eq!(stats.ignored_subclasses, 8);
         assert_eq!(stats.ignored_class_assertions, 3);
         assert_eq!(stats.skipped_axioms, 0);
+    }
+
+    #[test]
+    fn class_membership_build_is_linear_and_reused_by_every_batch() {
+        for unrelated in [0, 8, 128] {
+            for annotations in [4, 17, 65] {
+                let mut fixture = named_annotation_fixture();
+                for number in 0..unrelated {
+                    fixture.push_scalar(COMPONENT_TEXT, format!("urn:extra:{number}").as_bytes());
+                    fixture.finish_node(TAG_IRI);
+                    let iri = fixture.columns().node_count() as u64;
+                    fixture.push_scalar(COMPONENT_ENUM, b"class");
+                    fixture.push_node_ref(iri);
+                    fixture.finish_node(TAG_ENTITY);
+                }
+                for number in 4..annotations {
+                    fixture.push_scalar(COMPONENT_TEXT, format!("label {number}").as_bytes());
+                    fixture.push_node_ref(11);
+                    fixture.push_none();
+                    fixture.finish_node(TAG_LITERAL);
+                    let literal = fixture.columns().node_count() as u64;
+                    fixture.push_node_ref(8);
+                    fixture.push_node_ref(1);
+                    fixture.push_node_ref(literal);
+                    fixture.push_empty_set();
+                    fixture.finish_node(TAG_ANNOTATION_ASSERTION);
+                    fixture.root_kinds.push(ROOT_AXIOM);
+                    let root = fixture.columns().node_count() as u32;
+                    fixture.root_ids.extend_from_slice(&root.to_le_bytes());
+                }
+                let columns = fixture.columns();
+                let state = running_state();
+                let mut batches = prepare_direct_batches_with_retained_role_state(
+                    columns,
+                    None,
+                    rule_test_options(false, false),
+                    &state,
+                    None,
+                )
+                .unwrap();
+                let before = batches.membership_counters();
+                assert_eq!(before[0], 1);
+                assert_eq!(before[1], columns.node_count());
+                assert_eq!(before[2], unrelated + 1);
+                assert_eq!(before[3], annotations);
+                let identity = batches.preparation.class_membership.iris.as_ptr();
+                let mut emitted = 0;
+                while batches.remaining_edges() != 0 {
+                    let (edges, cursor) = batches.prepare_next_batch(columns, &state, 1).unwrap();
+                    emitted += edges.len();
+                    batches.commit_cursor(cursor);
+                    assert_eq!(batches.preparation.class_membership.iris.as_ptr(), identity);
+                }
+                let after = batches.membership_counters();
+                assert_eq!(emitted, annotations);
+                assert_eq!(after[0..3], before[0..3]);
+                assert_eq!(after[3], 2 * annotations);
+                let comparisons_per_lookup =
+                    usize::BITS as usize - (unrelated + 1).leading_zeros() as usize + 1;
+                assert!(after[4] <= 2 * annotations * comparisons_per_lookup);
+                assert!(after[5] > 0 && after[6] >= after[5]);
+            }
+        }
+    }
+
+    #[test]
+    fn class_membership_keeps_exact_iri_kind_and_resource_semantics() {
+        let fixture = named_annotation_fixture();
+        let columns = fixture.columns();
+        let index = columns.class_membership(1024, &running_state()).unwrap();
+        assert!(index.contains("urn:A"));
+        for nonclass in ["urn:a", "urn:value", "urn:datatype", "urn:missing"] {
+            assert!(!index.contains(nonclass));
+        }
+        assert!(matches!(
+            columns
+                .with_membership_workspace_limit(0)
+                .class_membership(1024, &running_state()),
+            Err(KernelError::Resource(_))
+        ));
+        assert!(matches!(
+            columns.class_membership(1024, &AtomicU8::new(STATE_CANCELLED)),
+            Err(KernelError::Cancelled)
+        ));
     }
 
     #[test]

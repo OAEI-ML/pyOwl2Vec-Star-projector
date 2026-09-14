@@ -36,7 +36,7 @@ from .options import DuplicatePolicy, EdgeOrder, ProjectionOptions
 from .streaming import CancellationTokenLike
 
 NATIVE_API_VERSION = 1
-ENCODED_DIRECT_KERNEL_VERSION = 129
+ENCODED_DIRECT_KERNEL_VERSION = 130
 _AnonymousScopePlan = memoryview | tuple[memoryview, ...] | None
 
 
@@ -951,6 +951,7 @@ class NativeEncodedDirectCompilation:
     root_annotation_lease: EncodedStructuralLease | None
     options: ProjectionOptions
     batches: NativeEncodedDirectBatchIterator
+    compiler: NativeEncodedDirectCompiler
     native_statistics: NativeEncodedDirectStatistics
     statistics: CompileStatistics
     role_state: NativeEncodedDirectRoleState | None = None
@@ -1049,6 +1050,21 @@ class NativeEncodedDirectCompilation:
             for lease in retained_leases
             for segment in lease.segments
         )
+        membership = self.compiler._kernel.class_membership_counters
+        names = (
+            "native_class_index_builds",
+            "native_class_index_build_visits",
+            "native_class_index_keys",
+            "native_class_membership_queries",
+            "native_class_membership_comparisons",
+            "native_class_index_retained_bytes",
+            "native_class_index_peak_bytes",
+        )
+        if len(membership) != len(names) or any(
+            type(value) is not int or value < 0 for value in membership
+        ):
+            raise ProjectionError("native class membership counters are invalid")
+        membership_counters = dict(zip(names, membership, strict=True))
         retained_subroles = 0 if self.role_state is None else self.role_state.subrole_property_count
         retained_inverses = 0 if self.role_state is None else self.role_state.inverse_property_count
         return MappingProxyType(
@@ -1087,6 +1103,7 @@ class NativeEncodedDirectCompilation:
                 "encoded_staging_copy_bytes": 0,
                 "encoded_zero_copy_buffers": retained_buffer_count,
                 "materialized_scalar_rows": 0,
+                **membership_counters,
                 "native_batch_edges": self.batches.batch_edges,
                 "native_boundary_calls": self.batches.boundary_calls,
                 "native_compiled_edges": self.native_statistics.edges,
@@ -1561,6 +1578,7 @@ def prepare_native_encoded_compilation(
                 root_annotation_lease=root_annotation_lease,
                 options=options,
                 batches=batches,
+                compiler=compiler,
                 native_statistics=native_statistics,
                 statistics=CompileStatistics(
                     ignored_shapes=(
@@ -2476,6 +2494,14 @@ def prepare_native_encoded_direct(
         raise _resource_error(error) from error
     except Exception as error:
         raise _execution_error(error) from error
+    membership_limits = [
+        value
+        for retained in (lease, merge_manifest_lease, local_delta_lease, root_annotation_lease)
+        if retained is not None
+        for value in (_public_limit(retained.owner, "max_index_bytes"),)
+        if value is not None
+    ]
+    kernel.set_membership_workspace_limit(min(membership_limits, default=sys.maxsize))
     return NativeEncodedDirectCompiler(
         lease=lease,
         local_delta_lease=local_delta_lease,

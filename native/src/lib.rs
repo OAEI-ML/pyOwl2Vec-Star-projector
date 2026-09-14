@@ -42,7 +42,7 @@ use pyo3::types::{
 use pyo3::IntoPyObjectExt;
 
 const NATIVE_API_VERSION: u32 = 1;
-const ENCODED_DIRECT_KERNEL_VERSION: u32 = 129;
+const ENCODED_DIRECT_KERNEL_VERSION: u32 = 130;
 const GENERAL_BUFFER_STABLE_ABI_MINIMUM: &str = "abi3-py311";
 const COARSE_OUTPUT_CHUNK_EDGES: usize = 256;
 const ENCODED_SCHEMA_NAME: &str = "pyowl-core/structural-columns";
@@ -570,6 +570,7 @@ struct DirectBatchOutput {
     boundary_calls: usize,
     edge_batches: usize,
     peak_buffered_edges: usize,
+    membership_counters: [usize; 7],
     prepared: bool,
     draining: bool,
     exhausted: bool,
@@ -619,6 +620,7 @@ impl DirectBatchOutput {
     fn install(&mut self, stream: PreparedDirectBatches, batch_edges: usize) {
         let remaining_edges = stream.remaining_edges();
         let exhausted = remaining_edges == 0;
+        let membership_counters = stream.membership_counters();
         *self = Self {
             stream: if exhausted { None } else { Some(stream) },
             remaining_edges,
@@ -626,6 +628,7 @@ impl DirectBatchOutput {
             boundary_calls: 1,
             edge_batches: 0,
             peak_buffered_edges: 0,
+            membership_counters,
             prepared: true,
             draining: false,
             exhausted,
@@ -728,6 +731,7 @@ struct EncodedDirectCompiler {
     state: AtomicU8,
     coarse_output_chunks: AtomicUsize,
     coarse_peak_buffered_edges: AtomicUsize,
+    membership_workspace_limit: AtomicUsize,
     batch_output: Mutex<DirectBatchOutput>,
 }
 
@@ -793,6 +797,9 @@ impl EncodedDirectCompiler {
         &'a self,
         base_columns: DirectColumns<'a>,
     ) -> PyResult<DirectColumns<'a>> {
+        let base_columns = base_columns.with_membership_workspace_limit(
+            self.membership_workspace_limit.load(Ordering::Acquire),
+        );
         if let Some(members) = self.composite_members.as_ref() {
             let first = members.first().ok_or_else(|| {
                 PyRuntimeError::new_err("encoded dynamic composite lost its base member")
@@ -1965,6 +1972,7 @@ impl EncodedDirectCompiler {
             state: AtomicU8::new(STATE_IDLE),
             coarse_output_chunks: AtomicUsize::new(0),
             coarse_peak_buffered_edges: AtomicUsize::new(0),
+            membership_workspace_limit: AtomicUsize::new(usize::MAX),
             batch_output: Mutex::new(DirectBatchOutput::default()),
         })
     }
@@ -2697,6 +2705,7 @@ impl EncodedDirectCompiler {
                 }
             };
             stream.commit_cursor(next_cursor);
+            output.membership_counters = stream.membership_counters();
             let remaining_edges = stream.remaining_edges();
             let exhausted = remaining_edges == 0;
             output.boundary_calls = next_boundary_calls;
@@ -2710,6 +2719,36 @@ impl EncodedDirectCompiler {
             }
             Ok(batch)
         })
+    }
+
+    fn set_membership_workspace_limit(&self, limit: usize) -> PyResult<()> {
+        if self.state.load(Ordering::Acquire) != STATE_IDLE {
+            return Err(PyValueError::new_err(
+                "membership limit must precede compilation",
+            ));
+        }
+        self.membership_workspace_limit
+            .store(limit, Ordering::Release);
+        Ok(())
+    }
+
+    #[getter]
+    fn class_membership_counters(&self) -> PyResult<Vec<usize>> {
+        self.batch_output
+            .lock()
+            .map(|output| {
+                output
+                    .stream
+                    .as_ref()
+                    .map_or(
+                        output.membership_counters,
+                        PreparedDirectBatches::membership_counters,
+                    )
+                    .to_vec()
+            })
+            .map_err(|_| {
+                PyRuntimeError::new_err("encoded direct batch output is permanently failed")
+            })
     }
 
     /// Drop every not-yet-published edge.  Closing is idempotent.
