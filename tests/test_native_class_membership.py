@@ -71,8 +71,10 @@ def test_native_annotation_membership_preserves_public_semantics(order, duplicat
     )
 
 
-@pytest.mark.parametrize("include_literals,only_taxonomy", [(False, False), (True, True)])
-def test_suppressed_annotations_do_not_allocate_membership(include_literals, only_taxonomy):
+@pytest.mark.parametrize(
+    "include_literals,only_taxonomy,builds", [(False, False, 0), (True, True, 1)]
+)
+def test_membership_follows_literal_suppression(include_literals, only_taxonomy, builds):
     view = pyowl_core.load_snapshot(
         b"Ontology(<urn:no-index> Declaration(Class(<urn:A>)) "
         b'AnnotationAssertion(<http://www.w3.org/2000/01/rdf-schema#label> <urn:A> "A"))',
@@ -87,5 +89,5 @@ def test_suppressed_annotations_do_not_allocate_membership(include_literals, onl
     )
     assert projector.last_report is not None
     counters = projector.last_report.provenance.ingestion.counters
-    assert counters["native_class_index_builds"] == 0
-    assert counters["native_class_index_peak_bytes"] == 0
+    assert counters["native_class_index_builds"] == builds
+    assert (counters["native_class_index_peak_bytes"] > 0) == bool(builds)
