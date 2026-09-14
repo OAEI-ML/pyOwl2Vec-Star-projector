@@ -680,7 +680,7 @@ class Projector:
                                 f"{native_direct_label} direct compiler unavailable: {error}"
                             )
                     if native_encoded_compilation is None and options.require_native_pipeline:
-                        raise SnapshotCompatibilityError(
+                        raise NativeBackendUnavailableError(
                             direct_fallback_reason
                             or "strict native compiler declined the encoded view"
                         )

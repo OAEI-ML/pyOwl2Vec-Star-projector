@@ -13,6 +13,7 @@ import pyowl2vec_star_projector.native as native
 from pyowl2vec_star_projector import Edge, ProjectionOptions, Projector, StreamingLimits
 from pyowl2vec_star_projector.errors import (
     InvalidProjectionOptionsError,
+    NativeBackendUnavailableError,
     ProjectionError,
     ProjectionResourceError,
     SnapshotCompatibilityError,
@@ -330,3 +331,31 @@ def test_public_strict_preflight_rejects_old_binaries_without_loading(monkeypatc
     monkeypatch.setattr(pyowl_core, "native_validation_available", lambda: False)
     with pytest.raises(NativeBackendUnavailableError, match="core binary"):
         require_native_pipeline_support()
+
+
+@pytest.mark.parametrize("taxonomy", [False, True])
+@pytest.mark.parametrize("failure", ["decline", "unsupported", "unavailable"])
+def test_strict_compiler_unavailable_preserves_error_category(taxonomy, failure):
+    view = snapshot()
+    projector = Projector()
+
+    def fail(*args, **kwargs):
+        if failure == "unsupported":
+            raise native.NativeEncodedDirectUnsupported("fixture unsupported")
+        if failure == "unavailable":
+            raise NativeBackendUnavailableError("fixture unavailable")
+        return None, "fixture decline"
+
+    with (
+        patch.object(api, "prepare_native_encoded_compilation", fail),
+        patch.object(api, "prepare_streaming_compilation", side_effect=AssertionError("scalar")),
+        patch.object(
+            api, "prepare_encoded_subset_compilation", side_effect=AssertionError("indexed")
+        ),
+        pytest.raises(NativeBackendUnavailableError, match="fixture"),
+    ):
+        if taxonomy:
+            projector.project_taxonomy(view, require_native_pipeline=True)
+        else:
+            projector.project(view, options=ProjectionOptions(require_native_pipeline=True))
+    assert projector.last_report is None
