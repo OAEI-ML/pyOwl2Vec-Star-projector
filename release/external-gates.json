@@ -13,7 +13,7 @@
       "id": "pyowl-core-release",
       "status": "passed",
       "closure": "workflow-enforced dependency verification",
-      "evidence": "The release workflow resolves and verifies the exact coordinated pyOWLCore 0.2.1 artifacts before the projector native matrix. Exact source identity is recorded in core-compatibility.json. Source commit 11649ea0cf17b09f0d476f2141b827786b71b4b3, tree 015128b3715940272a8bba16974a97bf38518737.",
+      "evidence": "The release workflow resolves and verifies the exact coordinated pyOWLCore 0.2.1 artifacts before the projector native matrix. Exact source identity is recorded in core-compatibility.json. Source commit 6efc2db1ff19679892f36a4d1b50876f7f72440a, tree ade9ed1f078ba14caf24739b31c854b6f5a067b0.",
       "residual_risk": "Projector publication must follow successful pyOWLCore 0.2.1 publication and index verification."
     },
     {

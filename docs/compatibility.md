@@ -20,8 +20,8 @@ remain explicit in `release/external-gates.json`.
 | Core encoded view | `pyowl-core/structural-columns` schema `2` | Native direct ingestion requires the frozen schema-2 descriptor digest; otherwise whole-operation scalar fallback or a typed compatibility failure applies. |
 
 Source-checkout CI is pinned to pyOWLCore 0.2.1 commit
-`11649ea0cf17b09f0d476f2141b827786b71b4b3`, tree
-`015128b3715940272a8bba16974a97bf38518737`, as recorded in
+`6efc2db1ff19679892f36a4d1b50876f7f72440a`, tree
+`ade9ed1f078ba14caf24739b31c854b6f5a067b0`, as recorded in
 `release/core-compatibility.json`. This is reproducibility evidence for the release, not a Git
 dependency: installed metadata intentionally retains `pyowl-core>=0.2.1,<0.3`. Model schema 2
 changes the fixture's structural, logical, and signature fingerprint domains. The projector's
