@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: OAEI-ML/pyOWLCore
-          ref: 649e270bc3aa4becbf59bc4b9fb134542161f586
+          ref: adef8e54b35412b245223eb312a68dbd000ad01a
           path: .deps/pyowl-core
           fetch-depth: 0
           persist-credentials: false

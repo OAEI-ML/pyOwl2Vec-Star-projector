@@ -8,8 +8,8 @@ built, verified in CI, and released to PyPI. This authorizes the coordinated
 assert that CI has already passed or add a new waiver of technical checks.
 
 The exact tested pyOWLCore source is commit
-`649e270bc3aa4becbf59bc4b9fb134542161f586`, tree
-`d22703b022e6940d813aeda58ce04b37e415724b`, recorded in
+`adef8e54b35412b245223eb312a68dbd000ad01a`, tree
+`452e4e34e8707b5ed83d6cac683a9eb065876247`, recorded in
 `core-compatibility.json`. Publication follows successful pyOWLCore 0.2.1
 publication and index verification.
 
