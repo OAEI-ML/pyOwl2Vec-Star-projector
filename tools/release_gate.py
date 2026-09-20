@@ -70,8 +70,8 @@ def _core_compatibility(root: Path, metadata: dict[str, object]) -> tuple[bool, 
         return False, "tested core source commit is not a full Git object ID"
     if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
         return False, "tested core source tree is not a full Git object ID"
-    if core_version != "0.2.0":
-        return False, "tested core source is not the coordinated 0.2.0 release"
+    if core_version != "0.2.1":
+        return False, "tested core source is not the coordinated 0.2.1 release"
     if public_contract != {
         "api_version": [0, 2],
         "adapter_protocol_version": 1,

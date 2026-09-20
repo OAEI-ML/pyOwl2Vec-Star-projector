@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+import os
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +12,13 @@ import pytest
 import pyowl2vec_star_projector.api as api
 import pyowl2vec_star_projector.encoded as encoded
 import pyowl2vec_star_projector.native as native
-from pyowl2vec_star_projector import Edge, ProjectionOptions, Projector, StreamingLimits
+from pyowl2vec_star_projector import (
+    Edge,
+    ProjectionOptions,
+    Projector,
+    StreamingLimits,
+    probe_native_backend,
+)
 from pyowl2vec_star_projector.errors import (
     InvalidProjectionOptionsError,
     NativeBackendUnavailableError,
@@ -19,9 +27,17 @@ from pyowl2vec_star_projector.errors import (
     SnapshotCompatibilityError,
 )
 
+NATIVE_AVAILABLE = (
+    callable(getattr(pyowl_core, "native_validation_report", None))
+    and importlib.util.find_spec("pyowl_core._native") is not None
+    and probe_native_backend().available
+)
+if os.environ.get("PYOWL2VEC_REQUIRE_NATIVE_TESTS") == "1" and not NATIVE_AVAILABLE:
+    raise RuntimeError("strict native tests require both core and projector native extensions")
+
 pytestmark = pytest.mark.skipif(
-    not callable(getattr(pyowl_core, "native_validation_report", None)),
-    reason="candidate core native validation capability is required",
+    not NATIVE_AVAILABLE,
+    reason="strict native tests require both core and projector native extensions",
 )
 
 

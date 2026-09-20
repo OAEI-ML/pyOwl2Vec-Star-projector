@@ -61,7 +61,7 @@ catalogued in [`reference-behavior.md`](specs/reference-behavior.md).
 canonical output. Public `project_taxonomy` / `iter_taxonomy_edges` accept the same keyword
 and preserve their distinct asserted-subclass-only semantics. `backend="auto"` then selects native; explicit Python or encounter order is
 rejected. `require_native_pipeline_support()` checks the actual core/projector binaries before
-loading any ontology. Defaults remain unchanged. This requires the candidate core's public native validation
+loading any ontology. Defaults remain unchanged. This requires pyOWLCore 0.2.1's public native validation
 receipt capability and projector kernel 131 (`native-canonical-v1`); older combinations fail early.
 
 The admitted strict input family is a retained native snapshot, including resolved imports.
@@ -83,7 +83,7 @@ Python objects remain caller-owned interface memory. No corpus speedup is claime
 
 ## Status
 
-Production release: `0.2.0`.
+Production release: `0.2.1`.
 
 All 184 pinned Scala invocations match in canonical edge bytes,
 including the expected typed inverse-property assertion failure and the loader-owned missing-
@@ -93,11 +93,11 @@ in-memory edge vector. Normal tests, installs, wheels, and sdists remain Java-fr
 
 P5 supplies conditional compiler-free builds, platform workflow definitions, offline install
 smokes, reproducibility/hash tooling, SBOMs, license inventory, compatibility tables, and release
-instructions. The 0.2.0 workflow publishes the universal wheel, source distribution, and all five
+instructions. The 0.2.1 workflow publishes the universal wheel, source distribution, and all five
 supported native wheels atomically through an environment-protected PyPI trusted publisher.
 Every closure remains visible in the machine-readable
 [external gates](release/external-gates.json) and
-[0.2.0 authorization](release/owner-release-authorization-0.2.0.md). See also the [compatibility
+[0.2.1 authorization](release/owner-release-authorization-0.2.1.md). See also the [compatibility
 matrix](docs/compatibility.md), [migration notes](docs/migration.md), and
 [release procedure](RELEASING.md).
 

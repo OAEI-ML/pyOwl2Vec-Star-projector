@@ -383,7 +383,7 @@ def _audit_metadata(content: bytes, expected_version: str, errors: list[str]) ->
         errors.append(f"unexpected Requires-Python: {metadata['Requires-Python']!r}")
     requirements = metadata.get_all("Requires-Dist", [])
     base = [item for item in requirements if "extra ==" not in item]
-    if len(base) != 1 or not re.match(r"^pyowl-core\s*<0\.3,>=0\.2$", base[0]):
+    if len(base) != 1 or not re.match(r"^pyowl-core\s*<0\.3,>=0\.2\.1$", base[0]):
         errors.append(f"unexpected base dependencies: {base!r}")
     for requirement in requirements:
         match = _REQUIREMENT_NAME.match(requirement)

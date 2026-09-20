@@ -1,12 +1,12 @@
 # Compatibility matrix
 
-This table is normative for `0.2.0`. “Workflow target” means the repository has an executable CI
+This table is normative for `0.2.1`. “Workflow target” means the repository has an executable CI
 definition; publication still requires the tag-scoped hosted run to pass. Accepted residual risks
 remain explicit in `release/external-gates.json`.
 
 ## Semantic and interchange contracts
 
-| Contract | `0.2.0` value | Compatibility rule |
+| Contract | `0.2.1` value | Compatibility rule |
 |---|---|---|
 | Projector API | `PROJECTOR_API_VERSION = 1` | Compatible additions may ship within the `0.2.x` line; incompatible call semantics require a major API value. |
 | Reference profile | `mowl-d993536-v1` | Frozen Scala-observed edge bag; changed behavior requires a new named profile. |
@@ -14,16 +14,16 @@ remain explicit in `release/external-gates.json`.
 | Batch sink | `BATCH_SINK_PROTOCOL_VERSION = 1` | Synchronous immutable tuple batches; returning is backpressure acknowledgement. |
 | Compiler cache | `pyowl-projector.compiler-cache/1` | Cache keys include core fingerprints/versions, profile, normalized options, schema, and package version. |
 | Consumer conformance | `pyowl-projector.consumer-conformance/1` | Packaged CC0 fixture/goldens; incompatible fixture or assertion changes require a new schema major. |
-| Core package | `pyowl-core>=0.2,<0.3` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
+| Core package | `pyowl-core>=0.2.1,<0.3` | The exact shared `OntologyView` is consumed by identity; no source path or Python pickle handoff. |
 | Core API/adapter | API `(0, 2)`, adapter `1` | The projector rejects another API line or adapter protocol before traversal. |
 | Core model/wire | model `2`, wire `(1, 2)` | Model-1 fingerprints and stale wire/cache artifacts are not silently reinterpreted. |
 | Core encoded view | `pyowl-core/structural-columns` schema `2` | Native direct ingestion requires the frozen schema-2 descriptor digest; otherwise whole-operation scalar fallback or a typed compatibility failure applies. |
 
-Source-checkout CI is pinned to pyOWLCore 0.2.0 commit
-`d39fe9c9bb9513db8c14fe2bc6d4864377901ad1`, tree
-`d29bbcc65684c5a246b5d952a91d8a62e07e1b35`, as recorded in
+Source-checkout CI is pinned to pyOWLCore 0.2.1 commit
+`649e270bc3aa4becbf59bc4b9fb134542161f586`, tree
+`d22703b022e6940d813aeda58ce04b37e415724b`, as recorded in
 `release/core-compatibility.json`. This is reproducibility evidence for the release, not a Git
-dependency: installed metadata intentionally retains `pyowl-core>=0.2,<0.3`. Model schema 2
+dependency: installed metadata intentionally retains `pyowl-core>=0.2.1,<0.3`. Model schema 2
 changes the fixture's structural, logical, and signature fingerprint domains. The projector's
 three canonical edge sequences and digests remain unchanged and are repinned alongside those
 new core fingerprints. The historical direct core successor

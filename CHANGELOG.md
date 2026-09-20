@@ -5,6 +5,20 @@ from packaging or performance changes because profile output is a data contract.
 
 ## Unreleased
 
+## 0.2.1 — 2026-09-20
+
+- Add opt-in `require_native_pipeline` admission for retained native ontology views,
+  with native validation receipts and typed rejection of unsupported execution paths.
+- Build annotation class-membership indexes once per selection and reuse proven
+  single-document ROOT selections without changing the projection profile or edge bytes.
+- Perform strict canonical sorting, deduplication, spilling and merging in bounded
+  native storage, with counters and cleanup checks for the Python result boundary.
+- Preserve typed unavailable-compiler errors and isolate interpreter-lifetime leaks
+  in sanitizer checks while retaining native address checks.
+- Require pyOWLCore `>=0.2.1,<0.3` and bind release checks to its coordinated patch.
+  API, model, wire and encoded schemas remain unchanged. Large-ontology speedups
+  beyond the retained validation corpus are not claimed.
+
 ## 0.2.0 — 2026-08-02
 
 - Require pyOWLCore `>=0.2,<0.3` and fail closed on API `(0, 2)`, model schema

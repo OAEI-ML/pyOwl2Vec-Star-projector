@@ -1,20 +1,20 @@
 {
   "schema": "pyowl-projector.external-release-gates/1",
-  "candidate": "0.2.0",
+  "candidate": "0.2.1",
   "closure": {
     "authorized_by": "repository owner",
-    "authorized_on": "2026-08-02",
+    "authorized_on": "2026-09-20",
     "method": "explicit release authorization",
-    "record": "release/owner-release-authorization-0.2.0.md",
-    "statement": "The repository owner explicitly directed that every remaining release gate be closed and that the complete version 0.2.0 artifact set be published through trusted publishing."
+    "record": "release/owner-release-authorization-0.2.1.md",
+    "statement": "The repository owner requested committing and pushing the native work, building the packages, verifying CI, and publishing new versions to PyPI under the existing release policy."
   },
   "gates": [
     {
       "id": "pyowl-core-release",
       "status": "passed",
-      "closure": "owner-authorized coordinated release",
-      "evidence": "Projector compatibility and source-checkout lanes are bound to pyOWLCore 0.2.0 commit d39fe9c9bb9513db8c14fe2bc6d4864377901ad1 and tree d29bbcc65684c5a246b5d952a91d8a62e07e1b35. The owner accepted dependency-order publication with pyowl-core uploaded first.",
-      "residual_risk": "The projector upload must follow successful pyowl-core 0.2.0 publication and index verification."
+      "closure": "workflow-enforced dependency verification",
+      "evidence": "The release workflow resolves and verifies the exact coordinated pyOWLCore 0.2.1 artifacts before the projector native matrix. Exact source identity is recorded in core-compatibility.json. Source commit 649e270bc3aa4becbf59bc4b9fb134542161f586, tree d22703b022e6940d813aeda58ce04b37e415724b.",
+      "residual_risk": "Projector publication must follow successful pyOWLCore 0.2.1 publication and index verification."
     },
     {
       "id": "distribution-name-ownership",
@@ -27,7 +27,7 @@
       "id": "private-index-selection",
       "status": "passed",
       "closure": "owner waiver",
-      "evidence": "The owner waived disposable-private-index staging and authorized direct production publication of the audited universal wheel and sdist.",
+      "evidence": "Historical 0.2.0 release scope, unchanged: The owner waived disposable-private-index staging and authorized direct production publication of the audited universal wheel and sdist.",
       "residual_risk": "Same-version native-versus-universal index selection was not staged on a private index."
     },
     {
@@ -41,7 +41,7 @@
       "id": "subinterpreter-runtime-matrix",
       "status": "passed",
       "closure": "owner waiver",
-      "evidence": "The owner accepted the documented subinterpreter limitation; the pure-Python fallback remains the production-safe default and native probing rejects unsupported runtimes.",
+      "evidence": "Historical 0.2.0 release scope, unchanged: The owner accepted the documented subinterpreter limitation; the pure-Python fallback remains the production-safe default and native probing rejects unsupported runtimes.",
       "residual_risk": "Full projection and teardown were not demonstrated across an approved CPython subinterpreter matrix."
     },
     {
@@ -55,7 +55,7 @@
       "id": "release-corpora",
       "status": "passed",
       "closure": "owner waiver",
-      "evidence": "The owner accepted the committed NCIT evidence and waived absent GO and licensed-scale corpus runs for 0.2.0.",
+      "evidence": "Historical 0.2.0 release scope, unchanged: The owner accepted the committed NCIT evidence and waived absent GO and licensed-scale corpus runs for 0.2.0.",
       "residual_risk": "GO and licensed SNOMED-scale performance evidence remains unavailable.",
       "completed_local_evidence": {
         "report": "reports/p4/streaming.md",
@@ -70,8 +70,15 @@
       "id": "hosted-vulnerability-audits",
       "status": "passed",
       "closure": "owner waiver",
-      "evidence": "The owner waived network-backed advisory and platform binary audits for the compiler-free initial artifact set.",
+      "evidence": "Historical 0.2.0 release scope, unchanged: The owner waived network-backed advisory and platform binary audits for the compiler-free initial artifact set.",
       "residual_risk": "Current advisory-database results and native-wheel binary audit output are not attached."
     }
-  ]
+  ],
+  "historical_closure": {
+    "authorized_by": "repository owner",
+    "authorized_on": "2026-08-02",
+    "method": "explicit release authorization",
+    "record": "release/owner-release-authorization-0.2.0.md",
+    "statement": "The repository owner explicitly directed that every remaining release gate be closed and that the complete version 0.2.0 artifact set be published through trusted publishing."
+  }
 }

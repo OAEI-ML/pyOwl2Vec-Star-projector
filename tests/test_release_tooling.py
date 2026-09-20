@@ -54,7 +54,7 @@ EXPECTED_PROVENANCE_INPUTS = {
     "pyproject.toml",
     "release/fallback-build-requirements.txt",
     "release/core-compatibility.json",
-    "release/owner-release-authorization-0.2.0.md",
+    "release/owner-release-authorization-0.2.1.md",
     "release/native-build-requirements.txt",
     "setup.py",
     "tools/audit_release.py",
@@ -104,7 +104,7 @@ def _write_minimal_wheel(
             b"Name: pyowl2vec-star-projector\n"
             b"Version: 0.1\n"
             b"Requires-Python: >=3.10\n"
-            b"Requires-Dist: pyowl-core<0.3,>=0.2\n\n"
+            b"Requires-Dist: pyowl-core<0.3,>=0.2.1\n\n"
         ),
         f"{dist_info}/WHEEL": (
             b"Wheel-Version: 1.0\n"
@@ -140,7 +140,7 @@ def test_conditional_build_requirement_never_leaks_to_fallback(
 
 def test_version_and_generated_supply_chain_are_consistent() -> None:
     version = read_toml(ROOT / "pyproject.toml")["project"]["version"]
-    assert version == "0.2.0"
+    assert version == "0.2.1"
     for path, expected in generate(ROOT).items():
         assert path.read_bytes() == expected
     runtime_sbom = json.loads((ROOT / "release/sbom/runtime.cdx.json").read_text(encoding="utf-8"))
@@ -152,7 +152,7 @@ def test_version_and_generated_supply_chain_are_consistent() -> None:
             "properties": [
                 {
                     "name": "pyowl-projector:version-constraint",
-                    "value": ">=0.2,<0.3",
+                    "value": ">=0.2.1,<0.3",
                 }
             ],
             "purl": "pkg:pypi/pyowl-core@0.2.x",
@@ -174,7 +174,7 @@ def test_build_provenance_binds_exact_toolchain_and_inputs() -> None:
     assert provenance["schema"] == "pyowl-projector.build-provenance/1"
     assert provenance["scope"] == "deterministic-build-and-release-recipe"
     assert provenance["distribution"] == "pyowl2vec-star-projector"
-    assert provenance["version"] == "0.2.0"
+    assert provenance["version"] == "0.2.1"
     assert provenance["source_date_epoch"] == {
         "source": "release commit timestamp",
         "command": "git log -1 --pretty=%ct",
@@ -422,16 +422,16 @@ def test_external_release_gates_record_explicit_owner_closure() -> None:
         "private-index-selection",
         "signed-provenance",
     }
-    assert document["candidate"] == "0.2.0"
+    assert document["candidate"] == "0.2.1"
     assert document["closure"] == {
         "authorized_by": "repository owner",
-        "authorized_on": "2026-08-02",
+        "authorized_on": "2026-09-20",
         "method": "explicit release authorization",
-        "record": "release/owner-release-authorization-0.2.0.md",
+        "record": "release/owner-release-authorization-0.2.1.md",
         "statement": (
-            "The repository owner explicitly directed that every remaining release gate be "
-            "closed and that the complete version 0.2.0 artifact set be published through "
-            "trusted publishing."
+            "The repository owner requested committing and pushing the native work, building the "
+            "packages, verifying CI, and publishing new versions to PyPI under the existing "
+            "release policy."
         ),
     }
     assert all(gate["status"] == "passed" for gate in gates)
@@ -439,7 +439,7 @@ def test_external_release_gates_record_explicit_owner_closure() -> None:
         gate["closure"]
         in {
             "owner waiver",
-            "owner-authorized coordinated release",
+            "workflow-enforced dependency verification",
             "trusted-publisher configuration",
             "workflow-enforced matrix",
             "workflow-enforced attestation",
@@ -534,7 +534,7 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert "MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_deployment_target }}" in native
     assert "CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014" in native
     assert "CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014" in native
-    assert native.count("pyowl-core==0.2.0") == 3
+    assert native.count("pyowl-core==0.2.1") == 3
     assert "pip install --no-deps {project}/.deps/pyowl-core" not in native
     assert "python -m pip install --no-deps .deps/pyowl-core" not in native
     for platform in (
@@ -556,8 +556,8 @@ def test_workflows_keep_release_ci_cross_platform_and_tag_complete() -> None:
     assert native.count("core_backend: native") == 3
     assert "          persist-credentials: false\n        with:" not in native
     assert "needs: core-artifact-resolution" in native
-    assert "pyowl-core==0.2.0" in packaging
-    assert "pyowl_core-0.2.0-*.whl" in packaging
+    assert "pyowl-core==0.2.1" in packaging
+    assert "pyowl_core-0.2.1-*.whl" in packaging
     assert "--implementation py --abi none" in packaging
     assert "python -m build .deps/pyowl-core" not in packaging
 
@@ -583,7 +583,7 @@ def test_core_release_identity_agrees_across_workflows_docs_and_gates() -> None:
 
     for relative in (
         "docs/compatibility.md",
-        "release/owner-release-authorization-0.2.0.md",
+        "release/owner-release-authorization-0.2.1.md",
     ):
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert commit in text, f"{relative} does not name the tested pyOWLCore commit"
@@ -886,7 +886,7 @@ def test_release_audit_binds_sdist_filename_and_root() -> None:
         b"Name: pyowl2vec-star-projector\n"
         b"Version: 0.1\n"
         b"Requires-Python: >=3.10\n"
-        b"Requires-Dist: pyowl-core<0.3,>=0.2\n\n"
+        b"Requires-Dist: pyowl-core<0.3,>=0.2.1\n\n"
     )
     members = {
         f"{root}/pkg-info": metadata,
@@ -964,13 +964,13 @@ def test_core_compatibility_transition_pins_model2_and_preserves_edges() -> None
         (ROOT / "release/core-compatibility.json").read_text(encoding="utf-8")
     )
     fixture = compatibility["consumer_fixture"]
-    implementation_commit = "d39fe9c9bb9513db8c14fe2bc6d4864377901ad1"
+    implementation_commit = "649e270bc3aa4becbf59bc4b9fb134542161f586"
     redesign_commit = "402ffb29ea60f57e49d2766d2b6a7f708744685f"
     assert compatibility["tested_source"] == {
         "repository": "https://github.com/OAEI-ML/pyOWLCore",
         "commit": implementation_commit,
-        "tree": "d29bbcc65684c5a246b5d952a91d8a62e07e1b35",
-        "version": "0.2.0",
+        "tree": "d22703b022e6940d813aeda58ce04b37e415724b",
+        "version": "0.2.1",
     }
     assert compatibility["public_contract"] == {
         "api_version": [0, 2],
@@ -990,7 +990,7 @@ def test_core_compatibility_transition_pins_model2_and_preserves_edges() -> None
         "runtime_source_changed": False,
         "changed_paths": [],
         "summary": (
-            "The exact tested pyOWLCore implementation is the production 0.2.0 release source."
+            "The exact tested pyOWLCore implementation is the production 0.2.1 release source."
         ),
     }
     assert compatibility["historical_release_evidence_source"] == {
@@ -1033,7 +1033,7 @@ def test_core_compatibility_transition_pins_model2_and_preserves_edges() -> None
         compatibility["previous_source"]["structural_fingerprint"]
         != (fixture["structural_fingerprint"])
     )
-    assert compatibility["semantic_change"] is True
+    assert compatibility["semantic_change"] is False
     goldens = json.loads(
         (ROOT / "src/pyowl2vec_star_projector/conformance_data/goldens.json").read_text(
             encoding="utf-8"
@@ -1212,7 +1212,7 @@ def test_release_metadata_audit_covers_optional_java_dependencies_by_exact_name(
 Name: pyowl2vec-star-projector
 Version: 0.1.0
 Requires-Python: >=3.10
-Requires-Dist: pyowl-core<0.3,>=0.2
+Requires-Dist: pyowl-core<0.3,>=0.2.1
 Requires-Dist: mOWL; extra == 'reasoning'
 Requires-Dist: robotframework; extra == 'testing'
 
